@@ -473,3 +473,66 @@ describe('SampleGeotechOverlay — extent markers', () => {
     expect(lithoHover.mock.calls[0][0]).toMatchObject({ bodyClickable: false })
   })
 })
+
+// Owner installer #37 dogfeed, GEO-99/201-B1: "right-clicking one of B1's
+// packing bands opens the column menu, never the band menu." The lab-sample hit
+// rect is painted ON TOP of the borehole's packing-band hit rect, so a
+// right-click on a sample capsule was caught by the sample rect (which had no
+// onContextMenu) and bubbled to the section's <svg onContextMenu> catch-all,
+// which opens the COLUMN menu. The rect must instead forward the right-click to
+// the band beneath it.
+describe('SampleGeotechOverlay — a right-click reaches the band beneath, not the column menu (owner #37)', () => {
+  it('SGO14 — a right-click on a sample capsule does NOT bubble to the section (never opens the column menu)', () => {
+    const onSectionContextMenu = vi.fn()
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+    render(
+      <svg onContextMenu={onSectionContextMenu}>
+        <SampleGeotechOverlay
+          boreholePlacedColumns={[makeBoreholePlacedColumn('bh-1', 50)]}
+          boreholeDetails={details}
+          warpedXToScreen={identity}
+          levelToScreen={levelDown}
+          plotTop={PLOT_TOP}
+          plotBottom={PLOT_BOTTOM}
+          bodyClickEnabled
+          onSampleHover={undefined as never}
+        />
+      </svg>,
+    )
+    fireEvent.contextMenu(screen.getByTestId('sample-hit-s-1'))
+    // The section's catch-all — the one that opens the column menu — must never
+    // fire from a right-click that landed on a packing band's sample capsule.
+    expect(onSectionContextMenu).not.toHaveBeenCalled()
+  })
+
+  it('SGO15 — it forwards the right-click to the hit target BENEATH it (the band)', () => {
+    const details = new Map([
+      ['bh-1', makeBoreholeDetail('bh-1', [makeSample('s-1', 'body-1')])],
+    ])
+    renderOverlay([makeBoreholePlacedColumn('bh-1', 50)], details)
+    const hit = screen.getByTestId('sample-hit-s-1')
+
+    // Stand in for the packing band rect that sits beneath the sample capsule.
+    const bandBeneath = document.createElement('div')
+    bandBeneath.setAttribute('data-testid', 'band-beneath')
+    document.body.appendChild(bandBeneath)
+    const bandContextMenu = vi.fn()
+    bandBeneath.addEventListener('contextmenu', bandContextMenu)
+
+    // jsdom has no layout (no ``elementsFromPoint``), so drive the hit-test: the
+    // stack is the sample rect (owned, skipped) then the band beneath.
+    const docWithHitTest = document as unknown as {
+      elementsFromPoint?: (x: number, y: number) => Element[]
+    }
+    const original = docWithHitTest.elementsFromPoint
+    docWithHitTest.elementsFromPoint = vi.fn(() => [hit, bandBeneath])
+
+    fireEvent.contextMenu(hit, { clientX: 40, clientY: 970 })
+
+    expect(bandContextMenu).toHaveBeenCalledTimes(1)
+    docWithHitTest.elementsFromPoint = original
+    bandBeneath.remove()
+  })
+})
