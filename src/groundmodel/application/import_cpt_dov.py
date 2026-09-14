@@ -293,13 +293,33 @@ class ImportCptDov(GroundModelLogger):
         failed = 0
         cpt_ids: list[UUID] = []
 
+        # Ids of test_ids persisted EARLIER in this same batch, so a repeat of the
+        # same test_id is caught even though it is not yet in the DB (see below).
+        persisted_in_batch: dict[str, UUID] = {}
         for i, (name, result) in enumerate(parsed, 1):
-            existing_id = existing.get(result.header.test_id)
+            test_id = result.header.test_id
+            existing_id = existing.get(test_id)
+            # Intra-batch duplicate: the SAME sounding appeared twice in one bbox
+            # response (two WFS features that share a sondeernummer). The Phase-3
+            # dedup query only catches CROSS-import duplicates — a test_id already
+            # in the DB — so without this guard the repeat is persisted as a second
+            # row for one test ("a test imported twice is two tests"). Skip it and
+            # reuse the id of the copy that WAS persisted so cpt_ids never points at
+            # a row that was never written. Only test_id-bearing rows dedup here; a
+            # row with no test_id cannot be matched and is imported as-is.
+            batch_id = persisted_in_batch.get(test_id) if test_id is not None else None
             if existing_id is not None:
                 duplicates += 1
                 cpt_ids.append(existing_id)
                 self.debug(
                     f"DOV import [{i}/{len(parsed)}]: '{name}' already exists ({existing_id})"
+                )
+            elif batch_id is not None:
+                duplicates += 1
+                cpt_ids.append(batch_id)
+                self.debug(
+                    f"DOV import [{i}/{len(parsed)}]: '{name}' duplicated within this "
+                    f"batch — reusing {batch_id}"
                 )
             else:
                 try:
@@ -312,6 +332,8 @@ class ImportCptDov(GroundModelLogger):
                     )
                     imported += 1
                     cpt_ids.append(res.cpt_id)
+                    if test_id is not None:
+                        persisted_in_batch[test_id] = res.cpt_id
                     self.debug(f"DOV import [{i}/{len(parsed)}]: '{name}' → {res.cpt_id}")
                 except Exception as exc:
                     failed += 1
