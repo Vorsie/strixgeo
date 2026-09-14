@@ -679,8 +679,7 @@ def layer_donor_picks(
     correlated: Sequence[BodyLayerPick],
     body_picks: Sequence[BodyLayerPick],
     *,
-    own_soil_code: str | None,
-    soil_by_formation: Mapping[str, str | None],
+    receiver_formation_id: str,
     layer_top_elev_m: float,
     layer_base_elev_m: float,
     flanking_investigations: set[str],
@@ -697,25 +696,40 @@ def layer_donor_picks(
 
     So the LAYER names its donors: the columns its correlations point at, else
     the columns sharing its body.  Three constraints are hard.  A donor must be
-    the SAME SOIL — his litho ties may legitimately cross facies, but a packing
-    class belongs to a soil column, and a silt donor on a sand layer would put
-    a SILT class inside a ZAND unit (Data Integrity Rule 3).  A donor must
-    FLANK the borehole on a section.  And elevation picks the sheet.
+    the SAME LITHO UNIT — the same ``source_litho_formation_id`` (soil AND
+    admixtures), not merely the same soil.  A donor must FLANK the borehole on a
+    section.  And elevation picks the sheet.
+
+    The unit test is stricter than the soil test on purpose (owner ruling
+    2026-09-14, borehole GEO-07/182-B2: *"i redivided B2 but there is still a
+    dense sand, while there is no dense sand in that litho unit on each adjacent
+    test"*).  The resolver welds every admixture variant of one soil into ONE
+    litho body (``resolve_litho_instances.same_mass``), so a clean ``ZAND`` unit
+    and the glauconitic ``ZAND (GL:|KL:)`` unit below it share a body id.  Where
+    the borehole's own clean sand reaches deeper than the flank's clean sand,
+    the flank's glauconitic pick overlaps the receiver's extent MORE, and the
+    old SOIL test admitted it — so the neighbouring unit's DENSE class was lent
+    onto a clean sand every adjacent test read medium dense.  A neighbouring
+    unit's class is never lent, whatever the body welding says: only the SAME
+    litho unit on the flank donates, and where a flank carries no band of that
+    unit at all it contributes nothing (the receiver then falls to the
+    conservative floor of ``apply_column_floor``, §8-0b).  The finer key still
+    floors only from the same soil, because a formation carries exactly one soil.
 
     Parameters
     ----------
     correlated : Sequence[BodyLayerPick]
         Layers this one is tied to by an approved litho correlation.
     body_picks : Sequence[BodyLayerPick]
-        Layers sharing this one's litho body, whatever geological band.
-    own_soil_code : str | None
-        The borehole layer's soil; ``None`` admits nothing, because without it
-        the soil cannot be checked at all.
-    soil_by_formation : Mapping[str, str | None]
-        Soil code per litho formation. Compared by SOIL rather than by
-        formation identity: two columns can carry different formation rows of
-        the same soil, and refusing those would strand a borehole with no
-        donor at all.
+        Layers sharing this one's litho body, whatever geological band — and,
+        because the body welds admixture variants of one soil, whatever
+        litho unit; the ``receiver_formation_id`` gate is what confines them.
+    receiver_formation_id : str
+        The receiver litho unit's ``source_litho_formation_id``, stringified —
+        the group key's litho formation (``_group_segments`` keys each planning
+        group on it).  A donor pick donates only when its own
+        ``formation_id`` equals this, so a clean sand borrows only from clean
+        sand and never from the glauconitic sand welded into the same body.
     layer_top_elev_m, layer_base_elev_m : float
         The borehole layer's extent in elevation, top above base.
     flanking_investigations : set[str]
@@ -744,7 +758,11 @@ def layer_donor_picks(
             # B4's sand borrowed from a tied test 623 m away the night this
             # gate was missing, and the owner chose the floor over it.
             continue
-        if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
+        # SAME litho unit, not merely same soil: a hand tie may cross facies to
+        # declare a shared surface, but the packing LEVEL is lent only from the
+        # receiver's own unit (owner 2026-09-14 — "no dense sand in that litho
+        # unit on each adjacent test").
+        if str(pick.formation_id) != receiver_formation_id:
             continue
         by_investigation[pick.investigation_id].append(pick)
         tied_columns.add(pick.investigation_id)
@@ -755,7 +773,10 @@ def layer_donor_picks(
             continue
         if pick.investigation_id not in flanking_investigations:
             continue
-        if own_soil_code is None or soil_by_formation.get(pick.formation_id) != own_soil_code:
+        # A body welds admixture variants of one soil, so the body pool carries
+        # the glauconitic sand alongside the clean one; the unit gate keeps only
+        # the receiver's own litho unit.
+        if str(pick.formation_id) != receiver_formation_id:
             continue
         by_investigation[pick.investigation_id].append(pick)
 
@@ -2392,13 +2413,14 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     )
                     if anchor_kind.get(correlated_pick.investigation_id) == "cpt"
                 ]
-                # A donor must be the SAME SOIL. The engineer's litho ties may
-                # legitimately cross facies — his own cross-soil correlations do
-                # — but a packing class belongs to a soil column, so a silt
-                # donor on a sand layer would put a SILT class inside a ZAND
-                # unit and break the invariant the whole fill exists to keep
-                # (Data Integrity Rule 3). Body grouping used to enforce this
-                # for free; naming donors by correlation does not.
+                # A donor must be the SAME LITHO UNIT (``receiver_formation_id``,
+                # below), not merely the same soil. A silt donor on a sand layer
+                # would put a SILT class inside a ZAND unit (Data Integrity Rule
+                # 3), and — the owner's B2, 2026-09-14 — the glauconitic ZAND
+                # welded into the same body would lend its DENSE class onto a
+                # clean sand every adjacent test reads medium dense. Body
+                # grouping used to enforce even the soil for free; naming donors
+                # by correlation does not, and the body pool spans both variants.
 
                 layer_top_elev = bh_elev - (geo_top if unit_layer is None else unit_layer[1])
                 layer_base_elev = bh_elev - (geo_base if unit_layer is None else unit_layer[2])
@@ -2416,8 +2438,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 unit_cpt_segs = layer_donor_picks(
                     correlated,
                     cpt_layer_picks_by_body.get(unit_body_id or "", []),
-                    own_soil_code=soil_code,
-                    soil_by_formation=litho_soil_by_formation,
+                    # The receiver's OWN litho unit — the group key's formation.
+                    # The body pool welds the glauconitic variant into one body,
+                    # so only this gate keeps a clean sand from borrowing the
+                    # neighbouring glauconitic unit's class (owner 2026-09-14, B2).
+                    receiver_formation_id=str(source_litho_fid),
                     layer_top_elev_m=layer_top_elev,
                     layer_base_elev_m=layer_base_elev,
                     flanking_investigations=layer_flanks,
