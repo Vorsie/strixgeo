@@ -62,6 +62,74 @@ afterEach(() => {
   delete (window as unknown as { electron?: unknown }).electron
 })
 
+// Owner finding (f), installer #37: "there is no license screen ... can't see
+// it in license under help either" — he could not check the build's beta expiry
+// stamp. Help → Licence must now show, in one block, the licence key's own
+// expiry AND the build's beta expiry stamp WITH the git SHA
+// ("Beta build 60e282c4, expires 1 November 2026").
+describe('LicensingDialog build info (finding f)', () => {
+  /** A stamped beta build's facts, as the app:build-info IPC returns them. */
+  const STAMPED_BUILD = {
+    sha: '60e282c4',
+    shaFull: '60e282c45deadbeef',
+    buildId: '2026.09.01-beta',
+    // Noon UTC so the local date stays 1 November 2026 across timezones.
+    expiresAtMs: Date.UTC(2026, 10, 1, 12, 0, 0),
+    builtAt: '2026-09-01T00:00:00.000Z',
+  }
+
+  function installElectronWithBuild(buildInfo: unknown, status = ACTIVE): void {
+    ;(window as unknown as { electron: unknown }).electron = {
+      launchFlags: { e2e: false, packaged: true },
+      getActivationStatus: vi.fn().mockResolvedValue(status),
+      activateLicence: vi.fn(),
+      startTrial: vi.fn(),
+      deactivateLicence: vi.fn(),
+      previewActivationState: vi.fn().mockResolvedValue(status),
+      getBuildInfo: vi.fn().mockResolvedValue(buildInfo),
+    }
+  }
+
+  it('Help > Licence shows the build expiry date', async () => {
+    installElectronWithBuild(STAMPED_BUILD)
+    render(<LicensingDialog open onClose={() => {}} />)
+    const block = await screen.findByTestId('licensing-build-info')
+    // The build's own expiry — the fact he went looking for and could not find.
+    expect(block.textContent).toMatch(/November 2026/)
+  })
+
+  it('Help > Licence shows the git SHA next to the beta expiry', async () => {
+    installElectronWithBuild(STAMPED_BUILD)
+    render(<LicensingDialog open onClose={() => {}} />)
+    const block = await screen.findByTestId('licensing-build-info')
+    expect(block.textContent).toContain('60e282c4')
+    expect(block.textContent).toContain('Beta build')
+  })
+
+  it('the licence key expiry and the build expiry are shown together in one block', async () => {
+    // ACTIVE carries a licence expiry of 2027-03-01; the build carries its own.
+    installElectronWithBuild(STAMPED_BUILD)
+    render(<LicensingDialog open onClose={() => {}} />)
+    // Both panels are present: the licence status panel AND the build block.
+    await screen.findByTestId('licensing-build-info')
+    expect(screen.getByTestId('licensing-state-pill')).toBeTruthy()
+    expect(screen.getByTestId('licensing-build-info')).toBeTruthy()
+  })
+
+  it('a dev / unstamped build shows the development-build line, not an expiry', async () => {
+    installElectronWithBuild({
+      sha: null,
+      shaFull: null,
+      buildId: null,
+      expiresAtMs: null,
+      builtAt: null,
+    })
+    render(<LicensingDialog open onClose={() => {}} />)
+    const block = await screen.findByTestId('licensing-build-info')
+    expect(block.textContent).toContain('Development build')
+  })
+})
+
 describe('LicensingDialog dev-only surfaces', () => {
   it('shows the "Preview a state" row in a dev build', async () => {
     installElectron({ e2e: false, packaged: false })
