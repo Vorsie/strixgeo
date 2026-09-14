@@ -1137,6 +1137,7 @@ export function useGeologicalModel({
   requestCorrelationEdgesRefetch,
   requestBodyRecompute,
   markMutated,
+  bedStaleNonce = 0,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -1188,6 +1189,15 @@ export function useGeologicalModel({
    * NOT be deleted on discard — the replace-restore reverts it instead.
    */
   markMutated: () => void
+  /**
+   * Monotonic counter bumped by ``App`` after every bed-override change (owner
+   * 2026-09-13). A bed cut stales the built models server-side (the voxel solids
+   * cap at the bed, the geological TIN surfaces clip to the ground+bed line), so
+   * this re-reads the litho + geotech solids and the geological surfaces — the
+   * "rebuild" badge turns amber without a project reopen. Optional / defaults to
+   * 0 so the many geoModel test mocks need not thread it.
+   */
+  bedStaleNonce?: number
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1717,6 +1727,19 @@ export function useGeologicalModel({
         log.warn('geology', `listSurfaces refetch failed`, err)
       })
   }, [project, activeGeologicalModel])
+
+  // A bed change stales the geological TIN surfaces server-side (they clip to
+  // the ground+bed line at rebuild), so re-read them — the "rebuild surfaces"
+  // badge (``staleSurfaceCount``) then reflects it without a project reopen
+  // (owner 2026-09-13). The ref-guard skips the mount value and the re-run a
+  // model switch causes (refetchSurfaces identity changes but the nonce does
+  // not), so only a real bed change fires the fetch.
+  const lastBedStaleNonceRef = useRef(bedStaleNonce)
+  useEffect(() => {
+    if (bedStaleNonce === lastBedStaleNonceRef.current) return
+    lastBedStaleNonceRef.current = bedStaleNonce
+    refetchSurfaces()
+  }, [bedStaleNonce, refetchSurfaces])
 
   // Refetch geological contacts for the active geological model.
   // Needed after a drag-down cross-merge on the geological axis — the BE
@@ -2506,6 +2529,16 @@ export function useGeologicalModel({
   )
 
 
+  // Solid re-fetch keys — a layer GEOMETRY change OR a bed-override change stales
+  // the solids server-side (a bed cut caps the voxel at the bed). Combining both
+  // counters into one refresh key re-reads the solids on either, so the Build
+  // badge turns amber without a project reopen after a bed is drawn (owner
+  // 2026-09-13). A colon-joined string never collides the way a sum would.
+  const lithoSolidsRefreshKey = useMemo(
+    () => `${lithoLayersVersion}:${bedStaleNonce}`,
+    [lithoLayersVersion, bedStaleNonce],
+  )
+
   // Litho body solids — lifted from LithologyCanvas so the toolbar, canvas,
   // and inspector all share one state atom.  The hook is always called here
   // (unconditionally, above any early return) per the hook-order rule.
@@ -2516,10 +2549,11 @@ export function useGeologicalModel({
     // Any litho GEOMETRY change stales these solids server-side — a boundary move
     // from either axis does it. Without a re-read the flag never reaches the Build
     // badge: the owner's DB showed 81 solids go from 0 stale to 81 stale across one
-    // contact drag while the button kept the state it had read at load.
+    // contact drag while the button kept the state it had read at load. A bed
+    // change stales them too (the voxel caps at the bed), folded into the key above.
     //
     // The litho half of the wire the geotech instance below has had since 2026-08-08.
-    lithoLayersVersion,
+    lithoSolidsRefreshKey,
     // A build changes what a save would write, so it dirties the project like any
     // other edit. Without it the close prompt never fires for a build.
     markMutated,
@@ -2563,14 +2597,21 @@ export function useGeologicalModel({
   // share it without a second copy (debt #282).  Called unconditionally here
   // (above any early return) per the hook-order rule — mirrors the litho instance
   // directly above it.
+  // Same combined key on the geotech side — a band edit OR a bed change re-reads
+  // the geotech voxel solids' staleness.
+  const geotechSolidsRefreshKey = useMemo(
+    () => `${geotechLayersVersion}:${bedStaleNonce}`,
+    [geotechLayersVersion, bedStaleNonce],
+  )
   const geotechSolidsResult = useLithoSolids(
     project?.id ?? null,
     activeGeotechModel?.id ?? null,
     toast,
     // Hand band edits stale the geotech solids server-side; every such write
     // bumps geotechLayersVersion, and this re-fetch is what turns the Build
-    // badge amber without waiting for the next build.
-    geotechLayersVersion,
+    // badge amber without waiting for the next build. A bed change stales them
+    // too (the voxel caps at the bed), folded into the key above.
+    geotechSolidsRefreshKey,
     // Dirty the project AND re-read the units-pane roster on every completed
     // build — sync or streaming (debt #282).
     markMutatedAndRereadGeotechRoster,
