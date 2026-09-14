@@ -610,6 +610,36 @@ class GeologyRepository(GroundModelLogger):
             self.debug(f"mark_surfaces_stale: flipped {total} row(s) across {len(unique)} pair(s)")
         return total
 
+    async def mark_all_surfaces_stale(self, model_id: UUID) -> int:
+        """Flip ``is_stale=True`` on EVERY cached TIN surface of a model.
+
+        Used when a change reaches the whole model rather than one formation —
+        a bed override, say, cuts the ground the TINs clip to everywhere, so
+        every surface needs rebuilding. Cheaper and clearer than reading the
+        surfaces to build the ``(model, formation)`` pairs ``mark_surfaces_stale``
+        expects.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model whose surfaces are invalidated.
+
+        Returns
+        -------
+        int
+            Rows flipped. ``0`` when the model has no built TIN yet (a legal
+            no-op — the user has not clicked Build).
+        """
+        result = await self._session.execute(
+            update(FormationSurfaceOrm)
+            .where(FormationSurfaceOrm.model_id == model_id)
+            .values(is_stale=True)
+        )
+        count = result.rowcount or 0
+        if count:
+            self.debug(f"mark_all_surfaces_stale: flipped {count} row(s) for model={model_id}")
+        return count
+
     async def stale_surfaces_for_investigation(
         self,
         *,
