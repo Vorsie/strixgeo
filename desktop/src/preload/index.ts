@@ -277,6 +277,11 @@ contextBridge.exposeInMainWorld('electron', {
   // ever created, so a renderer that ignores this cannot extend a beta.
   getBetaStatus: (): Promise<unknown> => ipcRenderer.invoke('app:beta-status'),
 
+  // Build facts (git SHA + beta expiry) for Help → Licence and the About
+  // dialog. Display only — the beta gate makes the blocking decision in main,
+  // before any window exists (owner finding (f)).
+  getBuildInfo: (): Promise<unknown> => ipcRenderer.invoke('app:build-info'),
+
   // --- Onboarding prototype (#93) -----------------------------------------
   // Help → Getting started…. One-way fire; the renderer owns the overlay's
   // open state and its persisted "seen" flag.
