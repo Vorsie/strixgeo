@@ -63,6 +63,7 @@ import {
   type ApprovedEdgePair,
 } from './fetchApprovedEdgesBySection'
 import { resolveRegionBodyId } from '../../../components/sections/regionBodyId'
+import { bedPolygonsForCrs } from '../../../utils/bedPolygonMembership'
 
 // ---------------------------------------------------------------------------
 // Stable empty surfaces map — always passed to Geology3DViewer on the litho /
@@ -507,8 +508,27 @@ export function useBody3DViewState(options: UseBody3DViewStateOptions): Body3DVi
     for (const l of layers) bodyIdByLayerId.set(l.id, l.body_id ?? null)
     const resolveBody = (layerIds: readonly string[] | undefined): string | null =>
       resolveRegionBodyId(layerIds, bodyIdByLayerId)
-    return buildProjectFence(fenceSectionInputs, frameSectionInputs, packingClassOf, resolveBody)
-  }, [fenceActive, viewMode, fenceSectionInputs, frameSectionInputs, packingClassOf, layers])
+    // Cut the drawn bed level out of the fence walls, like the section view
+    // (owner 2026-09-13). Only overrides in the panels' CRS (the sections' EPSG)
+    // are kept; none → no clip, byte-identical fence.
+    const bedPolygons = bedPolygonsForCrs(bedOverrides?.overrides, visibleSections[0]?.epsg ?? null)
+    return buildProjectFence(
+      fenceSectionInputs,
+      frameSectionInputs,
+      packingClassOf,
+      resolveBody,
+      bedPolygons,
+    )
+  }, [
+    fenceActive,
+    viewMode,
+    fenceSectionInputs,
+    frameSectionInputs,
+    packingClassOf,
+    layers,
+    bedOverrides?.overrides,
+    visibleSections,
+  ])
 
   // The ring, placed at the top of whatever this pane actually renders. Split
   // from the fetch because the elevation moves when the ground surface or the
