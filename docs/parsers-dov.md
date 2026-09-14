@@ -54,7 +54,7 @@ client-side.
 
 **Reusing `ImportCpt.persist()`** — DovParser produces a `GEFParseResult`, the same type GEFParser produces. So all duplicate-detection, ORM mapping, and validation logic is shared. The `commit=False` and `skip_duplicate_check=True` kwargs let the bulk caller batch.
 
-**Deduplication:** DOV CPTs use `project_id="DOV"` + `test_id=<sondeernummer>`, scoped to `app_project_id`. The same CPT can be imported into different projects but never twice into the same one.
+**Deduplication:** DOV CPTs use `project_id="DOV"` + `test_id=<sondeernummer>`, scoped to `app_project_id`. The same CPT can be imported into different projects but never twice into the same one. Two levels catch this: the Phase-3 batch query (`find_existing_test_ids`) skips `test_id`s already in the project (CROSS-import), and the Phase-4 persist loop tracks the `test_id`s persisted so far in THIS batch so the same sounding appearing twice in one bbox response (two WFS features sharing a sondeernummer) is persisted once, not twice — "a test imported twice is one test". A row whose `test_id` is null cannot be matched and is imported as-is. NB two DIFFERENT `test_id`s at the same coordinates are two distinct tests to the dedup (by design — it never merges different sounding numbers); a genuine coincident-location duplicate in the DOV data is removed by the engineer via the Data stage's "Remove from project".
 
 **DOV WFS** — endpoint: `https://www.dov.vlaanderen.be/geoserver/ows`, feature type `dov-pub:Sonderingen` (plural). Properties: `fiche` (URL of the CPT record), `sondeernummer` (test name), `X_mL72` / `Y_mL72` / `Z_mTAW` (Lambert 72 coordinates).
 
