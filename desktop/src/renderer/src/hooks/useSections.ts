@@ -49,11 +49,20 @@ export interface UseSectionsResult {
    * ``'geological'`` — zero regression.  Toggled by the
    * ``SectionsToolbar`` geology↔lithology segmented control.
    *
-   * Session-only: NOT persisted to the .gmproj bundle (reversible UI
-   * state — resets to ``'geological'`` on project close / reopen).
+   * Session-only: NOT persisted to the .gmproj bundle (reversible UI state).
+   *
+   * CLAMPED (installer #36): this is the EFFECTIVE axis — never a litho axis
+   * when no litho model exists, nor a geotech axis when neither a geotech nor
+   * a litho model exists. A stale axis carried into a project that lacks the
+   * model reads as ``'geological'`` here regardless of the raw stored state,
+   * so the section is never rendered on an axis whose model is absent.
    */
   sectionModelAxis: SectionModelAxis
-  /** Toggle the section model axis (geological ↔ lithostratigraphic). */
+  /**
+   * Toggle the section model axis. Refuses a gated axis (litho without a litho
+   * model; geotech without a geotech-or-litho model) — the single choke point
+   * that makes "the litho axis cannot be entered by any path" hold.
+   */
   setSectionModelAxis: (axis: SectionModelAxis) => void
   /**
    * Override the geological model used as the backdrop reference on the litho
@@ -295,6 +304,8 @@ export function useSections({
   setSessionImportSectionIds,
   contacts,
   lithoContacts,
+  hasLithoModel,
+  hasGeotechModel,
   boreholes,
   cpts,
   setSelectedId,
@@ -334,6 +345,20 @@ export function useSections({
    * ``handleFocusContacts`` when the section axis is 'lithostratigraphic'.
    */
   lithoContacts: FormationContactResponse[]
+  /**
+   * Whether a lithostratigraphic model exists for the project (installer #36
+   * fix). Gates the litho axis: without a litho model the litho axis cannot be
+   * entered by any path, and a stale litho axis is clamped back to geological.
+   */
+  hasLithoModel: boolean
+  /**
+   * Whether a geotechnical model exists. The geotech axis is reachable when a
+   * geotech model exists OR a litho model does — the packing pipeline's
+   * "Subdivide CPTs" (which CREATES the geotech model) lives on that axis, so
+   * gating it on the geotech model alone would deadlock every clean-slate run.
+   * Mirrors the SectionsAxisPill gate exactly.
+   */
+  hasGeotechModel: boolean
   boreholes: readonly BoreholeAnchor[]
   cpts: readonly CptAnchor[]
   setSelectedId: (id: string | null) => void
@@ -386,16 +411,42 @@ export function useSections({
   useEffect(() => {
     exitCorrelateMode()
   }, [selectedSectionId, exitCorrelateMode])
-  // Wrap the axis setter to also exit correlate mode — switching axes
-  // leaves the armed source referencing a band that doesn't exist on
-  // the new axis (the geological axis has no litho unit bands).
+  // Wrap the axis setter to (1) refuse an axis whose model does not exist and
+  // (2) exit correlate mode.
+  //
+  // (1) Installer #36 fix — "i got onto litho axes without having a litho
+  // model". This is the SINGLE choke point every axis-switch path funnels
+  // through (pill, export/section deep links, keyboard, tutorial), so refusing
+  // a gated axis here means no path can enter it — the "by any path" rule. The
+  // gates mirror SectionsAxisPill exactly: the litho axis needs a litho model;
+  // the geotech axis needs a geotech model OR the litho model that creates it
+  // (Subdivide CPTs lives on the geotech axis).
+  //
+  // (2) Switching axes leaves the armed correlate source referencing a band
+  // that doesn't exist on the new axis (the geological axis has no litho unit
+  // bands).
   const setSectionModelAxis = useCallback(
     (axis: SectionModelAxis) => {
+      if (axis === 'lithostratigraphic' && !hasLithoModel) return
+      if (axis === 'geotechnical' && !hasGeotechModel && !hasLithoModel) return
       _setSectionModelAxis(axis)
       exitCorrelateMode()
     },
-    [exitCorrelateMode],
+    [hasLithoModel, hasGeotechModel, exitCorrelateMode],
   )
+  // Clamp a now-invalid axis to geological. The setter above stops a gated
+  // axis from being STORED, but the model an already-stored axis targets can
+  // vanish underneath it — a project switch that carries the session-scoped
+  // axis into a project with no litho model, or a model delete. Deriving the
+  // effective axis (rather than trusting the raw state) guarantees a gated axis
+  // is never RENDERED, whatever the raw state holds — the belt to the setter's
+  // braces.
+  const effectiveSectionModelAxis: SectionModelAxis =
+    sectionModelAxis === 'lithostratigraphic' && !hasLithoModel
+      ? 'geological'
+      : sectionModelAxis === 'geotechnical' && !hasGeotechModel && !hasLithoModel
+        ? 'geological'
+        : sectionModelAxis
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
@@ -482,6 +533,22 @@ export function useSections({
     // fire an extra fetch on every unrelated dep change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, project?.id])
+
+  // Reset the model axis to geological on every project transition — the
+  // documented contract for this session-only state ("resets to 'geological'
+  // on project close / reopen"). Nothing did it before, so a stale litho/
+  // geotech axis carried from project A left project B's first section on the
+  // wrong level ("formations weren't appearing on the stratigraphy axis until
+  // i switched axes", installer #36). A fresh project always starts on the
+  // stratigraphy axis, where the geological formations render as soon as the
+  // model data loads. Keyed on project?.id ONLY (not `ready`) so a backend
+  // reconnect mid-session never yanks the engineer off their current axis.
+  useEffect(() => {
+    _setSectionModelAxis('geological')
+    // reason: _setSectionModelAxis is a stable useState setter; the reset must
+    // fire on a project-identity change alone, so project?.id is the only dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id])
 
   // Manifest gate: only ids present in the .gmproj bundle are visible.
   // Sections created in a previous session and never saved vanish on
@@ -772,7 +839,7 @@ export function useSections({
       // override also sidesteps the stale-axis closure the deep-link would
       // otherwise capture (the axis it states is passed by value, not read from
       // this callback's captured ``sectionModelAxis``).
-      const effectiveAxis = axisOverride ?? sectionModelAxis
+      const effectiveAxis = axisOverride ?? effectiveSectionModelAxis
       const activeContacts =
         effectiveAxis === 'lithostratigraphic' ? lithoContacts : contacts
       const offending = activeContacts.filter(c => contactIds.includes(c.id))
@@ -835,7 +902,7 @@ export function useSections({
         focusedContactsTimeoutRef.current = null
       }, 2500)
     },
-    [contacts, lithoContacts, sectionModelAxis, boreholes, cpts, sections, selectedSectionId, setSelectedId, setSelectedBoreholeId],
+    [contacts, lithoContacts, effectiveSectionModelAxis, boreholes, cpts, sections, selectedSectionId, setSelectedId, setSelectedBoreholeId],
   )
 
   const clearSectionSelection = useCallback(() => {
@@ -961,7 +1028,8 @@ export function useSections({
     focusedContactIds,
     visibleSections,
     effectiveHorizontalEpsg,
-    sectionModelAxis,
+    // The clamped axis — never a litho/geotech axis whose model is absent.
+    sectionModelAxis: effectiveSectionModelAxis,
     setSectionModelAxis,
     backdropModelIdOverride,
     setBackdropModelIdOverride,
