@@ -257,7 +257,11 @@ export function useExportHub(): ExportHubResult {
           return
         }
         if (partition === null) {
-          toast('error', t('sections.export.nothingDrawn', { level: axisLevelLabel(axis) }))
+          // A refusal, not a failure: nothing went wrong, the section simply has
+          // nothing drawn on this level yet. A warning toast clears on its own
+          // (the walker counts sticky error toasts as findings, and so would a
+          // user).
+          toast('warning', t('sections.export.nothingDrawn', { level: axisLevelLabel(axis) }))
           return
         }
         await downloadSectionExport({
