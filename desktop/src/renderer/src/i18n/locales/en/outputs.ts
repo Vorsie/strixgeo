@@ -295,7 +295,7 @@ export const OUTPUTS = {
   'export.exportPlaxis2d': 'Export Plaxis 2D',
   'export.exportPlaxis3d': 'Export Plaxis 3D',
   'export.fenceNothingToExport':
-    'Nothing to export — switch the 3-D view to Fence and make sure the fence has walls.',
+    'Nothing to export: switch the 3-D view to Fence and make sure the fence has walls.',
   'export.fenceExported': 'Fence diagram exported — {count} panels.',
   'export.fenceIncompleteOne':
     '{n} cross-section could not load its correlations — the fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
