@@ -151,9 +151,13 @@ surface, the section DEM line (which shows the bed where the section crosses the
 polygon), and the surface clip described next. The lithological and
 geotechnical models follow it too: inside a bed polygon the section fill and the
 3-D litho model stop at the bed level, so nothing lithological is drawn or built
-above the dredged bed (outside the polygon nothing changes). A surveyed test
-collar still wins over the bed at the test's own location, the same
-elevation-trust rule as above.
+above the dredged bed (outside the polygon nothing changes). The 3-D fence walls
+and the fence DXF export are cut at the bed at once as well, but the built 3-D
+models (litho and geotech solids) and the stratigraphy surfaces cache the ground
+they were built on, so after you draw, edit, or delete a bed StrixGeo marks them
+for rebuild and a toast reminds you to Build again to cut them at it (the section
+and fence views are already cut). A surveyed test collar still wins over the bed
+at the test's own location, the same elevation-trust rule as above.
 
 When a formation surface meets the ground: the crossing-line clip
 -----------------------------------------------------------------
