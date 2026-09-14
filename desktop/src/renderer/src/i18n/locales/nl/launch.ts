@@ -81,6 +81,10 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'licensing.toastActivated': 'Licentie geactiveerd.',
   'licensing.toastTrialStarted': 'Gratis proefperiode gestart.',
   'licensing.toastDeactivated': 'Dit toestel is gedeactiveerd.',
+  // Buildgegevens (bevinding f): de vervaldatum van de beta + de git-SHA.
+  'licensing.buildHeading': 'Deze build',
+  'licensing.betaBuild': 'Betaversie {sha}, verloopt {date}',
+  'licensing.buildUnstamped': 'Ontwikkelbuild (geen vervaldatum)',
 
   // updater -----------------------------------------------------------------
   'updater.checking': 'Controleren op updates…',
@@ -93,7 +97,13 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'updater.downloadedBody': 'Versie {version} wordt toegepast wanneer je herstart.',
   'updater.restart': 'Herstarten & installeren',
   'updater.upToDate': 'Je gebruikt al de nieuwste versie.',
+  // Nog geen release gepubliceerd (bevinding g): rustig, geen fout.
+  'updater.noReleaseYet': 'Nog geen update beschikbaar.',
   'updater.disabled': 'Updates zijn uitgeschakeld tijdens ontwikkeling.',
   'updater.error': 'Controle op updates mislukt.',
+  // Een echte fout benoemt de oorzaak (bevinding g).
+  'updater.errorOffline': 'Controle op updates mislukt: je lijkt offline te zijn.',
+  'updater.errorBlocked': 'Controle op updates mislukt: de verbinding werd geblokkeerd (proxy of firewall).',
+  'updater.errorUnexpected': 'Controle op updates onverwacht mislukt.',
   'updater.dismiss': 'Sluiten',
 }
