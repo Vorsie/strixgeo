@@ -276,7 +276,7 @@ export const SECTIONS_NL = {
     'model als een D-Sheet Piling .shi grondprofiel doorheen het profiel (enkel geometrie)',
   'sections.export.dseriesRowTitle': 'Exporteer het {level} {describes} van dit profiel',
   'sections.export.nothingDrawn':
-    'Niets om te exporteren — dit profiel heeft geen getekende {level} geometrie tussen twee kolommen.',
+    'Niets om te exporteren: dit profiel heeft geen getekende {level} geometrie tussen twee kolommen.',
   'sections.export.readFailed': 'Kon dit profiel niet lezen — er is niets geëxporteerd.',
 
   // ---------------------------------------------------------------------------
