@@ -75,6 +75,11 @@ function makeContact(id: string): FormationContactResponse {
 function makeArgs(overrides: {
   contacts?: FormationContactResponse[]
   lithoContacts?: FormationContactResponse[]
+  // Model-presence gates (installer #36 fix). Default true so the existing
+  // axis-routing tests, which switch to the litho axis, keep working; the
+  // gate tests below flip them to false.
+  hasLithoModel?: boolean
+  hasGeotechModel?: boolean
 } = {}) {
   const toast = vi.fn()
   const pushUndo = vi.fn()
@@ -96,6 +101,8 @@ function makeArgs(overrides: {
       setSessionImportSectionIds,
       contacts: overrides.contacts ?? [],
       lithoContacts: overrides.lithoContacts ?? [],
+      hasLithoModel: overrides.hasLithoModel ?? true,
+      hasGeotechModel: overrides.hasGeotechModel ?? true,
       boreholes: [],
       cpts: [],
       setSelectedId,
@@ -213,6 +220,103 @@ describe('useSections axis routing (slice 2, #55)', () => {
 // resolves regardless of which axis the section is currently showing. This is
 // the DELIBERATE exception to the A2/A3 axis-gate, not a removal of it.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Installer #36 finding: "i got onto litho axes without having a litho model".
+//
+// The axis pill already disables the Litho / Geotech segments when the model
+// is absent, but the axis STATE is set through other paths too (export/section
+// deep links, keyboard, a stale axis carried from a previous project). The
+// RULE (owner): without a lithological model the litho axis cannot be entered
+// by ANY path; the geotech axis likewise needs a model (its own, or the litho
+// model that creates it — the packing pipeline's Subdivide CPTs lives there).
+//
+// setSectionModelAxis is the single choke point every path funnels through, and
+// the returned sectionModelAxis is clamped so a stale/invalid axis is never
+// rendered even if the state somehow holds it.
+// ---------------------------------------------------------------------------
+
+describe('useSections axis model gate (installer #36)', () => {
+  it('G1 — without a lithological model the litho axis cannot be entered', () => {
+    const { args } = makeArgs({ hasLithoModel: false })
+    const { result } = renderHook(() => useSections(args))
+
+    expect(result.current.sectionModelAxis).toBe('geological')
+    act(() => {
+      result.current.setSectionModelAxis('lithostratigraphic')
+    })
+    // The switch is refused — no litho model, so the axis stays geological.
+    expect(result.current.sectionModelAxis).toBe('geological')
+  })
+
+  it('G2 — a stale litho axis is clamped to geological when the project has no litho model', () => {
+    // Start with a litho model present and enter the litho axis.
+    const { result, rerender } = renderHook(
+      ({ hasLithoModel }: { hasLithoModel: boolean }) =>
+        useSections(makeArgs({ hasLithoModel }).args),
+      { initialProps: { hasLithoModel: true } },
+    )
+    act(() => {
+      result.current.setSectionModelAxis('lithostratigraphic')
+    })
+    expect(result.current.sectionModelAxis).toBe('lithostratigraphic')
+
+    // The litho model disappears (project switch / model delete): the axis
+    // must clamp to geological rather than render a litho axis with no model.
+    rerender({ hasLithoModel: false })
+    expect(result.current.sectionModelAxis).toBe('geological')
+  })
+
+  it('G3 — the geotech axis needs a geotech-or-litho model', () => {
+    const { result } = renderHook(() => useSections(makeArgs({
+      hasLithoModel: false,
+      hasGeotechModel: false,
+    }).args))
+
+    act(() => {
+      result.current.setSectionModelAxis('geotechnical')
+    })
+    // Neither model exists → the geotech axis is refused.
+    expect(result.current.sectionModelAxis).toBe('geological')
+  })
+
+  it('G4 — the geotech axis IS reachable when only the litho model exists (Subdivide CPTs lives there)', () => {
+    const { result } = renderHook(() => useSections(makeArgs({
+      hasLithoModel: true,
+      hasGeotechModel: false,
+    }).args))
+
+    act(() => {
+      result.current.setSectionModelAxis('geotechnical')
+    })
+    expect(result.current.sectionModelAxis).toBe('geotechnical')
+  })
+
+  it('G5 — opening another project resets the axis to geological (no stale axis carried across)', () => {
+    // Both projects have a litho model, so the clamp alone would NOT reset a
+    // stale litho axis — the reset-on-project-change is what does it. This is
+    // the documented contract and the fix for "formations weren't appearing on
+    // the stratigraphy axis until i switched axes" when a section is opened in a
+    // newly-switched project while the axis was stale on litho.
+    const projectA = { id: 'proj-A', name: 'A', default_horizontal_epsg: 31370 }
+    const projectB = { id: 'proj-B', name: 'B', default_horizontal_epsg: 31370 }
+    const { result, rerender } = renderHook(
+      ({ project }: { project: typeof projectA }) =>
+        useSections({ ...makeArgs({ hasLithoModel: true }).args, project }),
+      { initialProps: { project: projectA } },
+    )
+
+    act(() => {
+      result.current.setSectionModelAxis('lithostratigraphic')
+    })
+    expect(result.current.sectionModelAxis).toBe('lithostratigraphic')
+
+    // Switch to a different project — the axis must return to geological so the
+    // first section opens on the stratigraphy axis.
+    rerender({ project: projectB })
+    expect(result.current.sectionModelAxis).toBe('geological')
+  })
+})
 
 describe('useSections handleFocusContacts axis override (#156)', () => {
   it('DL1 — resolves a geological contact via an explicit geological override while the litho axis is active (no "couldn\'t find" toast)', () => {
