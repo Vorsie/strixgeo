@@ -630,9 +630,18 @@ export default function App() {
   // dedupe, rebuild, Plaxis export, borehole toggle). The cluster is
   // large enough to own its own hook; useGeologicalModel.ts has the
   // full implementation with commentary.
+  // Bumped after every bed-override change so the built models' staleness (the
+  // voxel solids + TIN surfaces the bed cuts) is re-read without a project
+  // reopen (owner 2026-09-13). Declared upstream of useGeologicalModel so the
+  // model hook can key its solid / surface re-reads on it; the stable bumper is
+  // handed to useBedOverrides below (which sits after the horizontal CRS resolves).
+  const [bedStaleNonce, setBedStaleNonce] = useState(0)
+  const bumpBedStale = useCallback(() => setBedStaleNonce((n) => n + 1), [])
+
   const geo = useGeologicalModel({
     project,
     toast,
+    bedStaleNonce,
     pushUndo,
     clearUndo,
     addToManifest,
@@ -1244,7 +1253,12 @@ export default function App() {
   // Manual bed-level overrides (owner ruling 2026-09-06) — the "Bed level"
   // draw tool + list. Declared above the early-return ladder so the hook count
   // stays stable. Uses the section CRS resolver (project's horizontal EPSG).
-  const bedOverrides = useBedOverrides({ project, epsg: effectiveHorizontalEpsg, toast })
+  const bedOverrides = useBedOverrides({
+    project,
+    epsg: effectiveHorizontalEpsg,
+    toast,
+    onBedChanged: bumpBedStale,
+  })
 
   // Resolve the currently-selected section from id + list. Lives here
   // (above the early-return ladder) so the hook count stays stable
