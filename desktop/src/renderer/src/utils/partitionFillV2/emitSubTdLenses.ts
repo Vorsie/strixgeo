@@ -275,6 +275,20 @@ function emitSideSubTd(
   // line — not per-unit symmetric-diamond lenses (which gap under the rising onlap) nor a flat flood.
   // The wedge is the CLEAN single-untied-unit case (the TS4 clay); a multi-unit / interspersed config
   // falls back to the ordinary sub-TD lens per unit (the shared-apex wedge is not general to it).
+  // The corr-0 sub-TD termination (owner 2026-08-21 "a column that read nothing is not a boundary"):
+  // measure against the first reading column in the blind direction (``terminationRun``); a run that
+  // meets none runs FLAT to the section edge (``emitContinuation``), otherwise the ordinary lens
+  // (``emitCorr0Termination`` in its sub-TD flood context). Shared by the entirely-below loop, the R3/R4
+  // wedge fallback, AND the straddle-sliver branch below (extracted on the second copy per CLAUDE.md).
+  const emitCorr0SubTd = (pu: UnitGeom, hostUnitIndex: number, eff: EffectiveCorr): void => {
+    const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev)
+    if (!run.reads && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) return
+    emitCorr0Termination(
+      pu, hostUnitIndex, eff, col, run.reads ? run.column : facing, side, colX,
+      run.reads ? run.column.x : facingX, gapIndex, Infinity,
+      activeTies, lensLabels, nextId, nextFloodId, out, true,
+    )
+  }
   const wedgeUnits: { pu: UnitGeom; hostUnitIndex: number; eff: EffectiveCorr }[] = []
   for (let ui = 0; ui < units.length; ui++) {
     const hostEff = corr[ui]
@@ -288,7 +302,41 @@ function emitSideSubTd(
     const isSplit = pieces.length > 1
     for (const piece of pieces) {
       const pu = piece.unit
-      if (pu.topElev > facingTD - ELEV_EPS) continue // not sub-TD on this side
+      // A deep unit that STRADDLES the facing TD (its top above it, its base below it) and is TIED to
+      // the facing column across the gap (``piece.eff.topTied`` — a band/onlap partner over there) has
+      // a sub-TD SLIVER that neither the above-TD fill nor the entirely-below skip owns: the above-TD
+      // portion is banded/onlapped but capped FLAT at the shallow TD, and [facingTD .. base] is left
+      // empty (owner installer #37 — the "small black rectangle" left of the deep sand's top boundary,
+      // a hole the litho outline framed on the geotech axis). A tie is the model's statement that this
+      // deep unit CONTINUES to the facing column (2/1/0), so it reaches under the shallow column's TD
+      // to meet its base; an UNTIED lone straddler stays a pinch/lens by 2/1/0 and is NOT filled here
+      // (that also skips the near-coincident-column artifact — CS1 gap21, a 0.04 m untied straddler at
+      // two tests 0.2 m apart). The base must be untied on this side (a base tie is owned by
+      // ``emitBottomTieSubstrate`` / a bridge — ``!piece.eff.baseTied`` guards the double-fill). And it
+      // fills ONLY a GENUINE hole: ``terminationRun`` looks past the shallow facing column, and when a
+      // DEEP column beyond it READS the strip's levels (CS1 gap14/15: a jump-tie substrate carries a
+      // ZAND band across the shallow col15 into the strip), the deep-to-deep substrate already owns the
+      // sub-TD zone → skip, or the fill would re-partition an already-covered strip (the golden CS1
+      // cascade). Only where nothing beyond reads it — the facing is the section edge or all beyond are
+      // shallow (CS2 gap0: B1 is the leftmost column, nothing left of it) — is the strip a real hole.
+      // The fill is GAP-LOCAL (a flat band from the near column to the FACING column at
+      // [facingTD .. base]), NOT the cross-section continuation: a near column only MARGINALLY deeper
+      // than its facing (TS4 gap0: 1411-B8A 0.04 m below GEO-20/034-S5's TD) must not paint a
+      // section-wide sliver across the next gap's bottom-tie wedge. NOT the R3/R4 bottom-tie config
+      // (``facingTdTied``): a deep unit tied to the facing TD there also looks like a straddler, but
+      // its onlap + ``emitBottomTieWedge`` already fill that wedge — clipping it here would tear it.
+      if (
+        !facingTdTied &&
+        pu.topElev > facingTD - ELEV_EPS &&
+        pu.baseElev < facingTD - ELEV_EPS &&
+        piece.eff.topTied &&
+        !piece.eff.baseTied &&
+        !terminationRun(columns, colIndex, side === 'left' ? 1 : -1, facingTD, pu.baseElev).reads
+      ) {
+        emitContinuation({ ...pu, topElev: facingTD }, colX, facingX, lensLabels, nextId, out)
+        continue
+      }
+      if (pu.topElev > facingTD - ELEV_EPS) continue // entirely above the facing TD — nothing sub-TD
       const eff = piece.eff
       // A SPLIT host's raw pieces are not in the (merged) plan; the plan applies only to an unsplit host.
       const plan = isSplit ? undefined : planAt.get(`${gapIndex}|${side}|${ui}`)
@@ -309,13 +357,7 @@ function emitSideSubTd(
           wedgeUnits.push({ pu, hostUnitIndex: piece.hostUnitIndex, eff })
           continue
         }
-        const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev)
-        if (!run.reads && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) continue
-        emitCorr0Termination(
-          pu, piece.hostUnitIndex, eff, col, run.reads ? run.column : facing, side, colX,
-          run.reads ? run.column.x : facingX, gapIndex, Infinity,
-          activeTies, lensLabels, nextId, nextFloodId, out, true,
-        )
+        emitCorr0SubTd(pu, piece.hostUnitIndex, eff)
         continue
       }
       // A sub-TD corr-1 side (F5, ruling 8p): the pre-plan pass DROPPED this (corr !== 0) → the unit
@@ -339,14 +381,6 @@ function emitSideSubTd(
   if (wedgeUnits.length === 1) {
     emitBottomTieWedge([wedgeUnits[0].pu], colX, facingX, facingTD, lensLabels, nextId, out)
   } else {
-    for (const w of wedgeUnits) {
-      const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, w.pu.topElev, w.pu.baseElev)
-      if (!run.reads && emitContinuation(w.pu, colX, run.column.x, lensLabels, nextId, out)) continue
-      emitCorr0Termination(
-        w.pu, w.hostUnitIndex, w.eff, col, run.reads ? run.column : facing, side, colX,
-        run.reads ? run.column.x : facingX, gapIndex, Infinity,
-        activeTies, lensLabels, nextId, nextFloodId, out, true,
-      )
-    }
+    for (const w of wedgeUnits) emitCorr0SubTd(w.pu, w.hostUnitIndex, w.eff)
   }
 }
