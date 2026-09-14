@@ -29,8 +29,8 @@ export const BED_OVERRIDE_NL = {
   'bedOverride.cancel': 'Annuleren',
 
   // Meldingen.
-  'bedOverride.created': 'Bodempeil toegevoegd',
-  'bedOverride.updated': 'Bodempeil bijgewerkt',
+  'bedOverride.savedRebuild':
+    'Bodempeil opgeslagen. Bouw de modellen opnieuw om ze erop af te snijden; de profielweergave is meteen afgesneden.',
   'bedOverride.deleted': 'Bodempeil verwijderd',
   'bedOverride.saveFailed': 'Kon het bodempeil niet opslaan',
 
