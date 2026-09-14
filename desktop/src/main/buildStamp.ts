@@ -169,6 +169,67 @@ export function compiledBuildProvenance(): BuildProvenance | undefined {
 }
 
 /**
+ * Renderer-safe build facts for Help → Licence and the About dialog.
+ *
+ * Owner finding (f), installer #37: the licence dialog must show the build's own
+ * beta expiry stamp WITH the git SHA ("Beta build 60e282c4, expires 1 November
+ * 2026"), alongside the licence key's expiry, so a tester can verify which build
+ * they hold. This is the shape the ``app:build-info`` IPC hands the renderer —
+ * strings / numbers / null, never a richer object.
+ */
+export interface BuildDisplayInfo {
+  /** Short git SHA (first 8 hex chars), or ``null`` in an unstamped dev build. */
+  sha: string | null
+  /** Full git SHA, or ``null``. */
+  shaFull: string | null
+  /** Beta build identifier (e.g. ``2026.08.26-beta``), or ``null``. */
+  buildId: string | null
+  /** Beta expiry instant, epoch ms; ``null`` when the build carries no stamp. */
+  expiresAtMs: number | null
+  /** Build timestamp, ISO-8601; ``null`` when unstamped. */
+  builtAt: string | null
+}
+
+/** How many leading hex chars of the SHA the UI shows (matches "60e282c4"). */
+const SHORT_SHA_LENGTH = 8
+
+/**
+ * Assemble the renderer-safe build facts from provenance + the parsed stamp.
+ *
+ * Pure: it reads nothing itself — the caller passes the SAME two sources the
+ * main process already resolves (``compiledBuildProvenance()`` for the SHA,
+ * ``readBuildStamp(...)`` for the beta expiry), so vitest covers it without any
+ * electron-vite injection.
+ *
+ * Parameters
+ * ----------
+ * input.provenance : BuildProvenance | undefined
+ *     Compiled-in git SHA + build time; ``undefined`` in a dev build.
+ * input.stamp : BetaBuildStamp | null
+ *     The parsed beta expiry stamp; ``null`` for a build that never expires.
+ *
+ * Returns
+ * -------
+ * BuildDisplayInfo
+ *     The SHA (short + full), build id, expiry instant and build time — each
+ *     ``null`` where its source is absent.
+ */
+export function buildDisplayInfo(input: {
+  provenance: BuildProvenance | undefined
+  stamp: BetaBuildStamp | null
+}): BuildDisplayInfo {
+  const shaFull = typeof input.provenance?.sha === 'string' ? input.provenance.sha : null
+  return {
+    sha: shaFull ? shaFull.slice(0, SHORT_SHA_LENGTH) : null,
+    shaFull,
+    buildId: input.stamp?.buildId ?? null,
+    expiresAtMs: input.stamp?.expiresAtMs ?? null,
+    builtAt:
+      typeof input.provenance?.builtAt === 'string' ? input.provenance.builtAt : null,
+  }
+}
+
+/**
  * Resolve this build's expiry stamp from the highest-precedence source.
  *
  * Parameters
