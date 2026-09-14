@@ -125,6 +125,8 @@ function makeArgs(overrides: {
     setSessionImportSectionIds,
     contacts: [] as Parameters<typeof import('./useSections').useSections>[0]['contacts'],
     lithoContacts: [] as Parameters<typeof import('./useSections').useSections>[0]['lithoContacts'],
+    hasLithoModel: true,
+    hasGeotechModel: true,
     boreholes: [] as Parameters<typeof import('./useSections').useSections>[0]['boreholes'],
     cpts: [] as Parameters<typeof import('./useSections').useSections>[0]['cpts'],
     setSelectedId,
