@@ -282,6 +282,15 @@ never lends across families and is untouched. Pinned by
 `test_geotech_lent_class_variant.py` (LV1â€“LV5); the effect is a DB
 re-materialisation, so it appears on the next Divide-boreholes press.
 
+Since the donor pool is now confined to the receiver's own litho UNIT (Â§8-0, the
+2026-09-14 unit gate), a clean-sand borehole's donors are clean-unit CPT bands
+whose stored class is already in the clean column, so `remap_class_to_variant`
+is a no-op on the donor path â€” it survives to keep the variant-aware TABLE FLOOR
+(`loosest_class_for(soil, admixtures, variant)`, Â§8-0b) landing in the receiver's
+column when neither flank carries the unit. The LV3/LV4 behaviour is unchanged
+because those pins drive the section-geometry path with hand-built `cpt_segs`,
+which the unit gate does not touch.
+
 ## 3. Connecting geotech units (built 2026-06-25, develop UNPUSHED)
 
 All four phases shipped (~31 commits, subagent-driven, two-stage-reviewed):
@@ -1320,11 +1329,32 @@ own donors (``layer_donor_picks``):
    grouping the engine derived (his ruling of 2026-08-11, *"the user's ties
    will define this"*).
 2. Failing that, the columns sharing its **body**, whatever geological band.
-3. Under two hard constraints: **same soil** (his litho ties may legitimately
-   cross facies, but a packing class belongs to a soil column â€” a silt donor on
-   a sand layer put NAD 15 inside a ZAND unit during the restructure, caught by
-   its own diff), and **within ``MAX_DONOR_MAP_DISTANCE_M``**.
+3. Under two hard constraints: the **same litho UNIT** â€” the same
+   ``source_litho_formation_id`` (soil AND admixtures), the receiver group's
+   own formation, not merely the same soil â€” and **within
+   ``MAX_DONOR_MAP_DISTANCE_M``**.
 4. One layer per column, chosen by elevation overlap.
+
+The unit gate is finer than a soil gate on purpose (owner ruling 2026-09-14,
+borehole GEO-07/182-B2: *"i redivided B2 but there is still a dense sand, while
+there is no dense sand in that litho unit on each adjacent test"*). The resolver
+welds every admixture variant of one soil into ONE litho body
+(``resolve_litho_instances.same_mass``), so a clean ``ZAND`` unit and the
+glauconitic ``ZAND (GL:|KL:)`` below it share a body id â€” and the donor pool is
+read per BODY (``cpt_layer_picks_by_body``). Where the borehole's own clean sand
+reaches deeper than the flank's clean sand, the flank's glauconitic pick
+overlaps the receiver's extent MORE, so the old **same-soil** gate let
+``flank_pick_for_unit`` pick it and lend its DENSE class onto a clean sand every
+adjacent test read medium dense. ``layer_donor_picks`` now keeps only picks
+whose own ``formation_id`` equals the receiver's, so **a neighbouring unit's
+class is never lent, whatever the body welding says**: only the same litho unit
+on the flank donates; a flank carrying no band of that unit contributes nothing;
+when neither flank does, the receiver falls to the conservative floor of
+Â§8-0b (the loosest class the column measured for that unit, or the variant-aware
+table floor). The finer key still floors only from the same soil, because a
+formation carries exactly one soil. Since the group key already scopes each
+planning group to one litho unit (Â§_group_segments), the CPT press was never
+affected; the fix is on the borehole donor pool alone.
 
 The packing is then derived **once across the whole layer**, and the
 geological contacts **cut** that answer (``clip_bands_to_slice``).  A cut is a
