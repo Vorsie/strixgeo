@@ -41,6 +41,7 @@ import type { JoinNotice } from "../../../components/sections/joinPick";
 import LithoGeoSnapDialog from "../../../components/LithoGeoSnapDialog";
 import FlaggedTiesPromptDialog from "../../../components/sections/FlaggedTiesPromptDialog";
 import MoveRestatedContactDialog from "../../../components/MoveRestatedContactDialog";
+import { bedPolygonsForCrs } from "../../../utils/bedPolygonMembership";
 import { findGeoSnapCandidates } from "../../../utils/lithoGeoSnap";
 import { lithoBaseLabel } from "../../../utils/lithoLabels";
 import { readLithoSegmenterPrefs } from "../../../utils/lithoSegmenterPrefs";
@@ -353,12 +354,7 @@ export default function SectionsCanvas(): JSX.Element {
   // CRSs. Empty when there is no section or no matching override, so the fill
   // renders byte-identically.
   const bedOverridePolygons = useMemo(
-    () =>
-      selectedSection === null
-        ? []
-        : (bedOverrides?.overrides ?? [])
-            .filter((o) => o.epsg === selectedSection.epsg)
-            .map((o) => ({ level_m: o.level_m, vertices: o.vertices })),
+    () => bedPolygonsForCrs(bedOverrides?.overrides, selectedSection?.epsg ?? null),
     [selectedSection, bedOverrides?.overrides],
   );
 
