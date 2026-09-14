@@ -109,13 +109,16 @@ case does not guess one for them: every borehole column leaves here with
 ``nad_class=None``.  ``DivideBoreholes`` classifies them afterwards, so the
 bands reflect the ties accepted since the last press.
 
-The rule it applies is SAME-SOIL throughout — donors are filtered by
-``litho_main_soil_code`` (``layer_donor_picks``), the conservative floors are
-derived from the unit's own soil (``loosest_class_for``), and a class from
-another soil family never reaches a band.  There is no "nearest CPT of any
-lithology" fallback: a silt's firmness is not evidence about a sand, so where
-no same-soil column speaks the answer is the soil's own floor, not a
-neighbour's class.
+The rule it applies is SAME-UNIT throughout — donors are filtered by the
+receiver's ``source_litho_formation_id`` (``layer_donor_picks``, owner
+2026-09-14), which is finer than soil: a clean sand borrows only from clean
+sand, never from the glauconitic sand welded into the same body.  The
+conservative floors are derived from the unit's own soil + admixtures
+(``loosest_class_for``), and a class from another unit never reaches a band.
+There is no "nearest CPT of any lithology" fallback: a silt's firmness is not
+evidence about a sand, nor a glauconitic sand's about a clean one, so where no
+same-unit column speaks the answer is the unit's own floor, not a neighbour's
+class.
 
 Edge derivation — LCS packing match
 -------------------------------------
