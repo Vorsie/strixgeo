@@ -21,7 +21,13 @@ import {
 } from './strixCodec'
 import { evaluateBetaExpiry, type BetaVerdict } from './betaExpiry'
 import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
-import { compiledBuildProvenance, compiledBuildStamp, readBuildStamp } from './buildStamp'
+import {
+  buildDisplayInfo,
+  compiledBuildProvenance,
+  compiledBuildStamp,
+  readBuildStamp,
+  type BuildDisplayInfo,
+} from './buildStamp'
 import { buildCrashBundle } from './crashBundle'
 import { readTransmissionConsent } from './diagnosticsConsent'
 import {
@@ -1236,11 +1242,20 @@ function buildMenu(win: BrowserWindow): void {
           const buildLine = provenance?.sha
             ? `\nBuild ${provenance.sha.slice(0, 12)}${provenance.builtAt ? ` · ${provenance.builtAt}` : ''}`
             : ''
+          // Owner finding (f): the About line carries the beta expiry too, so a
+          // tester can read which build they hold and when it stops. Native
+          // dialog = English only; the renderer LicensingDialog follows the app
+          // language. Long date form ("1 November 2026") via en-GB.
+          const info = currentBuildInfo()
+          const betaLine =
+            info.expiresAtMs !== null
+              ? `\nBeta build ${info.sha ?? '—'}, expires ${new Date(info.expiresAtMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+              : ''
           dialog.showMessageBox(win, {
             type: 'info',
             title: 'StrixGeo',
             message: 'StrixGeo — ground model platform',
-            detail: `Version ${app.getVersion()}${buildLine}\nGround model platform for geotechnical engineers.`
+            detail: `Version ${app.getVersion()}${buildLine}${betaLine}\nGround model platform for geotechnical engineers.`
           })
         }}
       ]
@@ -1817,6 +1832,12 @@ ipcMain.handle('diagnostics:capture', (_event, diagnostic: unknown): void => {
 // decision is made before the window exists (see enforceBetaExpiry).
 ipcMain.handle('app:beta-status', (): BetaVerdict | null => currentBetaVerdict())
 
+// Build facts for Help → Licence and the About dialog (owner finding (f)):
+// the beta expiry stamp + the git SHA, so a tester can verify which build they
+// hold. Assembled from the SAME two sources the beta gate reads — the compiled
+// provenance (SHA) and the parsed beta stamp (expiry). Display only.
+ipcMain.handle('app:build-info', (): BuildDisplayInfo => currentBuildInfo())
+
 /**
  * Assemble a diagnostics bundle and let the user choose where to put it.
  *
@@ -2077,6 +2098,15 @@ let betaVerdict: BetaVerdict | null = null
 /** The last verdict, for the renderer's display-only status call. */
 function currentBetaVerdict(): BetaVerdict | null {
   return betaVerdict
+}
+
+/**
+ * Renderer-safe build facts (git SHA + beta expiry) for Help → Licence and the
+ * About dialog. Reads the compiled provenance and the resolved beta stamp — the
+ * same two sources the beta gate uses (owner finding (f)).
+ */
+function currentBuildInfo(): BuildDisplayInfo {
+  return buildDisplayInfo({ provenance: compiledBuildProvenance(), stamp: betaBuildStamp })
 }
 
 /**
