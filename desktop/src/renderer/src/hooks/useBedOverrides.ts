@@ -71,6 +71,15 @@ export interface UseBedOverridesArgs {
   /** The project's horizontal EPSG — the CRS the polygon ring is stored in. */
   epsg: number | null
   toast: (type: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
+  /**
+   * Called after every successful bed create / update / delete (owner walk
+   * 2026-09-13). A bed change stales the built models server-side (their voxel
+   * solids / TIN surfaces cache the ground it cuts), so the shell re-reads the
+   * model staleness through this hook — declared UPSTREAM of the model hook, its
+   * bump is what turns the "rebuild" badge amber without a project reopen. The
+   * section / fence VIEWS already cut at once and do not need it.
+   */
+  onBedChanged?: () => void
 }
 
 /**
@@ -80,7 +89,7 @@ export interface UseBedOverridesArgs {
  * @returns The bed-override slice for the shell bus.
  */
 export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResult {
-  const { project, epsg, toast } = args
+  const { project, epsg, toast, onBedChanged } = args
   const projectId = project?.id ?? null
 
   const [overrides, setOverrides] = useState<BedOverrideResponse[]>([])
@@ -125,8 +134,13 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
   const refresh = useCallback(() => setReloadNonce(n => n + 1), [])
 
   // Signal the ground-adjacent consumers that the bed set changed. Called only
-  // on a SUCCESSFUL mutation, so a failed save never re-fetches the 3-D mesh.
-  const bumpGroundRefresh = useCallback(() => setGroundRefreshNonce(n => n + 1), [])
+  // on a SUCCESSFUL mutation, so a failed save never re-fetches. Bumps the 3-D
+  // ground-surface nonce (this hook's own consumers) AND fires ``onBedChanged``
+  // so the model-staleness hook upstream re-reads the now-stale build caches.
+  const signalBedChanged = useCallback(() => {
+    setGroundRefreshNonce(n => n + 1)
+    onBedChanged?.()
+  }, [onBedChanged])
 
   const startDrawing = useCallback(() => {
     setPendingPolygon(null)
@@ -175,8 +189,8 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
           })
           setOverrides(prev => prev.map(o => (o.id === updated.id ? updated : o)))
           setEditingId(null)
-          bumpGroundRefresh()
-          toast('success', t('bedOverride.updated'))
+          signalBedChanged()
+          toast('success', t('bedOverride.savedRebuild'))
           return true
         }
         if (pendingPolygon != null) {
@@ -188,8 +202,8 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
           })
           setOverrides(prev => [created, ...prev])
           setPendingPolygon(null)
-          bumpGroundRefresh()
-          toast('success', t('bedOverride.created'))
+          signalBedChanged()
+          toast('success', t('bedOverride.savedRebuild'))
           return true
         }
         return false
@@ -199,7 +213,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         return false
       }
     },
-    [projectId, epsg, editingId, pendingPolygon, toast, bumpGroundRefresh],
+    [projectId, epsg, editingId, pendingPolygon, toast, signalBedChanged],
   )
 
   const remove = useCallback(
@@ -209,7 +223,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         await api.bedOverrides.delete(projectId, overrideId)
         setOverrides(prev => prev.filter(o => o.id !== overrideId))
         if (editingId === overrideId) setEditingId(null)
-        bumpGroundRefresh()
+        signalBedChanged()
         toast('success', t('bedOverride.deleted'))
         return true
       } catch (err) {
@@ -218,7 +232,7 @@ export function useBedOverrides(args: UseBedOverridesArgs): UseBedOverridesResul
         return false
       }
     },
-    [projectId, editingId, toast, bumpGroundRefresh],
+    [projectId, editingId, toast, signalBedChanged],
   )
 
   return useMemo(
