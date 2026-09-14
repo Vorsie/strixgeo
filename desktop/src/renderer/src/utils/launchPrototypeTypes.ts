@@ -57,10 +57,16 @@ export type UpdaterPhaseDto =
   | 'checking'
   | 'available'
   | 'not-available'
+  // The feed has nothing published yet (the closed beta's normal state) — calm,
+  // not a failure. See the updater error handler (finding (g)).
+  | 'no-release'
   | 'downloading'
   | 'downloaded'
   | 'error'
   | 'disabled'
+
+/** Why an updater check FAILED — mirrors ``UpdaterErrorReason`` in updaterPolicy.ts. */
+export type UpdaterErrorReasonDto = 'offline' | 'blocked' | 'unexpected'
 
 /** A renderer-safe update summary — mirrors ``UpdateAvailableNotice``. */
 export interface UpdateNoticeDto {
@@ -75,4 +81,23 @@ export interface UpdaterEventDto {
   notice?: UpdateNoticeDto
   progressPercent?: number
   message?: string
+  /** Present on ``error`` — which cause the renderer names (offline / blocked / unexpected). */
+  errorReason?: UpdaterErrorReasonDto
+}
+
+/**
+ * Build facts for Help → Licence + About — mirrors ``BuildDisplayInfo`` in
+ * src/main/buildStamp.ts. Every field is ``null`` in a dev build.
+ */
+export interface BuildInfoDto {
+  /** Short git SHA (8 hex chars), or ``null`` in a dev build. */
+  sha: string | null
+  /** Full git SHA, or ``null``. */
+  shaFull: string | null
+  /** Beta build identifier, or ``null``. */
+  buildId: string | null
+  /** Beta expiry instant, epoch ms; ``null`` when the build carries no stamp. */
+  expiresAtMs: number | null
+  /** Build timestamp, ISO-8601; ``null`` when unstamped. */
+  builtAt: string | null
 }
