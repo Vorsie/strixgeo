@@ -95,6 +95,24 @@ describe('useVoxelBuildStream', () => {
     expect(result.current.state.status).toBe('running')
   })
 
+  it('VB11: a second Build click while the first build is still running is ignored, one job only', () => {
+    // The walker (installer #41 chain) double-clicked Build: the second click
+    // landed before the first click's render, re-entered start(), ABORTED the
+    // first spawn and POSTed again, and the server's "a 3-D build for this
+    // model is already running" answer became a red error toast while the
+    // build actually ran. One click, one job: the second start() is a no-op.
+    fetchMock.mockReturnValue(new Promise(() => {})) // never resolves
+    const { result } = renderHook(() => useVoxelBuildStream())
+
+    act(() => {
+      result.current.start(START)
+      result.current.start(START)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.current.state.status).toBe('running')
+  })
+
   it('VB2: a failed spawn POST surfaces the server detail as an error', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(false, 422, { detail: 'model not found' }))
     const { result } = renderHook(() => useVoxelBuildStream())
