@@ -904,6 +904,9 @@ export const SECTIONS = {
   // Shift-drag an accepted litho contact onto another test (installer #35).
   'sections.canvasToast.lithoContactCopied': 'Litho contact copied: both units created.',
   'sections.canvasToast.lithoBoundaryCopied': 'Boundary copied, compositions kept.',
+  // Multi-boundary Shift-drag (installer #40): both counts reported.
+  'sections.canvasToast.lithoContactsCopiedOneUnit': 'Copied {boundaries} boundaries and 1 unit.',
+  'sections.canvasToast.lithoContactsCopiedManyUnits': 'Copied {boundaries} boundaries and {units} units.',
   'sections.canvasToast.lithoContactCopyBelowTerminal': 'The boundary sits below this test’s depth and was not copied.',
   'sections.canvasToast.lithoContactCopyFailed': 'Could not copy the litho contact. Try again.',
   'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
