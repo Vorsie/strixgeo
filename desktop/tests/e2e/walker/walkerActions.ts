@@ -224,8 +224,10 @@ async function resize(app: ElectronApplication, size: { width: number; height: n
   }, size)
 }
 
-/** Close-and-reopen: reload to Welcome, click the recent entry again. */
-async function reopenProject(page: Page, tmpPath: string): Promise<void> {
+/** Close-and-reopen: reload to Welcome, click the recent entry again. Also
+ *  the way back in when a novice closed the project through the app's own
+ *  Close verb and left the walker on the welcome screen. */
+export async function reopenProject(page: Page, tmpPath: string): Promise<void> {
   await page.reload()
   await page.waitForLoadState('domcontentloaded')
   await page
