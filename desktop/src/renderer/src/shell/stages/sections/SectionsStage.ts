@@ -18,16 +18,24 @@ import SectionsInspector from './SectionsInspector'
  * Returns
  * -------
  * StageSummary
- *     Label counts visible sections; amber badge when surfaces are stale.
+ *     Label + badge count visible sections; never a stale mark.
+ *
+ * The section view is cut LIVE from the current data (partition fill, DEM line
+ * and bed clip all recompute every render), so the Sections stage never goes
+ * stale — the badge is the plain section count. It used to borrow
+ * ``geoModel.staleSurfaceCount`` (the Stratigraphy stage's count), which lit it
+ * amber whenever a surface-staling edit fired; a bed edit stales the geological
+ * surfaces, so the Sections badge went stale alongside them (owner installer
+ * #40: "when i edit the bottom level, i get stale markers on profielen ...").
+ * Only the three BUILT models (Stratigraphy / Litho / Geotech) cache their
+ * geometry, so only they can be stale.
  */
 function useSectionsStageSummary(): StageSummary {
-  const { sections, geoModel } = useShell()
+  const { sections } = useShell()
   const count = sections.visibleSections.length
-  const stale = geoModel.staleSurfaceCount
   const label = `${count} section${count !== 1 ? 's' : ''}`
-  const badge = stale > 0 ? `${stale} stale` : count > 0 ? `${count}` : null
-  const badgeIntent = stale > 0 ? 'amber' : 'neutral'
-  return { label, badge, badgeIntent }
+  const badge = count > 0 ? `${count}` : null
+  return { label, badge, badgeIntent: 'neutral' }
 }
 
 const SectionsStage: StageDescriptor = {
