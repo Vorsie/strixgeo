@@ -110,14 +110,25 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
   const abortRef = useRef<AbortController | null>(null)
   const jobIdRef = useRef<string | null>(null)
   const scopeRef = useRef<{ projectId: string; modelId: string } | null>(null)
+  // True from start() until a terminal state lands, read SYNCHRONOUSLY. The
+  // callers' guards read the rendered state, which lags a click by one render,
+  // so a double-click on Build re-entered start(): the second call aborted the
+  // first spawn and POSTed again, the server answered "a 3-D build for this
+  // model is already running", and that became a red error toast while the
+  // build actually ran (walker, installer #41 chain). One click, one job.
+  const inFlightRef = useRef(false)
+  const settle = useCallback((next: VoxelBuildState) => {
+    inFlightRef.current = false
+    setState(next)
+  }, [])
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
     jobIdRef.current = null
     scopeRef.current = null
-    setState({ status: 'idle' })
-  }, [])
+    settle({ status: 'idle' })
+  }, [settle])
 
   const cancel = useCallback(() => {
     const jobId = jobIdRef.current
@@ -141,8 +152,14 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
   }, [])
 
   const start = useCallback((opts: StartVoxelBuildOptions) => {
-    // Abort any in-flight build before starting a new one (defensive — the UI
-    // gates the button while running).
+    // One click, one job: a start() while a build is in flight (a double-click,
+    // a second Build verb) is ignored; the running build keeps its stream.
+    if (inFlightRef.current) {
+      log.info('voxel-build', `start ignored: a build is already in flight (model=${opts.modelId})`)
+      return
+    }
+    inFlightRef.current = true
+    // A stale controller from an earlier, settled build is released here.
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -174,7 +191,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
             `HTTP ${spawnRes.status}`,
           )
           log.error('voxel-build', `spawn failed: ${msg}`)
-          setState({ status: 'error', message: msg })
+          settle({ status: 'error', message: msg })
           return
         }
 
@@ -195,12 +212,12 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
             `HTTP ${res.status}`,
           )
           log.error('voxel-build', `stream connect failed: ${msg}`)
-          setState({ status: 'error', message: msg })
+          settle({ status: 'error', message: msg })
           return
         }
 
         if (!res.body) {
-          setState({ status: 'error', message: 'No response body from server' })
+          settle({ status: 'error', message: 'No response body from server' })
           return
         }
 
@@ -229,7 +246,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
 
             if (event.type === 'done') {
               log.success('voxel-build', 'build done', event)
-              setState({ status: 'done', result: event as unknown as RebuildLithoSolidsResponse })
+              settle({ status: 'done', result: event as unknown as RebuildLithoSolidsResponse })
               return
             }
 
@@ -238,7 +255,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
               // model was left exactly as it was.
               if (event.code === BUILD_CANCELLED_CODE) {
                 log.info('voxel-build', 'build cancelled')
-                setState({ status: 'cancelled' })
+                settle({ status: 'cancelled' })
                 return
               }
               // A grid-too-large refusal carries the retry spacing + a "model
@@ -250,7 +267,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
                 (event.message as string | undefined) ??
                 'Build failed'
               log.error('voxel-build', `server-side error: ${msg}`)
-              setState({ status: 'error', message: msg })
+              settle({ status: 'error', message: msg })
               return
             }
 
@@ -276,6 +293,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
 
         // Stream closed without a terminal event — treat as error.
         log.warn('voxel-build', 'stream closed without a terminal done/error event')
+        inFlightRef.current = false
         setState(prev =>
           prev.status === 'running'
             ? { status: 'error', message: 'Build stream closed unexpectedly' }
@@ -288,10 +306,10 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
         }
         const msg = err instanceof Error ? err.message : 'Unknown stream error'
         log.error('voxel-build', `stream error: ${msg}`, err)
-        setState({ status: 'error', message: msg })
+        settle({ status: 'error', message: msg })
       }
     })()
-  }, [])
+  }, [settle])
 
   return { state, start, cancel, reset }
 }
