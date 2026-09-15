@@ -39,15 +39,27 @@ const SOURCE_FILES: string[] = []
 collectSource(SRC_ROOT, SOURCE_FILES)
 const SOURCE_BLOB = SOURCE_FILES.join('\n')
 
+// One pass over the blob indexes every kebab-case token and every template
+// prefix (`stage-tab-` right before `${`), so the ~200 anchor lookups below are
+// set hits instead of ~200 full scans of a multi-megabyte string. Under a loaded
+// full-suite run the scans took 11-18 s and tripped the 5 s timeout (the known
+// load flake). The blob search stays as the fallback for a miss, so the verdict
+// is exactly what the scan gave: only the speed changes.
+const KEBAB_TOKENS = new Set<string>()
+const TEMPLATE_PREFIXES = new Set<string>()
+for (const m of SOURCE_BLOB.matchAll(/[a-z0-9]+(?:-[a-z0-9]+)+/g)) KEBAB_TOKENS.add(m[0])
+for (const m of SOURCE_BLOB.matchAll(/([a-z0-9][a-z0-9-]*-)\$\{/g)) TEMPLATE_PREFIXES.add(m[1])
+
 /**
  * Whether a real control carries this anchor. A literal testid appears verbatim;
  * a template-generated one (e.g. `stage-tab-${id}`) appears as its static prefix
  * followed by the template opener `${`.
  */
 function anchorExists(anchor: string): boolean {
-  if (SOURCE_BLOB.includes(anchor)) return true
+  if (KEBAB_TOKENS.has(anchor) || SOURCE_BLOB.includes(anchor)) return true
   const templatePrefix = anchor.replace(/[^-]+$/, '') // drop the last "-segment"
-  return templatePrefix !== anchor && SOURCE_BLOB.includes(`${templatePrefix}\${`)
+  if (templatePrefix === anchor) return false
+  return TEMPLATE_PREFIXES.has(templatePrefix) || SOURCE_BLOB.includes(`${templatePrefix}\${`)
 }
 
 const STATE_KEYS = new Set(Object.keys(emptyTutorialState()))
