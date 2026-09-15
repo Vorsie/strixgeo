@@ -37,8 +37,8 @@
  * -------
  * boolean
  *     ``true`` when the event was forwarded to an element beneath; ``false``
- *     when nothing lay beneath, or the environment has no hit-testing (jsdom
- *     returns an empty stack).
+ *     when nothing lay beneath, the event carried no usable point, or the
+ *     environment has no hit-testing (jsdom returns an empty stack).
  */
 export function forwardContextMenuBeneath(
   clientX: number,
@@ -46,6 +46,11 @@ export function forwardContextMenuBeneath(
   ownedBy: (el: Element) => boolean,
 ): boolean {
   if (typeof document.elementsFromPoint !== 'function') return false
+  // A synthetic contextmenu built as a plain Event (a test's dispatchEvent, an
+  // assistive tool) has no clientX/clientY. Chromium's elementsFromPoint throws
+  // on a non-finite coordinate, which would kill the caller's handler before it
+  // opens its own menu; without a point there is nothing to re-aim at anyway.
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false
   const beneath = document
     .elementsFromPoint(clientX, clientY)
     .find((el) => !ownedBy(el))
