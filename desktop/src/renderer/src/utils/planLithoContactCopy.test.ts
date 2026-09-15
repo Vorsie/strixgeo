@@ -1,14 +1,18 @@
 /**
- * Red-first pins for the litho-contact copy planner (installer #35 owner ask,
- * verbatim: *"can't i drag and drop an accepted litho contact onto a new cptm
- * for example. just like the litho boundaries?"* and, on what the drop should
- * create, *"b, both units."*).
+ * Red-first pins for the litho-contact copy planner.
  *
- * The planner is the pure decision the Shift-drag makes when an accepted litho
- * boundary at depth z on a source column is dropped on a target column: create
- * BOTH units on an empty target, or SPLIT the spanning layer on a target that
- * already has layers, or refuse a drop below the target's terminal depth. It
- * carries no React and no I/O so the owner's rules are pinned as plain data.
+ * Installer #35 (verbatim: *"can't i drag and drop an accepted litho contact onto
+ * a new cptm for example. just like the litho boundaries?"* / *"b, both units."*)
+ * shipped the single-boundary drop. Installer #40 (verbatim: *"the shift drag is
+ * not ok, it does split the column where i drag but for example when i select two
+ * boundaries, it should put both on the column i drag onto and also the litho body
+ * in between"*) extended it to a MULTI-boundary selection.
+ *
+ * The planner is the pure decision the Shift-drag makes when accepted litho
+ * boundaries at depths z1 < … < zk on a source column are dropped on a target
+ * column: create the full copied stack on an empty target, or split at each
+ * boundary + recompose the units between on a target that already has layers, or
+ * refuse a drop below the target's terminal depth. It carries no React and no I/O.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -21,16 +25,22 @@ const SOURCE_U1 = { formation_id: 'f-clay', depth_top_m: 1, depth_base_m: 3 }
 const SOURCE_U2 = { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 7 }
 const SOURCE_LAYERS = [SOURCE_U1, SOURCE_U2]
 
-describe('planLithoContactCopy', () => {
+// A three-unit source for the multi-boundary cases: clay 0..3 / sand 3..6 / silt
+// 6..10. The boundaries at 3 and 6 bracket the sand "body in between".
+const SOURCE_THREE = [
+  { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
+  { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 6 },
+  { formation_id: 'f-silt', depth_top_m: 6, depth_base_m: 10 },
+]
+
+describe('planLithoContactCopy — single boundary', () => {
   it('drag an accepted litho contact onto a new CPT: both units land there', () => {
     // Target CPT has NO accepted litho layers → BOTH units are created: U1 from
-    // the target collar (0 m) down to z, U2 from z down to the target terminal,
-    // each keeping its source composition (the same litho unit = same
-    // formation_id, never a duplicate).
+    // the target collar (0 m) down to z, U2 from z down to the target terminal.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       sourceLayers: SOURCE_LAYERS,
       targetLayers: [],
       targetTerminalDepthM: 10,
@@ -41,18 +51,16 @@ describe('planLithoContactCopy', () => {
       { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
       { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 10 },
     ])
-    expect(plan.depthM).toBe(3)
+    expect(plan.depthsM).toEqual([3])
   })
 
-  it('onto a CPT that already has layers: the layer splits, compositions kept', () => {
-    // Target already carries accepted layers covering [0, 12]; z=3 falls inside
-    // the top one → the planner SPLITS that layer at z. The split keeps both
-    // halves' composition (the plan carries no composition — the split endpoint
-    // keeps the original formation on both halves).
+  it('onto a CPT that already has layers: the layer splits, no recompose', () => {
+    // z=3 falls inside the top target layer → one split, and (single boundary) no
+    // between-unit to recompose, so compositions are kept.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       sourceLayers: SOURCE_LAYERS,
       targetLayers: [
         { id: 'tgt-top', depth_top_m: 0, depth_base_m: 5 },
@@ -60,16 +68,14 @@ describe('planLithoContactCopy', () => {
       ],
       targetTerminalDepthM: 12,
     })
-    expect(plan).toEqual({ kind: 'split', layerId: 'tgt-top', depthM: 3 })
+    expect(plan).toEqual({ kind: 'split', splits: [{ depthM: 3 }], recomposes: [] })
   })
 
   it('dropped below the terminal depth: refused (empty target)', () => {
-    // z=8 but the empty target CPT only reaches 6 m → nothing to anchor U2's
-    // base against, so the drop is refused rather than inventing depth.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 8,
+      contactDepthsM: [8],
       sourceLayers: [
         { formation_id: 'f-clay', depth_top_m: 5, depth_base_m: 8 },
         { formation_id: 'f-sand', depth_top_m: 8, depth_base_m: 12 },
@@ -81,12 +87,10 @@ describe('planLithoContactCopy', () => {
   })
 
   it('dropped below the terminal depth: refused (target that already has layers)', () => {
-    // The target column is gap-free to 5 m; z=8 is below its deepest layer, so
-    // there is nothing to split — refused, same as the empty case.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 8,
+      contactDepthsM: [8],
       sourceLayers: [
         { formation_id: 'f-clay', depth_top_m: 5, depth_base_m: 8 },
         { formation_id: 'f-sand', depth_top_m: 8, depth_base_m: 12 },
@@ -101,7 +105,7 @@ describe('planLithoContactCopy', () => {
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-a',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       sourceLayers: SOURCE_LAYERS,
       targetLayers: [],
       targetTerminalDepthM: 10,
@@ -110,12 +114,10 @@ describe('planLithoContactCopy', () => {
   })
 
   it('drop where the target already has that exact boundary is a no-op', () => {
-    // z=3 coincides with a boundary already present on the target → nothing to
-    // split and nothing to create; a silent no-op, not a duplicate boundary.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       sourceLayers: SOURCE_LAYERS,
       targetLayers: [
         { id: 'tgt-top', depth_top_m: 0, depth_base_m: 3 },
@@ -127,12 +129,10 @@ describe('planLithoContactCopy', () => {
   })
 
   it('refuses when the dragged contact is not between two accepted units', () => {
-    // Only the layer below the contact exists (e.g. the surface contact of the
-    // first unit) → cannot express "both units", so refuse.
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 0,
+      contactDepthsM: [0],
       sourceLayers: [{ formation_id: 'f-sand', depth_top_m: 0, depth_base_m: 7 }],
       targetLayers: [],
       targetTerminalDepthM: 10,
@@ -144,11 +144,82 @@ describe('planLithoContactCopy', () => {
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       sourceLayers: SOURCE_LAYERS,
       targetLayers: [],
       targetTerminalDepthM: null,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'unknown_terminal' })
+  })
+})
+
+describe('planLithoContactCopy — multiple boundaries (installer #40)', () => {
+  it('two selected boundaries land on the target with the litho body in between', () => {
+    // Empty target: boundaries at 3 and 6 both land, and the sand unit BETWEEN
+    // them (3..6, its source composition) lands as its own unit — the "litho body
+    // in between". The clay above lands from the collar, the silt below to the
+    // terminal.
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      contactDepthsM: [3, 6],
+      sourceLayers: SOURCE_THREE,
+      targetLayers: [],
+      targetTerminalDepthM: 12,
+    })
+    expect(plan.kind).toBe('create')
+    if (plan.kind !== 'create') throw new Error('unreachable')
+    expect(plan.items).toEqual([
+      { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
+      { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 6 },
+      { formation_id: 'f-silt', depth_top_m: 6, depth_base_m: 12 },
+    ])
+    expect(plan.depthsM).toEqual([3, 6])
+  })
+
+  it('unsorted selection order does not matter — the boundaries sort by depth', () => {
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      contactDepthsM: [6, 3],
+      sourceLayers: SOURCE_THREE,
+      targetLayers: [],
+      targetTerminalDepthM: 12,
+    })
+    expect(plan.kind).toBe('create')
+    if (plan.kind !== 'create') throw new Error('unreachable')
+    expect(plan.items.map((i) => i.formation_id)).toEqual(['f-clay', 'f-sand', 'f-silt'])
+  })
+
+  it('on a target with layers the units between the copied boundaries take the source composition', () => {
+    // Target already has one deep layer [0, 12]. Both boundaries split it, and the
+    // between-unit [3, 6] is recomposed to the SOURCE sand (f-sand) — its litho body.
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      contactDepthsM: [3, 6],
+      sourceLayers: SOURCE_THREE,
+      targetLayers: [{ id: 'tgt-only', depth_top_m: 0, depth_base_m: 12 }],
+      targetTerminalDepthM: 12,
+    })
+    expect(plan).toEqual({
+      kind: 'split',
+      splits: [{ depthM: 3 }, { depthM: 6 }],
+      recomposes: [{ formation_id: 'f-sand', depthTopM: 3, depthBaseM: 6 }],
+    })
+  })
+
+  it('a selection that includes a boundary below the target depth is refused', () => {
+    // The deepest selected boundary (6) sits below the target's 5 m column → the
+    // whole drop is refused with the existing below-terminal toast.
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      contactDepthsM: [3, 6],
+      sourceLayers: SOURCE_THREE,
+      targetLayers: [{ id: 'tgt-only', depth_top_m: 0, depth_base_m: 5 }],
+      targetTerminalDepthM: 5,
+    })
+    expect(plan).toEqual({ kind: 'refused', reason: 'below_terminal' })
   })
 })
