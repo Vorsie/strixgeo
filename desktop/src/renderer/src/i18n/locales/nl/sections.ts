@@ -524,6 +524,10 @@ export const SECTIONS_NL = {
     'De lithologie van deze kolom is veranderd nadat de pakkingsbanden gemaakt zijn: {list}. De banden beschrijven nog de oude opeenvolging — voer de onderverdeling op deze kolom opnieuw uit ("1 · Sonderingen onderverdelen" voor proeven, "4 · Boringen verdelen" voor boringen) voor je exporteert.',
   'sections.geotech.staleTitleMany':
     'De lithologie van deze kolommen is veranderd nadat de pakkingsbanden gemaakt zijn: {list}. De banden beschrijven nog de oude opeenvolging — voer de onderverdeling op deze kolommen opnieuw uit ("1 · Sonderingen onderverdelen" voor proeven, "4 · Boringen verdelen" voor boringen) voor je exporteert.',
+  'sections.geotech.staleInspectorLabel': 'Pakking verouderd',
+  'sections.geotech.staleInspectorBody':
+    'Pakking op {list} is afgeleid van een oudere lithologie. Druk op Onderverdelen om ze opnieuw af te leiden.',
+  'sections.geotech.staleInspectorSubdivide': 'Onderverdelen',
 
   // ---------------------------------------------------------------------------
   // profielkop
@@ -832,7 +836,7 @@ export const SECTIONS_NL = {
   'sections.hiddenFooter.count': '{n} verborgen op dit profiel',
   'sections.hiddenFooter.restoreAll': 'alles herstellen',
   'sections.scrub.showing': 'Toont {shown} m van {total} m (databereik)',
-  'sections.staleColumn.title': '{name}: de lithologie hier is veranderd nadat deze pakkingsbanden gemaakt zijn. Voer de onderverdeling op deze kolom opnieuw uit voor je exporteert.',
+  'sections.staleColumn.title': '{name}: pakking afgeleid van een oudere lithologie op deze proef. Druk op Onderverdelen om ze opnieuw af te leiden.',
   'sections.vb.depthHint': 'Toon lagen tot N meter onder het maaiveld van elk grondonderzoek. Leeg = volledige DOV-kolom.',
   'sections.vb.showOnSection': 'Op profiel tonen',
   'sections.vb.modelSlot': 'Model {label}',
