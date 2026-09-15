@@ -108,11 +108,16 @@ describe('ProfileDrawing — per-column scale header', () => {
     expect(screen.queryByText('4%')).toBeNull()
   })
 
-  it('packed columns drop the header so the labels never overrun (columns too narrow)', () => {
-    // Packed spacing drives the drawn column to its minimum width, where the
+  it('crowded columns drop the header so the labels never overrun (columns too narrow)', () => {
+    // Many columns sharing the fixed drawing width draw narrow, where the
     // right-anchored "{scale} MPa" label would overrun the interior ticks — so
     // the header is dropped, mirroring the on-screen crowded-column behaviour.
-    renderDrawing(payloadWith([cptColumn, boreholeColumn]), 0)
+    // (Since installer #40 fit mode fills the width at every spacing, the
+    // dropped header is driven by column COUNT, not by packing the slider down.)
+    const crowd = Array.from({ length: 18 }, (_, i): SheetColumn => ({
+      ...cptColumn, investigationId: `c${i}`, code: `S${i}`, alongM: (i * 400) / 17,
+    }))
+    renderDrawing(payloadWith(crowd))
     expect(screen.queryByText('40 MPa')).toBeNull()
     expect(screen.queryByText('2%')).toBeNull()
   })
