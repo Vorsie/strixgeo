@@ -133,29 +133,35 @@ def test_a_gap_free_model_reports_no_closed_voids() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hairlines that survive to the final stack
+# Interior voids in the final stack are CLOSED by the builder (owner #40)
 # ---------------------------------------------------------------------------
+# The builder closes an interior void a column carries between two labelled
+# entries (:func:`_close_interior_voids`), so clause 6 reports ONLY a void it
+# could not close. A 50 mm or 10 mm interior gap the beyond path used to carry
+# verbatim is now folded into the thicker neighbour, so the final stack tiles
+# and nothing is left for the hairline tally.
 
 
-def test_a_void_wider_than_a_hairline_in_the_final_stack_is_reported() -> None:
-    """A 50 mm gap the beyond path carries through is over the limit and counted.
+def test_an_interior_void_the_beyond_path_carries_is_closed_not_reported() -> None:
+    """A 50 mm interior gap is folded into the thicker neighbour (owner #40).
 
     Columns south of y=0 lie beyond both sections, so they take the nearest
-    section's stack verbatim — void included — instead of the blend that would
-    have closed it.
+    section's stack — but the interior void it carried is now closed by the
+    builder, so the hairline tally has nothing to count.
     """
     grid = label_voxels(_domain(y_min=-20.0), 4.0, [_voided(0.05), _whole()])
 
-    assert grid.report.hairline_gaps_over_limit > 0
-    assert grid.report.hairline_worst_m == pytest.approx(0.05)
+    assert grid.report.hairline_gaps_over_limit == 0
+    assert grid.report.hairline_gaps_actionable == 0
+    assert grid.report.hairline_worst_m == pytest.approx(0.0)
 
 
-def test_a_centimetre_void_stays_under_the_limit_but_is_still_measured() -> None:
-    """10 mm is inside the tolerated band: worst height reported, no count."""
+def test_a_centimetre_interior_void_is_closed_too() -> None:
+    """A 10 mm interior gap is a sliver the builder closes, not a residue it notes."""
     grid = label_voxels(_domain(y_min=-20.0), 4.0, [_voided(0.010), _whole()])
 
     assert grid.report.hairline_gaps_over_limit == 0
-    assert grid.report.hairline_worst_m == pytest.approx(0.010)
+    assert grid.report.hairline_worst_m == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
