@@ -45,7 +45,7 @@ import os from 'os'
 import fs from 'fs'
 
 import { launchApp, closeApp } from '../helpers/electron_launch'
-import { executeAction, isFatalPageError } from './walkerActions'
+import { executeAction, isFatalPageError, reopenProject } from './walkerActions'
 import {
   checkConsoleErrors,
   checkRefusedRequests,
@@ -279,9 +279,18 @@ test.describe('walker scenario pass', () => {
           stepFindings.push(...(await checkSectionRows(page, workedProjectId, step)))
           stepFindings.push(...(await checkContactRows(page, workedProjectId, step)))
         }
-        // Heartbeat only when no modal is up (a modal legitimately covers the
-        // spine -- clicking through it would false-flag as unresponsive).
-        if (!post.openMenu && stageNow !== null) {
+        // A novice can close the project through the app's own Close verb (run
+        // 28 did, step 275): the welcome screen has no spine, so a heartbeat
+        // there would false-flag as unresponsive. Walk back in through the
+        // recent entry instead and count it as a reopen.
+        const onWelcome = await page.getByTestId('welcome-screen').isVisible().catch(() => false)
+        if (onWelcome) {
+          pushTrail(trail, 'welcome: the project was closed, reopening from recents')
+          await reopenProject(page, tmpPath).catch(() => {})
+          reopenCount += 1
+        } else if (!post.openMenu && stageNow !== null) {
+          // Heartbeat only when no modal is up (a modal legitimately covers the
+          // spine -- clicking through it would false-flag as unresponsive).
           stepFindings.push(...checkResponsiveness(await heartbeat(page, stageNow), step))
         }
 
