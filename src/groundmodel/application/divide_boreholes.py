@@ -1022,6 +1022,133 @@ def merge_geo_split_bands(bands: Sequence[PlannedBand]) -> list[PlannedBand]:
     return out
 
 
+def _bands_by_borehole(
+    planned_segments: Sequence[PlannedBoreholeSegment],
+) -> dict[str, list[tuple[int, int, PlannedBand]]]:
+    """Index every planned band by its borehole, carrying its ``(segment, band)`` slot.
+
+    Parameters
+    ----------
+    planned_segments : Sequence[PlannedBoreholeSegment]
+        The per-body-group segments, in plan order.
+
+    Returns
+    -------
+    dict[str, list[tuple[int, int, PlannedBand]]]
+        ``investigation_id -> [(segment_index, band_index, band), ...]``, so a
+        per-borehole pass can read every band and write a change back to its
+        exact slot.
+    """
+    out: dict[str, list[tuple[int, int, PlannedBand]]] = defaultdict(list)
+    for seg_index, planned in enumerate(planned_segments):
+        for band_index, planned_band in enumerate(planned.bands):
+            out[planned.investigation_id].append((seg_index, band_index, planned_band))
+    return out
+
+
+def _collapse_touching_same_class_bands(planned_segments: list[PlannedBoreholeSegment]) -> int:
+    """Weld each borehole's touching same-class same-layer bands, IN PLACE.
+
+    ``merge_geo_split_bands`` decides which of a borehole's bands are one band;
+    this folds its verdict back into ``planned_segments``.  A merged band can
+    span two geological slices, so the borehole's merged bands are rewritten into
+    its FIRST segment and the other segments emptied — a merged band no longer
+    belongs to one slice's segment alone.
+
+    Parameters
+    ----------
+    planned_segments : list[PlannedBoreholeSegment]
+        The segments to collapse; mutated in place.
+
+    Returns
+    -------
+    int
+        How many bands were merged away across all boreholes.
+    """
+    merged_total = 0
+    for entries in _bands_by_borehole(planned_segments).values():
+        merged = merge_geo_split_bands([entry[2] for entry in entries])
+        if len(merged) == len(entries):
+            continue
+        merged_total += len(entries) - len(merged)
+        # The whole borehole is rewritten into its FIRST segment: a merged band
+        # spans two geological slices, so it no longer belongs to either alone.
+        first_seg = min(entry[0] for entry in entries)
+        for seg_index in {entry[0] for entry in entries}:
+            planned_segments[seg_index] = replace(
+                planned_segments[seg_index],
+                bands=tuple(merged) if seg_index == first_seg else (),
+            )
+    return merged_total
+
+
+def finalize_borehole_bands(
+    planned_segments: Sequence[PlannedBoreholeSegment],
+) -> tuple[list[PlannedBoreholeSegment], int, int, int]:
+    """Collapse geo cuts, raise unanswered bands to the column floor, collapse AGAIN.
+
+    Three passes run over every borehole's bands, in this order:
+
+    1. **Merge geo cuts** (:func:`merge_geo_split_bands` via
+       :func:`_collapse_touching_same_class_bands`): a geological surface that
+       split one litho layer into two same-class pieces is undone, so the floor
+       and the ties see the one band the layer actually is.
+    2. **Column floor** (:func:`apply_column_floor`): an unanswered band is
+       raised to the loosest class ITS OWN column measured for that litho unit,
+       rather than the fictional NAD-table floor.
+    3. **Merge again**: step 2 can RAISE an unanswered band to the class of a
+       touching neighbour in the SAME litho layer — a duplicate the step-1 merge
+       could not see, because the two were different classes then.  Left unmerged
+       it is the owner's finding (installer #40, GEO-07/182-B2: *"how come i have
+       two stacked md sands on B2?"*): a ``body_min`` NAD-5 floor band over a
+       measured NAD-6 band, both inside one litho ZAND layer, that the column
+       floor lifted to NAD 6 after the first merge had already passed them.  Two
+       touching bands of one class in one litho layer are one band, whatever pass
+       split them, so the merge runs after the raise as well.
+
+    Parameters
+    ----------
+    planned_segments : Sequence[PlannedBoreholeSegment]
+        The per-body-group segments as first planned.
+
+    Returns
+    -------
+    tuple[list[PlannedBoreholeSegment], int, int, int]
+        ``(segments, merged_away, raised_count, merged_after_floor)`` — the
+        finalized segments and the three counts the caller logs.
+    """
+    segments = list(planned_segments)
+    merged_away = _collapse_touching_same_class_bands(segments)
+
+    # The donor rule has now answered everything it can, so the bands it could
+    # NOT answer can be honest about this column instead of about the NAD table.
+    # Gathered across every segment of a borehole, because the measured sand that
+    # sets a sliver's floor is usually in a different body group from the sliver.
+    band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
+    raised_count = 0
+    for entries in _bands_by_borehole(segments).values():
+        raised = apply_column_floor([entry[2] for entry in entries])
+        for (seg_index, band_index, before), after in zip(entries, raised):
+            if before.source != after.source:
+                band_updates[seg_index][band_index] = after
+                raised_count += 1
+    for seg_index, changes in band_updates.items():
+        planned = segments[seg_index]
+        segments[seg_index] = replace(
+            planned,
+            bands=tuple(
+                changes.get(band_index, planned_band)
+                for band_index, planned_band in enumerate(planned.bands)
+            ),
+        )
+
+    # A geological cut that split a packing band of unchanged class is undone,
+    # then the raise can make two touching bands the same class — so weld once
+    # more (owner installer #40, B2's two stacked medium-dense sands).
+    merged_after_floor = _collapse_touching_same_class_bands(segments)
+    return segments, merged_away, raised_count, merged_after_floor
+
+
 def coarsen_to_minimum_thickness(
     bands: Sequence[FillBand], *, minimum_thickness_m: float
 ) -> list[FillBand]:
@@ -2558,67 +2685,31 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     )
                 )
 
-        # The donor rule has now answered everything it can, so the bands it
-        # could NOT answer can be honest about this column instead of about the
-        # NAD table. Gathered across every segment of a borehole, because the
-        # measured sand that sets a sliver's floor is usually in a different
-        # body group from the sliver.
-        bands_by_borehole: dict[str, list[tuple[int, int, PlannedBand]]] = defaultdict(list)
-        for seg_index, planned in enumerate(planned_segments):
-            for band_index, planned_band in enumerate(planned.bands):
-                bands_by_borehole[planned.investigation_id].append(
-                    (seg_index, band_index, planned_band)
-                )
-
         # A geological cut that split a packing band of unchanged class is undone
-        # first: the merged band is what the floor and the ties should see, and
-        # the split was never a packing decision (owner, 2026-08-17 — he has the
-        # "Split band…" gesture for the ones he wants).
-        merged_away = 0
-        for inv, entries in bands_by_borehole.items():
-            merged = merge_geo_split_bands([entry[2] for entry in entries])
-            if len(merged) == len(entries):
-                continue
-            merged_away += len(entries) - len(merged)
-            # The whole borehole is rewritten into its FIRST segment: a merged
-            # band spans two geological slices, so it no longer belongs to
-            # either one's segment alone.
-            first_seg = min(entry[0] for entry in entries)
-            for seg_index in {entry[0] for entry in entries}:
-                planned_segments[seg_index] = replace(
-                    planned_segments[seg_index],
-                    bands=tuple(merged) if seg_index == first_seg else (),
-                )
-            bands_by_borehole[inv] = [
-                (first_seg, band_index, band) for band_index, band in enumerate(merged)
-            ]
+        # first, then the unanswered bands are raised to their column's own
+        # measured floor, and the merge runs ONCE MORE — the raise can lift a
+        # band to a touching neighbour's class, a same-layer duplicate the first
+        # merge could not see (owner installer #40, GEO-07/182-B2's two stacked
+        # medium-dense sands). ``finalize_borehole_bands`` owns the whole
+        # sequence so no pass that can make two touching bands one class runs
+        # without the merge behind it.
+        planned_segments, merged_away, raised_count, merged_after_floor = finalize_borehole_bands(
+            planned_segments
+        )
         if merged_away:
             self.info(
                 f"DivideBoreholes: {merged_away} band(s) merged back — a geological "
                 "contact had split a packing band whose class does not change across it"
             )
-
-        band_updates: dict[int, dict[int, PlannedBand]] = defaultdict(dict)
-        raised_count = 0
-        for entries in bands_by_borehole.values():
-            raised = apply_column_floor([entry[2] for entry in entries])
-            for (seg_index, band_index, before), after in zip(entries, raised):
-                if before.source != after.source:
-                    band_updates[seg_index][band_index] = after
-                    raised_count += 1
-        for seg_index, changes in band_updates.items():
-            planned = planned_segments[seg_index]
-            planned_segments[seg_index] = replace(
-                planned,
-                bands=tuple(
-                    changes.get(band_index, planned_band)
-                    for band_index, planned_band in enumerate(planned.bands)
-                ),
-            )
         if raised_count:
             self.info(
                 f"DivideBoreholes: {raised_count} unanswered band(s) raised to the loosest "
                 "class their own column measured for that soil, rather than the NAD floor"
+            )
+        if merged_after_floor:
+            self.info(
+                f"DivideBoreholes: {merged_after_floor} band(s) merged back after the "
+                "column-floor raise lifted an unanswered band to a touching neighbour's class"
             )
 
         self.info(
