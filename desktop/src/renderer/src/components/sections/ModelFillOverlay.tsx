@@ -41,6 +41,7 @@ import { useState } from 'react'
 
 import type { SectionPoly, SolidColumn } from '../../utils/sectionFromSolids'
 import { CONFIDENCE_FALLOFF_M, distanceAlphaMultiplier } from '../../utils/distanceConfidence'
+import { forwardContextMenuToColumn } from './forwardColumnContextMenu'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -112,6 +113,17 @@ export interface ModelFillOverlayProps {
    * ``pointerEvents="none"``.
    */
   onShowUnitStatistics?: (formationId: string, bodyId?: string | null) => void
+  /**
+   * When true (the litho axis, installer #40), a right-click that lands on a
+   * COLUMN is forwarded to the ContactsLayer column surface beneath so the
+   * unified column menu opens instead of this overlay's "Unit statistics…" —
+   * the owner's rule that a right-click over a column always opens the column
+   * menu, whatever fill is painted; the fill's own menu is for the gaps BETWEEN
+   * columns only. A right-click between columns still opens "Unit statistics…".
+   * Absent / false → the overlay always answers with its own menu (the geotech
+   * axis, whose per-column band menu does not exist).
+   */
+  forwardColumnContextMenu?: boolean
 }
 
 /**
@@ -216,6 +228,7 @@ export default function ModelFillOverlay({
   columnAlongMs,
   confidenceFalloffM = CONFIDENCE_FALLOFF_M,
   onShowUnitStatistics,
+  forwardColumnContextMenu = false,
 }: ModelFillOverlayProps): JSX.Element {
   // S6 — the right-click menu state. Declared BEFORE the mode early-returns
   // (hooks may never sit below a conditional return).
@@ -230,6 +243,9 @@ export default function ModelFillOverlay({
           onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault()
             e.stopPropagation()
+            // Over a column, the unified column menu wins (installer #40): forward
+            // the click down to the ContactsLayer band beneath and stop here.
+            if (forwardColumnContextMenu && forwardContextMenuToColumn(e.clientX, e.clientY)) return
             setUnitStatsMenu({ clientX: e.clientX, clientY: e.clientY, formationId, bodyId })
           },
         }
