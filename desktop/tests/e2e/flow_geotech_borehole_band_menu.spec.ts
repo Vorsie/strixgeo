@@ -18,6 +18,14 @@
  * borehole spec) never saw it — so this spec SEEDS a sample over a real
  * committed packing band and drives the real right-click.
  *
+ * EXTENDED for installer #39 (owner: "i get 2 different menus when i right click
+ * once or right click twice on a test, why not merge them?"). The band overlay
+ * now owns the ONE menu on this axis: the column verbs HEAD the band menu, a
+ * second right-click on the same spot re-opens that same single menu, and a
+ * right-click on the collar gap opens the same unified menu with the column
+ * verbs only. So this spec now also asserts the column verbs are present on the
+ * band menu and that the collar gap no longer opens a SEPARATE menu.
+ *
  * NOTE: this flow MUTATES the fixture (geotech model + a borehole geotech
  * subdivision + one lab sample). Re-seed before a full suite run.
  */
@@ -206,28 +214,62 @@ test.describe('flow_geotech_borehole_band_menu', () => {
         page.getByTestId('geotech-band-menu-unit-statistics'),
         'statistieken van deze eenheid must be on the band menu',
       ).toBeVisible()
+      // Owner installer #39: ONE menu — the column verbs now HEAD the band menu,
+      // rather than living behind a separate right-click on the collar gap.
       await expect(
         page.getByTestId('column-menu-clear-subdivision'),
-        'the column menu must NOT open on a band',
-      ).toHaveCount(0)
-      // Dismiss the band menu with a LEFT-click on its full-screen backdrop
-      // (never Escape, which exits the section and unmounts the overlay).
+        'the column verbs head the band menu (one menu, installer #39)',
+      ).toBeVisible()
+      await expect(
+        page.getByTestId('column-menu-focus-test'),
+        'Focus op deze proef heads the band menu too',
+      ).toBeVisible()
+      // Exactly one menu, never the band menu beside a separate column menu.
+      await expect(page.getByTestId('geotech-band-edit-menu')).toHaveCount(1)
+
+      // Owner rule ("right click twice"): a SECOND right-click on the same spot
+      // re-opens the SAME single menu (the backdrop re-resolves the point), not a
+      // different one and not two.
+      await page.mouse.click(
+        Math.round(hitBox.x + hitBox.width / 2),
+        Math.round(hitBox.y + hitBox.height / 2),
+        { button: 'right' },
+      )
+      await expect(page.getByTestId('geotech-band-edit-menu')).toHaveCount(1)
+      await expect(
+        page.getByTestId('geotech-band-menu-split-here'),
+        'the second right-click keeps the band verbs',
+      ).toBeVisible()
+      await expect(
+        page.getByTestId('column-menu-clear-subdivision'),
+        'the second right-click keeps the column verbs',
+      ).toBeVisible()
+      // Dismiss with a LEFT-click on its full-screen backdrop (never Escape,
+      // which exits the section and unmounts the overlay).
       await page.mouse.click(4, 4)
       await expect(page.getByTestId('geotech-band-edit-menu')).toHaveCount(0)
 
-      // Owner rule 2: right-click on the column OUTSIDE its bands opens the
-      // column menu. The borehole reaches the plot floor, so aim ABOVE the
-      // shallowest band — the collar gap over the first litho unit, which carries
-      // no band, no sample capsule and no fill, only the column glyph.
+      // Owner rule 2, restated for installer #39: right-click on the column
+      // OUTSIDE its bands opens the SAME unified menu, with the column verbs
+      // ONLY. The borehole reaches the plot floor, so aim ABOVE the shallowest
+      // band — the collar gap over the first litho unit, which carries no band,
+      // no sample capsule and no fill, only the column glyph.
       const shallowest = rectBoxes.reduce((a, b) => (b.top < a.top ? b : a))
       await page.mouse.click(Math.round(shallowest.cx), Math.round(shallowest.top - 18), {
         button: 'right',
       })
       await expect(
-        page.getByTestId('column-menu-clear-subdivision'),
-        'the column menu still opens outside the bands',
+        page.getByTestId('geotech-band-edit-menu'),
+        'the collar gap opens the ONE unified menu (installer #39)',
       ).toBeVisible({ timeout: 5_000 })
-      await expect(page.getByTestId('geotech-band-edit-menu')).toHaveCount(0)
+      await expect(
+        page.getByTestId('column-menu-clear-subdivision'),
+        'the column verbs are there',
+      ).toBeVisible()
+      await expect(
+        page.getByTestId('geotech-band-menu-split-here'),
+        'but no band verbs, because the pointer is on no band',
+      ).toHaveCount(0)
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
