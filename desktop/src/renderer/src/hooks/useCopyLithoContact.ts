@@ -1,20 +1,25 @@
 /**
- * useCopyLithoContact — orchestrates one "Shift-drag an accepted litho contact
- * onto another test" drop (installer #35 owner ask, verbatim: *"can't i drag and
- * drop an accepted litho contact onto a new cptm for example. just like the litho
- * boundaries?"* and, on what the drop should create, *"b, both units."*).
+ * useCopyLithoContact — orchestrates one "Shift-drag accepted litho contacts onto
+ * another test" drop (installer #35 owner ask, verbatim: *"can't i drag and drop
+ * an accepted litho contact onto a new cptm for example. just like the litho
+ * boundaries?"* / *"b, both units."*; extended in installer #40 to a MULTI-boundary
+ * selection: *"when i select two boundaries, it should put both on the column i
+ * drag onto and also the litho body in between"*).
  *
  * It plans the drop with the pure ``planLithoContactCopy`` and then fires the
  * EXISTING litho endpoints — no new API surface:
- *   - empty target → ``bulkCreateLayers`` with the two units, each reusing the
- *     source layer's ``formation_id`` so the copy lands on the SAME litho unit
- *     (never a duplicate). The new accepted layers change the target column's
- *     litho stack, so its geotech parent reads stale on the next staleness read
- *     (derived, no explicit flag needed).
- *   - target with layers → ``splitLayer`` at z; both halves keep their
- *     composition, and the toast says so.
- *   - z below the target terminal → a warning toast, no write.
+ *   - empty target → ``bulkCreateLayers`` with the whole copied stack (the unit
+ *     above the topmost boundary from the collar, each between-unit, the unit below
+ *     the deepest boundary to the terminal), each reusing the source layer's
+ *     ``formation_id`` so the copy lands on the SAME litho unit (never a duplicate).
+ *   - target with layers → ``splitLayer`` at each boundary (re-finding the spanning
+ *     layer after every cut) + ``batchUpdateLayers`` to recompose the units between
+ *     consecutive boundaries to the source composition — the "litho body in between".
+ *   - the deepest boundary below the target terminal → a warning toast, no write.
  * Each successful drop pushes ONE undo step (``undo.copyLithoContact``).
+ *
+ * The new accepted layers change the target column's litho stack, so its geotech
+ * parent reads stale on the next staleness read (derived, no explicit flag needed).
  *
  * The hook takes its collaborators as params (api slice, litho layer state, the
  * terminal-depth resolver, the undo push, the toast, and a ``settle`` fan-out) so
@@ -34,13 +39,19 @@ import {
   buildCopyLithoContactUndoCommand,
   type CopyLithoContactUndoApi,
 } from './copyLithoContactUndo'
+import {
+  executeLithoContactSplitCopy,
+  type SplitCopyTargetLayer,
+} from './executeLithoContactSplitCopy'
 import type { UndoCommand } from './useUndoStack'
 import type { LithoLayerCreateItem, LithoLayerResponse } from '../api/client'
 
 /** One drop the gesture requests. Depths are m below the SOURCE collar. */
 export interface CopyLithoContactRequest {
   sourceInvestigationId: string
-  contactDepthM: number
+  /** Every selected boundary's depth below the source collar (a single-element
+   *  array is the original single-boundary drop). */
+  contactDepthsM: readonly number[]
   targetInvestigationId: string
   targetKind: 'cpt' | 'borehole'
 }
@@ -74,6 +85,26 @@ export interface UseCopyLithoContactResult {
 const COPY_TOAST_KEY = 'litho-contact-copy'
 
 /**
+ * The success toast for a copy: the single-boundary wordings for one boundary, a
+ * counted "N boundaries and M units copied" for a multi-boundary drop (owner ask).
+ *
+ * @param boundaries - How many boundaries were placed.
+ * @param units - How many units carry a source composition.
+ * @param split - Whether the drop split a target (true) or created a stack (false).
+ * @returns The translated toast string.
+ */
+function copySuccessMessage(boundaries: number, units: number, split: boolean): string {
+  if (boundaries <= 1 && units <= (split ? 0 : 2)) {
+    return split
+      ? t('sections.canvasToast.lithoBoundaryCopied')
+      : t('sections.canvasToast.lithoContactCopied')
+  }
+  return units === 1
+    ? t('sections.canvasToast.lithoContactsCopiedOneUnit', { boundaries })
+    : t('sections.canvasToast.lithoContactsCopiedManyUnits', { boundaries, units })
+}
+
+/**
  * Wire the litho-contact copy orchestration.
  *
  * @param params - The api slice, litho state, terminal-depth resolver, undo push,
@@ -97,7 +128,7 @@ export function useCopyLithoContact(
   const copyLithoContact = useCallback(
     async (req: CopyLithoContactRequest): Promise<void> => {
       if (modelId === null) return
-      const { sourceInvestigationId, contactDepthM, targetInvestigationId, targetKind } = req
+      const { sourceInvestigationId, contactDepthsM, targetInvestigationId, targetKind } = req
 
       // Accepted layers on each column (a contact/layer is anchored to one XOR).
       const onColumn = (invId: string): LithoLayerResponse[] =>
@@ -109,7 +140,8 @@ export function useCopyLithoContact(
         depth_top_m: l.depth_top_m,
         depth_base_m: l.depth_base_m,
       }))
-      const targetLayers: CopyTargetLayer[] = onColumn(targetInvestigationId).map(l => ({
+      const targetAccepted = onColumn(targetInvestigationId)
+      const targetLayers: CopyTargetLayer[] = targetAccepted.map(l => ({
         id: l.id,
         depth_top_m: l.depth_top_m,
         depth_base_m: l.depth_base_m,
@@ -118,7 +150,7 @@ export function useCopyLithoContact(
       const plan = planLithoContactCopy({
         sourceInvestigationId,
         targetInvestigationId,
-        contactDepthM,
+        contactDepthsM,
         sourceLayers,
         targetLayers,
         targetTerminalDepthM: terminalDepthM(targetInvestigationId, targetKind),
@@ -126,7 +158,9 @@ export function useCopyLithoContact(
 
       log.info(
         'section',
-        `copy-litho-contact: ${sourceInvestigationId}@${contactDepthM.toFixed(3)}m → ${targetInvestigationId} plan=${plan.kind}`,
+        `copy-litho-contact: ${sourceInvestigationId}@[${contactDepthsM
+          .map(d => d.toFixed(3))
+          .join(', ')}]m → ${targetInvestigationId} plan=${plan.kind}`,
       )
 
       if (plan.kind === 'noop') {
@@ -156,7 +190,11 @@ export function useCopyLithoContact(
           }))
           const created = await api.bulkCreateLayers(projectId, modelId, createItems)
           await settle()
-          toast('success', t('sections.canvasToast.lithoContactCopied'), COPY_TOAST_KEY)
+          toast(
+            'success',
+            copySuccessMessage(plan.depthsM.length, plan.items.length, false),
+            COPY_TOAST_KEY,
+          )
           pushUndo(
             buildCopyLithoContactUndoCommand(
               {
@@ -171,19 +209,39 @@ export function useCopyLithoContact(
             ),
           )
         } else {
-          const result = await api.splitLayer(projectId, modelId, plan.layerId, plan.depthM)
+          // Split at each boundary + recompose the between-units. The executor
+          // tracks the evolving column so several boundaries in one target layer
+          // all land, and recomposes only the split-created rows (delete-only undo).
+          const executorTargetLayers: SplitCopyTargetLayer[] = targetAccepted.map(l => ({
+            id: l.id,
+            depth_top_m: l.depth_top_m,
+            depth_base_m: l.depth_base_m,
+            formation_id: l.formation_id,
+          }))
+          const result = await executeLithoContactSplitCopy(
+            api,
+            projectId,
+            modelId,
+            executorTargetLayers,
+            plan.splits,
+            plan.recomposes,
+          )
           await settle()
-          // Owner: the toast names that the units were NOT recomposed.
-          toast('success', t('sections.canvasToast.lithoBoundaryCopied'), COPY_TOAST_KEY)
+          toast(
+            'success',
+            copySuccessMessage(plan.splits.length, result.recomposedCount, true),
+            COPY_TOAST_KEY,
+          )
           pushUndo(
             buildCopyLithoContactUndoCommand(
               {
                 kind: 'split',
                 projectId,
                 modelId,
-                topLayerId: result.top.id,
-                bottomLayerId: result.bottom.id,
-                splitDepthM: plan.depthM,
+                targetLayers: executorTargetLayers,
+                splits: plan.splits,
+                recomposes: plan.recomposes,
+                createdLayers: result.createdLayers,
               },
               api,
               settle,
