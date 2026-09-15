@@ -38,10 +38,20 @@
  * eligibility are the pure rules in ``geotechBandEdit.ts``; the consequence of an edit comes
  * from the preview endpoint; this file is the hit targets, the live lines and the menu.
  */
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 
 import type { LithoLayerResponse } from '../../api/client'
+import type { ColumnMenuVerb } from './columnMenuVerbs'
 import { surfaceYForColumn } from './contactsLayerGeometry'
 import {
   type DepthInterval,
@@ -61,6 +71,7 @@ import {
   enclosedLensAt,
   findSmallEnclosedLenses,
 } from './geotechLensSuggestion'
+import { geotechMenuTargetAt } from './geotechMenuTargetAt'
 import {
   nadClassIsForeignToSoil,
   nadClassesForSoil,
@@ -75,6 +86,15 @@ import type { BodyDisjoinOption } from './BodyContextMenu'
 
 /** Height in px of the strip that sits on a shared band boundary (drag + right-click). */
 const MERGE_HANDLE_PX = 10
+
+/**
+ * A generous upper bound on the unified menu's height, so a right-click low on
+ * the canvas opens it UPWARD instead of clipping its lower verbs off the bottom
+ * of the window (installer #39 added the column-verb head, which is what made
+ * the menu tall enough to clip — the litho axis learned the same on 2026-09-11).
+ * Only the flip DECISION uses it; the menu still sizes itself to its content.
+ */
+const GEOTECH_MENU_MAX_HEIGHT_PX = 360
 
 /**
  * How far in px the per-band press target stops short of its own top and bottom edges.
@@ -250,6 +270,25 @@ export interface Props {
   /** Lift a standing group (the "Ontkoppelen" band-menu item). */
   onUnjoinBody?: (unionId: string) => void
   /**
+   * Build the per-test COLUMN verbs (Focus / Details / Onderverdeling wissen /
+   * Uit dit profiel verwijderen) shown at the TOP of EVERY menu this overlay
+   * opens — owner installer #39, "one right-click on a test gives one menu".
+   *
+   * This is the SAME builder ``ContactsLayer`` receives for the litho axis
+   * (``buildColumnMenuVerbs``), so the two axes cannot offer different column
+   * verbs for the same test. Handed the test the pointer is over; returns the
+   * rows in menu order (never empty — Focus is ungated).
+   *
+   * Absent → the menu opens without the column-verb head, exactly as it did
+   * before the two menus were merged (the unit tests that do not wire it still
+   * see only the band verbs).
+   */
+  columnMenuVerbs?: (anchor: {
+    kind: 'cpt' | 'borehole'
+    id: string
+    name: string
+  }) => ColumnMenuVerb[]
+  /**
    * Hover preview for the band menu's "Ontkoppelen" items (D2): fired with the
    * hovered option as the pointer/focus enters a row, ``null`` as it leaves or the
    * menu closes. Lets the canvas spotlight WHICH body an un-join refers to — same
@@ -324,12 +363,31 @@ interface RemoveSeed {
   boundaryDepthM: number
 }
 
+/**
+ * The test a menu was opened on — its column verbs head every menu, so each
+ * menu state carries the anchor it belongs to (owner installer #39).
+ */
+interface MenuAnchor {
+  kind: 'cpt' | 'borehole'
+  id: string
+  name: string
+}
+
 /** An open right-click menu. */
 type MenuState =
+  | {
+      /** A right-click on a column but on no band — the column verbs only. */
+      kind: 'column'
+      clientX: number
+      clientY: number
+      anchor: MenuAnchor | null
+    }
   | {
       kind: 'split'
       clientX: number
       clientY: number
+      /** The test this band hangs off — its column verbs head the menu. */
+      anchor: MenuAnchor | null
       seed: SplitPlacement
       /** Absorb into the band above, when that merge is legal. */
       removeUp: RemoveSeed | null
@@ -344,11 +402,21 @@ type MenuState =
       /** The clicked band's own layer id — the Join anchor when arming from a column. */
       bandLayerId: string
     }
-  | { kind: 'merge'; clientX: number; clientY: number; upperBandId: string; lowerBandId: string; boundaryDepthM: number }
+  | {
+      kind: 'merge'
+      clientX: number
+      clientY: number
+      anchor: MenuAnchor | null
+      upperBandId: string
+      lowerBandId: string
+      boundaryDepthM: number
+    }
   | {
       kind: 'setClass'
       clientX: number
       clientY: number
+      /** The test this band hangs off — its column verbs head the menu. */
+      anchor: MenuAnchor | null
       bandId: string
       /**
        * Depth below the collar the engineer right-clicked at — where "Split band
@@ -412,12 +480,32 @@ export function depthAtClientY(
 }
 
 /**
+ * The imperative surface the section hands a right-click that did NOT land on a
+ * band — the collar gap / below-TD / column glyph the ``<svg>`` catch-all
+ * catches (owner installer #39). The overlay owns the ONE menu on this axis, so
+ * the section asks it to open, rather than opening a second, different menu of
+ * its own.
+ */
+export interface GeotechBandEditOverlayHandle {
+  /**
+   * Open the unified menu for the geotech column under a viewport point,
+   * resolved from the drawn band geometry. A point on a band opens the band
+   * menu; a point on a bare column opens the column-only menu; a point off
+   * every column dismisses. Idempotent — a fresh open replaces any menu already
+   * showing.
+   */
+  openMenuAt(clientX: number, clientY: number): void
+}
+
+/**
  * Draw the band-edit hit targets, the live boundary lines, and the context menu.
  *
  * Parameters
  * ----------
  * props : Props
  *     Bands, walls, geometry and the request handlers.
+ * ref : Ref<GeotechBandEditOverlayHandle>
+ *     Lets the section open the unified menu on a gap right-click (installer #39).
  *
  * Returns
  * -------
@@ -425,35 +513,40 @@ export function depthAtClientY(
  *     ``null`` when nothing is editable — the axis then stays exactly as view-only as it
  *     was before this overlay existed.
  */
-export default function GeotechBandEditOverlay({
-  geotechLayers,
-  lithoLayers,
-  placedColumns,
-  levelToScreen,
-  plotTop,
-  plotBottom,
-  onRequestSplit,
-  onRequestMerge,
-  onRequestMoveBoundary,
-  onRequestAbsorbLens,
-  nadClassByFormationId,
-  soilCodeByFormationId,
-  onRequestSetClass,
-  onRequestSplitHere,
-  smallLensThicknessM,
-  suspended = false,
-  onShowUnitStatistics,
-  joinArm,
-  onJoinPick,
-  bodyIdByLayerId,
-  classByLayerId,
-  soilByLayerId,
-  onArmJoinBody,
-  unjoinOptionsForBody,
-  onUnjoinBody,
-  onUnjoinHover,
-}: Props): JSX.Element | null {
-  const t = useT()
+const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
+  function GeotechBandEditOverlay(
+    {
+      geotechLayers,
+      lithoLayers,
+      placedColumns,
+      levelToScreen,
+      plotTop,
+      plotBottom,
+      onRequestSplit,
+      onRequestMerge,
+      onRequestMoveBoundary,
+      onRequestAbsorbLens,
+      nadClassByFormationId,
+      soilCodeByFormationId,
+      onRequestSetClass,
+      onRequestSplitHere,
+      smallLensThicknessM,
+      suspended = false,
+      onShowUnitStatistics,
+      joinArm,
+      onJoinPick,
+      bodyIdByLayerId,
+      classByLayerId,
+      soilByLayerId,
+      onArmJoinBody,
+      unjoinOptionsForBody,
+      onUnjoinBody,
+      onUnjoinHover,
+      columnMenuVerbs,
+    }: Props,
+    ref,
+  ): JSX.Element | null {
+    const t = useT()
   // The armed-Join left-click is live only when the arm + its resolution inputs
   // are all present, and never while another gesture owns the canvas.
   const joinArmActive =
@@ -553,6 +646,70 @@ export default function GeotechBandEditOverlay({
   // move focus into the class list and ArrowLeft can move it back out.
   const classSubmenuRef = useRef<HTMLDivElement | null>(null)
   const packingClassRowRef = useRef<HTMLButtonElement | null>(null)
+  // The overlay's own root ``<g>``, so a menu opened imperatively (the section's
+  // ``<svg>`` catch-all on a gap right-click) can find the SVG to convert
+  // viewport → SVG coordinates, the way each rect handler reads its own
+  // ``ownerSVGElement`` (installer #39).
+  const rootGRef = useRef<SVGGElement | null>(null)
+
+  // id → the test's anchor, so every menu can head itself with that test's
+  // column verbs (installer #39: "one right-click on a test gives one menu").
+  const columnAnchorById = useMemo(() => {
+    const m = new Map<string, MenuAnchor>()
+    for (const col of placedColumns) {
+      const item = col.proj.item as { id: string; name: string }
+      m.set(item.id, { kind: col.kind, id: item.id, name: item.name })
+    }
+    return m
+  }, [placedColumns])
+
+  // (a) of the merged menu: the per-test COLUMN verbs, the litho-axis shape
+  // (installer #39). Empty when the section wired none — the menu then reads
+  // exactly as it did before the two menus were merged (the unit tests that do
+  // not pass ``columnMenuVerbs`` see only the band verbs).
+  const columnHeadRows = (anchor: MenuAnchor | null): ColumnMenuVerb[] =>
+    columnMenuVerbs !== undefined && anchor !== null ? columnMenuVerbs(anchor) : []
+
+  /** The header (test name) + column verbs that head every menu, or null. */
+  const renderColumnHead = (anchor: MenuAnchor | null): JSX.Element | null => {
+    const verbs = columnHeadRows(anchor)
+    if (verbs.length === 0) return null
+    return (
+      <>
+        <div
+          data-testid="geotech-menu-header"
+          style={{
+            padding: '6px 12px',
+            fontSize: 11,
+            color: 'var(--color-text-secondary, #94a3b8)',
+            borderBottom: '1px solid var(--color-border-default, #334155)',
+          }}
+        >
+          {anchor?.name}
+        </div>
+        {verbs.map(v => (
+          <button
+            key={v.key}
+            type="button"
+            data-testid={v.testid}
+            onClick={() => {
+              v.onClick()
+              setMenu(null)
+            }}
+            style={{
+              ...MENU_ITEM_STYLE,
+              ...(v.danger ? { color: 'var(--color-text-danger, #f87171)' } : {}),
+              ...(v.topBorder
+                ? { borderTop: '1px solid var(--color-border-default, #334155)' }
+                : {}),
+            }}
+          >
+            {v.label}
+          </button>
+        ))}
+      </>
+    )
+  }
 
   const editable =
     !suspended &&
@@ -870,26 +1027,223 @@ export default function GeotechBandEditOverlay({
     })
   }, [onRequestSplit])
 
+  // ---- Menu-state builders --------------------------------------------------
+  // ONE builder per menu shape, shared by the RECT handler that owns the click
+  // AND by ``openMenuAt`` (the gap catch-all + the backdrop re-resolve), so the
+  // second right-click opens exactly the menu the first did (installer #39,
+  // mirroring ContactsLayer's ``bandMenuStateFor``). Each stamps the test's
+  // anchor so the column verbs can head the menu.
+
+  const anchorFor = (investigationId: string): MenuAnchor | null =>
+    columnAnchorById.get(investigationId) ?? null
+
+  /** The split menu for a CPT band; ``null`` when no litho body encloses it. */
+  const buildSplitMenuState = (
+    column: ColumnModel,
+    band: GeotechBandInterval,
+    clientX: number,
+    clientY: number,
+    svgTop: number,
+  ): MenuState | null => {
+    const raw = depthAtClientY(clientY, svgTop, column.surfaceY, column.pxPerMetre)
+    // No litho body → no bounds, so no split may be placed here (ruling 2 has
+    // nothing to clamp against below the deepest litho layer).
+    const lithoBody = enclosingLithoBody(column.lithoBodies, raw)
+    if (lithoBody === null) return null
+    const clamped = clampSplitDepth(lithoBody, raw)
+    // Remove-band = absorb into a neighbour, offered exactly where that merge is
+    // legal (the GS7 pattern: no affordance rather than a refusing item).
+    const index = column.bands.findIndex(b => b.layerId === band.layerId)
+    const above = index > 0 ? column.bands[index - 1] : null
+    const below =
+      index >= 0 && index < column.bands.length - 1 ? column.bands[index + 1] : null
+    const removeUp =
+      above !== null && canMergeBands(above, band, column.lithoBodies).ok
+        ? { upperBandId: above.layerId, lowerBandId: band.layerId, boundaryDepthM: band.topDepthM }
+        : null
+    const removeDown =
+      below !== null && canMergeBands(band, below, column.lithoBodies).ok
+        ? { upperBandId: band.layerId, lowerBandId: below.layerId, boundaryDepthM: band.baseDepthM }
+        : null
+    const absorbLens =
+      lensAware && nadClassByFormationId !== undefined && index >= 0
+        ? enclosedLensAt(column.bands, index, column.lithoBodies, nadClassByFormationId)
+        : null
+    return {
+      kind: 'split',
+      clientX,
+      clientY,
+      anchor: anchorFor(column.investigationId),
+      seed: {
+        svgTop,
+        column,
+        lithoBody,
+        depthM: clamped.depthM,
+        clampedAt: clamped.clampedAt,
+        clampReason: clamped.clampReason,
+      },
+      removeUp,
+      removeDown,
+      absorbLens,
+      unitId: band.formationId,
+      unitBodyId: band.bodyId ?? null,
+      bandLayerId: band.layerId,
+    }
+  }
+
+  /** The setClass menu for a borehole band; ``null`` when it offers no verb. */
+  const buildSetClassMenuState = (
+    column: { investigationId: string; surfaceY: number; pxPerMetre: number },
+    band: GeotechBandInterval,
+    clientX: number,
+    clientY: number,
+    svgTop: number,
+  ): MenuState | null => {
+    const currentClass = nadClassByFormationId?.get(band.formationId) ?? null
+    // The GROUND decides what this band may be (owner ruling 2026-08-26).
+    const soilCode = soilCodeByFormationId?.get(band.formationId) ?? null
+    const family = nadClassesForSoil(soilCode)
+    const canSetClass = onRequestSetClass !== undefined && family.length > 0
+    const canSplit = onRequestSplitHere !== undefined
+    if (!canSetClass && !canSplit) return null
+    const foreignClass = nadClassIsForeignToSoil(currentClass, soilCode) ? currentClass : null
+    const depthM = depthAtClientY(clientY, svgTop, column.surfaceY, column.pxPerMetre)
+    return {
+      kind: 'setClass',
+      clientX,
+      clientY,
+      anchor: anchorFor(column.investigationId),
+      bandId: band.layerId,
+      depthM,
+      currentClass,
+      family,
+      foreignClass,
+      unitId: band.formationId,
+      unitBodyId: band.bodyId ?? null,
+    }
+  }
+
+  /** The merge menu for a mergeable boundary strip. */
+  const buildMergeMenuState = (
+    column: ColumnModel,
+    pairIndex: number,
+    clientX: number,
+    clientY: number,
+  ): MenuState => {
+    const pair = column.mergeable[pairIndex]
+    return {
+      kind: 'merge',
+      clientX,
+      clientY,
+      anchor: anchorFor(column.investigationId),
+      upperBandId: pair.upper.layerId,
+      lowerBandId: pair.lower.layerId,
+      boundaryDepthM: pair.upper.baseDepthM,
+    }
+  }
+
+  /** The column-only menu — a right-click on a test but on no band. */
+  const buildColumnMenuState = (
+    anchor: MenuAnchor | null,
+    clientX: number,
+    clientY: number,
+  ): MenuState => ({ kind: 'column', clientX, clientY, anchor })
+
+  // Open the ONE menu for a viewport point that did NOT land on a band rect —
+  // the section's ``<svg>`` catch-all on a collar gap, and the dismiss
+  // backdrop's re-resolve (installer #39). Resolves the point from the drawn
+  // band geometry (``geotechMenuTargetAt``), then builds the same menu state the
+  // rect handler would.
+  const openMenuAt = (clientX: number, clientY: number): void => {
+    const svgRect = rootGRef.current?.ownerSVGElement?.getBoundingClientRect()
+    const svgTop = svgRect ? svgRect.top : 0
+    const svgLeft = svgRect ? svgRect.left : 0
+    const svgX = clientX - svgLeft
+    const svgY = clientY - svgTop
+    const cptInputs = columns.map(c => ({
+      x0: c.x0,
+      x1: c.x1,
+      bands: c.bands.map(b => ({
+        topY: c.surfaceY + b.topDepthM * c.pxPerMetre,
+        baseY: c.surfaceY + b.baseDepthM * c.pxPerMetre,
+      })),
+      strips: c.stripExtents,
+    }))
+    const bhInputs = boreholeColumns.map(c => ({
+      x0: c.x0,
+      x1: c.x1,
+      bands: c.bands.map(b => ({
+        topY: c.surfaceY + b.topDepthM * c.pxPerMetre,
+        baseY: c.surfaceY + b.baseDepthM * c.pxPerMetre,
+      })),
+    }))
+    const cardInputs = placedColumns.map(col => {
+      const half = col.width / 2
+      return { x0: col.nudgedX - half, x1: col.nudgedX + half }
+    })
+    const target = geotechMenuTargetAt({
+      cptColumns: cptInputs,
+      boreholeColumns: bhInputs,
+      cards: cardInputs,
+      svgX,
+      svgY,
+      plotTop,
+      plotBottom,
+    })
+    if (target === null) {
+      setMenu(null)
+      return
+    }
+    let next: MenuState | null = null
+    let fallbackAnchor: MenuAnchor | null = null
+    if (target.kind === 'cptBand') {
+      const col = columns[target.columnIndex]
+      fallbackAnchor = anchorFor(col.investigationId)
+      next = buildSplitMenuState(col, col.bands[target.bandIndex], clientX, clientY, svgTop)
+    } else if (target.kind === 'boundary') {
+      next = buildMergeMenuState(columns[target.columnIndex], target.pairIndex, clientX, clientY)
+    } else if (target.kind === 'bhBand') {
+      const col = boreholeColumns[target.columnIndex]
+      fallbackAnchor = anchorFor(col.investigationId)
+      next = buildSetClassMenuState(col, col.bands[target.bandIndex], clientX, clientY, svgTop)
+    } else {
+      const card = placedColumns[target.cardIndex]
+      const item = card.proj.item as { id: string }
+      next = buildColumnMenuState(anchorFor(item.id), clientX, clientY)
+    }
+    // A band that offers no band verb (no enclosing litho body, no settable
+    // family) still gives its column verbs — the column-only menu.
+    if (next === null) next = buildColumnMenuState(fallbackAnchor, clientX, clientY)
+    setMenu(next)
+  }
+  // Always call the latest closure through a stable handle, so the section's
+  // catch-all never captures a stale ``openMenuAt``.
+  const openMenuAtRef = useRef(openMenuAt)
+  openMenuAtRef.current = openMenuAt
+  useImperativeHandle(
+    ref,
+    (): GeotechBandEditOverlayHandle => ({
+      openMenuAt: (clientX, clientY) => openMenuAtRef.current(clientX, clientY),
+    }),
+    [],
+  )
+
   if (!editable && boreholeColumns.length === 0) return null
 
   const yAt = (column: ColumnModel, depthM: number): number =>
     column.surfaceY + depthM * column.pxPerMetre
 
   return (
-    <g data-testid="geotech-band-edit-overlay">
+    <g data-testid="geotech-band-edit-overlay" ref={rootGRef}>
       {/* Borehole bands: right-click → "Split band here" (owner #35, class kept)
           + a "Packing class ▸" submenu ("Set NAD class"). */}
       {boreholeColumns.map(column => (
         <g key={`gbe-bh-${column.investigationId}`}>
           {column.bands.map(band => {
-            const currentClass = nadClassByFormationId?.get(band.formationId) ?? null
-            // The GROUND decides what this band may be, not the class it
-            // happens to carry (owner ruling 2026-08-26: "the nad coupling is
-            // absolute"). Keying off the class made a band stamped with a
-            // foreign one offer only more of that wrong family — the one state
-            // that needs correcting was the one the UI could not correct. It
-            // also left every unclassified band with no menu at all, which the
-            // clamp turned from a rarity into a normal state.
+            // The GROUND decides what this band may be, not the class it happens
+            // to carry (owner ruling 2026-08-26: "the nad coupling is absolute").
+            // Here we only decide whether a hit rect exists — the menu itself is
+            // built by ``buildSetClassMenuState`` (shared with the re-resolve).
             const soilCode = soilCodeByFormationId?.get(band.formationId) ?? null
             const family = nadClassesForSoil(soilCode)
             // A verb exists when the class picker has a family to offer OR the
@@ -899,9 +1253,6 @@ export default function GeotechBandEditOverlay({
             const canSetClass = onRequestSetClass !== undefined && family.length > 0
             const canSplit = onRequestSplitHere !== undefined
             if (!canSetClass && !canSplit) return null
-            const foreignClass = nadClassIsForeignToSoil(currentClass, soilCode)
-              ? currentClass
-              : null
             const top = Math.max(plotTop, column.surfaceY + band.topDepthM * column.pxPerMetre)
             const bottom = Math.min(
               plotBottom,
@@ -935,26 +1286,8 @@ export default function GeotechBandEditOverlay({
                   e.stopPropagation()
                   const svg = e.currentTarget.ownerSVGElement
                   const svgTop = svg ? svg.getBoundingClientRect().top : 0
-                  // Where "Split band here" puts the boundary — the clicked depth
-                  // (owner #35: no cursor-following placement on a borehole).
-                  const depthM = depthAtClientY(
-                    e.clientY,
-                    svgTop,
-                    column.surfaceY,
-                    column.pxPerMetre,
-                  )
-                  setMenu({
-                    kind: 'setClass',
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                    bandId: band.layerId,
-                    depthM,
-                    currentClass,
-                    family,
-                    foreignClass,
-                    unitId: band.formationId,
-                    unitBodyId: band.bodyId ?? null,
-                  })
+                  // ONE builder, shared with the backdrop re-resolve (installer #39).
+                  setMenu(buildSetClassMenuState(column, band, e.clientX, e.clientY, svgTop))
                 }}
               >
                 <title>{t('sections.bands.rightClickClass')}</title>
@@ -1016,68 +1349,11 @@ export default function GeotechBandEditOverlay({
                     const svg = e.currentTarget.ownerSVGElement
                     if (!svg) return
                     const svgTop = svg.getBoundingClientRect().top
-                    const raw = depthAtClientY(
-                      e.clientY,
-                      svgTop,
-                      column.surfaceY,
-                      column.pxPerMetre,
-                    )
-                    // No litho body → no bounds, so no split may be placed here. Ruling 2
-                    // has nothing to clamp against below the deepest litho layer.
-                    const lithoBody = enclosingLithoBody(column.lithoBodies, raw)
-                    if (lithoBody === null) return
-                    const clamped = clampSplitDepth(lithoBody, raw)
-                    // Remove-band = absorb into a neighbour, offered exactly where that
-                    // merge is legal (the GS7 pattern: no affordance rather than a
-                    // refusing item — a sole band in its body has nothing to absorb it).
-                    const index = column.bands.findIndex(b => b.layerId === band.layerId)
-                    const above = index > 0 ? column.bands[index - 1] : null
-                    const below =
-                      index >= 0 && index < column.bands.length - 1
-                        ? column.bands[index + 1]
-                        : null
-                    const removeUp =
-                      above !== null && canMergeBands(above, band, column.lithoBodies).ok
-                        ? {
-                            upperBandId: above.layerId,
-                            lowerBandId: band.layerId,
-                            boundaryDepthM: band.topDepthM,
-                          }
-                        : null
-                    const removeDown =
-                      below !== null && canMergeBands(band, below, column.lithoBodies).ok
-                        ? {
-                            upperBandId: band.layerId,
-                            lowerBandId: below.layerId,
-                            boundaryDepthM: band.baseDepthM,
-                          }
-                        : null
-                    // The enclosure is named on ANY enclosed lens (no size gate
-                    // here — the badge alone is reserved for thin ones): the
-                    // engineer right-clicked the band, so the menu answers for it.
-                    const absorbLens =
-                      lensAware && nadClassByFormationId !== undefined && index >= 0
-                        ? enclosedLensAt(column.bands, index, column.lithoBodies, nadClassByFormationId)
-                        : null
-                    setMenu({
-                      kind: 'split',
-                      clientX: e.clientX,
-                      clientY: e.clientY,
-                      seed: {
-                        svgTop,
-                        column,
-                        lithoBody,
-                        depthM: clamped.depthM,
-                        clampedAt: clamped.clampedAt,
-                        clampReason: clamped.clampReason,
-                      },
-                      removeUp,
-                      removeDown,
-                      absorbLens,
-                      unitId: band.formationId,
-                      unitBodyId: band.bodyId ?? null,
-                      bandLayerId: band.layerId,
-                    })
+                    // ONE builder, shared with the backdrop re-resolve (installer
+                    // #39). ``null`` (no enclosing litho body) leaves the axis
+                    // exactly as it was — a right-click with nothing to place.
+                    const next = buildSplitMenuState(column, band, e.clientX, e.clientY, svgTop)
+                    if (next !== null) setMenu(next)
                   }}
                 >
                   <title>{t('sections.bands.rightClickBoundary')}</title>
@@ -1130,14 +1406,8 @@ export default function GeotechBandEditOverlay({
                     onContextMenu={e => {
                       e.preventDefault()
                       e.stopPropagation()
-                      setMenu({
-                        kind: 'merge',
-                        clientX: e.clientX,
-                        clientY: e.clientY,
-                        upperBandId: pair.upper.layerId,
-                        lowerBandId: pair.lower.layerId,
-                        boundaryDepthM: pair.upper.baseDepthM,
-                      })
+                      // ONE builder, shared with the backdrop re-resolve (#39).
+                      setMenu(buildMergeMenuState(column, i, e.clientX, e.clientY))
                     }}
                   >
                     <title>
@@ -1346,9 +1616,18 @@ export default function GeotechBandEditOverlay({
       )}
 
       {menu !== null &&
+        (menu.kind !== 'column' || columnHeadRows(menu.anchor).length > 0) &&
         createPortal(
           <>
+            {/* Dismiss backdrop. A right-click on it does NOT simply close: it
+                re-resolves what the pointer is over and re-opens the SAME menu
+                there (installer #39), because the backdrop covers the canvas and
+                the browser can no longer hit-test the band beneath it. Before
+                this, closing let the event bubble to the section's catch-all,
+                which opened the separate COLUMN menu — the "two different menus"
+                the owner reported. */}
             <div
+              data-testid="geotech-band-edit-menu-backdrop"
               style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
               onClick={() => {
                 onUnjoinHover?.(null)
@@ -1357,15 +1636,27 @@ export default function GeotechBandEditOverlay({
               onContextMenu={e => {
                 e.preventDefault()
                 onUnjoinHover?.(null)
-                setMenu(null)
+                openMenuAt(e.clientX, e.clientY)
               }}
             />
             <div
               data-testid="geotech-band-edit-menu"
+              // A right-click landing on the open menu keeps it, rather than
+              // firing the native browser menu or falling through to the canvas.
+              onContextMenu={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
               style={{
                 position: 'fixed',
                 left: menu.clientX,
-                top: menu.clientY,
+                // Open downward from the pointer, or upward when the menu would
+                // otherwise run off the bottom — with the column-verb head it is
+                // tall enough that a right-click low on the canvas would clip its
+                // last verbs (installer #39, the litho-axis fix).
+                ...(menu.clientY + GEOTECH_MENU_MAX_HEIGHT_PX > window.innerHeight
+                  ? { bottom: Math.max(0, window.innerHeight - menu.clientY) }
+                  : { top: menu.clientY }),
                 zIndex: 2147483647,
                 background: 'var(--color-surface-overlay, #1e293b)',
                 border: '1px solid var(--color-border-default, #334155)',
@@ -1374,7 +1665,19 @@ export default function GeotechBandEditOverlay({
                 minWidth: 200,
               }}
             >
-              {menu.kind === 'split' ? (
+              {/* (a) The COLUMN verbs for the test under the pointer, headed by
+                  its name (installer #39, the litho-axis shape). */}
+              {renderColumnHead(menu.anchor)}
+              {menu.kind !== 'column' && columnHeadRows(menu.anchor).length > 0 && (
+                <div
+                  role="separator"
+                  data-testid="geotech-menu-group-rule"
+                  style={{ borderTop: '1px solid var(--color-border-default, #334155)' }}
+                />
+              )}
+              {/* (b) The band verbs, when the click sits on a packing band. A
+                  column-only menu (the collar gap) has none. */}
+              {menu.kind === 'column' ? null : menu.kind === 'split' ? (
                 <>
                   <button
                     type="button"
@@ -1616,7 +1919,10 @@ export default function GeotechBandEditOverlay({
         )}
     </g>
   )
-}
+  },
+)
+
+export default GeotechBandEditOverlay
 
 // ``UnitStatisticsItem`` and ``MENU_ITEM_STYLE`` moved to
 // ``unitStatisticsMenuItem.tsx`` when the litho band menu became their second
