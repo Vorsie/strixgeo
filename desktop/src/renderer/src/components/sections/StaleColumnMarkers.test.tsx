@@ -6,8 +6,8 @@
  * the section, and the column he is about to correlate is where the warning has
  * to be.
  */
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import StaleColumnMarkers from './StaleColumnMarkers'
 import type { PlacedColumn } from './utils'
@@ -72,8 +72,40 @@ describe('StaleColumnMarkers', () => {
     const mark = getByTestId('geotech-stale-column-inv-s17')
 
     expect(mark.querySelector('title')?.textContent).toContain('GEO-23/125-S17')
-    expect(mark.querySelector('title')?.textContent).toContain('lithology here changed')
+    expect(mark.querySelector('title')?.textContent).toContain('older lithology')
     expect(mark.textContent).toContain('!')
+  })
+
+  it('SCM7 the tooltip tells the engineer WHAT IT MEANS and WHAT TO DO', () => {
+    // Owner installer #40: "this doesn't point the user to how to solve it." The
+    // marker must name the fix — pressing Subdivide (Onderverdelen) re-derives
+    // the packing from the current lithology.
+    const { getByTestId } = draw([column('inv-s17', 'GEO-23/125-S17', 100)], ['inv-s17'])
+    const title = getByTestId('geotech-stale-column-inv-s17').querySelector('title')?.textContent
+    expect(title).toContain('older lithology')
+    expect(title).toContain('Subdivide')
+  })
+
+  it('SCM8 clicking the marker selects (focuses) the column', () => {
+    // "clicking the marker selects the column" — the click focuses that column
+    // so the engineer can act on it (and the inspector line offers Subdivide).
+    const onSelectColumn = vi.fn()
+    const { getByTestId } = render(
+      <svg>
+        <StaleColumnMarkers
+          columns={[column('inv-s17', 'GEO-23/125-S17', 100)]}
+          staleColumnIds={new Set(['inv-s17'])}
+          plotTop={40}
+          onSelectColumn={onSelectColumn}
+        />
+      </svg>,
+    )
+    fireEvent.click(getByTestId('geotech-stale-column-inv-s17'))
+    expect(onSelectColumn).toHaveBeenCalledWith({
+      kind: 'cpt',
+      id: 'inv-s17',
+      name: 'GEO-23/125-S17',
+    })
   })
 
   it('SCM5 is amber, never red — the bands are out of date, not wrong', () => {
