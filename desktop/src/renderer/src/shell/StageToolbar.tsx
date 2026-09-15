@@ -153,6 +153,7 @@ export default function StageToolbar({
             confirm, so this button just signals intent. */}
         <button
           type="button"
+          data-testid="stage-toolbar-close-project"
           aria-label={t('project.close')}
           title={t('project.closeHintGmproj')}
           onClick={handleCloseProjectRequest}
