@@ -155,7 +155,7 @@ function renderLayer(
     onDissolveBody?: (bodyId: string) => void
     onCopyLithoContactToColumn?: (params: {
       sourceInvestigationId: string
-      contactDepthM: number
+      contactDepthsM: number[]
       targetInvestigationId: string
       targetKind: 'cpt' | 'borehole'
     }) => void
@@ -682,7 +682,7 @@ describe('ContactsLayer', () => {
     expect(onCopyLithoContactToColumn).toHaveBeenCalledTimes(1)
     expect(onCopyLithoContactToColumn.mock.calls[0][0]).toEqual({
       sourceInvestigationId: 'bh-1',
-      contactDepthM: 3,
+      contactDepthsM: [3],
       targetInvestigationId: 'bh-2',
       targetKind: 'borehole',
     })
