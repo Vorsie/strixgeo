@@ -511,6 +511,7 @@ export const MODELS_NL = {
   // -------------------------------------------------------------------------
   'geotech.units': 'Geotechnische eenheden',
   'geotech.unitsFull': 'Geotechnische eenheden',
+  'geotech.unitsStale': 'Geotechnische eenheden: het 3D-model is verouderd, bouw het opnieuw op',
   // De L1-lijst bevat nu grondgroepen, geen NAD-klasserijen (2026-08-31).
   'geotech.soilGroups': 'Geotechnische grondgroepen',
   'geotech.noUnits': 'Nog geen geotechnische eenheden',
