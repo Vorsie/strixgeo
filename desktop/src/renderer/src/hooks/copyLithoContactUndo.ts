@@ -1,30 +1,40 @@
 /**
- * The undo command for a "Shift-drag an accepted litho contact onto another
- * test" copy (installer #35). One drop is ONE undo step, keyed
- * ``undo.copyLithoContact`` (owner: revertible with Ctrl+Z / the button, like
- * every other litho edit).
+ * The undo command for a "Shift-drag accepted litho contacts onto another test"
+ * copy (installer #35, extended to a multi-boundary selection in installer #40).
+ * One drop is ONE undo step, keyed ``undo.copyLithoContact`` (owner: revertible
+ * with Ctrl+Z / the button, like every other litho edit).
  *
  * A drop resolves to one of two shapes, and the inverse mirrors each:
  *
- * - **create** (empty target got BOTH units): the inverse DELETES the created
- *   layers deepest-first, so each delete leaves the column contiguous (the FC→LL
- *   mirror re-derives the survivor's base) and the last delete empties it. Redo
- *   re-creates the same two units and re-captures their fresh ids so the next
+ * - **create** (empty target got the whole copied stack): the inverse DELETES the
+ *   created layers deepest-first, so each delete leaves the column contiguous (the
+ *   FC→LL mirror re-derives the survivor's base) and the last delete empties it.
+ *   Redo re-creates the same units and re-captures their fresh ids so the next
  *   undo deletes rows that actually exist.
- * - **split** (target that already had layers): the inverse DELETES the new
- *   bottom half — the FC→LL mirror re-merges the halves back to the original
- *   boundary inside one transaction (the same reason ``splitLayerUndo`` deletes
- *   the bottom). Redo re-splits the top at the same depth and re-anchors onto the
- *   fresh bottom row.
+ * - **split** (target that already had layers): the executor split at each
+ *   boundary (each keeps the original row as the top half and inserts a fresh
+ *   bottom row) and recomposed the between-units on those fresh rows only. The
+ *   inverse therefore DELETES every created bottom row deepest-first — the FC→LL
+ *   mirror re-merges the halves back and, because only created rows were
+ *   recomposed, no composition needs rolling back. Redo re-runs the SAME executor
+ *   against the captured original target layers, re-splitting + re-recomposing and
+ *   re-capturing the fresh created rows for the next undo.
  *
  * Pure with respect to React — the caller hands in the API slice + one ``settle``
  * fan-out (dirty flag + refetch + body recompute), awaited once per revert/redo.
  */
 
+import {
+  executeLithoContactSplitCopy,
+  type LithoContactSplitCopyApi,
+  type SplitCopyRecompose,
+  type SplitCopySplit,
+  type SplitCopyTargetLayer,
+} from './executeLithoContactSplitCopy'
 import type { UndoCommand } from './useUndoStack'
 import type { LithoLayerCreateItem } from '../api/client'
 
-/** The two created units when an EMPTY target got both units copied. */
+/** The units created when an EMPTY target got the whole copied stack. */
 export interface CopyLithoContactCreateFacts {
   kind: 'create'
   projectId: string
@@ -37,17 +47,19 @@ export interface CopyLithoContactCreateFacts {
   createdLayers: readonly { id: string; depthTopM: number }[]
 }
 
-/** The two halves when a target that already had layers was SPLIT at z. */
+/** The split + recompose facts when a target that already had layers was copied onto. */
 export interface CopyLithoContactSplitFacts {
   kind: 'split'
   projectId: string
   modelId: string
-  /** The KEPT top row (id + composition unchanged by the split). */
-  topLayerId: string
-  /** The NEW bottom row the split created — deleted on undo. */
-  bottomLayerId: string
-  /** The depth the split cut at — the same depth a redo re-splits at. */
-  splitDepthM: number
+  /** The target column BEFORE the copy — the executor replays from this on redo. */
+  targetLayers: readonly SplitCopyTargetLayer[]
+  /** The boundaries cut. */
+  splits: readonly SplitCopySplit[]
+  /** The between-units recomposed to a source composition. */
+  recomposes: readonly SplitCopyRecompose[]
+  /** The rows the initial execution created — deleted deepest-first on undo. */
+  createdLayers: readonly { id: string; depthTopM: number }[]
 }
 
 export type CopyLithoContactUndoFacts =
@@ -55,19 +67,13 @@ export type CopyLithoContactUndoFacts =
   | CopyLithoContactSplitFacts
 
 /** The endpoints the inverse + redo call. */
-export interface CopyLithoContactUndoApi {
+export interface CopyLithoContactUndoApi extends LithoContactSplitCopyApi {
   bulkCreateLayers: (
     projectId: string,
     modelId: string,
     layers: readonly LithoLayerCreateItem[],
     sectionId?: string | null,
   ) => Promise<readonly { id: string; depth_top_m: number }[]>
-  splitLayer: (
-    projectId: string,
-    modelId: string,
-    layerId: string,
-    depthM: number,
-  ) => Promise<{ top: { id: string }; bottom: { id: string } }>
   deleteLayer: (
     projectId: string,
     modelId: string,
@@ -76,10 +82,29 @@ export interface CopyLithoContactUndoApi {
 }
 
 /**
+ * Delete captured rows deepest-first, then settle. Deepest-first keeps a single
+ * contiguous survivor at every commit (the FC→LL mirror re-derives the survivor's
+ * base), never a transient gap the deferred contiguity guard would refuse.
+ */
+async function deleteDeepestFirst(
+  api: CopyLithoContactUndoApi,
+  projectId: string,
+  modelId: string,
+  rows: readonly { id: string; depthTopM: number }[],
+  settle: () => Promise<void> | void,
+): Promise<void> {
+  const order = [...rows].sort((a, b) => b.depthTopM - a.depthTopM)
+  for (const row of order) {
+    await api.deleteLayer(projectId, modelId, row.id)
+  }
+  await settle()
+}
+
+/**
  * Build the undo command for a committed litho-contact copy.
  *
- * @param facts - The drop's resulting rows (create pair or split halves).
- * @param api - The bulk-create / split / delete endpoints.
+ * @param facts - The drop's resulting rows (create stack or split facts).
+ * @param api - The bulk-create / split / batch-update / delete endpoints.
  * @param settle - The canvas's post-write fan-out; awaited once per revert/redo.
  * @returns The command to push onto the undo stack.
  */
@@ -96,36 +121,35 @@ export function buildCopyLithoContactUndoCommand(
     return {
       descriptionKey: 'undo.copyLithoContact',
       revert: async () => {
-        // Deepest-first: each delete leaves a single contiguous survivor (or an
-        // empty column on the last), never a transient gap the deferred
-        // contiguity guard would refuse.
-        const order = [...created].sort((a, b) => b.depthTopM - a.depthTopM)
-        for (const layer of order) {
-          await api.deleteLayer(projectId, modelId, layer.id)
-        }
-        await settle()
+        await deleteDeepestFirst(api, projectId, modelId, created, settle)
       },
       reapply: async () => {
         const rows = await api.bulkCreateLayers(projectId, modelId, createItems)
-        created = rows.map(r => ({ id: r.id, depthTopM: r.depth_top_m }))
+        created = rows.map((r) => ({ id: r.id, depthTopM: r.depth_top_m }))
         await settle()
       },
     }
   }
 
-  const { projectId, modelId, splitDepthM } = facts
-  let topId = facts.topLayerId
-  let bottomId = facts.bottomLayerId
+  const { projectId, modelId, targetLayers, splits, recomposes } = facts
+  // Captured by value; redo re-runs the executor and re-captures the fresh rows so
+  // the NEXT undo deletes rows that actually exist.
+  let created = [...facts.createdLayers]
   return {
     descriptionKey: 'undo.copyLithoContact',
     revert: async () => {
-      await api.deleteLayer(projectId, modelId, bottomId)
-      await settle()
+      await deleteDeepestFirst(api, projectId, modelId, created, settle)
     },
     reapply: async () => {
-      const again = await api.splitLayer(projectId, modelId, topId, splitDepthM)
-      topId = again.top.id
-      bottomId = again.bottom.id
+      const result = await executeLithoContactSplitCopy(
+        api,
+        projectId,
+        modelId,
+        targetLayers,
+        splits,
+        recomposes,
+      )
+      created = result.createdLayers
       await settle()
     },
   }
