@@ -1003,23 +1003,36 @@ def _formations_between(grid, x: float, y: float, low: float, high: float) -> se
     return out
 
 
-def test_an_unfilled_interval_stays_unknown_instead_of_taking_the_body_above():
-    """The clay above an unknown interval must not be extruded down through it.
+def test_an_interior_unknown_is_closed_by_the_thicker_neighbour():
+    """The builder closes an interior void — the model shows no interior sliver.
+
+    Owner installer #40 (model-check clause 6) SUPERSEDES the 2026-07-30 stance
+    for an INTERIOR void: a void between two labelled entries takes the label of
+    the thicker neighbour (the upper one when equal).  Here the clay above and
+    below the unknown interval are equally thick (both 6 m), so the void takes
+    the UPPER clay, which grows down through it.  A BELOW-TD void is a different
+    case and stays unknown — it is not interior (see
+    ``test_close_interior_voids``).
 
     Read beyond the sections (nearer A than B, outside the band between them) so
-    the column is A's own partition extended sideways — the answer A actually
-    drew, voids and all.
+    the column is A's own partition extended sideways.
     """
     domain = _domain_for_two_sections()
     sections = [_section_with_an_unfilled_middle(), _section_b()]
 
     grid = label_voxels(domain, 2.0, sections)
 
-    assert _formations_between(grid, x=40.0, y=-3.0, low=-4.0, high=4.0) == {None}
+    # The middle interval is no longer void — the thicker (here equal → upper) KLEI
+    # neighbour was extended into it.
+    assert _formations_between(grid, x=40.0, y=-3.0, low=-4.0, high=4.0) == {_KLEI}
 
 
-def test_the_bodies_around_an_unfilled_interval_stay_exactly_where_they_are():
-    """Nothing above or below the unknown interval moves to close it up."""
+def test_the_lithology_around_a_closed_interior_void_is_unchanged():
+    """Closing the void changes only the void; the clay above and below stays clay.
+
+    The fill takes a NEIGHBOUR'S label, so both bracketing bodies keep their own
+    lithology and only the interval between them is filled (with the same KLEI).
+    """
     domain = _domain_for_two_sections()
     sections = [_section_with_an_unfilled_middle(), _section_b()]
 
