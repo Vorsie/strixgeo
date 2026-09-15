@@ -271,6 +271,70 @@ def _mid(e: _Entry) -> float:
     return (e.top_elev + e.base_elev) / 2.0
 
 
+def _close_interior_voids(stack: list[_Entry]) -> list[_Entry]:
+    """Fill each interior void by extending its THICKER vertical neighbour.
+
+    Owner ruling (installer #40, model-check clause 6 — the site around
+    GEO-07/182-B2): the 3-D builder closes an interior void a section column
+    leaves between two labelled entries, so a model whose 2-D fills are complete
+    (the gapless clauses 1-3 pass) carries no sliver the cross-sections do not
+    show.  A void BETWEEN two labelled entries — below the ground/bed and above
+    the model floor — takes the label of the THICKER neighbour, or the UPPER one
+    when the two are equally thick.
+
+    The gaps come from the per-section column projection, not the two-section
+    blend (:func:`_layout` is gap-free by construction).  A sloped contact
+    sampled at a fraction can leave the region above it and the region below it a
+    hairline apart — the sub-voxel sliver the owner sees flagged.  A BOTTOM void
+    (below the deepest entry, a below-TD unknown) is left exactly as it was
+    (owner ruling 2026-07-30, *"leave it unknown"*): :func:`_interior_gaps` only
+    ever returns a gap sandwiched between two entries, so a below-TD interval is
+    never a candidate here and clause 6 does not count it either.
+
+    Parameters
+    ----------
+    stack : list of _Entry
+        The per-column stack, shallow → deep.
+
+    Returns
+    -------
+    list of _Entry
+        The stack with every interior void folded into a neighbour — gap-free
+        between its extremes, same top and same base.  A fresh unchanged copy
+        when the stack has no interior void (the common case).
+    """
+    gaps = _interior_gaps(stack)  # (base, top) between-entry ranges, deep → shallow
+    if not gaps:
+        return list(stack)
+    # Widen the chosen neighbour's bound per void; "thicker" is read from the
+    # ORIGINAL heights so two voids sharing one neighbour decide the same way.
+    tops = [e.top_elev for e in stack]
+    bases = [e.base_elev for e in stack]
+    for base, top in gaps:
+        # The entry directly ABOVE the void (its base is the void's top) and the
+        # one directly BELOW (its top is the void's base).
+        above = min(
+            (k for k in range(len(stack)) if stack[k].base_elev >= top - _EPS),
+            key=lambda k: stack[k].base_elev,
+            default=None,
+        )
+        below = max(
+            (k for k in range(len(stack)) if stack[k].top_elev <= base + _EPS),
+            key=lambda k: stack[k].top_elev,
+            default=None,
+        )
+        if above is None and below is None:
+            continue  # no neighbour to grow from (never happens for an interior void)
+        if below is None or (above is not None and _th(stack[above]) >= _th(stack[below])):
+            bases[above] = min(bases[above], base)  # the upper (thicker/equal) grows DOWN
+        else:
+            tops[below] = max(tops[below], top)  # the lower (strictly thicker) grows UP
+    return [
+        _Entry(e.body_id, e.formation_id, tops[k], bases[k], e.kind, e.overlay_tier)
+        for k, e in enumerate(stack)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Geometry helpers (ported from loft_field)
 # ---------------------------------------------------------------------------
@@ -2129,6 +2193,15 @@ def label_voxels(
                 labeller = _column_labels_gapped
             else:
                 stack = _stack_at(sections, x, y, terminations, reach_to_evidence, tally)
+                # The builder closes an interior void this column leaves between
+                # two labelled entries (owner installer #40, clause 6): a
+                # sub-voxel sliver a sloped contact left when the column read it
+                # at a fraction is folded into the thicker neighbour, so a
+                # complete-2-D model shows no slivers and clause 6 counts only a
+                # void it could NOT close.  A below-TD void is not interior and
+                # is untouched.  Un-bounded path only — the geology-bounded path
+                # keeps its intentional pinch-out voids.
+                stack = _close_interior_voids(stack)
                 labeller = _column_labels
             # A void the partition MEANT stays void, so this measures rather than
             # closes.  It separates the two ways a stack can be discontinuous: the
