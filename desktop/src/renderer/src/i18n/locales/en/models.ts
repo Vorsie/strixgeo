@@ -476,6 +476,10 @@ export const MODELS = {
   // -------------------------------------------------------------------------
   'geotech.units': 'Geotech units',
   'geotech.unitsFull': 'Geotechnical units',
+  // Stale-solid badge label — the 3-D voxel solids embed the bed / litho at
+  // Build time, so a bed edit or a moved litho contact stales them. Mirrors
+  // ``litho.unitsStale`` (no em-dash per the launch copy rule).
+  'geotech.unitsStale': 'Geotech units: 3-D model is stale, rebuild it',
   // The L1 list is soil groups now, not NAD-class rows (owner ruling 2026-08-31).
   'geotech.soilGroups': 'Geotechnical soil groups',
   'geotech.noUnits': 'No geotech units yet',
