@@ -127,6 +127,29 @@ describe('SheetPreviewDialog — live scale readout (owner finding 4)', () => {
   })
 })
 
+describe('SheetPreviewDialog — the profile fills the drawing at every spacing', () => {
+  // Owner, installer #40: "pdf fit to A3 and column spacing all the way down has
+  // a lot of white space between the profile and the map on the right?" In fit
+  // mode the profile must fill the drawing width whatever the spacing, so pulling
+  // the column-spacing slider to its minimum leaves no white space before the map.
+  it('the drawing width stays filled when the column spacing is pulled to its minimum', async () => {
+    renderDialog()
+    const readout = await screen.findByTestId('sheet-drawing-width')
+    const paper = screen.getByTestId('sheet-paper-size')
+    // The width readout at the opened (true-distance) spacing, on an A3 sheet.
+    await waitFor(() => expect(readout.textContent ?? '').toMatch(/\d/))
+    const widthAtTrueSpacing = readout.textContent ?? ''
+    expect(paper.textContent ?? '').toContain('420') // A3 wide
+    // Pull the column spacing all the way down: the profile still fills the same
+    // drawing width (before #40 it collapsed and left white space), paper stays A3.
+    fireEvent.change(screen.getByTestId('sheet-spacing'), { target: { value: '0' } })
+    await waitFor(() => {
+      expect(readout.textContent ?? '').toBe(widthAtTrueSpacing)
+      expect(paper.textContent ?? '').toContain('420')
+    })
+  })
+})
+
 describe('SheetPreviewDialog — the sheet opens filling the page', () => {
   // Owner 2026-09-11 on the first fit-to-width sheet: "a lot of white space on
   // the pdf report no? Can't we give a better page fit to start?" The section
