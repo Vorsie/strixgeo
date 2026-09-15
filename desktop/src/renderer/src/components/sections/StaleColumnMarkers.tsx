@@ -21,6 +21,7 @@
  * @module components/sections/StaleColumnMarkers
  */
 import type { PlacedColumn } from './utils'
+import type { FocusTarget } from './useFocusColumn'
 import { useT } from '../../i18n/translate'
 
 /** Vertical offset of the mark below the plot's top edge, in px. */
@@ -37,6 +38,14 @@ interface Props {
   staleColumnIds: ReadonlySet<string>
   /** Screen y of the plot's top edge. */
   plotTop: number
+  /**
+   * Focus the column the mark sits on (owner installer #40: "clicking the
+   * marker selects the column"). When passed, each mark becomes a small
+   * clickable/keyboard target that hands back the column's focus descriptor;
+   * the inspector's stale-packing line then offers Subdivide. When omitted the
+   * marks stay fully inert, as before.
+   */
+  onSelectColumn?: (target: FocusTarget) => void
 }
 
 /**
@@ -50,6 +59,7 @@ export default function StaleColumnMarkers({
   columns,
   staleColumnIds,
   plotTop,
+  onSelectColumn,
 }: Props): JSX.Element | null {
   const t = useT()
   const marked = columns.filter(c => staleColumnIds.has(c.proj.item.id))
@@ -57,13 +67,51 @@ export default function StaleColumnMarkers({
 
   return (
     <g data-testid="geotech-stale-column-markers" pointerEvents="none">
-      {marked.map(column => (
+      {marked.map(column => {
+        const title = t('sections.staleColumn.title', { name: column.proj.item.name })
+        // Clicking the small disc focuses the column so the engineer can act on
+        // it (and the inspector line offers Subdivide). Only the disc re-enables
+        // pointer events — the outer group stays inert so it can never swallow a
+        // band drag lower down the column (SCM6). ``select`` fires on click and
+        // on Enter/Space for keyboard users (WCAG 2.2 2.1.1).
+        const focusable = onSelectColumn !== undefined
+        const select = focusable
+          ? () =>
+              onSelectColumn({
+                kind: column.kind,
+                id: column.proj.item.id,
+                name: column.proj.item.name,
+              })
+          : undefined
+        return (
         <g
           key={column.proj.item.id}
           data-testid={`geotech-stale-column-${column.proj.item.id}`}
           transform={`translate(${column.nudgedX}, ${plotTop + MARK_OFFSET_Y_PX})`}
+          onClick={
+            select
+              ? e => {
+                  e.stopPropagation()
+                  select()
+                }
+              : undefined
+          }
+          onKeyDown={
+            select
+              ? e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    select()
+                  }
+                }
+              : undefined
+          }
+          role={focusable ? 'button' : undefined}
+          tabIndex={focusable ? 0 : undefined}
+          aria-label={focusable ? title : undefined}
+          style={focusable ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
         >
-          <title>{t('sections.staleColumn.title', { name: column.proj.item.name })}</title>
+          <title>{title}</title>
           {/* The ring is not decoration — the lens badge on this same axis
               records why: amber alone is ~2.1:1 on the light plot background,
               under the 3:1 floor WCAG 2.2 1.4.11 sets for a graphical object
@@ -85,7 +133,8 @@ export default function StaleColumnMarkers({
             !
           </text>
         </g>
-      ))}
+        )
+      })}
     </g>
   )
 }
