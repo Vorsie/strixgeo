@@ -133,7 +133,9 @@ import {
   partitionLayerSource,
   shouldMountCorrelationOverlay,
 } from "./sections/correlationOverlayAxis";
-import GeotechBandEditOverlay from "./sections/GeotechBandEditOverlay";
+import GeotechBandEditOverlay, {
+  type GeotechBandEditOverlayHandle,
+} from "./sections/GeotechBandEditOverlay";
 import GeotechBoreholePreviewGhosts from "./sections/GeotechBoreholePreviewGhosts";
 import PartitionFillOverlay, {
   type GeotechLithoFrame,
@@ -2489,6 +2491,17 @@ export default function SectionPanel({
     dismiss: dismissContextMenu,
   } = useColumnContextMenu(visibleColumns, containerRef);
 
+  // The geotech band-edit overlay owns the ONE right-click menu on the geotech
+  // axis (owner installer #39: "one right-click on a test gives one menu"). A
+  // right-click that lands on a band opens the overlay's own menu; a right-click
+  // that reaches the section (the collar gap / column glyph) is routed INTO that
+  // same overlay through this handle, so no second, different menu opens.
+  const geotechOverlayRef = useRef<GeotechBandEditOverlayHandle>(null);
+  // True where the unified geotech menu is the one to open — the geotech axis
+  // with a model to draw. Off it, ColumnContextMenu answers exactly as before.
+  const geotechUnifiedMenuAxis =
+    axisMode === "geotechnical" && geotechModel !== undefined;
+
   // Body context menu state — opened by right-clicking a body wedge
   // in BodyExtentOverlay.  Closed by the menu's own onClose or by the
   // section-wide Esc handler below.
@@ -2655,6 +2668,49 @@ export default function SectionPanel({
       onSelectBorehole,
       onPatch,
       handleRemoveFromSection,
+    ],
+  );
+
+  // The column verbs the geotech overlay heads its ONE menu with (owner
+  // installer #39). The SAME builder as the litho axis, plus the geotech-only
+  // "Onderverdeling wissen" — offered exactly where ColumnContextMenu offered
+  // it (a subdivided column, the model wired), so the merge changes no verb, it
+  // only moves them onto the band menu.
+  const geotechMenuColumnVerbs = useCallback(
+    (anchor: { kind: "cpt" | "borehole"; id: string; name: string }) =>
+      buildColumnMenuVerbs(t, {
+        onFocus: () => enterFocus(anchor),
+        onOpenDetail:
+          anchor.kind === "cpt"
+            ? onSelectCpt
+              ? () => onSelectCpt(anchor.id)
+              : undefined
+            : onSelectBorehole
+              ? () => onSelectBorehole(anchor.id)
+              : undefined,
+        onRemoveFromSection: onPatch
+          ? () => {
+              void handleRemoveFromSection(anchor.kind, anchor.id);
+            }
+          : undefined,
+        onClearSubdivision:
+          onRequestGeotechClearColumn !== undefined &&
+          geotechModel !== undefined &&
+          geotechModel.geotechLayers.some(
+            (l) => l.cpt_id === anchor.id || l.borehole_id === anchor.id,
+          )
+            ? () => onRequestGeotechClearColumn(anchor.id, anchor.name)
+            : undefined,
+      }),
+    [
+      t,
+      enterFocus,
+      onSelectCpt,
+      onSelectBorehole,
+      onPatch,
+      handleRemoveFromSection,
+      onRequestGeotechClearColumn,
+      geotechModel,
     ],
   );
 
@@ -3391,6 +3447,17 @@ export default function SectionPanel({
                 bothBtnPanRef.current = false;
                 return;
               }
+              // On the geotech axis the band-edit overlay owns the ONE menu
+              // (installer #39): a right-click that reaches this catch-all is a
+              // collar-gap / below-TD / column-glyph click, so ask the overlay
+              // to open its unified menu there rather than the separate
+              // ColumnContextMenu. A band click never gets here — the band rect
+              // stops propagation. Every other axis keeps ColumnContextMenu.
+              if (geotechUnifiedMenuAxis) {
+                e.preventDefault();
+                geotechOverlayRef.current?.openMenuAt(e.clientX, e.clientY);
+                return;
+              }
               handleSvgContextMenu(e);
             }}
           >
@@ -3632,7 +3699,18 @@ export default function SectionPanel({
               onSelectBorehole={undefined}
               onDoubleClickCpt={onSelectCpt}
               onDoubleClickBorehole={onSelectBorehole}
-              onColumnContextMenu={handleColumnContextMenu}
+              onColumnContextMenu={
+                // On the geotech axis the overlay owns the ONE menu, so a
+                // right-click on the column glyph opens THAT, not the separate
+                // ColumnContextMenu (installer #39). Every other axis unchanged.
+                geotechUnifiedMenuAxis
+                  ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      geotechOverlayRef.current?.openMenuAt(e.clientX, e.clientY);
+                    }
+                  : handleColumnContextMenu
+              }
               hideStickIds={hideStickIds}
               labelModeById={labelModeById}
               calloutIds={calloutIds}
@@ -4215,6 +4293,12 @@ export default function SectionPanel({
                 the axis stays view-only wherever they are not wired. */}
             {axisMode === "geotechnical" && geotechModel !== undefined && (
               <GeotechBandEditOverlay
+                ref={geotechOverlayRef}
+                // The per-test column verbs head every menu this overlay opens,
+                // so a right-click on a band and a right-click on the collar gap
+                // give ONE menu with the same head (installer #39). The catch-all
+                // + column-glyph right-clicks are routed into this overlay above.
+                columnMenuVerbs={geotechMenuColumnVerbs}
                 geotechLayers={geotechModel.geotechLayers}
                 lithoLayers={lithoLayers ?? []}
                 placedColumns={visibleColumns}
