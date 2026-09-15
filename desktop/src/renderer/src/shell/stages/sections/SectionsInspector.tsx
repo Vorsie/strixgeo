@@ -48,6 +48,11 @@ import { filterBoreholesWithNoGeologyContacts } from '../../../utils/newTestFilt
 import { hashHexColor } from '../../../utils/hashColor'
 import { useGeotechPreviewRender } from '../../../utils/geotechPreviewRenderStore'
 import { useGeotechStatisticValue } from '../../../utils/geotechStatisticStore'
+import { unionStaleGeotechColumns } from '../../../utils/staleGeotechColumns'
+import {
+  runGeotechSubdivide,
+  useGeotechSubdivideAvailable,
+} from '../../../utils/geotechSubdivideActionStore'
 import { useT, type Translator } from '../../../i18n/translate'
 import { sectionDisplayName } from '../../../utils/sectionDisplayName'
 
@@ -98,6 +103,8 @@ export default function SectionsInspector(): JSX.Element {
       contacts,
       crossingsRefreshCounter,
       staleSurfaceCount,
+      staleLithoGeotechColumns,
+      columnsNeedingRederive,
       handleRebuildSurfaces,
       handleDedupeContacts,
       handleAutoPopulateFromStratigraphy,
@@ -128,6 +135,25 @@ export default function SectionsInspector(): JSX.Element {
   // below reads it.
   const chosenStatistic = useGeotechStatisticValue()
   const t = useT()
+
+  // Is a gated Subdivide press available to fire? Published by the toolbar
+  // (finding B) so the stale-packing line's button runs the SAME press — the
+  // admixture prompt + re-subdivide confirmation — never a bare re-derive.
+  // Unconditional hook, above every early return.
+  const geotechSubdivideAvailable = useGeotechSubdivideAvailable()
+
+  // The columns whose packing bands were derived from a lithology that has
+  // since moved — the union of the provenance answer and the geometric fit
+  // answer, the SAME set the yellow "!" markers draw (SectionsCanvas). Named so
+  // the inspector line can list them (owner installer #40).
+  const staleGeotechColumns = useMemo(() => {
+    const nameById = new Map<string, string>()
+    for (const c of cpts) nameById.set(c.id, c.name)
+    for (const b of boreholes) nameById.set(b.id, b.name)
+    return unionStaleGeotechColumns(staleLithoGeotechColumns, columnsNeedingRederive, id =>
+      nameById.get(id),
+    )
+  }, [staleLithoGeotechColumns, columnsNeedingRederive, cpts, boreholes])
 
   // sessionImportSectionIds is now sourced from the coordinator slice
   // of the ShellContext bus (debt #25 resolution). Previously a stub
@@ -282,6 +308,45 @@ export default function SectionsInspector(): JSX.Element {
       {/* a pre-model pending choice, the post-write bridge — are folded into */}
       {/* the published value). Note underneath, once.                        */}
       {/* ------------------------------------------------------------------ */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Packing out of date — the inspector half of the yellow "!" marker    */}
+      {/* (owner installer #40: the marker "doesn't point the user to how to   */}
+      {/* solve it"). Names the affected columns, says what it means + what to  */}
+      {/* do, and offers Subdivide (the toolbar's gated press).                */}
+      {/* ------------------------------------------------------------------ */}
+      {sectionModelAxis === 'geotechnical' && staleGeotechColumns.length > 0 && (
+        <InspectorSection
+          id="geotech-stale-packing"
+          label={t('sections.geotech.staleInspectorLabel')}
+          count={staleGeotechColumns.length}
+        >
+          <div className="space-y-2 px-1" data-testid="geotech-stale-packing">
+            <p
+              className="text-xs text-text-primary"
+              data-testid="geotech-stale-packing-note"
+            >
+              {t('sections.geotech.staleInspectorBody', {
+                list: staleGeotechColumns.map(c => c.label).join(', '),
+              })}
+            </p>
+            {geotechSubdivideAvailable && (
+              <button
+                type="button"
+                data-testid="geotech-stale-packing-subdivide"
+                onClick={() => runGeotechSubdivide(selectedSectionId)}
+                className="flex items-center gap-1 text-[11px] text-status-amber hover:text-text-primary transition-colors"
+                title={t('sections.geotech.staleInspectorBody', {
+                  list: staleGeotechColumns.map(c => c.label).join(', '),
+                })}
+              >
+                <RefreshCw size={11} aria-hidden="true" />
+                {t('sections.geotech.staleInspectorSubdivide')}
+              </button>
+            )}
+          </div>
+        </InspectorSection>
+      )}
+
       {sectionModelAxis === 'geotechnical' && (
         <InspectorSection
           id="geotech-statistic"
