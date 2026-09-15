@@ -72,6 +72,28 @@ describe('forwardContextMenuToColumn', () => {
     expect(fillMid.onContextMenu).not.toHaveBeenCalled()
   })
 
+  it('a right-click that carries no usable coordinates is not forwarded and does not throw', () => {
+    // A synthetic contextmenu built as a plain Event (Playwright's dispatchEvent
+    // does that for "contextmenu") has no clientX/clientY. Chromium's
+    // elementsFromPoint throws a TypeError on a non-finite coordinate, which
+    // killed the overlay's handler before it could open its own menu (the #41
+    // chain's body-wedge red). Without a point there is nothing to re-aim at:
+    // answer false and let the caller keep its menu.
+    const band = makeEl('per-column-litho-band-cpt-1__2')
+    ;(document as unknown as { elementsFromPoint: (x: number, y: number) => Element[] }).elementsFromPoint =
+      (x: number, y: number) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          throw new TypeError("Failed to execute 'elementsFromPoint' on 'Document': The provided double value is non-finite.")
+        }
+        return [band.el]
+      }
+
+    const forwarded = forwardContextMenuToColumn(undefined as unknown as number, undefined as unknown as number)
+
+    expect(forwarded).toBe(false)
+    expect(band.onContextMenu).not.toHaveBeenCalled()
+  })
+
   it('between columns: no column surface beneath, so it does not forward', () => {
     // The click landed on the fill in the gap between two columns — only fill
     // elements are beneath, no column surface — so the caller keeps its own menu.
