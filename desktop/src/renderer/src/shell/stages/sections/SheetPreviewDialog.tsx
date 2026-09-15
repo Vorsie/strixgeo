@@ -362,6 +362,20 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
                 {t('sheet.scaleReadout', { hs: geometry.printedH, vs: geometry.printedV })}
               </div>
             )}
+            {/* The profile's drawn width — in fit mode it fills the drawing area
+                at every spacing, so a low column spacing no longer leaves white
+                space before the map (owner, installer #40). */}
+            {geometry && (
+              <div
+                data-testid="sheet-drawing-width"
+                aria-live="polite"
+                className="text-xs text-neutral-600 dark:text-neutral-300"
+              >
+                {t('sheet.drawingWidth', {
+                  w: Math.round(geometry.drawingRightMm - geometry.drawingLeftMm),
+                })}
+              </div>
+            )}
           </fieldset>
           <label className="flex flex-col gap-1">
             <span>
