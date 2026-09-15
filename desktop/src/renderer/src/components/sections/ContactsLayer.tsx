@@ -191,7 +191,7 @@ interface Props {
    */
   onCopyLithoContactToColumn?: (params: {
     sourceInvestigationId: string
-    contactDepthM: number
+    contactDepthsM: number[]
     targetInvestigationId: string
     targetKind: 'cpt' | 'borehole'
   }) => void
@@ -2060,31 +2060,38 @@ export default function ContactsLayer({
       const target = final.currentTargetCol
       const altMove = e.altKey
 
-      // Litho axis: a Shift + cross-column drag of an ACCEPTED litho boundary
-      // COPIES both units onto the target test (owner ask, installer #35). The
-      // stratigraphy paint-through below stamps bare formation contacts, which
-      // cannot carry a litho composition, so the litho axis routes to its own
-      // copy handler instead. Drop Y is ignored: the boundary lands at the SAME
-      // depth below the target collar as it sits below the source collar (the
-      // same convention the stratigraphy copy uses).
+      // Litho axis: a Shift + cross-column drag of ACCEPTED litho boundaries
+      // COPIES them onto the target test (owner ask, installer #35; multi-boundary
+      // in installer #40: *"when i select two boundaries, it should put both on the
+      // column i drag onto and also the litho body in between"*). EVERY selected
+      // boundary on the source column is carried, so the copy handler can also
+      // place the units between consecutive boundaries. The stratigraphy
+      // paint-through below stamps bare formation contacts, which cannot carry a
+      // litho composition, so the litho axis routes to its own copy handler
+      // instead. Drop Y is ignored: each boundary lands at the SAME depth below the
+      // target collar as it sits below the source collar (the same convention the
+      // stratigraphy copy uses).
       if (
         axisMode === 'lithostratigraphic' &&
         final.shiftHeld &&
         target !== null &&
         onCopyLithoContactToColumn
       ) {
-        const primary = final.contactsInDrag.find(
-          c => c.contactId === final.contactId,
+        // The range-select keeps every boundary on ONE column; filter to the
+        // source anchor defensively so a stray cross-anchor contact never leaks in.
+        const sourceContacts = final.contactsInDrag.filter(
+          c => c.anchorId === final.anchorId && c.anchorKind === final.anchorKind,
         )
-        if (primary) {
+        const depths = sourceContacts.map(c => c.originalDepthM)
+        if (depths.length > 0) {
           log.info('contacts', '[drag-commit] litho-copy-contact', {
             source: final.anchorId,
-            depthM: primary.originalDepthM,
+            depthsM: depths,
             target: target.proj.item.id,
           })
           onCopyLithoContactToColumn({
             sourceInvestigationId: final.anchorId,
-            contactDepthM: primary.originalDepthM,
+            contactDepthsM: depths,
             targetInvestigationId: target.proj.item.id,
             targetKind: target.kind,
           })
