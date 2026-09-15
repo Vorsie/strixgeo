@@ -824,14 +824,16 @@ interface Props {
    */
   onSplitLithoLayer?: (layerId: string, depthM: number) => void;
   /**
-   * Copy an accepted litho boundary onto another test (installer #35). Fired by
-   * ContactsLayer on a Shift + cross-column drag of a litho contact; the handler
-   * creates both units on an empty target or splits the spanning layer. Litho
-   * axis only — SectionPanel forwards it to ContactsLayer only in that mode.
+   * Copy accepted litho boundaries onto another test (installer #35; multi-boundary
+   * in installer #40). Fired by ContactsLayer on a Shift + cross-column drag of one
+   * or more selected litho contacts; the handler creates the copied stack on an
+   * empty target, or splits at each boundary + recomposes the units between on a
+   * target with layers. Litho axis only — SectionPanel forwards it to ContactsLayer
+   * only in that mode.
    */
   onCopyLithoContactToColumn?: (params: {
     sourceInvestigationId: string;
-    contactDepthM: number;
+    contactDepthsM: number[];
     targetInvestigationId: string;
     targetKind: "cpt" | "borehole";
   }) => void;
@@ -4462,6 +4464,11 @@ export default function SectionPanel({
                       ? onShowLithoUnitStatistics
                       : undefined
                 }
+                // Installer #40: on the litho axis a right-click over a column
+                // opens the unified column menu (ContactsLayer), not the fill's
+                // "Unit statistics…"; the fill's own menu is for the gaps between
+                // columns. Off the litho axis there is no per-column band menu.
+                forwardColumnContextMenu={axisMode === "lithostratigraphic"}
               />
             )}
 
