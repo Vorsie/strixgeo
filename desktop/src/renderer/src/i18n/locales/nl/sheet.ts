@@ -17,6 +17,7 @@ export const SHEET_NL = {
   'sheet.vex': 'Overdrijving',
   'sheet.spacing': 'Kolomafstand',
   'sheet.paperSize': 'Blad {w} × {h} mm',
+  'sheet.drawingWidth': 'Tekening {w} mm breed',
   'sheet.fieldLabelAria': 'Veldlabel {n}',
   'sheet.fields': 'Tekstblok',
   'sheet.field.project': 'Project',
