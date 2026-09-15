@@ -54,10 +54,19 @@ export async function discover(page: Page): Promise<{ candidates: Candidate[]; o
       const seen = new Set<Element>()
       const out: Array<Record<string, unknown>> = []
       let i = 0
+      // Controls that end the walk's own premise: closing the project drops
+      // the app on the welcome screen, and the reopen that follows restores
+      // the project from its file while a 3-D build job may still be writing
+      // (the #41 chain: the replace-restore and the build's upsert deadlocked,
+      // the job died "unexpected error", its workers lingered past the close).
+      // The naive engineer walks INSIDE one open project; project lifecycle is
+      // the harness's job, not a step.
+      const WALK_ENDING_TESTIDS = new Set(['stage-toolbar-close-project'])
       for (const el of Array.from(document.querySelectorAll(SEL))) {
         if (seen.has(el)) continue
         seen.add(el)
         if (out.length >= cap) break
+        if (WALK_ENDING_TESTIDS.has(el.getAttribute('data-testid') ?? '')) continue
         const rect = el.getBoundingClientRect()
         if (rect.width <= 0 || rect.height <= 0) continue
         if (rect.bottom < 0 || rect.top > vh || rect.right < 0 || rect.left > vw) continue
