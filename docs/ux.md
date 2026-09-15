@@ -72,6 +72,7 @@ When a guide actively hurts UX or conflicts with domain need:
 | `Alt + drag` cross-column on a contact | **MOVE** — re-anchors the existing contact(s) to the target column. Use to fix a misclicked anchor. | Section editor |
 | `Drag` same-column on a contact | Re-pick depth (single contact) or shift all selected depths (multi-select). | Section editor |
 | `Right-click` on contact line | Confirm → delete contact | Section editor |
+| `Right-click` anywhere on a test — band, sample capsule, header, or the collar gap — on the **geotech axis** | ONE menu (owner installer #39: "one right-click on a test gives one menu"). Header = the test name, then the COLUMN verbs (Focus op deze proef / Details openen / Onderverdeling wissen / Uit dit profiel verwijderen), a rule, then — only when the pointer sits on a packing band — the BAND verbs (Band hier splitsen, Statistieken van deze eenheid…, Voeg samen met… / Ontkoppelen, Pakkingsklasse ▸). A second right-click closes the open menu and opens the one for the new spot (never two menus, never a different KIND for the second click). The overlay owns it; `GeotechBandEditOverlay` + `geotechMenuTargetAt`, mirroring the litho axis's unified menu. | Section editor (geotech axis) |
 | `Ctrl/Cmd + A` | Select all | Future — list views |
 | `Ctrl/Cmd + F` | Filter / find | Future — list views |
 
