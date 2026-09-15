@@ -3727,6 +3727,11 @@ export default function SectionPanel({
                 columns={visibleColumns}
                 staleColumnIds={geotechModel.staleColumnIds}
                 plotTop={MARGIN.top}
+                // Clicking a stale mark focuses that column (owner installer
+                // #40) — the same zoom-to-column gesture the right-click "Focus"
+                // uses, so the engineer sees the flagged test and the inspector
+                // line can offer Subdivide for it.
+                onSelectColumn={enterFocus}
               />
             )}
 
