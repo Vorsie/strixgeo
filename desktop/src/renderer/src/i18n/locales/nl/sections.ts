@@ -970,6 +970,9 @@ export const SECTIONS_NL = {
   // Shift-slepen van een geaccepteerd litho-contact naar een andere test (installer #35).
   'sections.canvasToast.lithoContactCopied': 'Litho-contact gekopieerd: beide eenheden aangemaakt.',
   'sections.canvasToast.lithoBoundaryCopied': 'Grens gekopieerd, samenstellingen behouden.',
+  // Shift-slepen van meerdere grenzen (installer #40): beide aantallen gemeld.
+  'sections.canvasToast.lithoContactsCopiedOneUnit': '{boundaries} grenzen en 1 eenheid gekopieerd.',
+  'sections.canvasToast.lithoContactsCopiedManyUnits': '{boundaries} grenzen en {units} eenheden gekopieerd.',
   'sections.canvasToast.lithoContactCopyBelowTerminal': 'De grens ligt onder de diepte van deze test en is niet gekopieerd.',
   'sections.canvasToast.lithoContactCopyFailed': 'Kon het litho-contact niet kopiëren. Probeer opnieuw.',
   'sections.canvasToast.noLithoContact': 'Deze grens heeft geen lithologische laaggrens om te verplaatsen — bewerk ze op de litho-as.',
