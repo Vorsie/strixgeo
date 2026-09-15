@@ -167,7 +167,18 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
     // ``navigator.language``, to English. The app defaults to the SYSTEM
     // language (languageSelect.ts, installer #5 2026-09-03), so on a Dutch
     // machine every copy assertion in the suite would otherwise see Dutch.
-    args: [MAIN_ENTRY, `--user-data-dir=${E2E_USER_DATA_DIR}`, '--lang=en-US'],
+    // ``--force-device-scale-factor=1`` pins Chromium's device pixel ratio, so
+    // a pixel golden (litho 3-D scene, fence cutout) has the same size on every
+    // machine and monitor. Without it the goldens follow the Windows display
+    // scale: blessed at 125 % they came back 1.2x larger at 150 % (2026-09-15,
+    // the #41 chain) with the scene itself unchanged. Layout is in DIPs, so
+    // the toolbar and width-sensitive specs see the same picture as before.
+    args: [
+      MAIN_ENTRY,
+      `--user-data-dir=${E2E_USER_DATA_DIR}`,
+      '--lang=en-US',
+      '--force-device-scale-factor=1',
+    ],
     env: {
       ...process.env,
       // Disable GPU acceleration to avoid the 0xC0000005 renderer crash
