@@ -1838,6 +1838,9 @@ export default function SectionsCanvas(): JSX.Element {
       bulkCreateLayers: api.geology.bulkCreateLayers,
       splitLayer: api.geology.splitLayer,
       deleteLayer: api.geology.deleteLayer,
+      // Recompose the units between copied boundaries to the source composition
+      // (installer #40 multi-boundary copy) via the existing batch-update endpoint.
+      batchUpdateLayers: api.geology.batchUpdateLayers,
     },
     pushUndo: undoStack.push,
     toast,
