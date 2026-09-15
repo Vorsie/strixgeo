@@ -46,6 +46,10 @@ export interface SheetGeometry {
   drawingLeftMm: number
   drawingTopMm: number
   drawingWidthMm: number
+  /** Right edge of the profile's drawn extent (trailing column + margin), mm
+   *  from the paper's left edge. In fit mode this reaches the drawing area's
+   *  right edge at every spacing; a longer-than-A3 profile grows the paper. */
+  drawingRightMm: number
   rightColumnLeftMm: number
   scaleHmmPerM: number
   scaleVmmPerM: number
@@ -140,12 +144,45 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     const byId = new Map(placements.map(p => [p.id, p.nudgedX]))
     return input.columns.map(c => byId.get(c.id) ?? drawingLeftMm)
   }
-  // Pass 1 seeds the layout at the minimum width to read the on-paper column
-  // spacing; the drawn width is then a fixed fraction of the nearest-neighbour
-  // spacing (clamped), so widely-spaced columns read as legible strips rather
-  // than tall hairlines. Pass 2 re-lays at that width so the packing, the
-  // first-column offset and the trailing edge all use the real drawn width.
-  const seedXmm = layoutAt(COLUMN_HALF_WIDTH_MM)
+  // Fit mode fills the drawing width at EVERY spacing. ``layoutAt`` places the
+  // columns at true × scaleH then lerps them toward packed by the Spacing
+  // slider, so a low spacing pulls the profile into a narrow cluster on the left
+  // and opens white space before the right column (owner, installer #40: "fit to
+  // A3 and column spacing all the way down has a lot of white space between the
+  // profile and the map on the right"). The rule: in fit mode the spacing
+  // decides how the columns SHARE the width, not how much of the page the
+  // profile uses. So after the spacing layout, the columns are stretched about
+  // the fixed left edge (the leftmost column stays on the elevation axis) until
+  // the profile's trailing edge reaches the drawing area's right edge — a
+  // UNIFORM stretch, so the relative spacing the slider produced is preserved.
+  // The stretch never compresses: a profile already at or past the A3 width
+  // grows the paper instead (below), exactly as before. Explicit mode is left
+  // untouched — there a chosen scale may leave white space by design.
+  const fillMode = input.scaleMode !== 'explicit'
+  // The trailing edge the profile should reach on an A3 sheet: one gutter and a
+  // right column short of the paper's right margin.
+  const fillTargetRightMm = PAPER_MIN_WIDTH_MM - MARGIN_MM - RIGHT_COLUMN_MM - GUTTER_MM
+  const layoutFilled = (bandHalfWidth: number): number[] => {
+    const xs = layoutAt(bandHalfWidth)
+    if (!fillMode || xs.length < 2) return xs
+    const firstX = Math.min(...xs)
+    const span = Math.max(...xs) - firstX
+    if (span <= 1e-6) return xs
+    // ``bandHalfWidth`` sits on both ends: the leftmost column reaches
+    // ``bandHalfWidth`` left of ``firstX`` (onto the axis) and the trailing
+    // column ``bandHalfWidth`` + ``PROFILE_TRAILING_MM`` right of its centre.
+    const targetLastCentre = fillTargetRightMm - bandHalfWidth - PROFILE_TRAILING_MM
+    const k = (targetLastCentre - firstX) / span
+    if (k <= 1) return xs
+    return xs.map(x => firstX + (x - firstX) * k)
+  }
+  // Pass 1 seeds the (filled) layout at the minimum width to read the on-paper
+  // column spacing; the drawn width is then a fixed fraction of the
+  // nearest-neighbour spacing (clamped), so widely-spaced columns read as
+  // legible strips rather than tall hairlines. Pass 2 re-lays and re-fills at
+  // that width so the packing, the first-column offset and the trailing edge all
+  // use the real drawn width — leaving ``drawingRightMm`` exactly on the target.
+  const seedXmm = layoutFilled(COLUMN_HALF_WIDTH_MM)
   const nearestGapMm = minAdjacentGapMm(seedXmm)
   const columnHalfWidthMm = nearestGapMm === null
     ? COLUMN_HALF_WIDTH_MM
@@ -153,7 +190,7 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
         COLUMN_HALF_WIDTH_MM,
         Math.min(COLUMN_HALF_WIDTH_MAX_MM, COLUMN_WIDTH_SPACING_FRACTION * nearestGapMm),
       )
-  const columnXmm = layoutAt(columnHalfWidthMm)
+  const columnXmm = layoutFilled(columnHalfWidthMm)
   const lastX = columnXmm.length > 0 ? Math.max(...columnXmm) : drawingLeftMm
   const drawingRightMm = lastX + columnHalfWidthMm + PROFILE_TRAILING_MM
   const naturalWidth = drawingRightMm + GUTTER_MM + RIGHT_COLUMN_MM + MARGIN_MM
@@ -166,6 +203,7 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     drawingLeftMm,
     drawingTopMm: MARGIN_MM + TOP_BAND_MM,
     drawingWidthMm: rightColumnLeftMm - GUTTER_MM - drawingLeftMm,
+    drawingRightMm,
     rightColumnLeftMm,
     scaleHmmPerM: scaleH,
     scaleVmmPerM: scaleV,
