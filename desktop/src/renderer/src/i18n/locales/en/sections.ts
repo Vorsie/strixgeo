@@ -500,6 +500,13 @@ export const SECTIONS = {
     'This column’s lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
   'sections.geotech.staleTitleMany':
     'These columns’ lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
+  // Inspector "Packing out of date" line — what the yellow "!" marker means +
+  // how to fix it (owner installer #40: the marker "doesn't point the user to
+  // how to solve it").
+  'sections.geotech.staleInspectorLabel': 'Packing out of date',
+  'sections.geotech.staleInspectorBody':
+    'Packing on {list} was derived from an older lithology. Press Subdivide (Onderverdelen) to re-derive it.',
+  'sections.geotech.staleInspectorSubdivide': 'Subdivide',
 
   'sections.header.cptChannels': 'CPT data channel toggles',
   'sections.header.qc': 'Cone resistance (qc)',
@@ -762,7 +769,7 @@ export const SECTIONS = {
   'sections.hiddenFooter.count': '{n} hidden from this section',
   'sections.hiddenFooter.restoreAll': 'restore all',
   'sections.scrub.showing': 'Showing {shown} m of {total} m (data range)',
-  'sections.staleColumn.title': '{name}: the lithology here changed after these packing bands were made. Re-run the subdivision on this column before exporting.',
+  'sections.staleColumn.title': '{name}: packing derived from an older lithology on this test. Press Subdivide (Onderverdelen) to re-derive it.',
   'sections.vb.depthHint': 'Show layers down to N metres below each investigation\'s surface. Empty = full DOV column.',
   'sections.vb.showOnSection': 'Show on section',
   'sections.vb.modelSlot': 'Model {label}',
