@@ -1,13 +1,16 @@
 /**
  * Hook-level pins for the litho-contact copy gesture (installer #35 owner ask,
  * verbatim: *"can't i drag and drop an accepted litho contact onto a new cptm
- * for example. just like the litho boundaries?"* / *"b, both units."*).
+ * for example. just like the litho boundaries?"* / *"b, both units."*; installer
+ * #40 multi-boundary extension: *"when i select two boundaries, it should put both
+ * on the column i drag onto and also the litho body in between"*).
  *
- * The hook orchestrates one drop: it plans (planLithoContactCopy), fires the
- * right existing endpoint (bulk-create both units on an empty target, or split
- * the spanning layer on a target that already has layers), toasts, and pushes a
- * single undo step. These tests drive it through a REAL useUndoStack so
- * *"ctrl+z takes the copy back"* is exercised end to end, with the API mocked.
+ * The hook orchestrates one drop: it plans (planLithoContactCopy), fires the right
+ * existing endpoints (bulk-create the copied stack on an empty target, or split at
+ * each boundary + recompose the between-units on a target that already has layers),
+ * toasts, and pushes a single undo step. These tests drive it through a REAL
+ * useUndoStack so *"ctrl+z takes the copy back"* is exercised end to end, with the
+ * API mocked.
  */
 
 import { renderHook, act } from '@testing-library/react'
@@ -51,17 +54,45 @@ const SOURCE_LAYERS: LithoLayerResponse[] = [
   makeLayer({ id: 'a2', cpt_id: 'cpt-a', formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 7 }),
 ]
 
+// A three-unit source for the multi-boundary cases: clay 0..3 / sand 3..6 / silt
+// 6..10, with contacts at 3 m and 6 m.
+const SOURCE_THREE: LithoLayerResponse[] = [
+  makeLayer({ id: 'a1', cpt_id: 'cpt-a', formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 }),
+  makeLayer({ id: 'a2', cpt_id: 'cpt-a', formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 6 }),
+  makeLayer({ id: 'a3', cpt_id: 'cpt-a', formation_id: 'f-silt', depth_top_m: 6, depth_base_m: 10 }),
+]
+
 function makeApi() {
+  let bottomCounter = 0
   return {
-    bulkCreateLayers: vi.fn(async (_p: string, _m: string, items: readonly { depth_top_m: number }[]) =>
-      items.map((it, i) =>
-        makeLayer({ id: `created-${i}`, cpt_id: 'cpt-b', depth_top_m: it.depth_top_m }),
-      ),
+    bulkCreateLayers: vi.fn(
+      async (
+        _p: string,
+        _m: string,
+        items: readonly { formation_id: string; depth_top_m: number; depth_base_m: number }[],
+      ) =>
+        items.map((it, i) =>
+          makeLayer({
+            id: `created-${i}`,
+            cpt_id: 'cpt-b',
+            formation_id: it.formation_id,
+            depth_top_m: it.depth_top_m,
+            depth_base_m: it.depth_base_m,
+          }),
+        ),
     ),
-    splitLayer: vi.fn(async () => ({
-      top: makeLayer({ id: 'split-top', cpt_id: 'cpt-b' }),
-      bottom: makeLayer({ id: 'split-bottom', cpt_id: 'cpt-b' }),
+    // The split KEEPS the passed layer id as the top half and mints a fresh bottom.
+    splitLayer: vi.fn(async (_p: string, _m: string, layerId: string, _depthM: number) => ({
+      top: makeLayer({ id: layerId, cpt_id: 'cpt-b' }),
+      bottom: makeLayer({ id: `bottom-${bottomCounter++}`, cpt_id: 'cpt-b' }),
     })),
+    batchUpdateLayers: vi.fn(
+      async (
+        _p: string,
+        _m: string,
+        _updates: readonly { layer_id: string; formation_id?: string }[],
+      ) => ({ updated_count: 1 }),
+    ),
     deleteLayer: vi.fn(async (_p: string, _m: string, _layerId: string) => undefined),
   }
 }
@@ -102,7 +133,7 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3],
         targetInvestigationId: 'cpt-b',
         targetKind: 'cpt',
       })
@@ -131,7 +162,7 @@ describe('useCopyLithoContact', () => {
     expect(result.current.toast).toHaveBeenCalledWith('success', expect.any(String), expect.any(String))
   })
 
-  it('onto a CPT that already has layers: the layer splits, compositions kept', async () => {
+  it('onto a CPT that already has layers: the layer splits, no recompose', async () => {
     const targetLayers = [
       makeLayer({ id: 'b-top', cpt_id: 'cpt-b', depth_top_m: 0, depth_base_m: 5 }),
       makeLayer({ id: 'b-bottom', cpt_id: 'cpt-b', depth_top_m: 5, depth_base_m: 12 }),
@@ -140,14 +171,71 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3],
         targetInvestigationId: 'cpt-b',
         targetKind: 'cpt',
       })
     })
     expect(result.current.api.splitLayer).toHaveBeenCalledWith(PROJECT_ID, MODEL_ID, 'b-top', 3)
+    expect(result.current.api.batchUpdateLayers).not.toHaveBeenCalled()
     expect(result.current.api.bulkCreateLayers).not.toHaveBeenCalled()
     expect(result.current.toast).toHaveBeenCalledWith('success', expect.any(String), expect.any(String))
+  })
+
+  it('two selected boundaries land on the target with the litho body in between (empty target)', async () => {
+    const result = renderHost({ lithoLayers: SOURCE_THREE, terminalDepthM: () => 12 })
+    await act(async () => {
+      await result.current.hook.copyLithoContact({
+        sourceInvestigationId: 'cpt-a',
+        contactDepthsM: [3, 6],
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
+      })
+    })
+    const items = result.current.api.bulkCreateLayers.mock.calls[0][2]
+    expect(items.map((i: { formation_id: string }) => i.formation_id)).toEqual([
+      'f-clay',
+      'f-sand',
+      'f-silt',
+    ])
+    expect(items.map((i: { depth_top_m: number; depth_base_m: number }) => [i.depth_top_m, i.depth_base_m])).toEqual([
+      [0, 3],
+      [3, 6],
+      [6, 12],
+    ])
+  })
+
+  it('on a target with layers the units between the copied boundaries take the source composition', async () => {
+    // Target has one deep layer [0, 12]. Both boundaries split it, and the
+    // between-unit [3, 6] is recomposed to the SOURCE sand (f-sand).
+    const targetLayers = [
+      makeLayer({
+        id: 'b-only',
+        cpt_id: 'cpt-b',
+        formation_id: 'f-target',
+        depth_top_m: 0,
+        depth_base_m: 12,
+      }),
+    ]
+    const result = renderHost({
+      lithoLayers: [...SOURCE_THREE, ...targetLayers],
+      terminalDepthM: () => 12,
+    })
+    await act(async () => {
+      await result.current.hook.copyLithoContact({
+        sourceInvestigationId: 'cpt-a',
+        contactDepthsM: [3, 6],
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
+      })
+    })
+    // Two boundaries cut.
+    expect(result.current.api.splitLayer).toHaveBeenCalledTimes(2)
+    // Exactly the between-unit recomposed to the source sand formation.
+    expect(result.current.api.batchUpdateLayers).toHaveBeenCalledTimes(1)
+    const updates = result.current.api.batchUpdateLayers.mock.calls[0][2]
+    expect(updates).toEqual([expect.objectContaining({ formation_id: 'f-sand' })])
+    expect(result.current.api.bulkCreateLayers).not.toHaveBeenCalled()
   })
 
   it('dropped below the terminal depth: refused', async () => {
@@ -155,7 +243,7 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3],
         targetInvestigationId: 'cpt-b',
         targetKind: 'cpt',
       })
@@ -170,7 +258,7 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3],
         targetInvestigationId: 'cpt-b',
         targetKind: 'cpt',
       })
@@ -186,16 +274,24 @@ describe('useCopyLithoContact', () => {
     expect(deleted).toContain('created-1')
   })
 
-  it('ctrl+z takes the copy back (split target: the new bottom half is deleted)', async () => {
+  it('ctrl+z takes the whole copy back (split target: every new bottom row is deleted)', async () => {
     const targetLayers = [
-      makeLayer({ id: 'b-top', cpt_id: 'cpt-b', depth_top_m: 0, depth_base_m: 5 }),
-      makeLayer({ id: 'b-bottom', cpt_id: 'cpt-b', depth_top_m: 5, depth_base_m: 12 }),
+      makeLayer({
+        id: 'b-only',
+        cpt_id: 'cpt-b',
+        formation_id: 'f-target',
+        depth_top_m: 0,
+        depth_base_m: 12,
+      }),
     ]
-    const result = renderHost({ lithoLayers: [...SOURCE_LAYERS, ...targetLayers] })
+    const result = renderHost({
+      lithoLayers: [...SOURCE_THREE, ...targetLayers],
+      terminalDepthM: () => 12,
+    })
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3, 6],
         targetInvestigationId: 'cpt-b',
         targetKind: 'cpt',
       })
@@ -203,8 +299,10 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.undo.undo()
     })
-    // The split's undo deletes the new bottom half; the FC->LL mirror re-merges.
-    expect(result.current.api.deleteLayer).toHaveBeenCalledWith(PROJECT_ID, MODEL_ID, 'split-bottom')
+    // Both split-created bottom rows are deleted; the FC->LL mirror re-merges.
+    const deleted = result.current.api.deleteLayer.mock.calls.map(c => c[2])
+    expect(deleted).toContain('bottom-0')
+    expect(deleted).toContain('bottom-1')
   })
 
   it('a drop on the source column is a silent no-op (no API call, no toast)', async () => {
@@ -212,7 +310,7 @@ describe('useCopyLithoContact', () => {
     await act(async () => {
       await result.current.hook.copyLithoContact({
         sourceInvestigationId: 'cpt-a',
-        contactDepthM: 3,
+        contactDepthsM: [3],
         targetInvestigationId: 'cpt-a',
         targetKind: 'cpt',
       })
