@@ -70,6 +70,7 @@ import { buildColumnStripFills } from './columnStripFills'
 import { resolveHighlightLayer } from './unjoinSpotlight'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
+import { forwardContextMenuToColumn } from './forwardColumnContextMenu'
 import { resolveJoinPick, type JoinPick } from './joinPick'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -3500,6 +3501,16 @@ export default function PartitionFillOverlay({
                   ? (e) => {
                       e.preventDefault()
                       e.stopPropagation()
+                      // Over a column the unified column menu wins (installer #40,
+                      // owner: the fill overlay "eats my click"): forward the
+                      // right-click to the ContactsLayer band beneath and stop —
+                      // the body menu is for the fill BETWEEN columns only. Litho
+                      // axis only (the geotech axis has no per-column band menu).
+                      if (
+                        axisMode === 'lithostratigraphic' &&
+                        forwardContextMenuToColumn(e.clientX, e.clientY)
+                      )
+                        return
                       const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
                       onBodyContextMenu?.(
                         body as BodyListItem,
@@ -3512,6 +3523,12 @@ export default function PartitionFillOverlay({
                     ? (e) => {
                         e.preventDefault()
                         e.stopPropagation()
+                        // Same column-menu precedence for the stats fallback.
+                        if (
+                          axisMode === 'lithostratigraphic' &&
+                          forwardContextMenuToColumn(e.clientX, e.clientY)
+                        )
+                          return
                         setUnitStatsMenu({
                           clientX: e.clientX,
                           clientY: e.clientY,
