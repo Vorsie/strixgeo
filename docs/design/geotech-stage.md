@@ -1407,6 +1407,20 @@ after the donor rule across ALL of a borehole's segments, because the measured
 sand that sets a sliver's floor is usually in a different body group from the
 sliver.
 
+**The raise can make two touching bands the same class, so the merge runs after
+it too** (owner installer #40, GEO-07/182-B2: *"how come i have two stacked md
+sands on B2?"*).  His litho ZAND layer carried a ``body_min`` NAD-5 floor band
+over a measured NAD-6 band; the geo-cut merge saw a NAD-5 over a NAD-6 and
+correctly left them split, and only then did ``column_min`` lift the NAD-5 band
+to NAD 6 — two touching medium-dense sands in one litho layer that nothing
+welded.  The three passes now live in one function
+(``finalize_borehole_bands``): merge the geo cuts, raise the unanswered bands to
+the column floor, and merge AGAIN.  Two touching bands of one class in one litho
+layer are one band, whatever pass split them, so no pass that can make two
+touching bands the same class runs without the merge behind it.  The second
+merge keys on ``source_litho_layer_id`` like the first, so a user "Split here"
+(two litho layers) still survives (§8-0c).
+
 A short-lived "inherit the class from another slice of the same layer" pass
 existed on 2026-08-16 and was **deleted the same day**.  Do not rebuild it: it
 took the NEIGHBOURING class, which can be denser than anything the column
@@ -2357,3 +2371,37 @@ found ALREADY SHIPPED when the ruling was traced to the code:
   `ContactsLayer.boundaryKinds.test.tsx`. In the gap fill the two never shared
   a stroke: the NAD sub-band seam is self-coloured at 0.75 px, and the
   near-black `#0d1117` outline is built from LITHO regions only.
+
+## The 3-D builder closes an interior void; clause 6 reports only what it could not (owner installer #40)
+
+The model-check gate's clause 6 (`stack-voids`) fired on the owner's build:
+*"89 kolomstapel(s) bevatten een leegte boven 100 mm; ergste 154.5 mm"*, with
+his ruling: *"this is nothing the user can fix, this is due to the model ... on
+the cross sections everything is filled so the model shouldn't have any
+slivers"*.  The 2-D fills were complete (clauses 1-3 pass); the slivers were
+sub-voxel gaps a section column left when it read a SLOPED contact at a
+fraction -- the region above and the region below coming back a hairline apart.
+(The two-section blend never causes this: `_layout` is gap-free by
+construction, so every interior gap in `label_voxels` comes from the per-section
+column projection, not the blend.)
+
+The builder now closes them itself (`label_voxels._close_interior_voids`, on the
+un-bounded path only): a void BETWEEN two labelled entries -- below the
+ground/bed and above the model floor -- takes the label of the THICKER
+neighbour, or the UPPER one when the two are equally thick, so a complete-2-D
+model shows no slivers.  A BOTTOM void (below the deepest entry -- a below-TD
+unknown) is NOT interior and is left exactly as it was (owner ruling 2026-07-30,
+*"leave it unknown"*): `_interior_gaps` only ever returns a gap sandwiched
+between two entries.  This SUPERSEDES the 2026-07-30 "an interior void stays
+unknown" stance for INTERIOR voids specifically; the below-TD stance is
+untouched.
+
+Clause 6 then counts only a void the builder could NOT close -- which, because
+every interior void is closable, is nothing -- so the guarantee holds and the
+renderer's action line for it now reads *"Send us the .strix file"* (a build
+defect, not a user task; `geotech.clause.stack-voids.action` in
+`i18n/locales/{en,nl}/models.ts`) instead of *"tie the layers across it"*.
+Verified on the real geotech build: clause 6 FAIL (310 stacks / worst 1778 mm
+on the 7-section worked_example; 119 / 5830 mm on a stored 3-section build) ->
+PASS (0), clauses 5 and 7 unchanged.  Pinned by
+`tests/unit/domain/services/voxel_litho/test_close_interior_voids.py`.
