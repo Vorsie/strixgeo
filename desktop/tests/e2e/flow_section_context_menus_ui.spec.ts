@@ -287,16 +287,71 @@ test.describe('flow_section_context_menus_ui', () => {
       // so a single click can legitimately meet the interim menu. Assert on an
       // ITEM testid, never the `body-context-menu` container (duplicated by
       // the chip menu).
-      const partitionRegion = page.locator('[data-testid^="partition-region-"]').first()
-      await expect(partitionRegion).toBeVisible({ timeout: 20_000 })
+      const regions = page.locator('[data-testid^="partition-region-"]')
+      await expect(regions.first()).toBeVisible({ timeout: 20_000 })
+      // A synthetic contextmenu carries the coordinates the overlay reads. Since
+      // installer #40 the fill overlay hands a right-click that lands over a
+      // COLUMN to the column menu (owner: "the model overlay eats the click"),
+      // so the point must sit inside a region and off every column surface. A
+      // fixed page point (340,340) drifted onto CPT-E2E-04's band at another
+      // window scale, and the first region in DOM order is the strip beside a
+      // column, where every point is over the column's capture rect: both open
+      // the column menu, never the body menu. Search the regions for a point
+      // whose hit stack holds the region itself and no column surface.
+      const pick = await regions.evaluateAll((els) => {
+        const isColumn = (e: Element): boolean =>
+          (e.getAttribute('data-testid') ?? '').startsWith('per-column-')
+        const candidates = (el: Element): Array<{ x: number; y: number }> => {
+          const box = el.getBoundingClientRect()
+          const out: Array<{ x: number; y: number }> = []
+          for (const fx of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+            for (const fy of [0.5, 0.3, 0.7]) {
+              out.push({ x: box.left + box.width * fx, y: box.top + box.height * fy })
+            }
+          }
+          return out
+        }
+        for (const mustHitRegion of [true, false]) {
+          for (const el of els) {
+            const box = el.getBoundingClientRect()
+            if (box.width < 4 || box.height < 4) continue
+            for (const { x, y } of candidates(el)) {
+              const stack = document.elementsFromPoint(x, y)
+              if (mustHitRegion && !stack.includes(el)) continue
+              if (stack.some(isColumn)) continue
+              return {
+                // A body's testid is shared by every sub-path of its region, so
+                // the pick is addressed by its position in the locator list.
+                index: els.indexOf(el),
+                testid: el.getAttribute('data-testid') ?? '',
+                x,
+                y,
+                stack: stack.slice(0, 6).map((e) => e.getAttribute('data-testid') ?? e.tagName),
+              }
+            }
+          }
+        }
+        return null
+      })
+      expect(pick, 'a partition region with a point off every column').not.toBeNull()
+      const partitionRegion = regions.nth(pick!.index)
       await expect(async () => {
-        // dispatchEvent bypasses SVG z-order (overlays cover the region centre).
-        await partitionRegion.dispatchEvent('contextmenu', {
-          button: 2,
-          clientX: 340,
-          clientY: 340,
-          bubbles: true,
-        })
+        // A dispatched event bypasses SVG z-order (overlays cover the region
+        // centre). It is built as a REAL MouseEvent in the page: Playwright's
+        // ``dispatchEvent('contextmenu', …)`` makes a plain Event with no
+        // clientX/clientY, and the overlay reads the point to decide whether a
+        // column lies beneath (installer #40).
+        await partitionRegion.evaluate((el, p) => {
+          el.dispatchEvent(
+            new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              clientX: p.x,
+              clientY: p.y,
+              button: 2,
+            }),
+          )
+        }, { x: pick!.x, y: pick!.y })
         await expect(page.getByTestId('body-ctx-name-body')).toBeVisible({ timeout: 2_000 })
       }).toPass({ timeout: 30_000 })
     } finally {
