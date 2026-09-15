@@ -13,7 +13,7 @@
 // — for a dropdown that is simply its own menu, so a folded dropdown loses
 // nothing. See ``shell/toolbarOverflow.ts`` for the ladder and its rationale.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Undo2 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -68,6 +68,7 @@ import {
   PENDING_TIE_TOAST_KEY,
 } from '../../../utils/pendingTieReveal_constants'
 import { unionStaleGeotechColumns } from '../../../utils/staleGeotechColumns'
+import { publishGeotechSubdivideAction } from '../../../utils/geotechSubdivideActionStore'
 import { sectionsRevealPendingTieCallback } from './pendingTieRevealBridge'
 import type { PendingTieRevealOutcome } from './useGeotechPendingTieReveal'
 import SectionsAxisPill from './SectionsAxisPill'
@@ -687,6 +688,22 @@ export default function SectionsToolbar(): JSX.Element {
     lithoLayers,
     handleSetNadAdmixtureChoices,
   })
+
+  // Publish the gated subdivide press for the Sections inspector's stale-packing
+  // line (finding B): its "Subdivide" button re-derives the columns the yellow
+  // "!" marker flags. The press closure churns every render, so it rides a ref
+  // and a stable wrapper reads the latest at click time; only the availability
+  // (geotech axis + a litho model) is republished reactively.
+  const pressSubdivideRef = useRef(pressSubdivide)
+  pressSubdivideRef.current = pressSubdivide
+  const subdivideAvailable = isGeotech && activeLithoModel !== null
+  useEffect(() => {
+    publishGeotechSubdivideAction({
+      available: subdivideAvailable,
+      press: sectionId => pressSubdivideRef.current(sectionId),
+    })
+    return () => publishGeotechSubdivideAction({ available: false, press: () => {} })
+  }, [subdivideAvailable])
 
   const suggestPrimaryMode: 'focused' | 'all' | 'disabled' = canSuggest
     ? 'focused'
