@@ -974,6 +974,10 @@ export const SECTIONS_NL = {
   'sections.canvasToast.lithoContactsCopiedOneUnit': '{boundaries} grenzen en 1 eenheid gekopieerd.',
   'sections.canvasToast.lithoContactsCopiedManyUnits': '{boundaries} grenzen en {units} eenheden gekopieerd.',
   'sections.canvasToast.lithoContactCopyBelowTerminal': 'De grens ligt onder de diepte van deze test en is niet gekopieerd.',
+  // Shift-slepen naar een ONDIEPE test (een CPTM): de passende eenheden landen, de
+  // diepere grenzen worden weggeknipt (owner 2026-09-16). Toegevoegd aan de succestoast.
+  'sections.canvasToast.lithoContactCopyClippedOne': '1 grens ligt onder de diepte van deze test en is weggelaten.',
+  'sections.canvasToast.lithoContactCopyClippedMany': '{dropped} grenzen liggen onder de diepte van deze test en zijn weggelaten.',
   'sections.canvasToast.lithoContactCopyFailed': 'Kon het litho-contact niet kopiëren. Probeer opnieuw.',
   'sections.canvasToast.noLithoContact': 'Deze grens heeft geen lithologische laaggrens om te verplaatsen — bewerk ze op de litho-as.',
   'sections.canvasToast.packingNotLithoCpt': 'Dat is een pakkingsgrens, geen lithologische laaggrens — sleep ze met de greep naast de kolom.',
