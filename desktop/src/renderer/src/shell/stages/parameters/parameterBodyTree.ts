@@ -150,6 +150,42 @@ export function nadClassIndex(
   return out
 }
 
+/** ``geotech formation id → source_litho_formation_id`` — a geotech band's source unit. */
+export function sourceUnitIndex(
+  geotechFormations: readonly GeologicalFormationResponse[],
+): ReadonlyMap<string, string | null> {
+  const out = new Map<string, string | null>()
+  for (const f of geotechFormations) out.set(f.id, f.source_litho_formation_id)
+  return out
+}
+
+/**
+ * The litho UNIT a geotech band is homed to — the litho FORMATION it was
+ * subdivided from.
+ *
+ * Owner ruling 2026-09-16 (verbatim: "parameters tree, yeah it is a separate
+ * litho unit, so gets a separate dropdown"): an admixture variant (ZAND (GL|KL))
+ * welds into the plain unit's body mass, so keying a packing band by the welded
+ * body's home formation pushed the variant's packing beneath the plain unit. The
+ * band's geotech formation carries ``source_litho_formation_id`` = the variant,
+ * which is the authoritative home. When that is unset (legacy bands), fall back to
+ * the covering litho band's own formation — the geometric parent's unit.
+ *
+ * @param band  A geotech-model band (accepted or not).
+ * @param lithoById  ``litho_layer id → layer`` for the parent-band fallback.
+ * @param sourceUnitByFormation  ``geotech formation id → source_litho_formation_id``.
+ * @returns  The source litho unit id, or ``null`` when neither is known.
+ */
+export function sourceUnitOfGeotechBand(
+  band: LithoLayerResponse,
+  lithoById: ReadonlyMap<string, LithoLayerResponse>,
+  sourceUnitByFormation: ReadonlyMap<string, string | null>,
+): string | null {
+  const declared = sourceUnitByFormation.get(band.formation_id) ?? null
+  if (declared !== null) return declared
+  return lithoById.get(band.parent_litho_layer_id ?? '')?.formation_id ?? null
+}
+
 /**
  * The litho BODY a geotech band belongs to — its covering litho band's body,
  * read live through the parent-band FK (never stored on the geotech band, so
@@ -221,11 +257,17 @@ export function bandsForScope(
     case 'geotech-class': {
       const lithoById = lithoLayerIndex(input.lithoLayers)
       const classByFormation = nadClassIndex(input.geotechFormations)
+      const sourceUnitByFormation = sourceUnitIndex(input.geotechFormations)
       return input.geotechLayers.filter(
         l =>
           isAccepted(l) &&
           classByFormation.get(l.formation_id) === scope.nadClass &&
-          lithoBodyOfGeotechBand(l, lithoById) === scope.lithoBodyId,
+          lithoBodyOfGeotechBand(l, lithoById) === scope.lithoBodyId &&
+          // Home the band by its SOURCE litho unit, so a welded body's variant
+          // packing pools under the variant's node, never the plain unit's
+          // (owner 2026-09-16). A non-welded body's bands all share one source
+          // unit, so this is a no-op there.
+          sourceUnitOfGeotechBand(l, lithoById, sourceUnitByFormation) === scope.lithoUnitId,
       )
     }
   }
@@ -320,6 +362,7 @@ function lithoBodyIdsForUnit(
   lithoLayers: readonly LithoLayerResponse[],
   unitId: string,
   roster: ReadonlyMap<string, BodyRosterEntry>,
+  geotechSourcedBodyIds?: Iterable<string>,
 ): string[] {
   const bodies = new Set<string>()
   for (const l of lithoLayers) {
@@ -329,6 +372,13 @@ function lithoBodyIdsForUnit(
     const home = roster.get(bodyId)?.formation_id ?? null
     if (home !== null ? home !== unitId : l.formation_id !== unitId) continue
     bodies.add(bodyId)
+  }
+  // A geotech band sourced to THIS unit homes its covering litho body here too,
+  // even when the welded body's roster home is a different (twin) formation — the
+  // variant unit must show the body carrying its packing (owner 2026-09-16). The
+  // body may thus render under two units; each shows only its own source's bands.
+  if (geotechSourcedBodyIds !== undefined) {
+    for (const id of geotechSourcedBodyIds) bodies.add(id)
   }
   const ordinalOf = (id: string): number => roster.get(id)?.body_ordinal ?? Number.MAX_SAFE_INTEGER
   return Array.from(bodies).sort(
@@ -353,28 +403,34 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
   const lithoById = lithoLayerIndex(input.lithoLayers)
   const classByFormation = nadClassIndex(input.geotechFormations)
 
-  // Accepted geotech bands grouped by their litho parent body once, so the
-  // class/body build is a lookup rather than a rescan per litho body.
-  const geotechByLithoBody = new Map<string, LithoLayerResponse[]>()
+  // Accepted geotech bands grouped by (SOURCE litho unit, litho parent body) once,
+  // so the class/body build is a lookup rather than a rescan per litho body. Keying
+  // by the source litho FORMATION (not only the welded body) homes an admixture
+  // variant's packing under the variant's own unit node — owner 2026-09-16.
+  const geotechByUnitAndLithoBody = new Map<string, Map<string, LithoLayerResponse[]>>()
   const orphanCountBySourceUnit = new Map<string, number>()
-  const sourceUnitByGeoFormation = new Map<string, string | null>()
-  for (const f of input.geotechFormations) {
-    sourceUnitByGeoFormation.set(f.id, f.source_litho_formation_id)
-  }
+  const sourceUnitByGeoFormation = sourceUnitIndex(input.geotechFormations)
   for (const band of input.geotechLayers) {
     if (!isAccepted(band)) continue
     const lithoBody = lithoBodyOfGeotechBand(band, lithoById)
+    const sourceUnit = sourceUnitOfGeotechBand(band, lithoById, sourceUnitByGeoFormation)
     if (lithoBody === null) {
       // Orphan — no covering litho band. Attribute to the geotech formation's
       // source litho unit; never invent a home in the tree (spec §1).
-      const sourceUnit = sourceUnitByGeoFormation.get(band.formation_id) ?? null
       if (sourceUnit !== null) {
         orphanCountBySourceUnit.set(sourceUnit, (orphanCountBySourceUnit.get(sourceUnit) ?? 0) + 1)
       }
       continue
     }
-    const bucket = geotechByLithoBody.get(lithoBody)
-    if (bucket === undefined) geotechByLithoBody.set(lithoBody, [band])
+    // No source unit AND no covering-band formation → nothing to home it to.
+    if (sourceUnit === null) continue
+    let byBody = geotechByUnitAndLithoBody.get(sourceUnit)
+    if (byBody === undefined) {
+      byBody = new Map()
+      geotechByUnitAndLithoBody.set(sourceUnit, byBody)
+    }
+    const bucket = byBody.get(lithoBody)
+    if (bucket === undefined) byBody.set(lithoBody, [band])
     else bucket.push(band)
   }
 
@@ -384,10 +440,16 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
 
   return units.map(unit => {
     const unitName = unit.name ?? '—'
-    const lithoBodyIds = lithoBodyIdsForUnit(input.lithoLayers, unit.id, input.lithoBodies)
+    const geotechByLithoBody = geotechByUnitAndLithoBody.get(unit.id)
+    const lithoBodyIds = lithoBodyIdsForUnit(
+      input.lithoLayers,
+      unit.id,
+      input.lithoBodies,
+      geotechByLithoBody?.keys(),
+    )
 
     const lithoBodyNodes = lithoBodyIds.map<ParameterTreeNode>(lithoBodyId => {
-      const classBands = geotechByLithoBody.get(lithoBodyId) ?? []
+      const classBands = geotechByLithoBody?.get(lithoBodyId) ?? []
 
       // Class rows key on nad_class — twin geotech formation rows of the same
       // class fold into ONE row.
