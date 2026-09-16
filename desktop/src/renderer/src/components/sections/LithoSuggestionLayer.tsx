@@ -151,7 +151,7 @@ export function LithoSuggestionLayer({
   // but the ghost still covers the full original interval — amber border
   // signals "straddles two formations, will be split on accept".
   const straddleNote = layer.spans_boundary
-    ? ' ⚠ straddles formation boundary — will be split on accept'
+    ? ' ⚠ straddles formation boundary. Will be split on accept'
     : ''
   const parentNote = parentName != null ? ` | parent: ${parentName}` : ''
 
