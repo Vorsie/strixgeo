@@ -62,7 +62,7 @@ const CRS_DOMAINS: Readonly<
 export function implausibleSectionCoordinates(section: SectionLineLike): string | null {
   const coords = [section.start_x, section.start_y, section.end_x, section.end_y]
   if (coords.some(v => !Number.isFinite(v))) {
-    return `Section “${section.name}” has a non-finite endpoint — its coordinates cannot be used.`
+    return `Section “${section.name}” has a non-finite endpoint. Its coordinates cannot be used.`
   }
 
   const domain = CRS_DOMAINS[section.epsg]
