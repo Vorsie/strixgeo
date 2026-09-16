@@ -47,7 +47,7 @@ export const UNBANDED_HATCH_PATTERN_ID = 'partition-unbanded-hatch'
  * text: to an engineer it would read as a failure rather than as work he has
  * not done yet.
  */
-export const UNBANDED_HATCH_LABEL = 'No packing bands here yet — not correlated yet'
+export const UNBANDED_HATCH_LABEL = 'No packing bands here yet. Not correlated yet'
 
 /**
  * Hatch line spacing, px.
