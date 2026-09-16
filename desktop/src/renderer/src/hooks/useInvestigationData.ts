@@ -713,6 +713,20 @@ export function useInvestigationData({
     )
   }, [project, removedBoreholeIds])
 
+  // The DOV-import undo command is built ONCE, when the import completes, but its
+  // revert / reapply run later (when the user presses Ctrl+Z / Ctrl+Y). Capturing
+  // the hide / unhide verbs into the command would freeze the removed-set they
+  // close over, so the redo's unhide would then match nothing. Mirror the CURRENT
+  // verbs into refs and let the command drive whatever they are at press time.
+  const handleRemoveCptsRef = useRef(handleRemoveCpts)
+  handleRemoveCptsRef.current = handleRemoveCpts
+  const handleRemoveBoreholesRef = useRef(handleRemoveBoreholes)
+  handleRemoveBoreholesRef.current = handleRemoveBoreholes
+  const unhideCptsRef = useRef(unhideCpts)
+  unhideCptsRef.current = unhideCpts
+  const unhideBoreholesRef = useRef(unhideBoreholes)
+  unhideBoreholesRef.current = unhideBoreholes
+
   // ---------------------------------------------------------------------------
   // Elevation edits
   // ---------------------------------------------------------------------------
@@ -1027,12 +1041,28 @@ export function useInvestigationData({
         cptResult.failed > 0 && cptResult.imported === 0 ? 'error' : 'success',
         parts.join(', ') || t('data.import.noCptsInArea'),
       )
+      // Only the tests this box NEWLY added — a refreshed existing CPT was
+      // already in the project, so it is not "imported by this box".
+      const newCptIds = cptResult.cpt_ids.filter(id => !beforeIds.has(id))
       unhideCpts(cptResult.cpt_ids)
       addToManifest('cpt', cptResult.cpt_ids)
-      addAllToSet(
-        setSessionImportCptIds,
-        cptResult.cpt_ids.filter(id => !beforeIds.has(id)),
-      )
+      addAllToSet(setSessionImportCptIds, newCptIds)
+      // One undo step for the whole import: Ctrl+Z removes exactly those tests
+      // from the project the way "Remove from project" does — a project-local
+      // hide (removed-set + is_hidden upsert), NEVER a DB delete, so the import
+      // cache stays warm. Ctrl+Y unhides the same ids. A box that added nothing
+      // (or a refused import, which returns above) pushes nothing.
+      if (newCptIds.length > 0) {
+        pushUndo({
+          descriptionKey: 'undo.dovImport',
+          revert: async () => {
+            handleRemoveCptsRef.current(newCptIds)
+          },
+          reapply: async () => {
+            unhideCptsRef.current(newCptIds)
+          },
+        })
+      }
       void refreshList().then(() => {
         if (cptResult.imported === 1 && cptResult.cpt_ids.length > 0) {
           const id = cptResult.cpt_ids[0]
@@ -1082,12 +1112,24 @@ export function useInvestigationData({
             ? 'warning'
             : 'success'
       toast(severity, summary + detail + failureDetail)
+      // Only the boreholes this box NEWLY added (see the CPT branch).
+      const newBoreholeIds = bhResult.borehole_ids.filter(id => !beforeIds.has(id))
       unhideBoreholes(bhResult.borehole_ids)
       addToManifest('borehole', bhResult.borehole_ids)
-      addAllToSet(
-        setSessionImportBoreholeIds,
-        bhResult.borehole_ids.filter(id => !beforeIds.has(id)),
-      )
+      addAllToSet(setSessionImportBoreholeIds, newBoreholeIds)
+      // One undo step: Ctrl+Z hides exactly those boreholes (project-local,
+      // never a DB delete); Ctrl+Y unhides them. Nothing added → nothing pushed.
+      if (newBoreholeIds.length > 0) {
+        pushUndo({
+          descriptionKey: 'undo.dovImport',
+          revert: async () => {
+            handleRemoveBoreholesRef.current(newBoreholeIds)
+          },
+          reapply: async () => {
+            unhideBoreholesRef.current(newBoreholeIds)
+          },
+        })
+      }
       void refreshBoreholeList().then(() => {
         if (bhResult.imported === 1 && bhResult.borehole_ids.length > 0) {
           const id = bhResult.borehole_ids[0]
@@ -1097,10 +1139,12 @@ export function useInvestigationData({
         }
       })
     }
-    // reason: toast / addToManifest / setSession* / unhide* / load* are all
-    // stable callbacks; including them here would not change the effect's
-    // trigger. The effect should only run when dovImportState transitions to
-    // a terminal status — including every stable callback would add noise.
+    // reason: toast / addToManifest / setSession* / unhide* / load* / pushUndo
+    // are all stable callbacks (the hide / unhide verbs the undo command drives
+    // are read through refs, not deps); including them here would not change the
+    // effect's trigger. The effect should only run when dovImportState
+    // transitions to a terminal status — listing every stable callback adds
+    // noise and would re-fire the whole post-import block on unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dovImportState])
 
