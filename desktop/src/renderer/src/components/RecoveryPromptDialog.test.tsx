@@ -114,7 +114,7 @@ describe('RecoveryPromptDialog', () => {
     // Delete-backup says it is permanent AND that the project reverts —
     // owner ruling 2026-08-03: "the 4 original saved ones and the saved
     // geological model should come back" after Delete backup.
-    expect(text).toMatch(/permanently discarded/i)
+    expect(text).toMatch(/for good/i)
     expect(text).toMatch(/returns to its last save/i)
     // The slot-mechanics prose is gone with everything it explained.
     expect(text).not.toMatch(/offered first/i)
