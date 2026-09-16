@@ -358,6 +358,7 @@ export const PANELS_NL = {
   'undo.excludeBoreholeLitho': 'Boring uitsluiten van lithologisch model',
   'undo.editCptElevation': 'CPT-hoogte bewerken',
   'undo.editBoreholeElevation': 'Boringhoogte bewerken',
+  'undo.dovImport': 'DOV-import',
   // De vangnet-toast bij een uiteengelopen staat (geen kastlijntje).
   'undo.undoFailed': 'Ongedaan maken mislukt: {action}. Geschiedenis gewist om de staat veilig te houden.',
   'undo.redoFailed': 'Opnieuw uitvoeren mislukt: {action}. Geschiedenis gewist om de staat veilig te houden.',
