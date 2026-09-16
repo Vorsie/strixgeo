@@ -4,9 +4,13 @@
 // Every export the app can produce lives here as a card, grouped by model level:
 //   * Cross-section  — Section DXF (any axis)
 //   * Stratigraphy   — Plaxis 3D (whole model)
-//   * Lithology      — D-Stability (.stix), Plaxis 2D, fence DXF
-//   * Geotechnical   — D-Sheet Piling (.shi), Plaxis 2D, fence DXF
+//   * Lithology      — fence DXF
+//   * Geotechnical   — D-Stability (.stix), D-Sheet Piling (.shi), Plaxis 2D, fence DXF
 //   * Report         — PDF drawing sheet (litho / geotech axis)
+//
+// D-Stability and Plaxis 2D are geotechnical-only (owner ruling, installer #42:
+// "we only need geotech exports to plaxis and d modules"); the lithology group
+// keeps just its fence DXF.
 //
 // One shared cross-section picker drives every section-scoped card; the axis-
 // flexible cards (Section DXF, the PDF sheet) carry their own model-level picker.
@@ -137,59 +141,9 @@ export default function ExportCanvas(): JSX.Element {
         </Group>
 
         {/* ── Lithology ────────────────────────────────────────────────── */}
+        {/* D-Stability + Plaxis 2D are geotechnical-only (owner, installer #42);
+            the lithology group keeps only its fence DXF. */}
         <Group title={t('export.groupLithology')}>
-          <ExportCard
-            icon={<Mountain size={18} />}
-            title={t('export.dStability')}
-            description={t('export.cardLithoDstabilityDesc')}
-            lastPath={hub.lastPathFor('litho-dstability')}
-          >
-            <SectionExportBody
-              hasModel={hub.hasLithoModel}
-              modelGuide={t('export.guideNoLithoModel')}
-              hasSections={hub.hasSections}
-              hasSection={hub.section !== null}
-              t={t}
-            >
-              <ControlRow justifyEnd>
-                <ActionButton
-                  label={busy === 'litho-dstability' ? t('export.exporting') : t('export.exportStix')}
-                  onClick={() => void hub.runDseries('dstability', 'lithostratigraphic')}
-                  disabled={busy !== null}
-                  testid="export-canvas-dstability"
-                />
-              </ControlRow>
-            </SectionExportBody>
-          </ExportCard>
-
-          <ExportCard
-            icon={<Cpu size={18} />}
-            title={t('export.cardLithoPlaxis2dTitle')}
-            description={t('export.cardLithoPlaxis2dDesc')}
-            lastPath={hub.lastPathFor('plaxis2d-lithostratigraphic')}
-          >
-            <SectionExportBody
-              hasModel={hub.hasLithoModel}
-              modelGuide={t('export.guideNoLithoModel')}
-              hasSections={hub.hasSections}
-              hasSection={hub.section !== null}
-              t={t}
-            >
-              <ControlRow justifyEnd>
-                <ActionButton
-                  label={
-                    busy === 'plaxis2d-lithostratigraphic'
-                      ? t('export.exporting')
-                      : t('export.exportPlaxis2d')
-                  }
-                  onClick={() => void hub.runPlaxis2d('lithostratigraphic')}
-                  disabled={busy !== null}
-                  testid="export-canvas-plaxis2d"
-                />
-              </ControlRow>
-            </SectionExportBody>
-          </ExportCard>
-
           <ExportCard
             icon={<Network size={18} />}
             title={t('export.cardLithoFenceTitle')}
@@ -213,6 +167,30 @@ export default function ExportCanvas(): JSX.Element {
 
         {/* ── Geotechnical ─────────────────────────────────────────────── */}
         <Group title={t('export.groupGeotechnical')}>
+          <ExportCard
+            icon={<Mountain size={18} />}
+            title={t('export.dStability')}
+            description={t('export.cardGeotechDstabilityDesc')}
+            lastPath={hub.lastPathFor('geotech-dstability')}
+          >
+            <SectionExportBody
+              hasModel={hub.hasGeotechModel}
+              modelGuide={t('export.guideNoGeotechModel')}
+              hasSections={hub.hasSections}
+              hasSection={hub.section !== null}
+              t={t}
+            >
+              <ControlRow justifyEnd>
+                <ActionButton
+                  label={busy === 'geotech-dstability' ? t('export.exporting') : t('export.exportStix')}
+                  onClick={() => void hub.runDseries('dstability', 'geotechnical')}
+                  disabled={busy !== null}
+                  testid="export-canvas-dstability"
+                />
+              </ControlRow>
+            </SectionExportBody>
+          </ExportCard>
+
           <ExportCard
             icon={<Ruler size={18} />}
             title={t('export.dSheetPiling')}
