@@ -8,7 +8,7 @@ import { layoutColumnsHorizontally } from '../components/sections/wheelZoomAncho
 import {
   AXIS_GUTTER_MM, COLUMN_EDGE_GAP_MM, COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM,
   COLUMN_WIDTH_SPACING_FRACTION, DRAWING_HEIGHT_FIT_MM,
-  GUTTER_MM, MARGIN_MM, MIN_DRAWING_HEIGHT_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM,
+  GUTTER_MM, MARGIN_MM, MIN_DRAWING_HEIGHT_MM, MIN_PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM,
   PAPER_MIN_WIDTH_MM, PROFILE_TRAILING_MM, RIGHT_COLUMN_MM, TOP_BAND_MM, VERTICAL_CHROME_MM,
 } from './sheetConstants'
 import type { SheetScaleMode } from './sheetPayload'
@@ -241,7 +241,16 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
   const rightColumnLeftMm = paperWidthMm - MARGIN_MM - RIGHT_COLUMN_MM
   return {
     paperWidthMm,
-    paperHeightMm: Math.max(PAPER_HEIGHT_MM, Math.ceil(drawingHeightMm + VERTICAL_CHROME_MM)),
+    // The page height follows the drawing: the drawing plus its fixed vertical
+    // chrome (margins, top band, along-section axis band, unit legend). A short
+    // drawing therefore makes a short sheet, so no white band opens under the
+    // profile when the exaggeration is turned down (debt #285; owner installer
+    // #44). The floor is the two side margins plus the right column's stack, so
+    // the map inset and the title block always keep their room; at the
+    // page-filling exaggeration the drawing fills the A3 area and the page is a
+    // full A3 (297 mm) as before. Explicit mode grows past A3 when a tall drawing
+    // needs it, and shrinks under a short one just the same.
+    paperHeightMm: Math.ceil(Math.max(MIN_PAPER_HEIGHT_MM, drawingHeightMm + VERTICAL_CHROME_MM)),
     drawingHeightMm,
     drawingLeftMm,
     drawingTopMm: MARGIN_MM + TOP_BAND_MM,
