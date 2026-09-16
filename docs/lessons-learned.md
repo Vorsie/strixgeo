@@ -586,3 +586,14 @@ rule all along (``isLithoUnit``: soil code present AND no
 a derived row inherits a field, that field stops discriminating the parent
 kind — key on what the derivative carries and the parent never does, and keep
 the two implementations of the rule next to each other in the docs.
+
+## A rule with two implementations needs an arbiter neither side owns (2026-09-16, debt #284)
+
+When the same rule lives once in Python and once in TypeScript, a parity test
+that compares one side against itself is structurally incapable of going red;
+the fix is a committed fixture BOTH suites load. Cross-language twin arbiters
+live in `tests/fixtures/contracts/` (`section_corridor_membership.json`,
+`packing_class_key.json`, `admixture_canonical_key.json`, and the older
+`robertson_sbt_bands.json`); each is read by a Python `test_twin_*.py` and a TS
+`*.twin.test.ts`, so a fix that drifts on one side reddens the other. Change the
+rule by changing the fixture first.
