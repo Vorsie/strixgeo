@@ -56,7 +56,7 @@ export const DATA = {
   'data.import.countObs': '{n} obs',
   'data.import.countSamples': '{n} samples',
   'data.import.countGrainSize': '{n} grain-size',
-  'data.import.subPhaseMissing': ' — DOV did not return {items}',
+  'data.import.subPhaseMissing': '. DOV did not return {items}',
   'data.import.subPhaseRetry': '; re-run the import to retry',
   // Local DOV bbox-draw refusals (useInvestigationData) — a degenerate box (a
   // click without a drag) or an oversized one is caught before the request, so
@@ -117,8 +117,8 @@ export const DATA = {
   'data.inspector.directionAsc': 'Direction: ascending',
   'data.inspector.directionDesc': 'Direction: descending',
   'data.inspector.hiddenCount': 'Hidden ({n})',
-  'data.inspector.importedSinceSave': 'Imported since last save — File → Save to commit',
-  'data.inspector.noSurfaceElevation': 'No surface elevation — needs manual Z entry',
+  'data.inspector.importedSinceSave': 'Imported since last save. File → Save to commit',
+  'data.inspector.noSurfaceElevation': 'No surface elevation: needs manual Z entry',
   'data.inspector.removeFromProject': 'Remove from project',
   'data.inspector.dateRange': 'Date range',
   'data.inspector.clearDateFilter': 'Clear date filter',
@@ -133,7 +133,7 @@ export const DATA = {
   // -------------------------------------------------------------------------
   'data.map.pending': 'Pending: {name}',
   // Offline notice on the 2D map (audit L9) — the basemap tiles need network.
-  'data.map.offline': 'Offline — map tiles unavailable',
+  'data.map.offline': 'Offline: map tiles unavailable',
   'data.map.pendingCptLocationsOne': '{n} CPT location pending import',
   'data.map.pendingCptLocationsMany': '{n} CPT locations pending import',
   'data.map.noMarkersToFit': 'No visible markers to fit',
