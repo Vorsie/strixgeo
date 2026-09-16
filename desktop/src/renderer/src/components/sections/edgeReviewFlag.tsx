@@ -46,19 +46,19 @@ export function isFlaggedForReview(edge: LithoContactCorrelationEdge): boolean {
 export function reviewFlagLabel(reason: string | null | undefined): string {
   switch (reason) {
     case 'class_changed':
-      return 'The packing class here changed — check this tie still belongs'
+      return 'The packing class here changed. Check this tie still belongs'
     case 'ambiguous_band':
-      return 'Several bands could be the one this tie was drawn on — check it'
+      return 'Several bands could be the one this tie was drawn on. Check it'
     // Distinct from ``ambiguous_band`` because the two ask different questions: that
     // one means the re-anchor had to choose between candidates, this one means the
     // band the tie was drawn on is gone. Owner's wording, 2026-08-10.
     case 'band_absorbed':
-      return 'The band this tie was drawn on was absorbed — check it still belongs'
+      return 'The band this tie was drawn on was absorbed. Check it still belongs'
     // The tie is lawful as a surface statement but the litho frame will never
     // open the ground it claims, so the fill answers with an onlap where the
     // engineer expected a band. Owner order 2026-08-21: say so at draw time.
     case 'frame_mismatch':
-      return 'The litho model does not connect these units — the fill will not band them'
+      return 'The litho model does not connect these units. The fill will not band them'
     default:
       return 'This tie needs checking'
   }
