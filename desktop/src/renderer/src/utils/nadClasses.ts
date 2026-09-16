@@ -327,8 +327,8 @@ export function nadPackingLabel(
  */
 const UNCLASSIFIED_QUALIFIER = 'not yet classified'
 
-/** Joins the soil word to the unclassified qualifier ("SAND — not yet classified"). */
-const UNCLASSIFIED_SEPARATOR = ' — '
+/** Joins the soil word to the unclassified qualifier ("SAND, not yet classified"). */
+const UNCLASSIFIED_SEPARATOR = ', '
 
 /**
  * Return the soil-family word for a geotech unit ("SAND", "CLAY", ...).
