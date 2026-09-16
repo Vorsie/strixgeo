@@ -213,26 +213,34 @@ class GaplessBuildReportAssembler(GroundModelLogger):
         return self._clause("column-totality", failed=bool(empty), entries=[entry] if empty else [])
 
     def _stack_voids(self, label_report: LabelReport) -> dict[str, Any]:
-        """Clause 6: no column has an interior void an engineer can act on.
+        """Clause 6: no column has an interior void the builder could not close.
 
-        The clause fails on the ACTIONABLE count (voids at or above
-        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`),
-        not on every gap over the hairline limit.  A void between the hairline
-        limit and the action threshold is real snap-round residue but nothing the
-        engineer can see or act on (owner finding, installer #35: "4 stacks over
-        15 mm, worst 33.5 mm"), so it is carried as a NOTE on a PASSING clause
-        rather than reported as a broken guarantee.  ``params`` carries the raw
-        numbers so the renderer composes the sentence in the engineer's language.
+        The builder closes every interior void SHORTER than one voxel height
+        (owner ruling installer #41); the clause fails on what remains — the
+        ACTIONABLE count, interior voids of ONE VOXEL OR MORE
+        (``hairline_gaps_actionable``).  The reported threshold is that build's
+        own voxel height (``label_report.voxel_vertical_m``), which is the size
+        rule the builder applied; a report without it (pre-#41, or no grid)
+        falls back to
+        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`.
+        The residue counter (over the hairline limit but under the threshold) can
+        no longer be populated for interior voids — the close pass folds every
+        sub-voxel sliver away — but the NOTE branch and its constants stay as a
+        backstop for an older report.  ``params`` carries the raw numbers so the
+        renderer composes the sentence in the engineer's language.
         """
         actionable = label_report.hairline_gaps_actionable
         residue = label_report.hairline_gaps_over_limit
         worst_m = label_report.hairline_worst_m
+        # The size threshold is the build's own voxel height; older reports that
+        # carry no voxel height fall back to the pre-#41 fixed floor.
+        threshold_m = label_report.voxel_vertical_m or STACK_VOID_ACTIONABLE_M
         failed = bool(actionable)
         params = {
             "actionable_count": actionable,
             "residue_count": residue,
             "worst_mm": worst_m * 1000.0,
-            "action_threshold_mm": STACK_VOID_ACTIONABLE_M * 1000.0,
+            "action_threshold_mm": threshold_m * 1000.0,
             "hairline_limit_mm": HAIRLINE_LIMIT_M * 1000.0,
         }
         entries: list[dict[str, Any]] = []
@@ -241,13 +249,13 @@ class GaplessBuildReportAssembler(GroundModelLogger):
                 {
                     "label": (
                         f"{actionable} column stack(s) carry an interior void over "
-                        f"{STACK_VOID_ACTIONABLE_M * 1000:.0f} mm; worst "
+                        f"{threshold_m * 1000:.0f} mm; worst "
                         f"{worst_m * 1000:.1f} mm"
                     ),
                     "measure": {
                         "value": worst_m,
                         "unit": "m",
-                        "budget": STACK_VOID_ACTIONABLE_M,
+                        "budget": threshold_m,
                     },
                     "params": params,
                 }
@@ -258,13 +266,13 @@ class GaplessBuildReportAssembler(GroundModelLogger):
                 {
                     "label": (
                         f"largest interior gap {worst_m * 1000:.1f} mm, below the "
-                        f"{STACK_VOID_ACTIONABLE_M * 1000:.0f} mm action threshold "
+                        f"{threshold_m * 1000:.0f} mm action threshold "
                         f"(snap-round residue, {residue} stack(s))"
                     ),
                     "measure": {
                         "value": worst_m,
                         "unit": "m",
-                        "budget": STACK_VOID_ACTIONABLE_M,
+                        "budget": threshold_m,
                     },
                     "params": {**params, "note": True},
                 }
