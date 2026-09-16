@@ -979,6 +979,13 @@ export const SECTIONS_NL = {
   'sections.canvasToast.lithoContactCopyClippedOne': '1 grens ligt onder de diepte van deze test en is weggelaten.',
   'sections.canvasToast.lithoContactCopyClippedMany': '{dropped} grenzen liggen onder de diepte van deze test en zijn weggelaten.',
   'sections.canvasToast.lithoContactCopyFailed': 'Kon het litho-contact niet kopiëren. Probeer opnieuw.',
+  // Shift-slepen van een GHOST-grens naar een andere test (installer #42): de test
+  // krijgt een ghost-kolom met dezelfde eenheden, nog te accepteren.
+  'sections.canvasToast.ghostColumnCopiedOne': 'Suggestie gekopieerd: 1 eenheid.',
+  'sections.canvasToast.ghostColumnCopiedMany': 'Suggesties gekopieerd: {units} eenheden.',
+  'sections.canvasToast.ghostCopyTargetHasGhost': 'Deze test heeft al suggesties. Wis ze eerst en kopieer daarna.',
+  'sections.canvasToast.ghostCopyMixedSelection': 'Die kolom mengt geaccepteerde en voorgestelde grenzen. Kopieer één soort tegelijk.',
+  'sections.canvasToast.ghostCopyNoPending': 'Er zijn geen openstaande suggesties op die test om te kopiëren.',
   'sections.canvasToast.noLithoContact': 'Deze grens heeft geen lithologische laaggrens om te verplaatsen. Bewerk ze op de litho-as.',
   'sections.canvasToast.packingNotLithoCpt': 'Dat is een pakkingsgrens, geen lithologische laaggrens. Sleep ze met de greep naast de kolom.',
   'sections.canvasToast.packingNotLithoBorehole': 'Dat is een pakkingsgrens, geen lithologische laaggrens. De pakkingsbanden van een boring zijn geëxtrapoleerd uit de sonderingen eromheen, dus ze kunnen hier niet verplaatst worden.',
