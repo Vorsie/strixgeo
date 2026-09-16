@@ -52,7 +52,7 @@ export function subdivideCptsToast(input: SubdivideCptsToastInput): string {
   // than as "your turn". The combined verb already did step 2.
   const nextStep = input.deriveEdges ? '' : ' Next: 2 · Auto-correlate.'
   return (
-    `Geotechnical subdivision complete ${scope} — ` +
+    `Geotechnical subdivision complete ${scope}: ` +
     `${splitMsg}${boreholeNote}${tieNote}.${nextStep}`
   )
 }
