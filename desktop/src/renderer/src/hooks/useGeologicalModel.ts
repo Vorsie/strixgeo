@@ -674,6 +674,9 @@ export interface UseGeologicalModelResult {
     idx: number,
     investigationMaxDepthM: number,
   ) => { ok: boolean; reason?: string }
+  /** Commit a Shift-drag-copied ghost column onto ``targetAnchorId`` as one undo
+   *  step and reveal it (installer #42). */
+  copyGhostColumn: (targetAnchorId: string, ghost: BulkAnchorGhost) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
@@ -2477,6 +2480,7 @@ export function useGeologicalModel({
     handleAbsorbLithoLayer,
     handleCreateManualLithoGhost,
     handleExtendLithoGhostToNearestContacts,
+    copyGhostColumn,
     handleSuggestLitho,
     handleAcceptLithoSuggestion,
     handleAcceptAllLithoSuggestions,
@@ -3081,6 +3085,7 @@ export function useGeologicalModel({
     handleAbsorbLithoLayer,
     handleCreateManualLithoGhost,
     handleExtendLithoGhostToNearestContacts,
+    copyGhostColumn,
     clearBulkLithoGhosts,
     handleStripLithoAdmixtures,
     handleReseedLithoAdmixtures,
