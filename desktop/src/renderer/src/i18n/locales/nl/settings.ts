@@ -21,7 +21,7 @@ export const SETTINGS_NL = {
     'Afstelling van het werkwoord Voorstellen op de litho-as. Geldt vanaf de volgende keer dat je Voorstellen gebruikt; al aanvaarde eenheden blijven ongewijzigd.',
   'settings.litho.minThickness': 'Minimale laagdikte (m)',
   'settings.litho.minThicknessHint':
-    'Lagen die dunner zijn dan deze waarde worden bij hun buur gevoegd, ongeacht de lithologie. Lagere waarden pikken dunne kleisluiers op; hogere waarden geven een grovere kolom. Werkt samen met de schakelaar "Lagen met dezelfde lithologie samenvoegen" hieronder — eerst wordt op dikte samengevoegd, daarna op lithologie. Standaard {default} m.',
+    'Lagen die dunner zijn dan deze waarde worden bij hun buur gevoegd, ongeacht de lithologie. Lagere waarden pikken dunne kleisluiers op; hogere waarden geven een grovere kolom. Werkt samen met de schakelaar "Lagen met dezelfde lithologie samenvoegen" hieronder: eerst wordt op dikte samengevoegd, daarna op lithologie. Standaard {default} m.',
   // NOTE: ruled 2026-08-27 — owner chose "Droog volumegewicht".
   'settings.litho.gunsat': 'Droog volumegewicht (kN/m³)',
   'settings.litho.gunsatHint':
@@ -34,14 +34,14 @@ export const SETTINGS_NL = {
     'Opeenvolgende splitsingen met dezelfde lithologie (zand op zand, enz.) worden tot één laag samengevoegd. Splitsingen op pakkingsdichtheid komen terug als voorstellen in de geotechnische stap.',
   'settings.litho.normaliseQc': 'qc normaliseren (Robertson 2015)',
   'settings.litho.normaliseQcHint':
-    'Aan (standaard): sonderingen worden geclassificeerd met de spanningsgenormaliseerde Robertson 2015-methode (Qtn / F / Ic), op basis van het volumegewicht en de grondwatertafel hierboven. Uit: de niet-genormaliseerde Robertson 2010-index I_SBT (qc/pa + Rf) — geen spanningsprofiel of grondwater nodig, beter op geringe diepte of wanneer de grondwatertafel onzeker is. In de uit-stand blijven Dr en de NAD-pakking leeg (relatieve dichtheid vergt effectieve spanning). Enkel voor sonderingen.',
+    'Aan (standaard): sonderingen worden geclassificeerd met de spanningsgenormaliseerde Robertson 2015-methode (Qtn / F / Ic), op basis van het volumegewicht en de grondwatertafel hierboven. Uit: de niet-genormaliseerde Robertson 2010-index I_SBT (qc/pa + Rf). Geen spanningsprofiel of grondwater nodig, beter op geringe diepte of wanneer de grondwatertafel onzeker is. In de uit-stand blijven Dr en de NAD-pakking leeg (relatieve dichtheid vergt effectieve spanning). Enkel voor sonderingen.',
   'settings.litho.fillAtSectionLine': 'Vulling op de profiellijn',
   'settings.litho.fillAtSectionLineHint':
     'Aan = de lichamen worden op de profiellijn doorgesneden (standaard, doorlopend); Uit = het model wordt op elke proeflocatie bemonsterd (een strook per proef, ruwe meetwaarde).',
   // NOTE: ruled 2026-08-27 — owner chose "Litho↔geologie snappen".
   'settings.litho.snapTolerance': 'Litho↔stratigrafie snappen (m)',
   'settings.litho.snapToleranceHint':
-    'Litho- en stratigrafische grenzen die binnen deze afstand van elkaar liggen, worden als hetzelfde vlak beschouwd — ze worden gekoppeld en klikken samen vast, zodat de ene mee verschuift met de andere. Stuurt ook de vraag bij het slepen. Bereik 0,01–5,0 m.',
+    'Litho- en stratigrafische grenzen die binnen deze afstand van elkaar liggen, worden als hetzelfde vlak beschouwd: ze worden gekoppeld en klikken samen vast, zodat de ene mee verschuift met de andere. Stuurt ook de vraag bij het slepen. Bereik 0,01–5,0 m.',
   'settings.litho.autoCorrelateWindow': 'Dieptevenster voor autocorrelatie (m)',
   'settings.litho.autoCorrelateWindowHint':
     'Hoeveel twee laaggrenzen op naburige proeven in diepte mogen verschillen en toch nog automatisch gecorreleerd worden (verder versoepeld naargelang de horizontale afstand). Verbreed het om correlaties over hellende lagen mee te nemen; versmal het om losse verbanden te weren. Autocorrelatie koppelt altijd enkel naburige proeven, nooit over een tussenliggende proef heen. Bereik {min}–{max} m. Standaard {default} m.',
@@ -56,7 +56,7 @@ export const SETTINGS_NL = {
     'Voxelgrootte in het kaartvlak (X/Y). De stratigrafie verandert horizontaal traag, dus dit mag grof blijven. Kleinere waarden maken de zijranden van lichamen scherper, tegen een kwadratisch stijgend aantal voxels. Bereik {min}–{max} m. Standaard {default} m.',
   'settings.litho.voxelVertical': 'Verticale cel (Z) (m)',
   'settings.litho.voxelVerticalHint':
-    'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op — een veenlaagje of een zandlens — die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
+    'Voxelgrootte in de hoogte. Een fijne Z pikt dunne lagen op (een veenlaagje of een zandlens) die een grof raster mist. Maar het vermenigvuldigt de rekentijd: 0,5 m geeft ruwweg 4× zoveel voxels (en minuten rekentijd) als een kubisch raster van 2 m, dus grijp er enkel naar wanneer dunne lagen ertoe doen. Bereik {min}–{max} m. Standaard {default} m.',
   'settings.geotech.blurb':
     'Afstelling van de NAD-pakkingsonderverdeling ("Alle lichamen onderverdelen"). Geldt vanaf de volgende keer dat je Onderverdelen gebruikt; al onderverdeelde lichamen blijven ongewijzigd.',
   'settings.geotech.minThickness': 'Min. laagdikte (m)',
@@ -71,7 +71,7 @@ export const SETTINGS_NL = {
     'Hoe ver een grens mag vastklikken op een scherpe sprong. Bereik {min}–{max} m. Standaard {default} m.',
 
   'settings.sections.blurb':
-    'Standaardwaarden voor een nieuw dwarsprofiel dat je tekent. Bestaande profielen behouden de waarden waarmee ze aangemaakt zijn — die pas je aan in de profielkop.',
+    'Standaardwaarden voor een nieuw dwarsprofiel dat je tekent. Bestaande profielen behouden de waarden waarmee ze aangemaakt zijn. Die pas je aan in de profielkop.',
   'settings.sections.buffer': 'Standaard projectiebuffer (m)',
   'settings.sections.bufferHint':
     'Halve breedte van de strook rond de profiellijn; grondonderzoek binnen ±buffer wordt op het profiel geprojecteerd. Krappe funderingsvlakken ~15 m, havenstudies 50-100 m. Standaard {default} m.',
@@ -95,5 +95,5 @@ export const SETTINGS_NL = {
     'Systeem volgt de voorkeur van het besturingssysteem en past zich meteen aan wanneer je de donkere modus van Windows/macOS omzet. Kies hier een thema om het vast te zetten.',
   'settings.appearance.language': 'Taal van de interface',
   'settings.appearance.languageHint':
-    'Wordt meteen overal toegepast. Meetgegevens behouden de bewoording van hun bron — grondsoorten, NAD-pakkingsklassen en DOV-codes worden in elke taal getoond zoals ze geregistreerd zijn.',
+    'Wordt meteen overal toegepast. Meetgegevens behouden de bewoording van hun bron: grondsoorten, NAD-pakkingsklassen en DOV-codes worden in elke taal getoond zoals ze geregistreerd zijn.',
 } as const
