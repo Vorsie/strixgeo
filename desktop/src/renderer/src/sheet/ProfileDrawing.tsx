@@ -78,8 +78,10 @@ export function ProfileDrawing({ payload, geometry, mTawLabel }: {
   // a fixed paper width made every column a tall hairline on a wide sheet.
   const halfWidthPx = g.columnHalfWidthMm * PX_PER_MM
   // The scale header prints only when the column is wide enough to hold its
-  // labels without them overrunning each other (tightly-packed columns drop it,
-  // as the on-screen panel drops its scale labels for crowded columns).
+  // labels without them overrunning each other. Since installer #42 the readable
+  // minimum track width (``COLUMN_HALF_WIDTH_MM``) clears this threshold, so the
+  // header now shows on every CPT column; the guard stays so it self-heals if the
+  // minimum is ever retuned below the header's needs.
   const showColumnHeaders = g.columnHalfWidthMm >= COLUMN_HEADER_MIN_HALF_WIDTH_MM
   const cptChannels = readCptChannels(payload.section.viewState)
   const boreholeChannels = readBoreholeChannels(payload.section.viewState)
