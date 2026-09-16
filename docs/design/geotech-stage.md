@@ -2372,36 +2372,52 @@ found ALREADY SHIPPED when the ruling was traced to the code:
   a stroke: the NAD sub-band seam is self-coloured at 0.75 px, and the
   near-black `#0d1117` outline is built from LITHO regions only.
 
-## The 3-D builder closes an interior void; clause 6 reports only what it could not (owner installer #40)
+## The 3-D builder closes a SUB-VOXEL interior void; clause 6 reports the rest (owner installer #41)
 
-The model-check gate's clause 6 (`stack-voids`) fired on the owner's build:
-*"89 kolomstapel(s) bevatten een leegte boven 100 mm; ergste 154.5 mm"*, with
-his ruling: *"this is nothing the user can fix, this is due to the model ... on
-the cross sections everything is filled so the model shouldn't have any
-slivers"*.  The 2-D fills were complete (clauses 1-3 pass); the slivers were
-sub-voxel gaps a section column left when it read a SLOPED contact at a
-fraction -- the region above and the region below coming back a hairline apart.
-(The two-section blend never causes this: `_layout` is gap-free by
-construction, so every interior gap in `label_voxels` comes from the per-section
-column projection, not the blend.)
+A section column can leave a void between two labelled entries when it reads a
+SLOPED 2-D contact at a fraction -- the region above and the region below come
+back a hairline apart. (The two-section blend never causes this: `_layout` is
+gap-free by construction, so every interior gap in `label_voxels` comes from the
+per-section column projection, not the blend.)
 
-The builder now closes them itself (`label_voxels._close_interior_voids`, on the
-un-bounded path only): a void BETWEEN two labelled entries -- below the
-ground/bed and above the model floor -- takes the label of the THICKER
-neighbour, or the UPPER one when the two are equally thick, so a complete-2-D
-model shows no slivers.  A BOTTOM void (below the deepest entry -- a below-TD
-unknown) is NOT interior and is left exactly as it was (owner ruling 2026-07-30,
-*"leave it unknown"*): `_interior_gaps` only ever returns a gap sandwiched
-between two entries.  This SUPERSEDES the 2026-07-30 "an interior void stays
-unknown" stance for INTERIOR voids specifically; the below-TD stance is
-untouched.
+The size rule (owner ruling installer #41, 2026-09-16, *"Clause 6: close
+interior voids smaller than voxel height?  Sounds about right"*):
+`label_voxels._close_interior_voids(stack, dz)` (the un-bounded path only, which
+is what the geology-independent geotech build runs) closes a void BETWEEN two
+labelled entries -- below the ground/bed and above the model floor -- ONLY when
+it is SHORTER than one voxel height (`dz`, the build's vertical spacing). The
+sliver takes the label of the THICKER neighbour, or the UPPER one when the two
+are equally thick. A void of ONE VOXEL HEIGHT OR MORE is a real gap: it is left
+unknown and clause 6 (stack-voids) reports it. A BOTTOM void (below the deepest
+entry -- a below-TD unknown) is never interior and is left exactly as it was
+(owner ruling 2026-07-30, *"leave it unknown"*): `_interior_gaps` only ever
+returns a gap sandwiched between two entries. This supersedes the installer-#40
+pass that closed EVERY interior void whatever its height (which made clause 6
+always read zero); the below-TD stance is untouched.
 
-Clause 6 then counts only a void the builder could NOT close -- which, because
-every interior void is closable, is nothing -- so the guarantee holds and the
-renderer's action line for it now reads *"Send us the .strix file"* (a build
-defect, not a user task; `geotech.clause.stack-voids.action` in
-`i18n/locales/{en,nl}/models.ts`) instead of *"tie the layers across it"*.
-Verified on the real geotech build: clause 6 FAIL (310 stacks / worst 1778 mm
-on the 7-section worked_example; 119 / 5830 mm on a stored 3-section build) ->
-PASS (0), clauses 5 and 7 unchanged.  Pinned by
-`tests/unit/domain/services/voxel_litho/test_close_interior_voids.py`.
+The close threshold and the clause-6 report threshold are ONE value -- the voxel
+height `dz` -- so no gap falls between "closed" and "reported": the labeller
+counts a surviving interior void of `dz` or more into `hairline_gaps_actionable`
+and carries the voxel height on the report as `voxel_vertical_m`, which the
+report assembler quotes as the action threshold. A report with no voxel height
+(one stored before this rule, or a build that labelled no grid) falls back to the
+`STACK_VOID_ACTIONABLE_M` 0.10 m floor. The smallest voxel height the build
+request permits is 0.25 m, so the live threshold is always above that floor and a
+surviving interior void always clears it too.
+
+Clause 6's action line stays *"Send us the .strix file"* (a build defect, not a
+user task; `geotech.clause.stack-voids.action` in `i18n/locales/{en,nl}/models.ts`)
+and now names the size rule: the builder closes any gap smaller than one voxel, a
+larger gap that remains is a build defect. Pinned by
+`tests/unit/domain/services/voxel_litho/test_close_interior_voids.py` (a sub-voxel
+void is closed, a void of one voxel or more stays and is reported, a below-TD void
+is left unknown); `test_label_voxels.py` and `test_label_report_tripwires.py` pin
+the sub-voxel close through the full labeller.
+
+Measured at the default voxel height `dz = 1.0 m`: a well-filled model carries
+only sub-voxel snap slivers (the owner's installer-#40 dogfeed model topped out at
+154.5 mm, all below `dz`), so the builder closes them and clause 6 PASSES. Where a
+build's 2-D section stacks still carry a genuine large gap -- the stored
+3-section worked-example build has interior voids up to 5.83 m under a deep
+isolated body at one section's end column -- those are one voxel or more and
+clause 6 REPORTS them, rather than papering a real hole over.
