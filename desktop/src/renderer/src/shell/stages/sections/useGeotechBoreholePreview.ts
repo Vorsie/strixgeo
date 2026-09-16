@@ -165,7 +165,7 @@ export function useGeotechBoreholePreview({
         setState({
           columns: [],
           loading: false,
-          error: 'Could not preview the borehole packing — see console.',
+          error: 'Could not preview the borehole packing. See console.',
           carriedTieCount: 0,
           lostTieCount: 0,
         })
