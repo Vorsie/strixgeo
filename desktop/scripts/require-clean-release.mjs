@@ -10,10 +10,15 @@
 //   2. Pushed — an upstream MUST exist and HEAD must not be ahead of it. CI has
 //      never seen an unpushed commit, so it is unverified server-side.
 //   3. (release only) Version is new — package.json `version` is strictly newer
-//      than the latest published version (a `v<semver>` git tag or dist/latest.yml).
-//      electron-updater only offers an update when the feed's `version` is a
-//      GREATER semver than the installed one, so re-publishing an equal (or
-//      older) version is INVISIBLE to every installed client.
+//      than the latest PUBLISHED version. "Published" means what an installed
+//      client can actually be offered: the GitHub releases feed of
+//      Vorsie/strixgeo-releases (read-only, via `gh`) when reachable, else the
+//      `v<semver>` git tags on the source repo. A local `dist/latest.yml` is
+//      NEVER a source — every `npm run dist` rewrites it, and reading it as
+//      "published" refused the first real release while the feed was empty
+//      (Vorsie/Strix #9). electron-updater only offers an update when the feed's
+//      `version` is a GREATER semver than the installed one, so re-publishing an
+//      equal (or older) version is INVISIBLE to every installed client.
 //
 // Checks 1 and 2 are skippable with STRIX_ALLOW_DIRTY_DIST=1 — for a LOCAL test
 // build (`dist`, never `release`). Check 3 has no opt-out: shipping a version an
@@ -22,9 +27,11 @@
 // git is invoked with execFileSync (no shell) and fixed argument lists — there
 // is no interpolated input, so there is no injection surface.
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { latestPublishedVersion, releaseVersionError } from './publishedVersion.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url)) // desktop/scripts
 const desktopDir = resolve(scriptDir, '..') // desktop
@@ -81,16 +88,26 @@ if (allowDirty) {
 if (mode === 'release') {
   const pkg = JSON.parse(readFileSync(resolve(desktopDir, 'package.json'), 'utf8'))
   const version = String(pkg.version)
-  if (!parseSemver(version)) fail(`package.json version is not a semver: ${version}`)
-  const published = latestPublishedVersion()
-  if (published && compareSemver(version, published) <= 0) {
-    fail(
-      `package.json version ${version} is not newer than the latest published ` +
-        `version ${published}. electron-updater offers an update only for a ` +
-        `GREATER semver, so publishing ${version} would be invisible to installed ` +
-        'clients. Bump "version" in desktop/package.json before releasing.'
+
+  // "Published" comes from the releases feed (preferred) or the git tags — never
+  // a local build output. When the feed cannot be read (no GH_TOKEN, offline,
+  // gh not installed) that is "cannot tell", not "nothing published", so the
+  // guard says so and falls back to the git tags.
+  const { version: published, source, feedReachable, feedDetail } = latestPublishedVersion()
+  if (!feedReachable) {
+    console.log(
+      `[release-guard] releases feed unreachable (${feedDetail}); using git tags to find the published version`
     )
   }
+  console.log(
+    published
+      ? `[release-guard] published version ${published} from ${source === 'releases feed' ? 'the releases feed' : 'git tags'}`
+      : '[release-guard] published version: none published'
+  )
+
+  const error = releaseVersionError({ version, published })
+  if (error) fail(error)
+
   console.log(
     published
       ? `[release-guard] version ${version} is newer than published ${published}`
@@ -99,72 +116,3 @@ if (mode === 'release') {
 }
 
 console.log(`[release-guard] OK (${mode})`)
-
-// --- Helpers -----------------------------------------------------------------
-
-/**
- * Latest already-published version, from the tags electron-builder's GitHub
- * publish creates (`v<semver>`) and, if present, the last built/published feed
- * manifest (dist/latest.yml). Returns null when nothing has been published.
- */
-function latestPublishedVersion() {
-  const candidates = []
-  try {
-    for (const tag of git(['tag', '--list', 'v*']).split('\n')) {
-      const v = tag.trim().replace(/^v/, '')
-      if (parseSemver(v)) candidates.push(v)
-    }
-  } catch {
-    // no tags / no git — nothing published this way
-  }
-  const latestYml = resolve(desktopDir, 'dist', 'latest.yml')
-  if (existsSync(latestYml)) {
-    const m = readFileSync(latestYml, 'utf8').match(/^version:\s*(.+)$/m)
-    if (m && parseSemver(m[1].trim())) candidates.push(m[1].trim())
-  }
-  if (candidates.length === 0) return null
-  return candidates.sort(compareSemver).at(-1)
-}
-
-/** Parse a semver into release triple + prerelease identifiers, or null. */
-function parseSemver(v) {
-  const m = String(v).trim().match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/)
-  if (!m) return null
-  return { release: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split('.') : [] }
-}
-
-/**
- * Compare two semvers by SemVer 2.0 precedence (a stable outranks any
- * prerelease of the same release; numeric prerelease identifiers sort below
- * alphanumeric ones). Accepts strings or parsed objects. Returns -1/0/1.
- */
-function compareSemver(a, b) {
-  const pa = typeof a === 'string' ? parseSemver(a) : a
-  const pb = typeof b === 'string' ? parseSemver(b) : b
-  for (let i = 0; i < 3; i++) {
-    if (pa.release[i] !== pb.release[i]) return pa.release[i] < pb.release[i] ? -1 : 1
-  }
-  if (pa.pre.length === 0 && pb.pre.length === 0) return 0
-  if (pa.pre.length === 0) return 1 // stable > prerelease
-  if (pb.pre.length === 0) return -1
-  const n = Math.max(pa.pre.length, pb.pre.length)
-  for (let i = 0; i < n; i++) {
-    const x = pa.pre[i]
-    const y = pb.pre[i]
-    if (x === undefined) return -1 // shorter prerelease is smaller
-    if (y === undefined) return 1
-    const xn = /^\d+$/.test(x)
-    const yn = /^\d+$/.test(y)
-    if (xn && yn) {
-      const d = Number(x) - Number(y)
-      if (d !== 0) return d < 0 ? -1 : 1
-    } else if (xn) {
-      return -1 // numeric identifiers rank below alphanumeric
-    } else if (yn) {
-      return 1
-    } else if (x !== y) {
-      return x < y ? -1 : 1
-    }
-  }
-  return 0
-}
