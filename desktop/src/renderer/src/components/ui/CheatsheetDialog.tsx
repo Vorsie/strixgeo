@@ -64,7 +64,7 @@ const GROUPS: readonly CheatGroup[] = [
       { trigger: 'Click row', action: 'Select / open detail (single-select)' },
       {
         trigger: 'Checkbox',
-        action: 'Multi-select — always visible, left of the row icon',
+        action: 'Multi-select: always visible, left of the row icon',
       },
       {
         trigger: 'Hover → X',
@@ -85,7 +85,7 @@ const GROUPS: readonly CheatGroup[] = [
       },
       { trigger: 'Esc', action: 'Cancel the bbox draw' },
       { trigger: 'Click marker', action: 'Select + fly-to at zoom 17' },
-      { trigger: 'Hover marker', action: 'Tooltip — name + key fact' },
+      { trigger: 'Hover marker', action: 'Tooltip: name + key fact' },
     ],
   },
   {
@@ -98,7 +98,7 @@ const GROUPS: readonly CheatGroup[] = [
     ],
   },
   {
-    heading: 'Sections — canvas',
+    heading: 'Sections: canvas',
     rows: [
       { trigger: 'Drag', action: 'Pan the viewport' },
       { trigger: 'Scroll', action: 'Zoom' },
@@ -106,7 +106,7 @@ const GROUPS: readonly CheatGroup[] = [
       { trigger: 'Double-click a column', action: 'Open the investigation' },
       {
         trigger: 'Shift + drag (anywhere)',
-        action: 'Marquee select — additive, preserves the existing selection',
+        action: 'Marquee select: additive, preserves the existing selection',
       },
       { trigger: 'Click empty background', action: 'Clear the contact selection' },
       // Owner 2026-08-14: a one-key clear-the-view for the lab-sample markers
@@ -123,7 +123,7 @@ const GROUPS: readonly CheatGroup[] = [
     ],
   },
   {
-    heading: 'Sections — contacts',
+    heading: 'Sections: contacts',
     rows: [
       {
         trigger: 'Click a contact line',
@@ -139,11 +139,11 @@ const GROUPS: readonly CheatGroup[] = [
       },
       {
         trigger: 'Drag cross-column (no Alt)',
-        action: 'COPY — stamp new contact(s) on the target anchor; originals stay',
+        action: 'COPY: stamp new contact(s) on the target anchor; originals stay',
       },
       {
         trigger: 'Alt + drag cross-column',
-        action: 'MOVE — re-anchors the existing contact(s) to the target column',
+        action: 'MOVE: re-anchors the existing contact(s) to the target column',
       },
       {
         trigger: 'Drag same-column',
@@ -153,7 +153,7 @@ const GROUPS: readonly CheatGroup[] = [
     ],
   },
   {
-    heading: 'Sections — Litho axis',
+    heading: 'Sections: Litho axis',
     rows: [
       { trigger: 'Double-click a litho layer', action: 'Accept the suggestion' },
       {
@@ -166,7 +166,7 @@ const GROUPS: readonly CheatGroup[] = [
       },
       {
         trigger: 'Right-click a litho band',
-        action: 'More actions — remove this unit, link to stratigraphy, …',
+        action: 'More actions: remove this unit, link to stratigraphy, …',
       },
       { trigger: 'Right-click empty space', action: 'Add a new suggestion here' },
     ],
