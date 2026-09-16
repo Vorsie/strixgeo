@@ -60,7 +60,7 @@ export const DATA_NL = {
   'data.import.countObs': '{n} waarn.',
   'data.import.countSamples': '{n} monsters',
   'data.import.countGrainSize': '{n} korrelgrootte',
-  'data.import.subPhaseMissing': ' — DOV gaf {items} niet terug',
+  'data.import.subPhaseMissing': '. DOV gaf {items} niet terug',
   'data.import.subPhaseRetry': '; voer de import opnieuw uit om te herproberen',
   // Lokale weigering bij het tekenen van een DOV-kader (useInvestigationData) —
   // een leeg kader (klik zonder sleep) of een te groot kader wordt opgevangen
@@ -122,10 +122,10 @@ export const DATA_NL = {
   'data.inspector.directionAsc': 'Richting: oplopend',
   'data.inspector.directionDesc': 'Richting: aflopend',
   'data.inspector.hiddenCount': 'Verborgen ({n})',
-  'data.inspector.importedSinceSave': 'Geïmporteerd sinds laatste opslag — Bestand → Opslaan om vast te leggen',
+  'data.inspector.importedSinceSave': 'Geïmporteerd sinds laatste opslag. Bestand → Opslaan om vast te leggen',
   // FLAG alt: Geen maaiveldhoogte — "maaiveldpeil" uses the glossary term Peil
   // for elevation; "maaiveldhoogte" is the more common survey word.
-  'data.inspector.noSurfaceElevation': 'Geen maaiveldpeil — handmatige Z-invoer nodig',
+  'data.inspector.noSurfaceElevation': 'Geen maaiveldpeil: handmatige Z-invoer nodig',
   'data.inspector.removeFromProject': 'Uit project verwijderen',
   'data.inspector.dateRange': 'Datumbereik',
   'data.inspector.clearDateFilter': 'Datumfilter wissen',
@@ -138,7 +138,7 @@ export const DATA_NL = {
   // FLAG alt: Wachtend: {name} — pin discovered by DOV but not yet imported.
   'data.map.pending': 'In afwachting: {name}',
   // Offline notice on de 2D-kaart (audit L9).
-  'data.map.offline': 'Offline — kaarttegels niet beschikbaar',
+  'data.map.offline': 'Offline: kaarttegels niet beschikbaar',
   // FLAG alt: sonderingslocatie(s) — CPT/sondering call; sr-only announcement.
   'data.map.pendingCptLocationsOne': '{n} sonderingslocatie wacht op import',
   'data.map.pendingCptLocationsMany': '{n} sonderingslocaties wachten op import',
