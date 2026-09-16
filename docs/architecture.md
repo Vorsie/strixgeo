@@ -89,7 +89,15 @@ Strix/
 ├── tests/
 │   ├── unit/                  no DB, no I/O
 │   ├── integration/           real DB (Docker Compose)
-│   └── e2e/                   full HTTP round-trips
+│   ├── e2e/                   full HTTP round-trips
+│   └── fixtures/contracts/    cross-language TWIN arbiters (debt #284): one
+│                              committed JSON per rule that lives in both Python
+│                              and TypeScript (section_corridor_membership,
+│                              packing_class_key, admixture_canonical_key,
+│                              robertson_sbt_bands), read by a Python
+│                              tests/unit/.../test_twin_*.py AND a desktop
+│                              *.twin.test.ts so a drift on one side reddens the
+│                              other
 ├── pyproject.toml
 ├── docker-compose.yml         PostgreSQL + PostGIS
 ├── alembic.ini
