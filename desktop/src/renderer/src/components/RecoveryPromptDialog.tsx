@@ -181,7 +181,7 @@ export default function RecoveryPromptDialog({
         <>
           <p>
             {t('welcome.recoveryIntro', { age: age === null ? '' : ` ${age}` })}
-            {bullets.length > 0 ? ` — ${bullets.join(' · ')}.` : '.'}{' '}
+            {bullets.length > 0 ? `: ${bullets.join(' · ')}.` : '.'}{' '}
             <span className="font-semibold text-text-primary">
               {t('welcome.recoverySavedUntouched')}
             </span>
