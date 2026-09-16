@@ -9,7 +9,7 @@
 // The point of debt #30 is that the spine no longer dead-ends at "coming
 // soon"; these tests lock in that the canvas is actionable, not a stub.
 
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -449,8 +449,7 @@ describe('the Export hub (installer #35)', () => {
     for (const testid of [
       'export-canvas-dxf', // Cross-section DXF (any axis)
       'export-canvas-plaxis3d', // Stratigraphy → Plaxis 3D
-      'export-canvas-dstability', // Lithology → D-Stability .stix
-      'export-canvas-plaxis2d', // Lithology → Plaxis 2D
+      'export-canvas-dstability', // Geotechnical → D-Stability .stix
       'export-canvas-litho-fence', // Lithology → fence DXF
       'export-canvas-dsheetpiling', // Geotechnical → D-Sheet .shi
       'export-canvas-geotech-plaxis2d', // Geotechnical → Plaxis 2D
@@ -501,20 +500,72 @@ describe('the Export hub (installer #35)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('litho Plaxis 2D calls the section Plaxis-2D bus handler with the litho model', () => {
+  it('the sole Plaxis 2D card routes the section Plaxis-2D handler with the geotech model', () => {
     const ctx = readyCtx()
     const exportPlaxis2d = vi.fn().mockResolvedValue(undefined)
     ctx.coordinator.handleExportSectionPlaxis2d = exportPlaxis2d
     renderCanvas(ctx)
-    fireEvent.click(screen.getByTestId('export-canvas-plaxis2d'))
+    fireEvent.click(screen.getByTestId('export-canvas-geotech-plaxis2d'))
     expect(exportPlaxis2d).toHaveBeenCalledWith(
       'proj-1',
       'sec-1',
       'Quay 7',
-      'litho-1',
+      'geotech-1',
       expect.any(Function),
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+})
+
+// Owner ruling (installer #42, dogfeed 2026-09-16): "export pane: shouldn't
+// plaxis 2d and .stix export be under geotechniek? ... we only need geotech
+// exports to plaxis and d modules." So D-Stability moves under Geotechniek and
+// exports the geotech axis, the litho Plaxis 2D card is gone, and the lithology
+// group keeps only its fence DXF.
+describe('D-Stability and Plaxis 2D are geotechnical-only', () => {
+  /** The <section> a group heading belongs to, for scoping queries to a group. */
+  function groupOf(heading: string): HTMLElement {
+    const section = screen.getByRole('heading', { name: heading }).closest('section')
+    expect(section).not.toBeNull()
+    return section as HTMLElement
+  }
+
+  it('the D-Stability card sits under Geotechniek and exports the geotech axis', () => {
+    renderCanvas(readyCtx())
+    // It lives in the Geotechnical group, not Lithology.
+    expect(
+      within(groupOf('Geotechnical')).getByTestId('export-canvas-dstability'),
+    ).toBeTruthy()
+    expect(
+      within(groupOf('Lithology')).queryByTestId('export-canvas-dstability'),
+    ).toBeNull()
+    // Its prerequisite is now the GEOTECH model — drop it (litho still present)
+    // and the card guides instead of offering the button, proving it reads the
+    // geotechnical axis.
+    cleanup()
+    const noGeotech = readyCtx()
+    noGeotech.geoModel.activeGeotechModel = null
+    renderCanvas(noGeotech)
+    expect(screen.queryByTestId('export-canvas-dstability')).toBeNull()
+    expect(screen.getAllByText(/No geotechnical model yet/i).length).toBeGreaterThan(0)
+  })
+
+  it('the lithology group offers only the fence DXF', () => {
+    renderCanvas(readyCtx())
+    const litho = groupOf('Lithology')
+    expect(within(litho).getByTestId('export-canvas-litho-fence')).toBeTruthy()
+    expect(within(litho).queryByTestId('export-canvas-dstability')).toBeNull()
+    expect(within(litho).queryByTestId('export-canvas-plaxis2d')).toBeNull()
+    expect(within(litho).queryByTestId('export-canvas-geotech-plaxis2d')).toBeNull()
+  })
+
+  it('Plaxis 2D exists once, under Geotechniek', () => {
+    renderCanvas(readyCtx())
+    // The removed litho card leaves the geotech Plaxis 2D as the only one.
+    expect(screen.queryByTestId('export-canvas-plaxis2d')).toBeNull()
+    expect(
+      within(groupOf('Geotechnical')).getByTestId('export-canvas-geotech-plaxis2d'),
+    ).toBeTruthy()
   })
 })
 
