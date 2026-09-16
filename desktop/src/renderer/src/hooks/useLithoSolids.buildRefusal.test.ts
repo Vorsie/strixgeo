@@ -88,7 +88,7 @@ describe('useLithoSolids — BR1: a refused build reaches the user', () => {
       await result.current.buildLithoSolids(() => Promise.reject(new Error('socket hang up')))
     })
 
-    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('check the connection'))
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Check the connection'))
   })
 })
 
@@ -139,7 +139,7 @@ describe('useLithoSolids — BR3: an over-large voxel grid is refused in words',
     const [, message] = toast.mock.calls.at(-1) as [string, string]
     expect(message).toContain('0.99')
     // The generic copy would send the engineer to check a connection that is fine.
-    expect(message).not.toContain('check the connection')
+    expect(message).not.toContain('Check the connection')
   })
 
   it('keeps the generic copy for a 422 that is not a grid-budget refusal', async () => {
@@ -154,7 +154,7 @@ describe('useLithoSolids — BR3: an over-large voxel grid is refused in words',
 
     const [severity, message] = toast.mock.calls.at(-1) as [string, string]
     expect(severity).toBe('error')
-    expect(message).toContain('check the connection')
+    expect(message).toContain('Check the connection')
   })
 })
 
