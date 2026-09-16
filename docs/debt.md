@@ -10007,24 +10007,35 @@ worth the churn during the dogfeed loop.
 
 **When to revisit.** The next time a twin is fixed on one side, or with #283.
 
-## 285. Sheet fit mode leaves white space below a lower exaggeration (S — Tier E)
+## 285. Sheet fit mode leaves white space below a lower exaggeration (S — Tier E) — RESOLVED 2026-09-16
 
-**What.** In fit mode the page-filling exaggeration is seeded once per open;
-when the engineer turns the exaggeration down to make the CPT tracks more
-readable, the drawing gets shorter but the frame keeps the full A3 height,
-so a wide band of white space appears under the profile (owner, installer
+**What (was).** In fit mode the page-filling exaggeration is seeded once per
+open; when the engineer turned the exaggeration down to make the CPT tracks
+more readable, the drawing got shorter but the frame kept the full A3 height,
+so a wide band of white space appeared under the profile (owner, installer
 #44, 2026-09-16: "when i turn down the height exaggeration the cpt's become
 even more readable but there is a lot of whitespace below, of course the
-bottom should come up so it better fits the page"). The map, legend and
-title block stay where they are. Pull the bottom up: either re-fit the
-frame to the drawing's height (a shorter sheet in fit mode, the page kept
-A3 landscape only when the drawing needs it) or re-flow the legend and the
-title block up to the drawing's bottom edge.
+bottom should come up so it better fits the page").
 
-**Why deferred.** Parked by the owner at the beta release; manual scaling
-covers the case today, and the readable-track and fit-to-A3 rules had just
-landed (#43), so the layout needs one quiet look rather than another
-patch on top.
-
-**When to revisit.** The first tester who exports a PDF at a reduced
-exaggeration, or with the next sheet slice.
+**Resolved 2026-09-16.** Shape 1: the page height follows the drawing.
+`computeSheetGeometry` now sets `paperHeightMm = ceil(max(MIN_PAPER_HEIGHT_MM,
+drawingHeightMm + VERTICAL_CHROME_MM))` instead of pinning the full A3
+`PAPER_HEIGHT_MM`, so a shorter drawing makes a shorter sheet and no white band
+opens under the profile (the bottom-anchored unit legend rises to meet it, and
+the `sheet-paper-size` readout / PDF page size follow). The floor
+`MIN_PAPER_HEIGHT_MM` (171.5 mm on the shipped constants: two side margins plus
+the right column's fixed stack of map inset, project legend, title block and
+scale line) keeps the map inset and title block their room. At the page-filling
+exaggeration a width-comfortable profile still fills the A3 drawing area, so the
+page stays a full 420 x 297; a genuinely tall (or explicit-scale) drawing still
+grows the page past A3, and a short explicit-scale drawing shrinks the same way
+(no dead band). The sheet already emits bespoke page sizes for long or tall
+profiles, so a shorter fit-mode page is consistent with the existing design.
+Owner's Cross-section 1 at 12.9x (fixture proxy): paper height 297 -> 172 mm.
+Red-first tests in `sheetGeometry.test.ts` and `SheetPreviewDialog.test.tsx` use
+the owner's words; the two prior fit-mode height pins (2026-09-11 / 2026-09-16)
+were updated to the new behaviour, each keeping its real width/scale ruling.
+Note: at cs1's page-filling vex the readable-track width re-fit leaves the
+drawing about 224 mm (paper 276), because `pageFillingVex` still measures the
+length-fit scale, not the re-fit scale; making the seed re-fit-aware so a close-
+paired section opens exactly page-filling is a separate, optional follow-up.
