@@ -68,7 +68,12 @@ describe('planLithoContactCopy — single boundary', () => {
       ],
       targetTerminalDepthM: 12,
     })
-    expect(plan).toEqual({ kind: 'split', splits: [{ depthM: 3 }], recomposes: [] })
+    expect(plan).toEqual({
+      kind: 'split',
+      splits: [{ depthM: 3 }],
+      recomposes: [],
+      droppedBelowTerminalCount: 0,
+    })
   })
 
   it('dropped below the terminal depth: refused (empty target)', () => {
@@ -206,12 +211,14 @@ describe('planLithoContactCopy — multiple boundaries (installer #40)', () => {
       kind: 'split',
       splits: [{ depthM: 3 }, { depthM: 6 }],
       recomposes: [{ formation_id: 'f-sand', depthTopM: 3, depthBaseM: 6 }],
+      droppedBelowTerminalCount: 0,
     })
   })
 
-  it('a selection that includes a boundary below the target depth is refused', () => {
-    // The deepest selected boundary (6) sits below the target's 5 m column → the
-    // whole drop is refused with the existing below-terminal toast.
+  it('on a target with layers, a boundary below the target depth is dropped and the rest split (owner 2026-09-16)', () => {
+    // The target column is only 5 m deep. The 6 m boundary sits below it and is
+    // DROPPED; the 3 m boundary still splits the layer. No refusal for the fitting
+    // part — the owner: "it should just work".
     const plan = planLithoContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
@@ -219,6 +226,89 @@ describe('planLithoContactCopy — multiple boundaries (installer #40)', () => {
       sourceLayers: SOURCE_THREE,
       targetLayers: [{ id: 'tgt-only', depth_top_m: 0, depth_base_m: 5 }],
       targetTerminalDepthM: 5,
+    })
+    expect(plan).toEqual({
+      kind: 'split',
+      splits: [{ depthM: 3 }],
+      recomposes: [],
+      droppedBelowTerminalCount: 1,
+    })
+  })
+})
+
+// Owner dogfeed 2026-09-16 (installer #41), verbatim: "when trying to drag litho
+// contacts onto a cptm i get a toast that it couldn't be done" and "how do i copy
+// the lowest litho on a column? I only have one contact to drag?". His CPTMs are
+// SHALLOW (3.3 to 13.8 m) and his source CPTs are 15 m deep, so a boundary below
+// the target's own depth used to refuse the WHOLE copy. Decision (session main):
+// CLIP instead of refuse — the boundaries that fit land, the lowest fitting unit is
+// cut at the target's depth, and only a copy where NO boundary fits is refused.
+describe('planLithoContactCopy — clip onto a shallow test instead of refusing (owner 2026-09-16)', () => {
+  // A four-unit source 15 m deep: clay 0..3 / sand 3..6 / silt 6..10 / peat 10..15.
+  const SOURCE_FOUR = [
+    { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
+    { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 6 },
+    { formation_id: 'f-silt', depth_top_m: 6, depth_base_m: 10 },
+    { formation_id: 'f-peat', depth_top_m: 10, depth_base_m: 15 },
+  ]
+
+  it('a boundary below a shallow CPTM’s depth is dropped and the units above still land, cut at its depth', () => {
+    // Empty CPTM only 8 m deep. Boundaries at 3, 6, 10 — the 10 m boundary is below
+    // the CPTM and drops; the units above land, and the lowest fitting unit (silt)
+    // runs from 6 down to the CPTM's own 8 m depth.
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cptm-b',
+      contactDepthsM: [3, 6, 10],
+      sourceLayers: SOURCE_FOUR,
+      targetLayers: [],
+      targetTerminalDepthM: 8,
+    })
+    expect(plan.kind).toBe('create')
+    if (plan.kind !== 'create') throw new Error('unreachable')
+    expect(plan.items).toEqual([
+      { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
+      { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 6 },
+      { formation_id: 'f-silt', depth_top_m: 6, depth_base_m: 8 },
+    ])
+    expect(plan.depthsM).toEqual([3, 6])
+    expect(plan.droppedBelowTerminalCount).toBe(1)
+  })
+
+  it('dragging a column’s only contact onto a test deeper than it copies both units', () => {
+    // The source's only contact (3 m) is the top of its lowest unit. Dropped on a
+    // DEEPER empty test, both units land and the lowest runs to the target terminal.
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      contactDepthsM: [3],
+      sourceLayers: SOURCE_LAYERS,
+      targetLayers: [],
+      targetTerminalDepthM: 12,
+    })
+    expect(plan.kind).toBe('create')
+    if (plan.kind !== 'create') throw new Error('unreachable')
+    expect(plan.items).toEqual([
+      { formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 },
+      { formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 12 },
+    ])
+    expect(plan.droppedBelowTerminalCount).toBe(0)
+  })
+
+  it('when every boundary is below the test’s depth nothing is copied', () => {
+    // Every selected boundary (10, 12) sits below the 6 m target → the whole drop
+    // is refused (the existing below-terminal toast handles the message).
+    const plan = planLithoContactCopy({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cptm-b',
+      contactDepthsM: [10, 12],
+      sourceLayers: [
+        { formation_id: 'f-silt', depth_top_m: 8, depth_base_m: 10 },
+        { formation_id: 'f-sand', depth_top_m: 10, depth_base_m: 13 },
+        { formation_id: 'f-peat', depth_top_m: 12, depth_base_m: 15 },
+      ],
+      targetLayers: [],
+      targetTerminalDepthM: 6,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'below_terminal' })
   })
