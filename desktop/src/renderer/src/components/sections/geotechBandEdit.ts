@@ -137,7 +137,7 @@ export function clampSplitDepth(
       depthM: lowest,
       clampedAt: 'litho-top',
       clampReason:
-        'Stopped at the top of the litho body — a packing boundary never crosses a litho contact.',
+        'Stopped at the top of the litho body. A packing boundary never crosses a litho contact.',
     }
   }
   if (rawDepthM >= deepest) {
@@ -145,7 +145,7 @@ export function clampSplitDepth(
       depthM: deepest,
       clampedAt: 'litho-base',
       clampReason:
-        'Stopped at the base of the litho body — a packing boundary never crosses a litho contact.',
+        'Stopped at the base of the litho body. A packing boundary never crosses a litho contact.',
     }
   }
   return { depthM: rawDepthM, clampedAt: 'none', clampReason: null }
@@ -358,7 +358,7 @@ export function canMergeBands(
   if (Math.abs(upper.baseDepthM - lower.topDepthM) > BAND_ADJACENCY_TOLERANCE_M) {
     return {
       ok: false,
-      reason: 'These two bands do not touch — there is other material between them.',
+      reason: 'These two bands do not touch. There is other material between them.',
     }
   }
   const { upperBody, lowerBody } = pairLithoBodies(upper, lower, lithoBodies)
@@ -378,7 +378,7 @@ export function canMergeBands(
       // remedy first, the other axis as the alternative it now is.
       reason:
         'These bands sit in different lithological units. The boundary between them is a ' +
-        'litho contact, and a packing boundary never crosses one — drag the contact itself to ' +
+        'litho contact, and a packing boundary never crosses one. Drag the contact itself to ' +
         'move it, or edit it on the litho axis.',
     }
   }
