@@ -32,19 +32,19 @@ export const LAUNCH = {
   'onboarding.startTutorial': 'Start the tutorial',
   'onboarding.startLater': 'Maybe later',
   'onboarding.sampleUnavailable':
-    'The sample project is not bundled in this prototype yet — starting an empty project instead.',
+    'The sample project is not bundled in this prototype yet. Starting an empty project instead.',
   'onboarding.sampleLoaded': 'Worked example opened. Saved to {path}',
   // The six spine stages, one sentence each.
   'onboarding.stageImport': 'Import',
   'onboarding.stageImportBody': 'Bring in CPTs and boreholes from files or straight from DOV.',
   'onboarding.stageGeology': 'Stratigraphy',
-  'onboarding.stageGeologyBody': 'Lay down the stratigraphic backbone — formations and their surfaces.',
+  'onboarding.stageGeologyBody': 'Lay down the stratigraphic backbone: formations and their surfaces.',
   'onboarding.stageLitho': 'Lithology',
   'onboarding.stageLithoBody': 'Refine the backbone into lithological units along your sections.',
   'onboarding.stageGeotech': 'Geotechnics',
   'onboarding.stageGeotechBody': 'Subdivide units into NAD packing classes from CPT-derived indicators.',
   'onboarding.stageSections': 'Sections',
-  'onboarding.stageSectionsBody': 'Draw and edit cross-sections — the surface where all three model levels are built.',
+  'onboarding.stageSectionsBody': 'Draw and edit cross-sections: the surface where all three model levels are built.',
   'onboarding.stageExport': 'Export',
   'onboarding.stageExportBody': 'Send the model to Plaxis, D-Stability, DXF and PDF report slices.',
 
