@@ -75,7 +75,7 @@ export default function BackendUnreachableBanner(): JSX.Element | null {
         ⚠
       </span>
       <span>
-        <span className="font-semibold text-status-danger">{t('app.backendUnreachable')}</span>{' '}
+        <span className="font-semibold text-status-danger">{t('app.backendUnreachable')}</span>{'. '}
         {t('app.backendUnreachableBody')}
       </span>
     </div>
