@@ -515,7 +515,7 @@ describe('the padlock answers the cursor, not itself', () => {
       .querySelector('[data-testid="geotech-contact-marker-g2"]')
       ?.querySelector('title')
     expect(title?.textContent).toBe(
-      'Lithological contact — dragging it moves the litho model',
+      'Lithological contact. Dragging it moves the litho model',
     )
   })
 })
