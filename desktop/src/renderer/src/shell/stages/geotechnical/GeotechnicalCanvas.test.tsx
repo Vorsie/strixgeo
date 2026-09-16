@@ -217,6 +217,7 @@ function makeCtx(overrides: {
       geotechContacts: [],
       geotechFormations: overrides.geotechFormations ?? [],
       handleCreateManualLithoGhost: vi.fn(),
+      copyGhostColumn: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
       handleSubdivideAllBodies: noopAsync,
