@@ -375,7 +375,7 @@ function ZoneStrip({
               fill={SBT_ZONE_FILL[run.zone] ?? UNCLASSIFIED_FILL}
             >
               <title>
-                {`${run.topM.toFixed(2)}–${run.baseM.toFixed(2)} m — ${
+                {`${run.topM.toFixed(2)}–${run.baseM.toFixed(2)} m: ${
                   spec ? spec.label : t('params.zoneN', { n: run.zone })
                 }`}
               </title>
