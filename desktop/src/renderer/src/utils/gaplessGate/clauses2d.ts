@@ -305,7 +305,7 @@ function areaConservationFor(
       entries.push({
         label:
           `${sectionName}, gap ${gapIndex}: the cover geometry could not be measured ` +
-          `(${describeGeometryFailure(error)}) — most often a region whose own ring ` +
+          `(${describeGeometryFailure(error)}); most often a region whose own ring ` +
           `crosses itself`,
         ...gapLocator(sectionId, sectionName, gapIndex, columnInvestigationIds),
       })
