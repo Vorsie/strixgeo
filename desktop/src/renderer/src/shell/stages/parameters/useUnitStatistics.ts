@@ -138,7 +138,7 @@ export function useUnitStatistics(
         log.error('cpt', `unit statistics plot-batch(${missing.length} cpts) failed`, err)
         setError(
           err instanceof Error && err.message
-            ? `Could not load the measurements for this unit — ${err.message}`
+            ? `Could not load the measurements for this unit: ${err.message}`
             : 'Could not load the measurements for this unit.',
         )
         setLoading(false)
