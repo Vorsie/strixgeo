@@ -105,6 +105,33 @@ function copySuccessMessage(boundaries: number, units: number, split: boolean): 
 }
 
 /**
+ * The success toast for a copy, with a clipped-boundary note appended when a
+ * shallow target dropped one or more boundaries below its own depth (owner
+ * 2026-09-16: "it should just work" — clip, don't refuse). Reports what landed
+ * AND how many boundaries fell below the test's depth.
+ *
+ * @param boundaries - How many boundaries landed.
+ * @param units - How many units carry a source composition.
+ * @param split - Whether the drop split a target (true) or created a stack (false).
+ * @param dropped - How many boundaries were clipped off below the target's depth.
+ * @returns The translated toast string.
+ */
+function copyToastMessage(
+  boundaries: number,
+  units: number,
+  split: boolean,
+  dropped: number,
+): string {
+  const landed = copySuccessMessage(boundaries, units, split)
+  if (dropped <= 0) return landed
+  const note =
+    dropped === 1
+      ? t('sections.canvasToast.lithoContactCopyClippedOne')
+      : t('sections.canvasToast.lithoContactCopyClippedMany', { dropped })
+  return `${landed} ${note}`
+}
+
+/**
  * Wire the litho-contact copy orchestration.
  *
  * @param params - The api slice, litho state, terminal-depth resolver, undo push,
@@ -192,7 +219,12 @@ export function useCopyLithoContact(
           await settle()
           toast(
             'success',
-            copySuccessMessage(plan.depthsM.length, plan.items.length, false),
+            copyToastMessage(
+              plan.depthsM.length,
+              plan.items.length,
+              false,
+              plan.droppedBelowTerminalCount,
+            ),
             COPY_TOAST_KEY,
           )
           pushUndo(
@@ -229,7 +261,12 @@ export function useCopyLithoContact(
           await settle()
           toast(
             'success',
-            copySuccessMessage(plan.splits.length, result.recomposedCount, true),
+            copyToastMessage(
+              plan.splits.length,
+              result.recomposedCount,
+              true,
+              plan.droppedBelowTerminalCount,
+            ),
             COPY_TOAST_KEY,
           )
           pushUndo(
