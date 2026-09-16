@@ -18,7 +18,7 @@ export const OUTPUTS = {
   'params.perUnitBlurb':
     'One row per litho / geotechnical unit; columns aggregate over the unit (mean / P50 / P95 / derived values).',
   'params.methodsBlurb':
-    'Correlations (formula) vs Excel lookups (NAD-NEN table) — hard-separated. Plus probabilistic + ML hooks.',
+    'Correlations (formula) vs Excel lookups (NAD-NEN table): hard-separated. Plus probabilistic + ML hooks.',
   'params.correlations': 'Correlations',
   'params.correlationsBlurb':
     'Formula-driven derivations from in-situ measurements. Pick one method per (parameter, unit).',
@@ -37,15 +37,15 @@ export const OUTPUTS = {
   'params.waterTable': 'Water table:',
   'params.waterTableSet': 'Click to set the water table for this CPT',
   'params.waterTableHint': 'Depth to groundwater in metres below ground surface',
-  'params.waterTableEditHint': 'm — Enter to apply, Esc to cancel',
+  'params.waterTableEditHint': 'm. Enter to apply, Esc to cancel',
   'params.waterTableUndo':
-    "Undo the water table you set — the file's value comes back when the file recorded one, otherwise the app's assumption",
+    "Undo the water table you set. The file's value comes back when the file recorded one, otherwise the app's assumption",
   'params.sbtNormalised': 'Normalised Robertson 2015 SBT zone',
   'params.sbtNonNormalised': 'Non-normalised I_SBT zone (Robertson 2010)',
 
   // --- Parameters stage — wired from the stage components (P6 coverage) ---
   'params.phase5Surface':
-    'Phase-5 surface — design-ready parameters (φ′ / c′ / cu / E50 / OCR / Vs / G0 / M) populate as correlations and lookups land.',
+    'Phase-5 surface: design-ready parameters (φ′ / c′ / cu / E50 / OCR / Vs / G0 / M) populate as correlations and lookups land.',
   'params.unknownTab': 'Unknown parameters tab',
   // water-table provenance labels
   'params.gwtRecorded': 'recorded',
@@ -53,10 +53,10 @@ export const OUTPUTS = {
   'params.gwtEngineerShort': 'engineer',
   'params.gwtAssumed': 'assumed',
   'params.waterTableInvalid':
-    'Water table must be a number in metres — negative if the water is above the surface.',
-  'params.waterTableSaveFailedDetail': 'Could not save the water table — {error}',
+    'Water table must be a number in metres. Negative if the water is above the surface.',
+  'params.waterTableSaveFailedDetail': 'Could not save the water table: {error}',
   'params.waterTableSaveFailed': 'Could not save the water table.',
-  'params.cptLoadFailedDetail': 'Could not load this CPT — {error}',
+  'params.cptLoadFailedDetail': 'Could not load this CPT: {error}',
   'params.cptLoadFailed': 'Could not load this CPT.',
   'params.cptFallbackName': 'CPT',
   'params.depthMDeep': '{depth} m deep',
@@ -73,7 +73,7 @@ export const OUTPUTS = {
     '{title} distribution over this unit: median {median} {unit}, {n} samples',
   'params.notRecordedOnCpts': 'Not recorded on the CPTs covering this unit.',
   'params.offAxis': '{count} off axis',
-  'params.marksNotDrawn': '{marks} not drawn — spanning off-axis values',
+  'params.marksNotDrawn': '{marks} not drawn: spanning off-axis values',
   'params.markWhisker': 'whisker',
   'params.markBox': 'box',
   'params.statMin': 'min',
@@ -95,32 +95,32 @@ export const OUTPUTS = {
   'params.noConeInBody': 'No cone measurements in this body',
   'params.noConeInUnit': 'No cone measurements in this unit',
   'params.noConeBodyHint':
-    'This body has no bands on a CPT — a borehole-only body carries no cone resistance to summarise.',
+    'This body has no bands on a CPT. A borehole-only body carries no cone resistance to summarise.',
   'params.noConeUnitHint':
-    'This unit has no bands on a CPT — a borehole-only unit carries no cone resistance to summarise.',
+    'This unit has no bands on a CPT. A borehole-only unit carries no cone resistance to summarise.',
   'params.noConeBandsHint': 'The bands are there, but no CPT series covers them yet.',
   'params.characterisationNote':
-    "Characterisation only — the spread of the measurements inside this unit's bands. These are not design parameters; φ′, c′, cu, E50, OCR and Vs are not derived here.",
+    "Characterisation only: the spread of the measurements inside this unit's bands. These are not design parameters; φ′, c′, cu, E50, OCR and Vs are not derived here.",
   // fence cutout
   'params.whereUnitSits': 'Where this unit sits',
   'params.fenceCutoutBlurb':
-    "The fence diagram cut down to the selected unit's walls over the basemap — a visual anchor, not an editor.",
+    "The fence diagram cut down to the selected unit's walls over the basemap: a visual anchor, not an editor.",
   'params.loading3dView': 'Loading the 3D view…',
   'params.kindGeotech': 'geotechnical',
   'params.kindLitho': 'lithological',
-  'params.noModelYet': 'No {kind} model yet — the fence cutout appears once one exists.',
+  'params.noModelYet': 'No {kind} model yet. The fence cutout appears once one exists.',
   'params.assemblingFence': 'Assembling the fence…',
   'params.noFenceWalls':
-    'No fence walls for this unit yet — connect its bands across sections and they will appear here.',
+    'No fence walls for this unit yet. Connect its bands across sections and they will appear here.',
   'params.resetCameraFrame': 'Reset the camera to frame the model',
   // identification tests
   'params.identificationTests': 'Identification tests',
-  'params.labTestsLoadFailedDetail': 'Could not load the lab tests for this unit — {error}',
+  'params.labTestsLoadFailedDetail': 'Could not load the lab tests for this unit: {error}',
   'params.labTestsLoadFailed': 'Could not load the lab tests for this unit.',
   'params.okpBlurb':
-    "Classification lab results (OKP) on the unit's borehole samples — value against elevation.",
-  'params.samplesSkippedOne': ' {n} sample skipped — collar elevation unknown.',
-  'params.samplesSkippedMany': ' {n} samples skipped — collar elevation unknown.',
+    "Classification lab results (OKP) on the unit's borehole samples: value against elevation.",
+  'params.samplesSkippedOne': ' {n} sample skipped. Collar elevation unknown.',
+  'params.samplesSkippedMany': ' {n} samples skipped. Collar elevation unknown.',
   'params.loadingIdentificationTests': 'Loading identification tests…',
   'params.noIdentificationTests': 'No identification tests in this unit.',
   'params.sampleSuffix': ' · sample {n}',
@@ -141,12 +141,12 @@ export const OUTPUTS = {
   'params.loadingUnitRoster': 'Loading the unit roster…',
   'params.noUnitsYet': 'No units yet',
   'params.noUnitsHintTree':
-    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage — the tree will populate here.',
+    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage. The tree will populate here.',
   'params.unitsHeader': 'Units',
   'params.orphanBandsOne': '{n} band outside the litho model',
   'params.orphanBandsMany': '{n} bands outside the litho model',
   'params.phase5NoteUnitList':
-    'φ′ · c′ · cu · E50 — design parameters populate in Phase 5, when the correlation + NAD-NEN lookup pipeline lands.',
+    'φ′ · c′ · cu · E50: design parameters populate in Phase 5, when the correlation + NAD-NEN lookup pipeline lands.',
   'params.nodeBandsOne': '{n} band · {cone} with cone',
   'params.nodeBandsMany': '{n} bands · {cone} with cone',
   // Right-pane grouping (owner finding 2026-09-03) — the bulk bar + toasts.
@@ -162,15 +162,15 @@ export const OUTPUTS = {
   'params.groupNeedTwoHint': 'Select at least two bodies to group.',
   'params.groupCrossClassHint': 'Only bodies of the same packing class can be grouped.',
   'params.groupCrossClassHintNamed':
-    'Only bodies of the same packing class can be grouped — you selected {classes}.',
-  'params.grouped': 'Grouped — select a member and press Ungroup to undo.',
-  'params.ungrouped': 'Ungrouped — the body stands on its own again.',
+    'Only bodies of the same packing class can be grouped. You selected {classes}.',
+  'params.grouped': 'Grouped. Select a member and press Ungroup to undo.',
+  'params.ungrouped': 'Ungrouped. The body stands on its own again.',
   'params.groupFailed': 'Could not group the bodies.',
   'params.ungroupFailed': 'Could not ungroup the body.',
   // unit statistics canvas
   'params.unitNoLongerExists': 'This unit no longer exists',
   'params.unitNoLongerExistsHint':
-    'It was removed or rebuilt since it was selected — pick another unit in the list.',
+    'It was removed or rebuilt since it was selected. Pick another unit in the list.',
   'params.lithostratigraphicUnit': 'Lithological unit',
   'params.geotechnicalUnit': 'Geotechnical unit',
   // NAD characteristic values block (owner ruling 2026-09-05) — a per-body read
@@ -187,7 +187,7 @@ export const OUTPUTS = {
   'params.closeUnitStats': 'Close the unit statistics',
   'params.loadingMeasurements': 'Loading measurements…',
   'params.populationNote':
-    'n = {qcN} qc samples over {cptCount} {cptWord} on {sectionCount} {sectionWord} — only tests on sections pool; hidden and removed are excluded',
+    'n = {qcN} qc samples over {cptCount} {cptWord} on {sectionCount} {sectionWord}. Only tests on sections pool; hidden and removed are excluded',
   'params.cptWordSingular': 'CPT',
   'params.cptWordPlural': 'CPTs',
   'params.sectionWordSingular': 'section',
@@ -204,30 +204,30 @@ export const OUTPUTS = {
   'params.perTestFooterRest':
     " · click a CPT row to plot its depth series and soil-behaviour-type profile in the inspector on the right. Ic̄ appears once that CPT's series has been loaded.",
   'params.designReadyParam':
-    'Design-ready parameter — populated in Phase 5 when the correlation / xlsx pipeline lands.',
+    'Design-ready parameter: populated in Phase 5 when the correlation / xlsx pipeline lands.',
   // per-unit tab
   'params.noUnitsHintStats':
-    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage — the units will populate here with their statistics.',
+    'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage. The units will populate here with their statistics.',
   'params.pickUnit': 'Pick a unit',
   'params.pickUnitHint':
-    'Click a unit in the list on the right — its qc / fs / Rf statistics draw here. Right-clicking a band in a cross-section jumps here too.',
+    'Click a unit in the list on the right. Its qc / fs / Rf statistics draw here. Right-clicking a band in a cross-section jumps here too.',
   // methods tab
   'params.excelLookupsSubtitle':
-    'Table-driven values from owner-curated or project-imported spreadsheets. Hard-separated from correlations — the engineer picks ONE path per cell.',
+    'Table-driven values from owner-curated or project-imported spreadsheets. Hard-separated from correlations: the engineer picks ONE path per cell.',
   'params.methodRobertsonWride': 'Robertson & Wride 1986',
   'params.methodMayne': 'Mayne 2007',
   'params.methodKulhawyMayne': 'Kulhawy & Mayne 2014',
   'params.methodUzielli': 'Uzielli 2013',
   'params.methodRobertson2015': 'Robertson 2015 / 2009',
-  'params.methodRefRobertsonWride': 'φ′ from Qtn — Robertson, P.K. & Wride, C.E. (1998)',
-  'params.methodRefMayne': 'φ′ from Qtn — Mayne, P.W. (2007)',
-  'params.methodRefKulhawyMayne': 'OCR from Qt — Kulhawy & Mayne (2014)',
-  'params.methodRefUzielli': 'φ′ probabilistic — Uzielli (2013)',
-  'params.methodRefRobertson2015': 'SBT zone + Ic — Robertson (2015), zone map (2009)',
+  'params.methodRefRobertsonWride': 'φ′ from Qtn: Robertson, P.K. & Wride, C.E. (1998)',
+  'params.methodRefMayne': 'φ′ from Qtn: Mayne, P.W. (2007)',
+  'params.methodRefKulhawyMayne': 'OCR from Qt: Kulhawy & Mayne (2014)',
+  'params.methodRefUzielli': 'φ′ probabilistic: Uzielli (2013)',
+  'params.methodRefRobertson2015': 'SBT zone + Ic: Robertson (2015), zone map (2009)',
   'params.methodRefNadNen': 'Owner-curated; per NAD class × parameter lookup',
   'params.methodRefXlsx': 'User-provided; loaded once per project',
   'params.methodRefProbabilistic': 'Per-parameter μ ± σ + distribution type (Normal / Lognormal / Beta)',
-  'params.methodRefMl': 'Audit-required surface (never auto-applies — owner directive)',
+  'params.methodRefMl': 'Audit-required surface (never auto-applies, owner directive)',
   'params.methodAppliesRobertsonWride': 'Sand units (Ic < 2.6); inputs qc, fs',
   'params.methodAppliesMayne': 'Sand units; inputs qc, σ′v',
   'params.methodAppliesKulhawyMayne': 'Clay units (Ic > 2.6); inputs qc, σv, σ′v',
@@ -243,7 +243,7 @@ export const OUTPUTS = {
   'params.methodsStatusPre': 'Status: all cards above are ',
   'params.methodsStatusBold': 'structural skeletons',
   'params.methodsStatusPost':
-    ' for Phase 5. Surfacing the three-pillar architecture today keeps the design decisions visible — push back on the shape (which methods, which xlsx sources, the hard-separation rule) BEFORE the Phase-5 implementation budget commits.',
+    ' for Phase 5. Surfacing the three-pillar architecture today keeps the design decisions visible. Push back on the shape (which methods, which xlsx sources, the hard-separation rule) BEFORE the Phase-5 implementation budget commits.',
 
   // -------------------------------------------------------------------------
   // export stage.
@@ -255,10 +255,10 @@ export const OUTPUTS = {
   'export.crossSection': 'Cross-section',
   'export.crossSectionToExport': 'Cross-section to export',
   'export.sectionBlurb':
-    "Export one cross-section's layer geometry — DXF (universal CAD exchange) or a runnable Plaxis 2D plxscripting script with one borehole per projected column.",
+    "Export one cross-section's layer geometry: DXF (universal CAD exchange) or a runnable Plaxis 2D plxscripting script with one borehole per projected column.",
   'export.geologyPlaxis3d': 'Stratigraphic model → Plaxis 3D',
   'export.geologyBlurb':
-    'Export the whole model as a runnable plxscripting Python script — one Mohr-Coulomb placeholder soil + one borehole per investigation.',
+    'Export the whole model as a runnable plxscripting Python script: one Mohr-Coulomb placeholder soil + one borehole per investigation.',
   'export.noActiveModel': 'No active stratigraphic model. Define formations and place contacts first.',
   'export.dxf': 'AutoCAD DXF',
   'export.pythonScript': 'Python script',
@@ -274,7 +274,7 @@ export const OUTPUTS = {
   'export.reportGenerate': 'Generate section PDF',
   'export.reportNotes': 'Optional free-text description rendered under the metadata table.',
   'export.reportBlurb':
-    'Customise the title and metadata that appear on the report’s header. All fields are optional — leave the title default for the section name.',
+    'Customise the title and metadata that appear on the report’s header. All fields are optional. Leave the title default for the section name.',
   'export.reportTitleLabel': 'Title',
   'export.reportAuthorLabel': 'Author',
   'export.reportNotesLabel': 'Notes',
@@ -284,7 +284,7 @@ export const OUTPUTS = {
   // --- export stage canvas + fence DXF + shared 3D view (P6 coverage) ---
   'export.heading': 'Export',
   'export.canvasBlurb':
-    'Hand the ground model off to a downstream design tool. Layer geometry is the integration unit — per-layer parameters are set in the destination tool.',
+    'Hand the ground model off to a downstream design tool. Layer geometry is the integration unit: per-layer parameters are set in the destination tool.',
   'export.guidanceNoModelPre':
     'No active stratigraphic model. Define formations and place contacts in the ',
   'export.guidanceNoModelPost': ' stage first.',
@@ -296,11 +296,11 @@ export const OUTPUTS = {
   'export.exportPlaxis3d': 'Export Plaxis 3D',
   'export.fenceNothingToExport':
     'Nothing to export: switch the 3-D view to Fence and make sure the fence has walls.',
-  'export.fenceExported': 'Fence diagram exported — {count} panels.',
+  'export.fenceExported': 'Fence diagram exported: {count} panels.',
   'export.fenceIncompleteOne':
-    '{n} cross-section could not load its correlations — the fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
+    '{n} cross-section could not load its correlations. The fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
   'export.fenceIncompleteMany':
-    '{n} cross-sections could not load their correlations — the fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
+    '{n} cross-sections could not load their correlations. The fence is incomplete and shows those panels untied: {names}. Reopen Fence view to retry.',
   'export.viewLabel': 'View',
   'export.viewSolid': 'Solid',
   'export.viewFence': 'Fence',
