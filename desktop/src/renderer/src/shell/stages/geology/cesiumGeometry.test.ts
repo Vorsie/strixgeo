@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { FormationSurfaceResponse } from '../../../api/client'
 import {
   GEOPUNT_ORTHO_WMS,
+  buildBasemapDrape,
   buildCutFaceBands,
   computeBasemapBounds,
   lidElevationAtInvestigations,
@@ -596,5 +597,90 @@ describe('lidElevationAtInvestigations', () => {
     // The old rule: the highest vertex plus its half-metre clearance.
     const fallback = computeBasemapBounds([ground], 31370, null)
     expect(fallback?.elevation).toBeCloseTo(30.5, 6)
+  })
+})
+
+// Owner 2026-09-16 (installer #41 dogfeed): "basemap sits on top, right now i do
+// have a very sloped sections, can't we make the basemap follow that slope?" The
+// flat lid floats above the low end of a sloped site and cuts through the high
+// end; the basemap now drapes on the ground-surface TIN so it follows the terrain.
+describe('buildBasemapDrape', () => {
+  // A flat ground TIN over a 100 x 100 m square at +12 m.
+  const flatGround = {
+    vertices: [
+      [0, 0, 12],
+      [100, 0, 12],
+      [100, 100, 12],
+      [0, 100, 12],
+    ] as [number, number, number][],
+    triangles: [
+      [0, 1, 2],
+      [0, 2, 3],
+    ] as [number, number, number][],
+  }
+  // A ground TIN sloping from +5 m (west) up to +25 m (east): z = 5 + x / 5.
+  const slopedGround = {
+    vertices: [
+      [0, 0, 5],
+      [100, 0, 25],
+      [100, 100, 25],
+      [0, 100, 5],
+    ] as [number, number, number][],
+    triangles: [
+      [0, 1, 2],
+      [0, 2, 3],
+    ] as [number, number, number][],
+  }
+  // The basemap image bounds (the padded projected footprint the WMS GetMap
+  // covers), a 120 m span (-10..110) so the 100 m data sits inside it.
+  const bounds = { minE: -10, minN: -10, maxE: 110, maxN: 110 }
+
+  it('the basemap follows the ground surface: every basemap vertex sits a fixed offset above its ground vertex', () => {
+    const drape = buildBasemapDrape(slopedGround, bounds, 0.5)
+    expect(drape).not.toBeNull()
+    if (!drape) return
+    expect(drape.positions).toHaveLength(slopedGround.vertices.length)
+    for (let i = 0; i < slopedGround.vertices.length; i++) {
+      const [gx, gy, gz] = slopedGround.vertices[i]
+      const [px, py, pz] = drape.positions[i]
+      // Same x/y as the ground vertex; z lifted by exactly the offset.
+      expect(px).toBeCloseTo(gx, 9)
+      expect(py).toBeCloseTo(gy, 9)
+      expect(pz).toBeCloseTo(gz + 0.5, 9)
+    }
+    // The ground TIN's triangle index buffer is reused verbatim.
+    expect(drape.triangles).toEqual(slopedGround.triangles)
+  })
+
+  it('on a sloped site the basemap is not a flat plane', () => {
+    const drape = buildBasemapDrape(slopedGround, bounds, 0.5)
+    expect(drape).not.toBeNull()
+    if (!drape) return
+    const distinctZ = new Set(drape.positions.map(p => Math.round(p[2] * 1000)))
+    // More than one level → it follows the slope, not a single flat plane.
+    expect(distinctZ.size).toBeGreaterThan(1)
+    // The flat site, by contrast, drapes at one level.
+    const flat = buildBasemapDrape(flatGround, bounds, 0.5)
+    const flatZ = new Set(flat?.positions.map(p => Math.round(p[2] * 1000)))
+    expect(flatZ.size).toBe(1)
+  })
+
+  it('each vertex texture coordinate is its position inside the basemap image bounds', () => {
+    const drape = buildBasemapDrape(flatGround, bounds, 0.5)
+    expect(drape).not.toBeNull()
+    if (!drape) return
+    // (0,0) sits 10 m in from a 120 m span → u = v = 10/120; t grows south→north.
+    expect(drape.sts[0][0]).toBeCloseTo(10 / 120, 9)
+    expect(drape.sts[0][1]).toBeCloseTo(10 / 120, 9)
+    // (100,100) → 110/120 in both axes.
+    expect(drape.sts[2][0]).toBeCloseTo(110 / 120, 9)
+    expect(drape.sts[2][1]).toBeCloseTo(110 / 120, 9)
+  })
+
+  it("without a ground surface the basemap is the flat lid at the tests' ground level", () => {
+    // No ground TIN (no DEM), or an empty one, yields no drape — the caller
+    // then keeps the flat lid from computeBasemapBounds / lidElevationAtInvestigations.
+    expect(buildBasemapDrape(null, bounds, 0.5)).toBeNull()
+    expect(buildBasemapDrape({ vertices: [], triangles: [] }, bounds, 0.5)).toBeNull()
   })
 })
