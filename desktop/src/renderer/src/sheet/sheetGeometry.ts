@@ -48,7 +48,9 @@ export interface SheetGeometry {
   drawingWidthMm: number
   /** Right edge of the profile's drawn extent (trailing column + margin), mm
    *  from the paper's left edge. In fit mode this reaches the drawing area's
-   *  right edge at every spacing; a longer-than-A3 profile grows the paper. */
+   *  right edge at every spacing (the scale re-fits so the readable columns fit
+   *  A3); only when even the minimum column spacing cannot fit does the paper
+   *  grow. Explicit mode grows the paper for any over-A3 profile. */
   drawingRightMm: number
   rightColumnLeftMm: number
   scaleHmmPerM: number
@@ -100,6 +102,83 @@ export function pageFillingVex(input: {
 
 export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
   const rangeM = Math.max(1e-3, input.levelMaxM - input.levelMinM)
+  const drawingLeftMm = MARGIN_MM + AXIS_GUTTER_MM
+  const layoutColumns = input.columns.map(c => ({
+    id: c.id, along: c.alongM, fixedWidthPx: 0, halfWidthMultiple: 2,
+  }))
+  const xMin = input.columns[0]?.alongM ?? 0
+  const fillMode = input.scaleMode !== 'explicit'
+  // The trailing edge the profile should reach on an A3 sheet: one gutter and a
+  // right column short of the paper's right margin.
+  const fillTargetRightMm = PAPER_MIN_WIDTH_MM - MARGIN_MM - RIGHT_COLUMN_MM - GUTTER_MM
+
+  // Lay the columns out at a given horizontal scale and drawn half-width and
+  // return their mm x in input order. ``marginLeft`` includes the half-width so
+  // the leftmost column's mirrored (leftward) reach lands exactly on the
+  // elevation axis, and stays fixed as the scale varies (the axis never moves).
+  const layoutAt = (scaleH: number, bandHalfWidth: number): number[] => {
+    const placements = layoutColumnsHorizontally({
+      columns: layoutColumns, xMin, scaleH, bandHalfWidth,
+      columnSpacing: input.spacing,
+      marginLeft: drawingLeftMm + bandHalfWidth,
+      edgeGapPx: COLUMN_EDGE_GAP_MM,
+    })
+    const byId = new Map(placements.map(p => [p.id, p.nudgedX]))
+    return input.columns.map(c => byId.get(c.id) ?? drawingLeftMm)
+  }
+  // Fit mode fills the drawing width at EVERY spacing. ``layoutAt`` places the
+  // columns at true × scaleH then lerps them toward packed by the Spacing
+  // slider, so a low spacing pulls the profile into a narrow cluster on the left
+  // and opens white space before the right column (owner, installer #40: "fit to
+  // A3 and column spacing all the way down has a lot of white space between the
+  // profile and the map on the right"). The rule: in fit mode the spacing
+  // decides how the columns SHARE the width, not how much of the page the
+  // profile uses. So after the spacing layout, the columns are stretched about
+  // the fixed left edge (the leftmost column stays on the elevation axis) until
+  // the profile's trailing edge reaches the drawing area's right edge — a
+  // UNIFORM stretch, so the relative spacing the slider produced is preserved.
+  // The stretch never COMPRESSES (a profile already at or past the A3 width is
+  // handled by the scale re-fit below, not by squashing the columns together).
+  // Explicit mode is left untouched — there a chosen scale may leave white space.
+  const layoutFilled = (scaleH: number, bandHalfWidth: number): number[] => {
+    const xs = layoutAt(scaleH, bandHalfWidth)
+    if (!fillMode || xs.length < 2) return xs
+    const firstX = Math.min(...xs)
+    const span = Math.max(...xs) - firstX
+    if (span <= 1e-6) return xs
+    // ``bandHalfWidth`` sits on both ends: the leftmost column reaches
+    // ``bandHalfWidth`` left of ``firstX`` (onto the axis) and the trailing
+    // column ``bandHalfWidth`` + ``PROFILE_TRAILING_MM`` right of its centre.
+    const targetLastCentre = fillTargetRightMm - bandHalfWidth - PROFILE_TRAILING_MM
+    const k = (targetLastCentre - firstX) / span
+    if (k <= 1) return xs
+    return xs.map(x => firstX + (x - firstX) * k)
+  }
+  // Resolve the drawn column width + positions at a given horizontal scale.
+  // Pass 1 seeds the (filled) layout at the readable minimum width to read the
+  // on-paper column spacing; the drawn width is then a fixed fraction of the
+  // nearest-neighbour spacing (clamped), so widely-spaced columns read as legible
+  // strips rather than tall hairlines. Pass 2 re-lays and re-fills at that width
+  // so the packing, the first-column offset and the trailing edge all use the
+  // real drawn width. ``drawingRightMm`` is the profile's trailing edge: it fills
+  // exactly to ``fillTargetRightMm`` when the layout fits (the fill stretched it
+  // up), and overruns it when the columns are too wide to fit at this scale.
+  const resolveLayout = (scaleH: number): {
+    columnXmm: number[]; columnHalfWidthMm: number; drawingRightMm: number
+  } => {
+    const seedXmm = layoutFilled(scaleH, COLUMN_HALF_WIDTH_MM)
+    const nearestGapMm = minAdjacentGapMm(seedXmm)
+    const columnHalfWidthMm = nearestGapMm === null
+      ? COLUMN_HALF_WIDTH_MM
+      : Math.max(
+          COLUMN_HALF_WIDTH_MM,
+          Math.min(COLUMN_HALF_WIDTH_MAX_MM, COLUMN_WIDTH_SPACING_FRACTION * nearestGapMm),
+        )
+    const columnXmm = layoutFilled(scaleH, columnHalfWidthMm)
+    const lastX = columnXmm.length > 0 ? Math.max(...columnXmm) : drawingLeftMm
+    return { columnXmm, columnHalfWidthMm, drawingRightMm: lastX + columnHalfWidthMm + PROFILE_TRAILING_MM }
+  }
+
   let scaleV: number
   let scaleH: number
   let drawingHeightMm: number
@@ -123,78 +202,42 @@ export function computeSheetGeometry(input: SheetGeometryInput): SheetGeometry {
     const widthFitH = fitWidthScaleH(input.columns)
     const heightFitH = DRAWING_HEIGHT_FIT_MM / (rangeM * vex)
     scaleH = Math.min(widthFitH, heightFitH)
+    // "Fit to A3" (owner 2026-09-11): in fit mode the paper stays A3. The
+    // readable minimum track width (COLUMN_HALF_WIDTH_MM) spreads crowded columns
+    // apart, so at the length-fit scale the profile can overrun the A3 drawing
+    // width. Reduce the horizontal scale until the spread columns fit — they keep
+    // their true centres at the smaller scale and their 26 mm minimum spacing,
+    // and the vertical follows (scaleV = scaleH × vex), so the exaggeration stays
+    // honest and the drawing is a little shorter, never wider than A3. Only when
+    // even the minimum spacing (every column at the floor) cannot fit does the
+    // paper grow — there the length-fit scale is kept (true relative positions)
+    // and the dialog's paper-size readout shows the wider sheet.
+    if (fillMode && resolveLayout(scaleH).drawingRightMm > fillTargetRightMm + 1e-6) {
+      // At scaleH → 0 every column packs to the 26 mm floor: the narrowest the
+      // profile can be drawn. If even that overruns A3, the columns cannot fit
+      // and the paper must grow (keep the length-fit scale below).
+      if (resolveLayout(0).drawingRightMm <= fillTargetRightMm + 1e-6) {
+        let lo = 0
+        let hi = scaleH
+        for (let i = 0; i < 40; i += 1) {
+          const mid = (lo + hi) / 2
+          if (resolveLayout(mid).drawingRightMm <= fillTargetRightMm + 1e-6) lo = mid
+          else hi = mid
+        }
+        scaleH = lo
+      }
+    }
     scaleV = scaleH * vex
     drawingHeightMm = Math.max(MIN_DRAWING_HEIGHT_MM, rangeM * scaleV)
   }
-  const drawingLeftMm = MARGIN_MM + AXIS_GUTTER_MM
-  const layoutColumns = input.columns.map(c => ({
-    id: c.id, along: c.alongM, fixedWidthPx: 0, halfWidthMultiple: 2,
-  }))
-  const xMin = input.columns[0]?.alongM ?? 0
-  // Lay the columns out at a given drawn half-width and return their mm x in
-  // input order. ``marginLeft`` includes the half-width so the leftmost
-  // column's mirrored (leftward) reach lands exactly on the elevation axis.
-  const layoutAt = (bandHalfWidth: number): number[] => {
-    const placements = layoutColumnsHorizontally({
-      columns: layoutColumns, xMin, scaleH, bandHalfWidth,
-      columnSpacing: input.spacing,
-      marginLeft: drawingLeftMm + bandHalfWidth,
-      edgeGapPx: COLUMN_EDGE_GAP_MM,
-    })
-    const byId = new Map(placements.map(p => [p.id, p.nudgedX]))
-    return input.columns.map(c => byId.get(c.id) ?? drawingLeftMm)
-  }
-  // Fit mode fills the drawing width at EVERY spacing. ``layoutAt`` places the
-  // columns at true × scaleH then lerps them toward packed by the Spacing
-  // slider, so a low spacing pulls the profile into a narrow cluster on the left
-  // and opens white space before the right column (owner, installer #40: "fit to
-  // A3 and column spacing all the way down has a lot of white space between the
-  // profile and the map on the right"). The rule: in fit mode the spacing
-  // decides how the columns SHARE the width, not how much of the page the
-  // profile uses. So after the spacing layout, the columns are stretched about
-  // the fixed left edge (the leftmost column stays on the elevation axis) until
-  // the profile's trailing edge reaches the drawing area's right edge — a
-  // UNIFORM stretch, so the relative spacing the slider produced is preserved.
-  // The stretch never compresses: a profile already at or past the A3 width
-  // grows the paper instead (below), exactly as before. Explicit mode is left
-  // untouched — there a chosen scale may leave white space by design.
-  const fillMode = input.scaleMode !== 'explicit'
-  // The trailing edge the profile should reach on an A3 sheet: one gutter and a
-  // right column short of the paper's right margin.
-  const fillTargetRightMm = PAPER_MIN_WIDTH_MM - MARGIN_MM - RIGHT_COLUMN_MM - GUTTER_MM
-  const layoutFilled = (bandHalfWidth: number): number[] => {
-    const xs = layoutAt(bandHalfWidth)
-    if (!fillMode || xs.length < 2) return xs
-    const firstX = Math.min(...xs)
-    const span = Math.max(...xs) - firstX
-    if (span <= 1e-6) return xs
-    // ``bandHalfWidth`` sits on both ends: the leftmost column reaches
-    // ``bandHalfWidth`` left of ``firstX`` (onto the axis) and the trailing
-    // column ``bandHalfWidth`` + ``PROFILE_TRAILING_MM`` right of its centre.
-    const targetLastCentre = fillTargetRightMm - bandHalfWidth - PROFILE_TRAILING_MM
-    const k = (targetLastCentre - firstX) / span
-    if (k <= 1) return xs
-    return xs.map(x => firstX + (x - firstX) * k)
-  }
-  // Pass 1 seeds the (filled) layout at the minimum width to read the on-paper
-  // column spacing; the drawn width is then a fixed fraction of the
-  // nearest-neighbour spacing (clamped), so widely-spaced columns read as
-  // legible strips rather than tall hairlines. Pass 2 re-lays and re-fills at
-  // that width so the packing, the first-column offset and the trailing edge all
-  // use the real drawn width — leaving ``drawingRightMm`` exactly on the target.
-  const seedXmm = layoutFilled(COLUMN_HALF_WIDTH_MM)
-  const nearestGapMm = minAdjacentGapMm(seedXmm)
-  const columnHalfWidthMm = nearestGapMm === null
-    ? COLUMN_HALF_WIDTH_MM
-    : Math.max(
-        COLUMN_HALF_WIDTH_MM,
-        Math.min(COLUMN_HALF_WIDTH_MAX_MM, COLUMN_WIDTH_SPACING_FRACTION * nearestGapMm),
-      )
-  const columnXmm = layoutFilled(columnHalfWidthMm)
-  const lastX = columnXmm.length > 0 ? Math.max(...columnXmm) : drawingLeftMm
-  const drawingRightMm = lastX + columnHalfWidthMm + PROFILE_TRAILING_MM
+
+  const { columnXmm, columnHalfWidthMm, drawingRightMm } = resolveLayout(scaleH)
   const naturalWidth = drawingRightMm + GUTTER_MM + RIGHT_COLUMN_MM + MARGIN_MM
-  const paperWidthMm = Math.max(PAPER_MIN_WIDTH_MM, Math.ceil(naturalWidth))
+  // A fit-mode layout that exactly fills the A3 drawing width lands
+  // ``naturalWidth`` on PAPER_MIN_WIDTH_MM to the micron; the tolerance keeps
+  // sub-micron floating dust (from the scale re-fit's binary search) from
+  // rounding a full-A3 sheet up to 421 mm. A genuine overflow is far past it.
+  const paperWidthMm = Math.max(PAPER_MIN_WIDTH_MM, Math.ceil(naturalWidth - 1e-6))
   const rightColumnLeftMm = paperWidthMm - MARGIN_MM - RIGHT_COLUMN_MM
   return {
     paperWidthMm,
