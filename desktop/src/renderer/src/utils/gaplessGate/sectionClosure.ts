@@ -42,7 +42,7 @@ export interface SectionClosureInput {
   builtSectionIds: ReadonlySet<string>
 }
 
-const NO_FRAME_REASON = 'this build has no litho frame — a litho-level build has nothing for clause 4 to check'
+const NO_FRAME_REASON = 'this build has no litho frame: a litho-level build has nothing for clause 4 to check'
 
 /**
  * Which litho-frame sections never reached the build's payload.
