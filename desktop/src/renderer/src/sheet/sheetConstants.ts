@@ -39,12 +39,28 @@ export const TITLE_BLOCK_MM = 40
 export const SCALE_LINE_MM = 6
 
 /**
- * Minimum half of the drawn width of a column on paper (qc trace reach, log
- * strip). The actual drawn half-width scales up with the on-paper column
+ * The readable MINIMUM half-width of a drawn column on paper (mm) — one qc (or
+ * Rf) track spans exactly this reach, so the minimum is the width the qc axis
+ * (0..full scale MPa) is given no matter how coarse the horizontal scale is.
+ *
+ * 12 mm on A3, from what a reader needs (owner, installer #42 dogfeed
+ * 2026-09-16: "the cpt's are too stretched vertically and not enough
+ * horizontally which kinda makes them unreadable"). On a 563 m by ~20 m section
+ * at fit + page-fill the horizontal scale is H 1:2382, which drove the
+ * spacing-derived width down to the old 5 mm floor: a qc curve 0..40 MPa over
+ * 5 mm is 0.125 mm/MPa and 250 mm tall — unreadable spikes. 12 mm gives
+ * 0.3 mm/MPa (the 10 MPa reference 3 mm off the axis, the full-scale label at
+ * the edge), clears ``COLUMN_HEADER_MIN_HALF_WIDTH_MM`` so every column now
+ * prints its "what is what" header, and stays under the cap so widely-spaced
+ * columns still widen. Where these wider tracks no longer fit, the layout
+ * spreads the columns apart (each keeps its true centre) and the paper grows —
+ * the same overflow path a longer-than-A3 profile already takes.
+ *
+ * The actual drawn half-width scales up from here with the on-paper column
  * spacing — see ``COLUMN_WIDTH_SPACING_FRACTION`` — so widely-spaced columns
  * read as legible strips instead of tall hairlines; this stays the floor.
  */
-export const COLUMN_HALF_WIDTH_MM = 5
+export const COLUMN_HALF_WIDTH_MM = 12
 /** Cap on the drawn column half-width so a very wide sheet never balloons a
  *  column into a slab. Chosen below half the smallest spacing the cap can
  *  apply at, so adjacent columns never overlap. */
@@ -52,8 +68,12 @@ export const COLUMN_HALF_WIDTH_MAX_MM = 18
 /**
  * The drawn column half-width is this fraction of the nearest-neighbour
  * on-paper spacing, clamped to [``COLUMN_HALF_WIDTH_MM``,
- * ``COLUMN_HALF_WIDTH_MAX_MM``]; kept below 0.5 so two adjacent columns
- * (each reaching ± half-width) can never overlap.
+ * ``COLUMN_HALF_WIDTH_MAX_MM``]; kept below 0.5 so that in the spacing-derived
+ * range two adjacent columns (each reaching ± half-width) can never overlap.
+ * At the ``COLUMN_HALF_WIDTH_MM`` floor a crowded column can be drawn wider than
+ * this fraction of its neighbour gap; there the layout nudge
+ * (``layoutColumnsHorizontally`` at the same half-width) is what spreads the
+ * columns apart so the widened tracks still never overlap.
  */
 export const COLUMN_WIDTH_SPACING_FRACTION = 0.42
 /**
