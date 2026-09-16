@@ -637,6 +637,13 @@ interface Props {
       contactId: string | null,
       liveDepthM: number,
     ) => void;
+    /** Installer #42: Shift-drag a ghost boundary from this column onto another
+     *  test → give that test a ghost column with the same units. */
+    onCopyGhostContactToColumn?: (params: {
+      sourceInvestigationId: string;
+      targetInvestigationId: string;
+      targetKind: "cpt" | "borehole";
+    }) => void;
   };
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -706,6 +713,13 @@ interface Props {
       anchorId: string,
       idx: number,
     ) => { ok: boolean; reason?: string };
+    /** Installer #42: Shift-drag a ghost boundary from one bulk column onto
+     *  another test → give that test a ghost column with the same units. */
+    onCopyGhostContactToColumn?: (params: {
+      sourceInvestigationId: string;
+      targetInvestigationId: string;
+      targetKind: "cpt" | "borehole";
+    }) => void;
   };
   /**
    * Callback from SectionsCanvas — fired when the user picks
@@ -4044,6 +4058,9 @@ export default function SectionPanel({
                 edits={lithoGhostState.edits}
                 onEdit={lithoGhostState.onEdit}
                 onCrossColumnPaste={lithoGhostState.onCrossColumnPaste}
+                onCopyGhostContactToColumn={
+                  lithoGhostState.onCopyGhostContactToColumn
+                }
                 onInsertLayer={lithoGhostState.onInsertLayer}
                 onSplitLayer={lithoGhostState.onSplitLayer}
                 onMergeLayers={lithoGhostState.onMergeLayers}
@@ -4101,6 +4118,9 @@ export default function SectionPanel({
                       bulkLithoGhostState.onEdit(anchorId, idx, edit);
                     }}
                     onCrossColumnPaste={bulkLithoGhostState.onCrossColumnPaste}
+                    onCopyGhostContactToColumn={
+                      bulkLithoGhostState.onCopyGhostContactToColumn
+                    }
                     onInsertLayer={
                       bulkLithoGhostState.onInsertLayer !== undefined
                         ? (afterIdx, composition) => {
