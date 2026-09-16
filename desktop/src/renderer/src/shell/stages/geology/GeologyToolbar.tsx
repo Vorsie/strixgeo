@@ -634,7 +634,7 @@ export default function GeologyToolbar(): JSX.Element {
                 ),
               })}{' '}
               {(pendingApply?.doomed ?? []).map(f => f.name).join(', ')}
-              {' — '}
+              {', '}
               {t('geology.overwriteExplainSuffix')}
             </p>
           </>
