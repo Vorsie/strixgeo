@@ -1,0 +1,57 @@
+{
+  "_comment": "Cross-language TWIN fixture (debt #284). The single arbiter read by BOTH tests/unit/domain/services/test_twin_packing_class_key.py and desktop/src/renderer/src/utils/geotechHierarchicalFill/packingClassKey.twin.test.ts. It pins the geotech packing-class identity rule shared by packing_class_key.py (packing_class_key_of) and packingClassOf.ts (buildPackingClassOf): a formation row with BOTH a NAD class and a soil code collapses to 'SOIL|CLASS'; a row missing either half keeps ITS OWN row identity (two unknowns are not known to be the same density), so it never welds across rows. The effective key is 'SOIL|CLASS' when both are known and the formation id itself otherwise. The Python callable folds the 'unknown -> id' fallback in; the TS builder returns a Map with no entry for the unknown case and the call site applies '?? id' (PartitionFillOverlay.tsx). The contract compares the EFFECTIVE key: python key_of(id) vs (tsMap.get(id) ?? id). Change a value here and BOTH suites go red.",
+  "rows": [
+    { "formation_id": "f-sand-6", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6" },
+    { "formation_id": "f-sand-6-twin", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6" },
+    { "formation_id": "f-sand-7", "nad_class": 7, "soil_code": "ZAND", "effective_key": "ZAND|7" },
+    { "formation_id": "f-clay-12", "nad_class": 12, "soil_code": "KLEI", "effective_key": "KLEI|12" },
+    { "formation_id": "f-clay-13", "nad_class": 13, "soil_code": "KLEI", "effective_key": "KLEI|13" },
+    { "formation_id": "f-no-class", "nad_class": null, "soil_code": "ZAND", "effective_key": "f-no-class" },
+    { "formation_id": "f-no-soil", "nad_class": 6, "soil_code": null, "effective_key": "f-no-soil" },
+    { "formation_id": "f-both-null", "nad_class": null, "soil_code": null, "effective_key": "f-both-null" }
+  ],
+  "cases": [
+    {
+      "name": "fully_known_sand_collapses_to_soil_and_class",
+      "description": "A row with both a NAD class and a soil code keys to 'SOIL|CLASS'.",
+      "query_id": "f-sand-6",
+      "expected_key": "ZAND|6"
+    },
+    {
+      "name": "two_rows_of_the_same_class_and_soil_weld_to_one_key",
+      "description": "Two NAD-6 sands under different row ids collapse to the same key: one mass, one body (owner 2026-08-21).",
+      "query_id": "f-sand-6-twin",
+      "expected_key": "ZAND|6"
+    },
+    {
+      "name": "same_soil_different_class_stays_distinct",
+      "description": "Two clays that differ only in NAD class keep distinct keys.",
+      "query_id": "f-clay-13",
+      "expected_key": "KLEI|13"
+    },
+    {
+      "name": "missing_nad_class_keeps_row_identity",
+      "description": "A skeleton band over unread ground (no NAD class) never welds; it keeps its own row id.",
+      "query_id": "f-no-class",
+      "expected_key": "f-no-class"
+    },
+    {
+      "name": "missing_soil_code_keeps_row_identity",
+      "description": "A row with a class but no soil code keeps its own row id; folding a missing soil to a placeholder would silently weld unrelated rows.",
+      "query_id": "f-no-soil",
+      "expected_key": "f-no-soil"
+    },
+    {
+      "name": "both_halves_missing_keeps_row_identity",
+      "description": "A row missing both halves keeps its own row id.",
+      "query_id": "f-both-null",
+      "expected_key": "f-both-null"
+    },
+    {
+      "name": "id_absent_from_the_rows_maps_to_itself",
+      "description": "An id not present among the rows (a litho-model region blind-mapped through the key) resolves to itself.",
+      "query_id": "ghost-not-in-rows",
+      "expected_key": "ghost-not-in-rows"
+    }
+  ]
+}
