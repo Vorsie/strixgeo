@@ -39,7 +39,7 @@ import { recallExportPath, rememberExportPath } from './exportPathMemory'
 
 /** One D-Series artefact's wire facts, so the two handlers are one function. */
 const DSERIES = {
-  dstability: { cardId: 'litho-dstability', extension: 'stix' },
+  dstability: { cardId: 'geotech-dstability', extension: 'stix' },
   dsheetpiling: { cardId: 'geotech-dsheet', extension: 'shi' },
 } as const
 
@@ -121,9 +121,8 @@ export function useExportHub(): ExportHubResult {
     const ids = [
       'section-dxf',
       'plaxis3d',
-      'plaxis2d-lithostratigraphic',
       'plaxis2d-geotechnical',
-      'litho-dstability',
+      'geotech-dstability',
       'geotech-dsheet',
       'litho-fence',
       'geotech-fence',
