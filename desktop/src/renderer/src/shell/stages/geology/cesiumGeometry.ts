@@ -53,10 +53,22 @@ export function trianglesToWireframeEdgeIndices(
 // never tiles right under Cesium → the 400-storm + smeared "wall").
 export const GEOPUNT_ORTHO_WMS = 'https://geo.api.vlaanderen.be/omwrgbmrvl/wms'
 
+/** The padded projected footprint (project CRS, e.g. Lambert-72 metres) the
+ * WMS GetMap image covers — the exact ``bbox`` in {@link BasemapBounds.url}.
+ * The drape ({@link buildBasemapDrape}) maps ground-TIN (x, y) into (u, v)
+ * against these bounds so the aerial stays georeferenced on the terrain. */
+export interface ProjectedBbox {
+  minE: number
+  minN: number
+  maxE: number
+  maxN: number
+}
+
 /** The pure result of {@link computeBasemapBounds}: the WGS84 degree
  * rectangle to drape the orthophoto in, the elevation (model top) to
- * place it at, and the one-shot WMS GetMap image URL. Cesium-free so
- * it is unit-testable; the caller wraps it in a ``Cesium.Rectangle``. */
+ * place it at, the one-shot WMS GetMap image URL, and the projected
+ * footprint that URL covers (for the terrain-following drape). Cesium-free
+ * so it is unit-testable; the caller wraps it in a ``Cesium.Rectangle``. */
 export interface BasemapBounds {
   minLng: number
   minLat: number
@@ -64,6 +76,7 @@ export interface BasemapBounds {
   maxLat: number
   elevation: number
   url: string
+  projBbox: ProjectedBbox
 }
 
 /**
@@ -141,6 +154,9 @@ export function computeBasemapBounds(
     maxLat: Math.max(latSW, latNE),
     elevation: lidElevation ?? maxZ + 0.5,
     url,
+    // The padded projected footprint the GetMap ``bbox`` covers — the drape
+    // reads (u, v) from it so the aerial stays aligned on the terrain.
+    projBbox: { minE, minN, maxE, maxN },
   }
 }
 
@@ -209,6 +225,78 @@ export function lidElevationAtInvestigations(
     if (z !== null && z > highest) highest = z
   }
   return Number.isFinite(highest) ? highest + aboveM : null
+}
+
+/** The pure result of {@link buildBasemapDrape}: the ground-TIN geometry lifted
+ * a fixed offset and carrying per-vertex texture coordinates, ready for the
+ * caller to turn into a textured Cesium primitive. Positions/triangles are in
+ * the project's projected CRS (same as the ground TIN); the caller transforms
+ * to ECEF. Cesium-free so it is unit-testable. */
+export interface BasemapDrape {
+  /** ``[x, y, z + aboveM]`` per ground vertex, order preserved. */
+  positions: [number, number, number][]
+  /** ``[u, v]`` per ground vertex — its position inside {@link ProjectedBbox}. */
+  sts: [number, number][]
+  /** The ground TIN's triangle index buffer, reused verbatim. */
+  triangles: [number, number, number][]
+}
+
+/**
+ * Drape the basemap on the ground-surface TIN so the aerial FOLLOWS the terrain
+ * instead of floating as a flat lid.
+ *
+ * Owner 2026-09-16 (installer #41 dogfeed): "basemap sits on top, right now i do
+ * have a very sloped sections, can't we make the basemap follow that slope?" On a
+ * sloped site the flat lid floats above the low end and cuts through the high
+ * end. Here every ground-TIN vertex is lifted by a constant ``aboveM`` (so the
+ * aerial hugs the ground without z-fighting the translucent ground sheet or the
+ * subsurface formation tops) and given a texture coordinate = its position inside
+ * the WMS image's projected footprint, so the one GetMap image stays
+ * georeferenced across the whole terrain. Bed overrides (dredged areas) are
+ * already baked into the ground TIN's z, so the drape follows them too — the
+ * aerial shows the water surface there, which is correct.
+ *
+ * Returns ``null`` when there is no ground TIN (no DEM) or it is empty, or the
+ * footprint is degenerate — the caller then keeps the flat lid.
+ *
+ * Parameters
+ * ----------
+ * ground
+ *     The ground-surface TIN (projected x, y, z + triangles), or nothing.
+ * bounds
+ *     The projected footprint the basemap image covers (see {@link ProjectedBbox}).
+ * aboveM
+ *     Clearance (m) lifted above every ground vertex.
+ *
+ * Returns
+ * -------
+ * BasemapDrape | null
+ */
+export function buildBasemapDrape(
+  ground: TinLike | null | undefined,
+  bounds: ProjectedBbox,
+  aboveM: number,
+): BasemapDrape | null {
+  if (!ground || ground.triangles.length === 0 || ground.vertices.length === 0) {
+    return null
+  }
+  const dE = bounds.maxE - bounds.minE
+  const dN = bounds.maxN - bounds.minN
+  if (dE <= 0 || dN <= 0) return null
+
+  const positions: [number, number, number][] = ground.vertices.map(
+    ([x, y, z]) => [x, y, z + aboveM],
+  )
+  // u grows west→east, v grows south→north — matching the flat lid's st and the
+  // WMS image (north-up), so the drape samples the aerial the same way.
+  const sts: [number, number][] = ground.vertices.map(([x, y]) => [
+    (x - bounds.minE) / dE,
+    (y - bounds.minN) / dN,
+  ])
+  const triangles: [number, number, number][] = ground.triangles.map(
+    ([a, b, c]) => [a, b, c],
+  )
+  return { positions, sts, triangles }
 }
 
 export function sampleTinZ(surface: TinLike, px: number, py: number): number | null {
