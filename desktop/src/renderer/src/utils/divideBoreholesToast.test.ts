@@ -24,7 +24,7 @@ describe('divideBoreholesToastMessage', () => {
       true,
     )
     expect(msg).toBe(
-      'Boreholes divided — 3 split, 1 single-band, 2 accepted ties kept, ' +
+      'Boreholes divided: 3 split, 1 single-band, 2 accepted ties kept, ' +
         '4 jump ties replaced by the borehole chain.',
     )
   })
@@ -32,19 +32,19 @@ describe('divideBoreholesToastMessage', () => {
   it('speaks singular for one replaced jump tie', () => {
     const msg = divideBoreholesToastMessage({ ...base, superseded_jump_tie_count: 1 }, true)
     expect(msg).toBe(
-      'Boreholes divided — 3 split, 1 single-band, 1 jump tie replaced by the borehole chain.',
+      'Boreholes divided: 3 split, 1 single-band, 1 jump tie replaced by the borehole chain.',
     )
   })
 
   it('says nothing about jump ties when none were replaced', () => {
     const msg = divideBoreholesToastMessage({ ...base, superseded_jump_tie_count: 0 }, true)
-    expect(msg).toBe('Boreholes divided — 3 split, 1 single-band.')
+    expect(msg).toBe('Boreholes divided: 3 split, 1 single-band.')
   })
 
   it('survives a backend that predates the field', () => {
     // superseded_jump_tie_count and reanchored_tie_count both absent.
     const msg = divideBoreholesToastMessage(base, false)
-    expect(msg).toBe('Borehole divided — 3 split, 1 single-band.')
+    expect(msg).toBe('Borehole divided: 3 split, 1 single-band.')
   })
 
   // Owner ruling 2026-08-24: "if no hops can be made, you just auto delete the
@@ -53,14 +53,14 @@ describe('divideBoreholesToastMessage', () => {
   it('names the crossing ties the divide auto-deleted', () => {
     const msg = divideBoreholesToastMessage({ ...base, deleted_crossing_span_count: 2 }, true)
     expect(msg).toBe(
-      'Boreholes divided — 3 split, 1 single-band, 2 crossing ties auto-deleted.',
+      'Boreholes divided: 3 split, 1 single-band, 2 crossing ties auto-deleted.',
     )
   })
 
   it('speaks singular for one auto-deleted crossing tie', () => {
     const msg = divideBoreholesToastMessage({ ...base, deleted_crossing_span_count: 1 }, true)
     expect(msg).toBe(
-      'Boreholes divided — 3 split, 1 single-band, 1 crossing tie auto-deleted.',
+      'Boreholes divided: 3 split, 1 single-band, 1 crossing tie auto-deleted.',
     )
   })
 
@@ -73,17 +73,17 @@ describe('divideBoreholesToastMessage', () => {
   it('says how many boreholes kept their hand edits', () => {
     const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 2 }, true)
     expect(msg).toBe(
-      'Boreholes divided — 3 split, 1 single-band, 2 kept their hand edits.',
+      'Boreholes divided: 3 split, 1 single-band, 2 kept their hand edits.',
     )
   })
 
   it('speaks singular for one borehole that kept its hand edits', () => {
     const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 1 }, false)
-    expect(msg).toBe('Borehole divided — 3 split, 1 single-band, 1 kept its hand edits.')
+    expect(msg).toBe('Borehole divided: 3 split, 1 single-band, 1 kept its hand edits.')
   })
 
   it('says nothing about hand edits when every borehole was re-derived', () => {
     const msg = divideBoreholesToastMessage({ ...base, skipped_existing_borehole_count: 0 }, true)
-    expect(msg).toBe('Boreholes divided — 3 split, 1 single-band.')
+    expect(msg).toBe('Boreholes divided: 3 split, 1 single-band.')
   })
 })
