@@ -326,14 +326,11 @@ export const OUTPUTS = {
   'export.cardPlaxis3dTitle': 'Stratigraphic model → Plaxis 3D',
   'export.cardPlaxis3dDesc':
     'The whole model as a runnable plxscripting script: one placeholder soil + one borehole per investigation.',
-  'export.cardLithoDstabilityDesc':
-    'The lithological cross-section as closed D-Stability polygons (geometry only, no design parameters).',
-  'export.cardLithoPlaxis2dTitle': 'Plaxis 2D',
-  'export.cardLithoPlaxis2dDesc':
-    'The lithological cross-section as a runnable Plaxis 2D plxscripting script, one borehole per column.',
   'export.cardLithoFenceTitle': 'Fence diagram (DXF)',
   'export.cardLithoFenceDesc':
     'The lithological 3-D fence walls as a DXF: one layer per section by unit.',
+  'export.cardGeotechDstabilityDesc':
+    'The geotechnical cross-section as closed D-Stability polygons (geometry only, no design parameters).',
   'export.cardGeotechDsheetDesc':
     'A 1-D soil profile through the geotechnical cross-section as a D-Sheet .shi (geometry only).',
   'export.cardGeotechPlaxis2dTitle': 'Plaxis 2D (packing classes)',
