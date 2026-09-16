@@ -162,7 +162,7 @@ function donorProse(band: {
     return `from ${d.name} (${donorDistance(d)}${at})`
   }
   if (band.mode === 'nearest_fallback') {
-    return `from ${d.name} (${donorDistance(d)} away — nearest test, no section neighbour)`
+    return `from ${d.name} (${donorDistance(d)} away, nearest test, no section neighbour)`
   }
   return null
 }
@@ -394,10 +394,10 @@ export default function GeotechBoreholePreviewGhosts({
           label: nadCompactLabel(band.nad_class),
           title: isRedivide
             ? range +
-              `Re-divide preview — ${provenance} (${band.confidence} confidence).\n` +
+              `Re-divide preview: ${provenance} (${band.confidence} confidence).\n` +
               'Outline over the committed band; press "Divide boreholes" to apply.'
             : range +
-              `Preview — ${provenance} (${band.confidence} confidence).\n` +
+              `Preview: ${provenance} (${band.confidence} confidence).\n` +
               'Press "Divide boreholes" to commit.',
         })
       }
