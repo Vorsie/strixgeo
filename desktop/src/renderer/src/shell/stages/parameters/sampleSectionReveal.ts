@@ -98,7 +98,7 @@ export function sampleNotOnAnySectionMessage(sample: SampleIdentity): string {
   const depth = `${sample.depthTopM.toFixed(2)}–${sample.depthBaseM.toFixed(2)} m`
   return (
     `${sampleClause(sample.sampleNumber)} in ${sample.boreholeName} ` +
-    `(${depth}) is on no cross-section — its borehole projects onto none of ` +
+    `(${depth}) is on no cross-section. Its borehole projects onto none of ` +
     `this project's section lines. Draw a section through ${sample.boreholeName}, ` +
     `or widen a section's corridor to reach it.`
   )
