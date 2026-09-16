@@ -26,8 +26,12 @@
  *   selected boundary that is not already present, and recompose the units
  *   BETWEEN consecutive selected boundaries to the source composition (the "litho
  *   body in between"). The outer target layers (above z1, below zk) are untouched.
- * - the deepest selected boundary at or below the target's terminal depth →
- *   **refuse** (the existing below-terminal toast).
+ * - a shallow target (a CPTM only a few metres deep) → **clip**, not refuse (owner
+ *   dogfeed 2026-09-16): boundaries below the target's own depth are DROPPED, the
+ *   boundaries that fit land as usual, and the lowest fitting unit runs to the
+ *   target's depth. Only a drop where NO boundary fits (every selected boundary is
+ *   below the target's depth) is **refused** with the below-terminal toast. The
+ *   count of dropped boundaries rides the plan so the success toast can report it.
  * - drop on the source column, or (single boundary) on a boundary already present
  *   → a **no-op / refusal** rather than a duplicate or a half-copy.
  *
@@ -90,10 +94,25 @@ export interface PlannedRecompose {
   depthBaseM: number
 }
 
-/** The decision the drop resolves to. */
+/** The decision the drop resolves to.
+ *
+ *  ``droppedBelowTerminalCount`` (create / split) counts the selected boundaries
+ *  that sat below the target's own depth and were CLIPPED off (owner 2026-09-16:
+ *  a shallow CPTM keeps the units that fit rather than refusing the whole copy).
+ *  The hook reports it in the success toast; ``0`` when everything fit. */
 export type LithoContactCopyPlan =
-  | { kind: 'create'; items: readonly PlannedCreateItem[]; depthsM: readonly number[] }
-  | { kind: 'split'; splits: readonly PlannedSplit[]; recomposes: readonly PlannedRecompose[] }
+  | {
+      kind: 'create'
+      items: readonly PlannedCreateItem[]
+      depthsM: readonly number[]
+      droppedBelowTerminalCount: number
+    }
+  | {
+      kind: 'split'
+      splits: readonly PlannedSplit[]
+      recomposes: readonly PlannedRecompose[]
+      droppedBelowTerminalCount: number
+    }
   | { kind: 'noop'; reason: 'same_column' | 'boundary_exists' }
   | {
       kind: 'refused'
@@ -173,12 +192,17 @@ export function planLithoContactCopy(params: {
   // between-units.
   if (targetLayers.length > 0) {
     const deepestBase = Math.max(...targetLayers.map((l) => l.depth_base_m))
-    // The deepest selected boundary must have column below it to split / anchor.
-    if (zs[zs.length - 1] >= deepestBase - BOUNDARY_MATCH_TOLERANCE_M) {
+    // CLIP, don't refuse (owner 2026-09-16): a boundary below the target column's
+    // own bottom can split nothing, so drop it and keep the rest. ``zs`` is sorted
+    // ascending, so the fitting ones are its prefix and align with ``below``.
+    const fitting = zs.filter((z) => z < deepestBase - BOUNDARY_MATCH_TOLERANCE_M)
+    const droppedBelowTerminalCount = zs.length - fitting.length
+    if (fitting.length === 0) {
+      // No boundary fits above the target's depth → nothing to copy.
       return { kind: 'refused', reason: 'below_terminal' }
     }
     const splits: PlannedSplit[] = []
-    for (const z of zs) {
+    for (const z of fitting) {
       const onExistingBoundary = targetLayers.some(
         (l) => near(l.depth_top_m, z) || near(l.depth_base_m, z),
       )
@@ -189,53 +213,57 @@ export function planLithoContactCopy(params: {
           z < l.depth_base_m - BOUNDARY_MATCH_TOLERANCE_M,
       )
       if (spanning === undefined) {
-        // z is outside every target layer (above the collar) — refuse rather than
-        // guess. (Below-terminal is already handled above.)
+        // z is above the collar (outside every target layer) — refuse rather than
+        // guess. Cannot happen for a gap-free target column; defensive.
         return { kind: 'refused', reason: 'below_terminal' }
       }
       splits.push({ depthM: z })
     }
-    // The units BETWEEN consecutive selected boundaries take the source unit's
+    // The units BETWEEN consecutive FITTING boundaries take the source unit's
     // composition (the litho body between them). None for a single boundary.
     const recomposes: PlannedRecompose[] = []
-    for (let i = 0; i < zs.length - 1; i++) {
+    for (let i = 0; i < fitting.length - 1; i++) {
       recomposes.push({
         formation_id: below[i].formation_id,
-        depthTopM: zs[i],
-        depthBaseM: zs[i + 1],
+        depthTopM: fitting[i],
+        depthBaseM: fitting[i + 1],
       })
     }
     if (splits.length === 0 && recomposes.length === 0) {
-      // Single boundary already present → nothing to add.
+      // Every fitting boundary already present → nothing to add.
       return { kind: 'noop', reason: 'boundary_exists' }
     }
-    return { kind: 'split', splits, recomposes }
+    return { kind: 'split', splits, recomposes, droppedBelowTerminalCount }
   }
 
-  // Empty target → create the full copied stack. Needs the terminal depth for the
-  // bottom unit's base.
+  // Empty target → create the copied stack. Needs the terminal depth for the
+  // bottom unit's base; without it there is no depth to clip against.
   if (targetTerminalDepthM === null) {
     return { kind: 'refused', reason: 'unknown_terminal' }
   }
-  if (zs[zs.length - 1] >= targetTerminalDepthM - BOUNDARY_MATCH_TOLERANCE_M) {
+  // CLIP, don't refuse (owner 2026-09-16): a shallow CPTM keeps the units that fit
+  // above its own depth, and the lowest fitting unit runs to that depth.
+  const fitting = zs.filter((z) => z < targetTerminalDepthM - BOUNDARY_MATCH_TOLERANCE_M)
+  const droppedBelowTerminalCount = zs.length - fitting.length
+  if (fitting.length === 0) {
     return { kind: 'refused', reason: 'below_terminal' }
   }
   const items: PlannedCreateItem[] = []
   // The unit above the topmost boundary lands from the collar.
-  items.push({ formation_id: unitAboveFirst.formation_id, depth_top_m: 0, depth_base_m: zs[0] })
-  // Each between-unit spans consecutive selected boundaries.
-  for (let i = 0; i < zs.length - 1; i++) {
+  items.push({ formation_id: unitAboveFirst.formation_id, depth_top_m: 0, depth_base_m: fitting[0] })
+  // Each between-unit spans consecutive fitting boundaries.
+  for (let i = 0; i < fitting.length - 1; i++) {
     items.push({
       formation_id: below[i].formation_id,
-      depth_top_m: zs[i],
-      depth_base_m: zs[i + 1],
+      depth_top_m: fitting[i],
+      depth_base_m: fitting[i + 1],
     })
   }
-  // The unit below the deepest boundary runs to the target terminal.
+  // The lowest fitting unit runs to the target terminal (cut at the target's depth).
   items.push({
-    formation_id: below[zs.length - 1].formation_id,
-    depth_top_m: zs[zs.length - 1],
+    formation_id: below[fitting.length - 1].formation_id,
+    depth_top_m: fitting[fitting.length - 1],
     depth_base_m: targetTerminalDepthM,
   })
-  return { kind: 'create', items, depthsM: zs }
+  return { kind: 'create', items, depthsM: fitting, droppedBelowTerminalCount }
 }
