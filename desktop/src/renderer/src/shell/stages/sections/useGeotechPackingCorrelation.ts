@@ -193,7 +193,7 @@ export function useGeotechPackingCorrelation(
         const message =
           err instanceof Error
             ? err.message
-            : 'Could not create the packing correlation — try again.'
+            : 'Could not create the packing correlation. Try again.'
         toast('error', message)
       }
     },
