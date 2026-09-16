@@ -132,6 +132,9 @@ export interface UseLithoSuggestionsResult {
     idx: number,
     investigationMaxDepthM: number,
   ) => { ok: boolean; reason?: string }
+  /** Commit a Shift-drag-copied ghost column onto ``targetAnchorId`` as one undo
+   *  step and reveal it (installer #42). The composer plans + builds the column. */
+  copyGhostColumn: (targetAnchorId: string, ghost: BulkAnchorGhost) => void
   handleSuggestLitho: (anchorKind: 'cpt' | 'borehole', anchorId: string) => Promise<void>
   pushAcceptLithoUndo: (
     descriptionKey: MessageKey,
@@ -781,6 +784,26 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     // and setFocusedSuggestAnchorId are stable (useCallback / setState).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [formations, runGhostCreation],
+  )
+
+  // Installer #42: write a Shift-drag-copied ghost column onto the target as ONE
+  // undo step (owner: "can we drag copy ghosts also?"). ``runGhostCreation``
+  // gives the copy the same before/after undo every ghost gesture gets — one
+  // Ctrl+Z removes the target's column, Ctrl+Y brings it back. The composer
+  // (SectionsCanvas.useCopyGhostContact) has already planned + built the column;
+  // this only commits it and reveals the target so the copied suggestions show.
+  const copyGhostColumn = useCallback(
+    (targetAnchorId: string, ghost: BulkAnchorGhost): void => {
+      runGhostCreation(
+        targetAnchorId,
+        'undo.copyGhostContact',
+        'ghost-copy',
+        `units=${ghost.suggestions.length}`,
+        () => ghost,
+      )
+      setFocusedSuggestAnchorId(targetAnchorId)
+    },
+    [runGhostCreation, setFocusedSuggestAnchorId],
   )
 
   // Extend ghost layer at (anchorId, idx) to the nearest committed litho
@@ -1776,6 +1799,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     handleAbsorbLithoLayer,
     handleCreateManualLithoGhost,
     handleExtendLithoGhostToNearestContacts,
+    copyGhostColumn,
     handleSuggestLitho,
     pushAcceptLithoUndo,
     handleAcceptLithoSuggestion,
