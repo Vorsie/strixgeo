@@ -184,6 +184,13 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowTitle: (title: string | null): Promise<void> =>
     ipcRenderer.invoke('window:set-title', title),
 
+  // Report the interface language so the native menu bar follows it. The
+  // renderer is the source of truth (localStorage -> system -> English); it
+  // calls this on boot and whenever the Settings toggle flips the language, and
+  // main rebuilds the menu. Same shape as ``setWindowTitle``.
+  setMenuLanguage: (language: string): Promise<void> =>
+    ipcRenderer.invoke('window:set-language', language),
+
   // App-quit handshake. Main fires ``app:before-quit`` when the user
   // closes the OS window (X / Alt+F4); renderer responds with
   // ``app:quit-decision`` after consulting its dirty state and the
