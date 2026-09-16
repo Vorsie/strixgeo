@@ -45,8 +45,8 @@ export const CHROME_NL = {
   // level and reads right on a borelog axis; "hoogte" is the generic NL word.
   'common.elevation': 'Peil',
   'common.optional': '(optioneel)',
-  'common.none': '— geen —',
-  'common.unspecified': '— (niet opgegeven)',
+  'common.none': '(geen)',
+  'common.unspecified': '(niet opgegeven)',
   'common.zoomIn': 'Inzoomen',
   'common.zoomOut': 'Uitzoomen',
   'common.resetZoom': 'Zoom herstellen',
@@ -89,7 +89,7 @@ export const CHROME_NL = {
   'welcome.openFailed':
     'Kon het gekozen projectbestand niet openen. Het bestand is mogelijk beschadigd, of de API is niet bereikbaar.',
   'welcome.openNewerBuild':
-    'Dit project is opgeslagen met een nieuwere versie van StrixGeo (bestandsformaat {version}). Werk StrixGeo bij om het te openen — je gegevens zijn veilig.',
+    'Dit project is opgeslagen met een nieuwere versie van StrixGeo (bestandsformaat {version}). Werk StrixGeo bij om het te openen. Je gegevens zijn veilig.',
   'welcome.fileMoved':
     'Zet het terug, of open het op de nieuwe locatie met "Project openen uit bestand".',
 
@@ -107,7 +107,7 @@ export const CHROME_NL = {
   'project.client': 'Opdrachtgever',
   'project.clientPlaceholder': 'bv. Haven van Antwerpen',
   'project.site': 'Locatie',
-  'project.sitePlaceholder': 'bv. Haven Antwerpen — kaai 7',
+  'project.sitePlaceholder': 'bv. Haven Antwerpen, kaai 7',
   'project.description': 'Omschrijving',
   'project.descriptionHint': 'Vrije tekst over de opdracht',
   'project.tags': 'Labels',
@@ -126,13 +126,13 @@ export const CHROME_NL = {
   'project.close': 'Project sluiten',
   'project.closeConfirmTitle': 'Dit project sluiten?',
   'project.closeConfirmBody':
-    'Het .strix-bestand en je opgeslagen gegevens blijven bewaard — je kan het altijd opnieuw openen.',
+    'Het .strix-bestand en je opgeslagen gegevens blijven bewaard. Je kan het altijd opnieuw openen.',
   'project.closeHint':
-    'Project sluiten — je keert terug naar het startscherm. Het .strix-bestand en de gegevens in de databank blijven bewaard.',
+    'Project sluiten: je keert terug naar het startscherm. Het .strix-bestand en de gegevens in de databank blijven bewaard.',
   'project.save': 'Project opslaan (Ctrl+S)',
-  'project.unsavedHint': 'Niet-opgeslagen wijzigingen — Bestand → Opslaan (Ctrl+S) om wijzigingen bij te houden',
+  'project.unsavedHint': 'Niet-opgeslagen wijzigingen. Bestand → Opslaan (Ctrl+S) om wijzigingen bij te houden',
   'project.createdSinceSave':
-    'Aangemaakt sinds de laatste bewaaractie — Bestand → Opslaan om wijzigingen bij te houden',
+    'Aangemaakt sinds de laatste bewaaractie. Bestand → Opslaan om wijzigingen bij te houden',
   'project.discardChanges': 'Alle wijzigingen verwerpen',
   'project.discardBody':
     'Verwerpen kan niet ongedaan gemaakt worden. Met Annuleren blijft het project open zodat je kan opslaan.',
@@ -165,8 +165,8 @@ export const CHROME_NL = {
   'spine.geotechnical': 'Geotech',
   'spine.parameters': 'Parameters',
   'spine.export': 'Export',
-  'spine.selectionFooterAria': '{n} geselecteerd — klik om te wissen',
-  'spine.selectionFooterTitle': '{n} geselecteerd over stappen — klik om te wissen',
+  'spine.selectionFooterAria': '{n} geselecteerd. Klik om te wissen',
+  'spine.selectionFooterTitle': '{n} geselecteerd over stappen. Klik om te wissen',
   'spine.selectionFooterLabel': '{n} geselecteerd',
   'spine.selectionFooterAbbr': 'gek.',
   'shell.toolbar': 'Werkbalk',
@@ -210,9 +210,9 @@ export const CHROME_NL = {
   'app.backendFailedBody':
     'Het StrixGeo-backendproces is afgesloten voordat het klaar was. Dit wijst meestal op een probleem met de databankverbinding of een crash bij het opstarten.',
   'app.backendUnreachableBody':
-    '— opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
+    'Opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
   'app.backendRestartingBody':
-    'De backend is herstart en de app maakt opnieuw verbinding. Dit duurt even — je werk is veilig in de databank.',
+    'De backend is herstart en de app maakt opnieuw verbinding. Dit duurt even. Je werk is veilig in de databank.',
   'app.logFile': 'Logbestand:',
   'app.dxfExported': 'DXF geëxporteerd.',
   'app.dxfExportFailed': 'Kon de DXF niet exporteren.',
@@ -246,11 +246,11 @@ export const CHROME_NL = {
   'welcome.recoveryNotNow': 'Niet nu',
   'welcome.recoveryDeleteBackup': 'Back-up verwijderen',
   'welcome.recoveryRestoreDesc':
-    '— zet het niet-opgeslagen werk terug. Er wordt niets naar het bestand opgeslagen tot je in de app op Opslaan klikt.',
+    'zet het niet-opgeslagen werk terug. Er wordt niets naar het bestand opgeslagen tot je in de app op Opslaan klikt.',
   'welcome.recoveryNotNowDesc':
-    '— opent het project zoals het laatst is opgeslagen. De back-up wordt bij de volgende start opnieuw aangeboden.',
+    'opent het project zoals het laatst is opgeslagen. De back-up wordt bij de volgende start opnieuw aangeboden.',
   'welcome.recoveryDeleteBackupDesc':
-    '— alsof de sessie nooit heeft plaatsgevonden: het project keert terug naar de laatste bewaaractie en het niet-opgeslagen werk wordt definitief verwijderd.',
+    'gooit het niet-opgeslagen werk definitief weg: het project keert terug naar de laatste bewaaractie, alsof de sessie nooit heeft plaatsgevonden.',
   // FLAG alt: Beoordeling van lithosuggesties | Lithosuggestie-triage — "triage"
   // is a loanword; the alt spells it out. {columnWord} = kolom/kolommen.
   'welcome.recoveryLithoTriage': 'Lithosuggestie-triage op {count} {columnWord}',
@@ -277,15 +277,15 @@ export const CHROME_NL = {
   // emphatic "Definitief verwijderen".
   'project.removeTag': '{tag} verwijderen',
   'project.closeConfirmBodyDetailed':
-    'wordt gesloten en je keert terug naar het startscherm. Het .gmproj-bestand en je opgeslagen gegevens blijven bewaard — je kan het opnieuw openen via de lijst met recente projecten.',
+    'wordt gesloten en je keert terug naar het startscherm. Het .gmproj-bestand en je opgeslagen gegevens blijven bewaard. Je kan het opnieuw openen via de lijst met recente projecten.',
   'project.closeHintGmproj':
-    'Project sluiten — je keert terug naar het startscherm. Het .gmproj-bestand en de gegevens in de databank blijven bewaard.',
+    'Project sluiten: je keert terug naar het startscherm. Het .gmproj-bestand en de gegevens in de databank blijven bewaard.',
   'project.editMetadataHint': 'Klik om projectgegevens te bewerken',
-  'project.editMetadataHintWithPath': '{path} — klik om projectgegevens te bewerken',
+  'project.editMetadataHintWithPath': '{path}: klik om projectgegevens te bewerken',
   'project.revertNotLatest':
     'Kon niet terugdraaien: dit bestand is niet de laatste bewaaractie van het project. De back-up is behouden.',
   'project.revertFailed':
-    'Kon het project niet terugdraaien naar de laatste bewaaractie — de back-up is behouden.',
+    'Kon het project niet terugdraaien naar de laatste bewaaractie. De back-up is behouden.',
   'project.fileNotFoundToast':
     'Kon het projectbestand niet vinden op {path}. Heb je het verplaatst of hernoemd?',
   'project.restoreWaitingToast':
@@ -293,11 +293,11 @@ export const CHROME_NL = {
   'project.restoreDroppedToast':
     'Herstel heeft te grote gegevens overgeslagen: {series} diepteseries en {rows} onderliggende gegevensrijen. Zie het logboek.',
   'project.discardLossInterpretation':
-    'Koppelingen, verplaatste grenzen, aanvaarde suggesties en verwijderingen van deze sessie, in eender welke stap — deze worden hier niet geteld.',
+    'Deze worden hier niet geteld: koppelingen, verplaatste grenzen, aanvaarde suggesties en verwijderingen van deze sessie, in eender welke stap.',
   'project.discardLossMetadata':
     'Niet-opgeslagen wijzigingen in de metadata-editor van het project.',
   'project.discardLeadSaved':
-    'Verwerpen draait het hele project — in de databank, over alle stappen heen — terug naar de laatst bewaarde toestand.',
+    'Verwerpen draait het hele project (in de databank, over alle stappen heen) terug naar de laatst bewaarde toestand.',
   'project.discardLeadUnsaved':
     'Dit project is nog nooit naar een bestand opgeslagen, dus Verwerpen heeft geen bewaarde toestand om naar terug te keren.',
   'project.discardFollowSaved': 'Alles wat sinds de laatste Bestand → Opslaan is gedaan, gaat verloren',
@@ -315,10 +315,10 @@ export const CHROME_NL = {
   // FLAG alt: knoppenrij | werkbalkrij — "verb row" = the row of toolbar verb
   // buttons; "smaller" is coincidentally the Dutch comparative of "smal".
   'shell.moreActionsTitle':
-    'nog {n} {actionWord} — de werkbalk is smaller dan de volledige knoppenrij',
+    'nog {n} {actionWord}. De werkbalk is smaller dan de volledige knoppenrij',
   'shell.collapseInspector': 'Detailvenster inklappen',
   'shell.expandInspector': 'Detailvenster uitklappen',
-  'shell.clickForOptionsTitle': '{label} — klik voor opties',
+  'shell.clickForOptionsTitle': '{label}: klik voor opties',
   'shell.optionsAria': 'opties voor {label}',
   'shell.themeSystem': 'Systeemthema',
   'shell.themeLight': 'Licht thema',
