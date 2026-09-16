@@ -908,6 +908,10 @@ export const SECTIONS = {
   'sections.canvasToast.lithoContactsCopiedOneUnit': 'Copied {boundaries} boundaries and 1 unit.',
   'sections.canvasToast.lithoContactsCopiedManyUnits': 'Copied {boundaries} boundaries and {units} units.',
   'sections.canvasToast.lithoContactCopyBelowTerminal': 'The boundary sits below this test’s depth and was not copied.',
+  // Shift-drag onto a SHALLOW test (a CPTM): the units that fit land, the deeper
+  // boundaries are clipped off (owner 2026-09-16). Appended to the success toast.
+  'sections.canvasToast.lithoContactCopyClippedOne': '1 boundary lies below this test’s depth and was left out.',
+  'sections.canvasToast.lithoContactCopyClippedMany': '{dropped} boundaries lie below this test’s depth and were left out.',
   'sections.canvasToast.lithoContactCopyFailed': 'Could not copy the litho contact. Try again.',
   'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
   'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact — drag it with the handle beside the column.',
