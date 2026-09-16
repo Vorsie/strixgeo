@@ -8,7 +8,7 @@
 
 ### The renderer surface — the Export hub is the ONLY place exports run (installer #35)
 
-Owner ruling (installer #35, 2026-09-13): *"the Export stage becomes the only export surface … build the export hub."* Every export is a **card on the Export stage** (`shell/stages/export/ExportCanvas.tsx`), grouped by model level: Cross-section DXF (any axis), Stratigraphy → Plaxis 3D, Lithology (D-Stability `.stix`, Plaxis 2D, fence DXF), Geotechnical (D-Sheet `.shi`, Plaxis 2D, fence DXF), Report (PDF sheet). One shared cross-section picker drives the section-scoped cards; axis-flexible cards (Section DXF, PDF) carry their own model-level picker; each card shows its last save path (`exportPathMemory`, per-viewer localStorage) and, when a prerequisite is missing, guidance instead of a dead button.
+Owner ruling (installer #35, 2026-09-13): *"the Export stage becomes the only export surface … build the export hub."* Every export is a **card on the Export stage** (`shell/stages/export/ExportCanvas.tsx`), grouped by model level: Cross-section DXF (any axis), Stratigraphy → Plaxis 3D, Lithology (fence DXF), Geotechnical (D-Stability `.stix`, D-Sheet `.shi`, Plaxis 2D, fence DXF), Report (PDF sheet). D-Stability and Plaxis 2D are geotechnical-only (owner ruling, installer #42: *"we only need geotech exports to plaxis and d modules"*) — the D-Stability card exports the geotech-axis partition, the same closed-geometry family D-Sheet already uses. One shared cross-section picker drives the section-scoped cards; axis-flexible cards (Section DXF, PDF) carry their own model-level picker; each card shows its last save path (`exportPathMemory`, per-viewer localStorage) and, when a prerequisite is missing, guidance instead of a dead button.
 
 No other surface exports:
 
