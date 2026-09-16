@@ -33,7 +33,7 @@ export const MAX_NAMED_LOST_TIES = 3
 export function lostTieMessage(count: number, labels: readonly string[] | undefined): string {
   const plural = count === 1 ? '' : 's'
   const head =
-    `${count} accepted packing tie${plural} could not be kept — ` +
+    `${count} accepted packing tie${plural} could not be kept: ` +
     `the band ${count === 1 ? 'it was' : 'they were'} drawn on changed, so ` +
     `${count === 1 ? 'it has' : 'they have'} to be redrawn`
   if (labels === undefined || labels.length === 0) {
