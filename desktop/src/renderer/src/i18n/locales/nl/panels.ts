@@ -335,6 +335,7 @@ export const PANELS_NL = {
   'undo.insertLithoLayer': 'Litholaag invoegen',
   'undo.splitLithoLayer': 'Litholaag splitsen',
   'undo.copyLithoContact': 'Litho-contact kopiëren',
+  'undo.copyGhostContact': 'Lithosuggesties kopiëren',
   'undo.mergeLithoLayers': 'Litholagen samenvoegen',
   'undo.absorbLithoLayer': 'Litholaag opnemen',
   'undo.rejectSuggestion': 'Suggestie afwijzen',
