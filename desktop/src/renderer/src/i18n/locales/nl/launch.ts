@@ -30,19 +30,19 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'onboarding.startTutorial': 'Start de tutorial',
   'onboarding.startLater': 'Misschien later',
   'onboarding.sampleUnavailable':
-    'Het voorbeeldproject zit nog niet in deze prototypebuild — er wordt een leeg project gestart.',
+    'Het voorbeeldproject zit nog niet in deze prototypebuild. Er wordt een leeg project gestart.',
   'onboarding.sampleLoaded': 'Voorbeeldproject geopend. Opgeslagen als {path}',
   'onboarding.stageImport': 'Importeren',
   'onboarding.stageImportBody': 'Haal sonderingen en boringen binnen uit bestanden of rechtstreeks uit DOV.',
   'onboarding.stageGeology': 'Stratigrafie',
-  'onboarding.stageGeologyBody': 'Leg de stratigrafische ruggengraat vast — formaties en hun vlakken.',
+  'onboarding.stageGeologyBody': 'Leg de stratigrafische ruggengraat vast: formaties en hun vlakken.',
   'onboarding.stageLitho': 'Lithologie',
   'onboarding.stageLithoBody': 'Verfijn de ruggengraat tot lithologische eenheden langs je doorsneden.',
   'onboarding.stageGeotech': 'Geotechniek',
   'onboarding.stageGeotechBody': 'Verdeel eenheden in NAD-pakkingsklassen op basis van sondeerindicatoren.',
   'onboarding.stageSections': 'Doorsneden',
   'onboarding.stageSectionsBody':
-    'Teken en bewerk doorsneden — het vlak waarop alle drie de modelniveaus worden opgebouwd.',
+    'Teken en bewerk doorsneden: het vlak waarop alle drie de modelniveaus worden opgebouwd.',
   'onboarding.stageExport': 'Exporteren',
   'onboarding.stageExportBody': 'Stuur het model naar Plaxis, D-Stability, DXF en PDF-rapportdelen.',
 
