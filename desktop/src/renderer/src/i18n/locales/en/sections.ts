@@ -34,7 +34,7 @@ export const SECTIONS = {
   'sections.moreGroup.section': 'Section',
   'sections.moreGroup.export': 'Export',
   'sections.geoVerbHint':
-    'Switch to the Stratigraphy axis — Build / Seed / Dedupe / Plaxis-3D act on the stratigraphic model',
+    'Switch to the Stratigraphy axis: Build / Seed / Dedupe / Plaxis-3D act on the stratigraphic model',
   'sections.undoTitle': 'Undo the last model edit (Ctrl+Z)',
   'sections.undoNothing': 'Nothing to undo',
   // Warning toast when the automatic body-identity recompute fails (owner
@@ -43,11 +43,11 @@ export const SECTIONS = {
   'sections.recompute.backgroundFailed':
     'Body identity could not be saved in the background. It is tried again at your next edit.',
   'sections.reset.done':
-    'Reset {count} hand-drawn {noun} — bodies returned to their computed shape.',
+    'Reset {count} hand-drawn {noun}. Bodies returned to their computed shape.',
   'sections.reset.boundaryOne': 'boundary',
   'sections.reset.boundaryMany': 'boundaries',
   'sections.reset.none': 'No hand-drawn boundaries to reset.',
-  'sections.reset.failed': 'Reset manual points failed — see console.',
+  'sections.reset.failed': 'Reset manual points failed. See console.',
 
   // Toolbar-owned modal + confirmation dialogs.
   'sections.dialog.thisSection': 'This section',
@@ -64,7 +64,7 @@ export const SECTIONS = {
   // Sections inspector (right panel) — list, properties, model actions,
   // borehole-preview legend, formation list, crossings banner.
   'sections.inspector.noCrossSectionForContact':
-    'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
+    'No cross-section contains the offending contact. Draw one through the borehole or CPT to view it.',
   'sections.inspector.staleBadge': '{n} stale',
   // The representative-qc explanation, moved out of the ⋯ menu rows (owner
   // 2026-09-11): it is information about the choice, not a verb, so it reads
@@ -78,23 +78,23 @@ export const SECTIONS = {
   'sections.inspector.previewLegend':
     'Hatched bands = preview. Right-click a ghost column to divide just that borehole, or press “4 · Divide boreholes” to commit them all.',
   'sections.inspector.previewClampedOne':
-    '{n} planned band outside the depth window — zoom out to see it.',
+    '{n} planned band outside the depth window. Zoom out to see it.',
   'sections.inspector.previewClampedMany':
-    '{n} planned bands outside the depth window — zoom out to see them.',
+    '{n} planned bands outside the depth window. Zoom out to see them.',
   'sections.inspector.backdropClickPrefix': 'Click',
   'sections.inspector.backdropClickSuffix': 'in Model actions to load.',
   // Section list.
   'sections.inspector.setCrsFirst': 'Set a Default horizontal CRS in Project metadata first',
   'sections.inspector.createSection': 'Create a new cross-section',
   'sections.inspector.setCrsToCreate': 'Set a CRS to create sections',
-  'sections.inspector.dirtyCreated': 'Created since last save — File → Save to commit',
+  'sections.inspector.dirtyCreated': 'Created since last save. File → Save to commit',
   // Crossings banner.
   'sections.inspector.validationFailedLabel': 'Surface validation failed',
   'sections.inspector.validationFailedBody':
-    'Surface crossings could NOT be checked — this is not a clean result. Rebuild or reopen the project to check again.',
+    'Surface crossings could NOT be checked. This is not a clean result. Rebuild or reopen the project to check again.',
   'sections.inspector.validationPendingLabel': 'Surface validation pending',
   'sections.inspector.validationPendingBody':
-    'Surface crossings not checked — Build the 3D model to validate.',
+    'Surface crossings not checked. Build the 3D model to validate.',
   'sections.inspector.crossingWarningsLabel': 'Surface crossing warnings',
   'sections.inspector.crossingsDetectedOne': '{n} surface crossing detected',
   'sections.inspector.crossingsDetectedMany': '{n} surface crossings detected',
@@ -102,14 +102,14 @@ export const SECTIONS = {
     'Open the cross-section containing the offending contacts and pan to them.',
   // Model actions.
   'sections.inspector.geoAxisHintBuildDedupe':
-    'Switch to the Stratigraphy axis — Build / Dedupe act on the stratigraphic model',
+    'Switch to the Stratigraphy axis: Build / Dedupe act on the stratigraphic model',
   'sections.inspector.buildNoModel':
-    'No active stratigraphic model — create formations and contacts first',
+    'No active stratigraphic model. Create formations and contacts first',
   'sections.inspector.buildingSurfaces': 'Building surfaces…',
   'sections.inspector.surfacesNeedRebuildOne':
-    '{n} formation surface needs rebuilding — click to compute TINs',
+    '{n} formation surface needs rebuilding. Click to compute TINs',
   'sections.inspector.surfacesNeedRebuildMany':
-    '{n} formation surfaces need rebuilding — click to compute TINs',
+    '{n} formation surfaces need rebuilding. Click to compute TINs',
   'sections.inspector.rebuildTins': 'Rebuild TIN surfaces from current contacts',
   'sections.inspector.building': 'Building…',
   'sections.inspector.buildStale': 'Build · {n} stale',
@@ -121,15 +121,15 @@ export const SECTIONS = {
   'sections.inspector.syncing': 'Syncing…',
   'sections.inspector.syncGeology': 'Sync stratigraphy',
   'sections.inspector.seedDefineFirst':
-    'Define formations in the Stratigraphy stage first — Seed places contacts for already-defined layers',
+    'Define formations in the Stratigraphy stage first. Seed places contacts for already-defined layers',
   'sections.inspector.seedingContacts': 'Seeding contacts from borehole stratigraphy…',
   'sections.inspector.seedTitle':
-    'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear',
+    'Place contacts from borehole observations for formations already defined in the model. Run Dedupe if duplicates appear',
   'sections.inspector.seeding': 'Seeding…',
   'sections.inspector.seed': 'Seed',
   'sections.inspector.seedDefineFirstShort': 'Define formations in the Stratigraphy stage first',
   'sections.inspector.allHaveGeologyContacts':
-    'All boreholes in scope already have stratigraphy contacts — import new tests to use this',
+    'All boreholes in scope already have stratigraphy contacts. Import new tests to use this',
   'sections.inspector.seedNewTestsTitleOne':
     'Place contacts from stratigraphy for the {n} borehole with no stratigraphy contacts yet',
   'sections.inspector.seedNewTestsTitleMany':
@@ -137,7 +137,7 @@ export const SECTIONS = {
   'sections.inspector.seedForNewTests': 'Seed for new tests',
   'sections.inspector.cleaning': 'Cleaning…',
   'sections.inspector.dedupeTitle':
-    'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group',
+    'Remove duplicate (anchor, formation) contacts. Keeps the most-recent pick in each group',
   'sections.inspector.dedupe': 'Dedupe',
   'sections.modelAxis': 'Section model axis',
   'sections.buffer': 'Projection buffer',
@@ -151,7 +151,7 @@ export const SECTIONS = {
     'Vertical exaggeration applied to the section view (1 = no exaggeration, 10 = 10× stretched)',
   'sections.columnSpacing': 'Column spacing',
   'sections.columnSpacingHint':
-    'Spacing between investigations — at 0% tests render at their true projected X (bands may overlap)',
+    'Spacing between investigations: at 0% tests render at their true projected X (bands may overlap)',
   'sections.referenceGeologicalModel': 'Reference stratigraphic model',
   'sections.geologyBackdrop': 'Stratigraphy backdrop (litho axis)',
   'sections.geologyBackdropHint': 'Shown as a faint reference layer when the litho axis is active.',
@@ -187,11 +187,11 @@ export const SECTIONS = {
   'sections.axis.editLithoContacts':
     'Edit the lithological model contacts on this section',
   'sections.axis.createLithoForPacking':
-    'Create a lithological model first — packing subdivides litho bodies',
+    'Create a lithological model first. Packing subdivides litho bodies',
   'sections.axis.viewGeotech':
     'View geotechnical subdivision (NAD packing classes) on this section',
   'sections.axis.noGeotechYet':
-    'No geotech model yet — “Packing pipeline → 1 · Subdivide CPTs” creates it',
+    'No geotech model yet. “Packing pipeline → 1 · Subdivide CPTs” creates it',
 
   // Model-level words, interpolated into the export + recompute tooltips. Kept
   // as their own keys so "No active {level} model" reads grammatically in each
@@ -216,7 +216,7 @@ export const SECTIONS = {
   'sections.tail.delete': 'Delete',
   'sections.tail.deleteSectionMenu': 'Delete cross-section…',
   'sections.tail.deleteSelectFirst': 'Select a cross-section to delete it',
-  'sections.tail.deleteConfirmMenuTitle': 'Delete "{name}" — asks for confirmation first',
+  'sections.tail.deleteConfirmMenuTitle': 'Delete "{name}". Asks for confirmation first',
   'sections.tail.deleteTitle': 'Delete "{name}"',
 
   // Tie-sections split verb (tail).
@@ -237,7 +237,7 @@ export const SECTIONS = {
   'sections.export.hubJumpTitle': 'Open the Export stage with this section selected',
   'sections.export.sectionDxf': 'Section DXF',
   'sections.export.exportingDxf': 'Exporting DXF…',
-  'sections.export.noModelContacts': 'No active {level} model — contacts must exist first',
+  'sections.export.noModelContacts': 'No active {level} model. Contacts must exist first',
   'sections.export.dxfTitle': 'Export this section’s {level} model as DXF',
   'sections.export.plaxisScript': 'Plaxis 3D script',
   'sections.export.exportingPlaxis': 'Exporting Plaxis…',
@@ -245,7 +245,7 @@ export const SECTIONS = {
   'sections.export.plaxisTitle':
     'Export the stratigraphic model as a Plaxis 3D plxscripting Python script',
   'sections.export.sectionPdf': 'Section PDF report',
-  'sections.export.noModelDefine': 'No active {level} model — define one first',
+  'sections.export.noModelDefine': 'No active {level} model. Define one first',
   'sections.export.pdfTitle': 'Generate a PDF report of this section’s {level} model',
   // D-Series (closed-geometry) rows. The label + format names stay identical in
   // NL (product + file-extension names).
@@ -260,13 +260,13 @@ export const SECTIONS = {
   'sections.export.dstabilityFailure': 'Could not export the D-Stability model.',
   'sections.export.dsheetpilingFailure': 'Could not export the D-Sheet Piling profile.',
   'sections.export.dstabilityDescribes':
-    'model as a D-Stability .stix (geometry only — no design parameters)',
+    'model as a D-Stability .stix (geometry only, no design parameters)',
   'sections.export.dsheetpilingDescribes':
     'model as a D-Sheet Piling .shi soil profile through the section (geometry only)',
   'sections.export.dseriesRowTitle': 'Export this section’s {level} {describes}',
   'sections.export.nothingDrawn':
     'Nothing to export: this section has no drawn {level} geometry between two columns.',
-  'sections.export.readFailed': 'Could not read this section — nothing was exported.',
+  'sections.export.readFailed': 'Could not read this section. Nothing was exported.',
 
   'sections.toolbar.display': 'Display',
   'sections.toolbar.bodies': 'Bodies',
@@ -296,12 +296,12 @@ export const SECTIONS = {
   'sections.toolbar.stripAdmixtures': 'Strip all admixtures',
   'sections.toolbar.clearGhostAdmixtures': 'Clear admixtures from every ghost suggestion',
   'sections.toolbar.editGeologyContacts': 'Edit the stratigraphic model contacts on this section',
-  'sections.toolbar.noLithoModel': 'No lithological model — create one in the Lithology stage.',
+  'sections.toolbar.noLithoModel': 'No lithological model. Create one in the Lithology stage.',
   'sections.toolbar.showLayers': 'Show or hide layers of the section view',
-  'sections.toolbar.applyNextSubdivide': 'Applies to the next Subdivide — nothing re-runs now',
+  'sections.toolbar.applyNextSubdivide': 'Applies to the next Subdivide. Nothing re-runs now',
   'sections.toolbar.statisticFailed': 'Could not set the statistic.',
   'sections.toolbar.noPackingBands':
-    'No packing bands on this section yet — run "1 · Subdivide CPTs" on this section first',
+    'No packing bands on this section yet. Run "1 · Subdivide CPTs" on this section first',
   'sections.toolbar.packingFlowHint':
     'The four-step packing flow: 1 subdivide the CPTs, 2 propose ties, 3 review and accept them, 4 divide the boreholes. All four act on the section you have open and leave every other section as it is, so you can finish one cross-section while the next still has proposals waiting. Step 4 stays locked until this section’s ties are all accepted or deleted.',
   'sections.toolbar.previewDivideHint':
@@ -309,15 +309,15 @@ export const SECTIONS = {
   'sections.toolbar.lithoFillHint':
     'Colour every body’s closed loop with its lithology, across the section. Do this once correlations + pinch-outs are done. Toggles on / off.',
   'sections.toolbar.correlationRibbonsHint':
-    'Show or hide the correlation ribbons + lines drawn across the section. A 2-D visualisation of your correlations only — it has no link to the 3-D model. Toggles on / off.',
+    'Show or hide the correlation ribbons + lines drawn across the section. A 2-D visualisation of your correlations only. It has no link to the 3-D model. Toggles on / off.',
   'sections.toolbar.solidFillHint':
     'Show or hide the cross-section fill sampled from the built 3-D solids. Toggles on / off.',
   'sections.toolbar.geotechSolidFillHint':
-    'Show or hide the fill cut out of the BUILT 3-D geotechnical solids — the model as of the last Build, not the live bands. One fill renders at a time.',
+    'Show or hide the fill cut out of the BUILT 3-D geotechnical solids: the model as of the last Build, not the live bands. One fill renders at a time.',
   'sections.toolbar.packingFillHint':
-    'Show or hide the NAD packing-band fill — the LIVE packing classes, as the pipeline last wrote them. One fill renders at a time.',
+    'Show or hide the NAD packing-band fill: the LIVE packing classes, as the pipeline last wrote them. One fill renders at a time.',
   'sections.toolbar.swapFillHint':
-    'Swap the lithological fill in for the NAD packing fill — one fill renders at a time, never both.',
+    'Swap the lithological fill in for the NAD packing fill. One fill renders at a time, never both.',
   'sections.toolbar.qcStatisticHint':
     'Which representative qc the NAD classifier reads, chosen BEFORE you build the packing bands under it. The choice applies to the NEXT "1 · Subdivide CPTs", and bands already on screen keep the statistic they were built with until you re-run it.',
   'sections.toolbar.sampleMarkersHint':
@@ -355,13 +355,13 @@ export const SECTIONS = {
   'sections.litho.exitCorrelate': 'Exit correlate mode',
   'sections.litho.openSectionCorrelate': 'Open a cross-section to correlate units',
   'sections.litho.acceptFirstToCorrelate':
-    'Accept litho suggestions to enable correlation — 0 accepted contacts on this section',
+    'Accept litho suggestions to enable correlation: 0 accepted contacts on this section',
   'sections.litho.exitCorrelateEsc': 'Exit correlate mode (Esc)',
   'sections.litho.enterCorrelateTitle':
-    'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them',
+    'Enter correlate mode. Click a unit band on one investigation, then a matching unit on another to link them',
   'sections.litho.bodiesTitle': 'Fill body bands, toggle overlays, and reset manual points',
   'sections.litho.admixturesDisabled':
-    'Suggest litho layers first — admixture edits act on ghost suggestions',
+    'Suggest litho layers first. Admixture edits act on ghost suggestions',
   'sections.litho.admixturesTitle': 'Strip or reseed admixtures on the current ghost suggestions',
   // Suggest caret menu.
   'sections.litho.suggestAllInSection': 'Suggest all in this section',
@@ -372,21 +372,21 @@ export const SECTIONS = {
   'sections.litho.suggestNewTests': 'Suggest for new tests',
   'sections.litho.runningSegmenter': 'Running segmenter…',
   'sections.litho.allHaveContacts':
-    'All visible investigations already have litho contacts — import new tests to use this',
+    'All visible investigations already have litho contacts. Import new tests to use this',
   'sections.litho.suggestNewTestsTitle':
     'Suggest layers for the {n} {investigation} with no litho contacts yet',
   // Correlate caret menu.
   'sections.litho.autoCorrelate': 'Auto-correlate',
   'sections.litho.runningAutoCorrelate': 'Running auto-correlate…',
   'sections.litho.autoCorrelateTitle':
-    'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
+    'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance. Inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
   'sections.litho.acceptCorrelations': 'Accept correlations',
   'sections.litho.openSectionAcceptCorr': 'Open a cross-section to accept correlations',
   'sections.litho.acceptingCorrelations': 'Accepting correlations…',
   'sections.litho.acceptCorrelationsTitle':
-    'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
+    'Accept all unapproved contact-level correlation edges in this section. Commits lens bodies and recomputes ordinals',
   'sections.litho.clearCorrelationsTitle':
-    'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible — re-run Auto-correlate to regenerate.',
+    'Remove all unapproved correlation suggestions across the model (keeps approved correlations). Reversible. Re-run Auto-correlate to regenerate.',
   // Bodies dropdown menu.
   'sections.litho.fillBands': 'Fill bands',
   'sections.litho.hideBands': 'Hide bands',
@@ -417,7 +417,7 @@ export const SECTIONS = {
   // Geotech-axis toolbar verbs + their dropdown menus (statistic / pipeline /
   // correlate-packing / display).
   'sections.geotech.statisticMenuTitle':
-    'Which representative qc the NAD classifier reads, chosen BEFORE you subdivide: median (spike-robust default), arithmetic, harmonic (conservative — weighted toward the low values that govern bearing and settlement) or geometric. Nothing re-classifies when you change it: the choice applies to the NEXT "1 · Subdivide CPTs", and bands already on screen keep the statistic they were built with until you re-run it.',
+    'Which representative qc the NAD classifier reads, chosen BEFORE you subdivide: median (spike-robust default), arithmetic, harmonic (conservative: weighted toward the low values that govern bearing and settlement) or geometric. Nothing re-classifies when you change it: the choice applies to the NEXT "1 · Subdivide CPTs", and bands already on screen keep the statistic they were built with until you re-run it.',
   'sections.geotech.pipeline': 'Packing pipeline',
   'sections.geotech.correlatePacking': 'Correlate packing',
   'sections.geotech.exitPackingCorrelate': 'Exit packing-correlate mode',
@@ -426,7 +426,7 @@ export const SECTIONS = {
     'Run “1 · Subdivide CPTs” first to create packing bands',
   'sections.geotech.exitPackingCorrelateEsc': 'Exit packing-correlate mode (Esc)',
   'sections.geotech.correlatePackingTitle':
-    'Connect same-class packing bands across investigations within the same litho body — the hand correlation the pipeline’s step 2 automates',
+    'Connect same-class packing bands across investigations within the same litho body: the hand correlation the pipeline’s step 2 automates',
   'sections.geotech.currentTag': 'current',
   'sections.geotech.harmonicHint':
     'Conservative: weighted toward the low qc values that govern bearing and settlement.',
@@ -437,30 +437,30 @@ export const SECTIONS = {
   'sections.geotech.columnNeeds': 'column needs',
   'sections.geotech.columnsNeed': 'columns need',
   'sections.geotech.step1OpenSection':
-    'Open a cross-section first — this step subdivides the CPTs on the section you have open',
+    'Open a cross-section first. This step subdivides the CPTs on the section you have open',
   'sections.geotech.step1Title':
-    'Step 1 of 4 — derive NAD packing classes (1–31) on THIS section’s CPTs, leaving every other section’s bands, ties and bodies untouched. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run. A CPT that is on no cross-section is never subdivided.',
+    'Step 1 of 4: derive NAD packing classes (1–31) on THIS section’s CPTs, leaving every other section’s bands, ties and bodies untouched. Correlates nothing: “2 · Auto-correlate” proposes the packing ties next. Creates the geotechnical model on first run. A CPT that is on no cross-section is never subdivided.',
   'sections.geotech.step2': '2 · Auto-correlate',
   'sections.geotech.step2OpenSection':
-    'Open a cross-section first — this step proposes ties on the section you have open',
+    'Open a cross-section first. This step proposes ties on the section you have open',
   'sections.geotech.noBandsHere':
-    'No packing bands on this section yet — run “1 · Subdivide CPTs” on this section first',
+    'No packing bands on this section yet. Run “1 · Subdivide CPTs” on this section first',
   'sections.geotech.step2Title':
-    'Step 2 of 4 — derive the same-class packing ties inside each correlated litho unit ON THIS SECTION, jumping across borehole columns that carry no packing yet. Ties that restate a litho correlation you already approved arrive ACCEPTED; the rest arrive as proposals. Hand-drawn correlations are never touched.',
+    'Step 2 of 4: derive the same-class packing ties inside each correlated litho unit ON THIS SECTION, jumping across borehole columns that carry no packing yet. Ties that restate a litho correlation you already approved arrive ACCEPTED; the rest arrive as proposals. Hand-drawn correlations are never touched.',
   'sections.geotech.step3': '3 · Accept ties',
   'sections.geotech.pendingHere': '{n} pending here',
   'sections.geotech.step3OpenSection':
-    'Open a cross-section first — this step accepts the ties on the section you have open',
+    'Open a cross-section first. This step accepts the ties on the section you have open',
   'sections.geotech.step3Title':
-    'Step 3 of 4 — review, then approve, on the section in front of you. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal ON THIS SECTION. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
+    'Step 3 of 4: review, then approve, on the section in front of you. First DELETE the faulty proposals (right-click a tie → Delete) and accept the ones you want to check off singly (right-click → Accept tie). Then press this to accept every remaining proposal ON THIS SECTION. Afterwards, hand-connect anything auto-correlate missed with “Correlate packing”.',
   'sections.geotech.step4': '4 · Divide boreholes',
-  'sections.geotech.staleReDivide': 'stale — re-divide',
+  'sections.geotech.staleReDivide': 'stale: re-divide',
   'sections.geotech.step4OpenSection':
-    'Open a cross-section first — this step divides the boreholes on the section you have open',
+    'Open a cross-section first. This step divides the boreholes on the section you have open',
   'sections.geotech.staleReDivideTitle':
-    'Bodies or correlations changed — re-divide the boreholes to match',
+    'Bodies or correlations changed. Re-divide the boreholes to match',
   'sections.geotech.step4Title':
-    'Step 4 of 4 — TIN-divide THIS section’s borehole columns into packing bands, using the CPT transition surfaces and the ties you accepted, and leave every other section as it is. Right-click one borehole’s ghost bands to divide just that column.',
+    'Step 4 of 4: TIN-divide THIS section’s borehole columns into packing bands, using the CPT transition surfaces and the ties you accepted, and leave every other section as it is. Right-click one borehole’s ghost bands to divide just that column.',
   'sections.geotech.showFill': 'Show fill',
   'sections.geotech.hideFill': 'Hide fill',
   'sections.geotech.showLithoFill': 'Show litho fill',
@@ -488,18 +488,18 @@ export const SECTIONS = {
   'sections.geotech.divideTagModel': 'accept {n} first',
   'sections.geotech.divideTagSection': 'accept {n} on this section',
   'sections.geotech.divideTitleModel':
-    '{ties} still proposed — accept or delete them first',
+    '{ties} still proposed. Accept or delete them first',
   'sections.geotech.divideTitleSection':
-    "{ties} still proposed on this section. Dividing its boreholes reads the ties you accepted to decide where each borehole's packing comes from — accept or delete these first. Nothing on another section is touched.",
+    "{ties} still proposed on this section. Dividing its boreholes reads the ties you accepted to decide where each borehole's packing comes from. Accept or delete these first. Nothing on another section is touched.",
 
   // Stale-litho column chip + tooltip (utils/staleGeotechColumns).
   'sections.geotech.staleChipLabel': '{n} on edited litho',
   'sections.geotech.staleTitleNone': 'Every packing column matches the lithology under it.',
   'sections.geotech.staleAndMore': '{named} and {rest} more',
   'sections.geotech.staleTitleOne':
-    'This column’s lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
+    'This column’s lithology changed after the packing bands were made: {list}. The bands still describe the old stack. Re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
   'sections.geotech.staleTitleMany':
-    'These columns’ lithology changed after the packing bands were made: {list}. The bands still describe the old stack — re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
+    'These columns’ lithology changed after the packing bands were made: {list}. The bands still describe the old stack. Re-run the subdivision on them ("1 · Subdivide CPTs" for tests, "4 · Divide boreholes" for boreholes) before exporting.',
   // Inspector "Packing out of date" line — what the yellow "!" marker means +
   // how to fix it (owner installer #40: the marker "doesn't point the user to
   // how to solve it").
@@ -510,12 +510,12 @@ export const SECTIONS = {
 
   'sections.header.cptChannels': 'CPT data channel toggles',
   'sections.header.qc': 'Cone resistance (qc)',
-  'sections.header.fs': 'Sleeve friction (fs) — CPTU/CPTE only',
+  'sections.header.fs': 'Sleeve friction (fs): CPTU/CPTE only',
   'sections.header.rf': 'Friction ratio (Rf)',
-  'sections.header.u2': 'Pore-water pressure (u2) — CPTU only',
-  'sections.header.qTotal': 'Total resistance (qTotal) — CPTM only',
+  'sections.header.u2': 'Pore-water pressure (u2): CPTU only',
+  'sections.header.qTotal': 'Total resistance (qTotal): CPTM only',
   'sections.header.streamToggles':
-    'Borehole interpretation stream toggles — each enabled stream renders as its own strip side by side',
+    'Borehole interpretation stream toggles: each enabled stream renders as its own strip side by side',
   'sections.header.formalStratigraphy': 'Formal stratigraphy',
   'sections.header.formalStratigraphyShort': 'F-Strat',
   'sections.header.informalStratigraphy': 'Informal stratigraphy',
@@ -595,10 +595,10 @@ export const SECTIONS = {
 
   // Body Join / Ontkoppelen flow (owner ruling 2026-09-01) — the armed hint,
   // toasts and advisories. ``{label}`` is the armed body.
-  'sections.join.armHint': 'Joining {label} — click the other body · Esc cancels',
-  'sections.join.success': 'Bodies grouped — right-click the body → Un-join to undo.',
+  'sections.join.armHint': 'Joining {label}. Click the other body · Esc cancels',
+  'sections.join.success': 'Bodies grouped. Right-click the body → Un-join to undo.',
   'sections.join.blockedSeparation':
-    'Join blocked by a standing separation — remove that separation first.',
+    'Join blocked by a standing separation. Remove that separation first.',
   // A body is one soil + one packing class, so a Join across two masses is
   // refused. TWO messages, picked by whether the SOILS differ (owner ruling
   // 2026-09-01): same soil + different packing class → crossPacking; different
@@ -608,32 +608,32 @@ export const SECTIONS = {
   'sections.join.crossPacking': 'You cannot merge two different packing classes.',
   'sections.join.crossLitho': 'You cannot merge two different lithologies.',
   'sections.join.failed': 'Failed to join bodies.',
-  'sections.join.noticeSame': 'That is the same body — click a different one to join.',
-  'sections.join.noticeUnresolvable': 'Could not identify that body — click a filled body.',
-  'sections.unjoin.success': 'Un-grouped — the body stands on its own again.',
+  'sections.join.noticeSame': 'That is the same body. Click a different one to join.',
+  'sections.join.noticeUnresolvable': 'Could not identify that body. Click a filled body.',
+  'sections.unjoin.success': 'Un-grouped. The body stands on its own again.',
   'sections.unjoin.failed': 'Failed to un-join bodies.',
 
   'sections.contacts.insertHint': 'Click to insert new layer here · right-click to remove',
   'sections.contacts.lithoContactHint':
-    'Lithological contact — dragging it moves the litho model',
-  'sections.contacts.coupledHint': 'Coupled to stratigraphic contact — right-click to unlink',
+    'Lithological contact. Dragging it moves the litho model',
+  'sections.contacts.coupledHint': 'Coupled to stratigraphic contact. Right-click to unlink',
   'sections.contacts.absorbHint':
-    'Release here and the band below is absorbed into this unit. One boundary per drag — drag again to take the next.',
+    'Release here and the band below is absorbed into this unit. One boundary per drag. Drag again to take the next.',
   'sections.contacts.absorbBlockedHint':
-    'Stops short of the next lithological contact — going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.',
+    'Stops short of the next lithological contact. Going further would delete the unit below. Subdivide it first, or edit it on the lithology axis.',
   'sections.contacts.deleteConfirm':
     'Delete this contact? This removes the boundary and any correlations touching it.',
   'sections.contacts.deleteLensConfirm':
     'Delete this lens? This removes the two correlations that define it.',
   'sections.contacts.copyFailed':
-    'Could not copy any contacts to the target — see console for details.',
+    'Could not copy any contacts to the target. See console for details.',
 
   'sections.bands.rightClickBoundary':
     'Right-click to place a new packing boundary or remove this band',
   'sections.bands.rightClickClass':
     "Right-click to split this band or set its NAD packing class by hand",
   'sections.bands.nothingToSnap':
-    'Nothing to snap to on this column — a borehole carries no cone resistance, so there are no packing boundaries here.',
+    'Nothing to snap to on this column. A borehole carries no cone resistance, so there are no packing boundaries here.',
   'sections.bands.acceptGhosts': 'Accept these bands (divide this borehole)',
   'sections.bands.pressDivide': 'Press "Divide boreholes" to commit.',
   'sections.bands.setPackingClass': 'Set packing class',
@@ -644,8 +644,8 @@ export const SECTIONS = {
   'sections.bands.disconnectPackingBands': 'Disconnect packing bands',
 
   'sections.lens.candidate':
-    'Lens candidate — no correlation on either neighbour. Pinch it out to claim it as a lens.',
-  'sections.lens.pinchOutCandidate': 'Pinch-out lens candidate — this layer pinches out toward the neighbour',
+    'Lens candidate. No correlation on either neighbour. Pinch it out to claim it as a lens.',
+  'sections.lens.pinchOutCandidate': 'Pinch-out lens candidate. This layer pinches out toward the neighbour',
   'sections.lens.name': 'Lens name',
   'sections.lens.namePlaceholder': 'e.g. Boom Klei lens #1',
   'sections.lens.nameDialogTitle': 'Name lens',
@@ -658,7 +658,7 @@ export const SECTIONS = {
   'sections.lens.absentAt': 'Absent at',
   'sections.lens.noAbsenceRecords': 'No absence records.',
   'sections.lens.promoteToManual':
-    'Promote from inferred to manual — the inference engine will no longer overwrite this row',
+    'Promote from inferred to manual. The inference engine will no longer overwrite this row',
   'sections.lens.companionTitle': 'Create perpendicular cross-section?',
   'sections.lens.companionBlurb':
     'A perpendicular cross-section through the lens centroid helps verify the lens really pinches out in both directions.',
@@ -667,7 +667,7 @@ export const SECTIONS = {
 
   'sections.tie.accept': 'Accept tie',
   'sections.tie.reject': 'Reject tie',
-  'sections.tie.proposed': 'Proposed tie-section — right-click to Accept or Reject',
+  'sections.tie.proposed': 'Proposed tie-section. Right-click to Accept or Reject',
   'sections.tie.keepFlagged': 'Keep them flagged',
   'sections.tie.flaggedBlurb':
     'Deleting is one step on the undo stack. While a mismatched tie waits for review it is drawn with a warning mark.',
@@ -697,12 +697,12 @@ export const SECTIONS = {
   'sections.companion.lensCreated': 'Lens created.',
   'sections.companion.blurb': 'A perpendicular cross-section through the lens centroid helps verify the lens geometry from a second direction.',
   'sections.companion.yesCreate': 'Yes, create section',
-  'sections.contacts.refContactHint': '{name} — right-click to edit in Stratigraphy stage',
+  'sections.contacts.refContactHint': '{name}. Right-click to edit in Stratigraphy stage',
   'sections.lithoMerge.title': 'Merge adjacent {litho} layers?',
   'sections.lithoMerge.body': 'Removing that contact left two {litho} units adjacent. Merging deletes the now-redundant boundary so they read as one continuous {litho} band.',
   'sections.keepSeparate': 'Keep separate',
-  'sections.clampDrag.cannotMove': 'Can’t move further — right-click and delete the adjacent layer first, then drag to the next boundary.',
-  'sections.clampDrag.packingBoundary': 'Stops at this packing boundary — drag again to take the next one.',
+  'sections.clampDrag.cannotMove': 'Can’t move further. Right-click and delete the adjacent layer first, then drag to the next boundary.',
+  'sections.clampDrag.packingBoundary': 'Stops at this packing boundary. Drag again to take the next one.',
   'sections.copyComposition.title': 'Replace target composition?',
   'sections.copyComposition.body': 'The target layer already carries an edit. Replacing it will drop the existing composition.',
   'sections.copyComposition.from': 'From:',
@@ -710,16 +710,16 @@ export const SECTIONS = {
   'sections.copyComposition.replace': 'Replace',
   'sections.crossingTie.countOne': '{n} crossing correlation tie',
   'sections.crossingTie.countMany': '{n} crossing correlation ties',
-  'sections.crossingTie.labelFind': '⚠ {phrase} — click to find',
-  'sections.crossingTie.labelResolve': '⚠ {phrase} — resolve to restore bands',
+  'sections.crossingTie.labelFind': '⚠ {phrase}. Click to find',
+  'sections.crossingTie.labelResolve': '⚠ {phrase}. Resolve to restore bands',
   'sections.crossingTie.aria': '{phrase}. Activate to centre the next one.',
-  'sections.lens.candidateEither': 'Lens candidate — no correlation on either neighbour. Pinch it out rather than correlate it.',
-  'sections.lens.pinchOutCandidateFull': 'Pinch-out lens candidate — this layer pinches out toward the neighbour, so the crossing correlation was not drawn. The 2/1/0 fill draws it as a lens automatically.',
+  'sections.lens.candidateEither': 'Lens candidate. No correlation on either neighbour. Pinch it out rather than correlate it.',
+  'sections.lens.pinchOutCandidateFull': 'Pinch-out lens candidate. This layer pinches out toward the neighbour, so the crossing correlation was not drawn. The 2/1/0 fill draws it as a lens automatically.',
   'sections.lens.styleStraight': 'straight',
   'sections.lens.styleBlocky': 'blocky',
   'sections.lens.styleRounded': 'rounded',
   'sections.nameBody.keptHint': 'A named lens is kept: it survives the detector’s reconcile and the next body recompute.',
-  'sections.nameBody.placeholder': 'e.g. Sand lens — quay 7',
+  'sections.nameBody.placeholder': 'e.g. Sand lens, quay 7',
   'sections.lensPanel.bodyLabel': 'Body',
   'sections.lensPanel.confirming': 'Confirming…',
   'sections.lensPanel.confirmAllAuto': 'Confirm all auto ({count})',
@@ -729,22 +729,22 @@ export const SECTIONS = {
   'sections.moveRestated.titleGeo': 'Move contact, litho and stratigraphy?',
   'sections.moveRestated.titleLitho': 'Move contact and litho?',
   'sections.moveRestated.body': 'This boundary is a lithological contact, not a packing boundary. Moving it to {depth} m changes more than the geotechnical model.',
-  'sections.moveRestated.bullet1': 'the two packing bands either side — both re-derive their NAD class, because their depth range changed and so does the qc over it',
+  'sections.moveRestated.bullet1': 'the two packing bands either side: both re-derive their NAD class, because their depth range changed and so does the qc over it',
   'sections.moveRestated.bullet2': 'the lithological contact it restates',
-  'sections.moveRestated.bullet3': 'the stratigraphic contact this unit is derived from — all three in one write, so they cannot disagree afterwards',
+  'sections.moveRestated.bullet3': 'the stratigraphic contact this unit is derived from: all three in one write, so they cannot disagree afterwards',
   'sections.moveRestated.undoNote': 'One step on the undo stack. Ctrl+Z puts all of it back.',
   'sections.moveRestated.moveIt': 'Move it',
   'sections.flaggedTies.titleOne': '{count} correlation no longer matches',
   'sections.flaggedTies.titleMany': '{count} correlations no longer match',
   'sections.flaggedTies.body1One': 'The packing class changed on one side of this tie, so the two ends no longer describe the same ground.',
   'sections.flaggedTies.body1Many': 'The packing class changed on one side of these ties, so the two ends no longer describe the same ground.',
-  'sections.flaggedTies.body2One': 'It is kept and marked for review — nothing has been lost. Delete it only if the correlation itself was wrong; keep it if the two columns still belong together and the class needs another look.',
-  'sections.flaggedTies.body2Many': 'They are kept and marked for review — nothing has been lost. Delete them only if the correlation itself was wrong; keep them if the two columns still belong together and the class needs another look.',
+  'sections.flaggedTies.body2One': 'It is kept and marked for review. Nothing has been lost. Delete it only if the correlation itself was wrong; keep it if the two columns still belong together and the class needs another look.',
+  'sections.flaggedTies.body2Many': 'They are kept and marked for review. Nothing has been lost. Delete them only if the correlation itself was wrong; keep them if the two columns still belong together and the class needs another look.',
   'sections.flaggedTies.body3': 'Deleting is one step on the undo stack. While a mismatched tie waits for review it no longer joins its two bands into one body, so the 3-D model will not weld them together either way.',
   'sections.flaggedTies.deleteOne': 'Delete it',
   'sections.flaggedTies.deleteMany': 'Delete them',
   'sections.sampleLabel': 'Sample {n}',
-  'sections.sampleGeotech.ariaClickable': 'Sample {label} — click to highlight body',
+  'sections.sampleGeotech.ariaClickable': 'Sample {label}. Click to highlight body',
   'sections.sampleGeotech.tooltip': 'Sample {label}\\n{top}–{base} m{tail}',
   'sections.psd.organic': 'organic {quantity} {pct} %',
   'sections.header.lengthBuffer': '{length} m · buffer ±{buffer} m',
@@ -785,23 +785,23 @@ export const SECTIONS = {
   'sections.geotech.statisticName.geometric': 'geometric',
   'sections.bands.dragMoveHint': 'Drag to move this packing boundary · right-click to merge the bands',
   'sections.bands.rightClickMerge': 'Right-click to merge these two packing bands',
-  'sections.bands.placeReadout': '{depth} m — click to place, Esc to cancel',
-  'sections.bands.mergeReadout': 'release to merge into the band {dir} — class re-derived over the union',
+  'sections.bands.placeReadout': '{depth} m. Click to place, Esc to cancel',
+  'sections.bands.mergeReadout': 'release to merge into the band {dir}: class re-derived over the union',
   'sections.bands.dirBelow': 'below',
   'sections.bands.dirAbove': 'above',
-  'sections.bands.moveReadout': '{depth} m — release to move, Esc to cancel',
+  'sections.bands.moveReadout': '{depth} m. Release to move, Esc to cancel',
   'sections.bands.currentSuffix': ' (current)',
   // The "(current: X)" tag on the "Packing class ▸" submenu row (owner #35).
   'sections.bands.packingClassCurrent': '(current: {label})',
   'sections.bands.toast.splitHere': 'Band split.',
-  'sections.bands.foreignClassSuffix': ' (current — a {family} class on this soil)',
+  'sections.bands.foreignClassSuffix': ' (current, a {family} class on this soil)',
   'sections.bandDialog.moveTitle': 'Move this packing boundary?',
   'sections.bandDialog.mergeTitle': 'Merge these packing bands?',
   'sections.bandDialog.splitTitle': 'Split this packing band?',
   'sections.bandDialog.rederiveBlurb': 'The packing class is re-derived from the cone resistance over each resulting interval, inside the litho body at {range}. Only this column re-derives.',
   'sections.bandDialog.unchanged': '(unchanged)',
   'sections.bandDialog.representativeQc': 'Representative qc{statistic} {value} MPa',
-  'sections.bandDialog.sameClass': 'The cone resistance gives the same packing class either way — this edit changes the boundary, not the classification.',
+  'sections.bandDialog.sameClass': 'The cone resistance gives the same packing class either way. This edit changes the boundary, not the classification.',
   'sections.bandDialog.needsReview': 'needs review',
   'sections.bandDialog.classLabel': 'class {n}',
   'sections.bandDialog.verbMove': 'Move boundary',
@@ -814,69 +814,69 @@ export const SECTIONS = {
   'sections.toast.deleteFailed': 'Could not delete the cross-section.',
   'sections.toast.saveFailed': 'Could not save the section change.',
   'sections.toast.contactNotFound': 'Couldn\'t find the contact in the current project.',
-  'sections.toast.noCleanTies': 'No clean tie-sections found — try widening the tolerance in Settings.',
+  'sections.toast.noCleanTies': 'No clean tie-sections found. Try widening the tolerance in Settings.',
   'sections.toast.tieCreateFailed': 'Could not create the tie-section.',
   'sections.toast.tiesCreateFailed': 'Could not create the tie-sections.',
   'sections.toast.contactDepthUpdateFailed': 'Could not update the contact depth.',
   'sections.toast.contactMoveFailed': 'Could not move the existing contact to the new depth.',
   'sections.toast.contactPlaceFailed': 'Could not place the formation contact.',
-  'sections.toast.copiedSomeFailed': 'Copied {total} contact(s); {failed} failed — some may be missing.',
+  'sections.toast.copiedSomeFailed': 'Copied {total} contact(s); {failed} failed. Some may be missing.',
   'sections.toast.contactsUpdateFailed': 'Could not update the selected contacts.',
   'sections.toast.contactDeleteFailed': 'Could not delete the contact.',
   'sections.toast.unlinkFailed': 'Could not unlink the contact from stratigraphy.',
   'sections.toast.noGeoInTolerance': 'No stratigraphic contact within snap tolerance to link.',
   'sections.toast.linkFailed': 'Could not link the contact to stratigraphy.',
-  'sections.toast.correlationAdded': 'Correlation added — a wedge forms when it spans the layer.',
-  'sections.toast.correlationCreateFailed': 'Could not create the correlation — try again.',
+  'sections.toast.correlationAdded': 'Correlation added. A wedge forms when it spans the layer.',
+  'sections.toast.correlationCreateFailed': 'Could not create the correlation. Try again.',
   'sections.toast.edgeRetargeted': 'Edge retargeted.',
-  'sections.toast.edgeRetargetFailed': 'Could not retarget the edge — try again.',
+  'sections.toast.edgeRetargetFailed': 'Could not retarget the edge. Try again.',
   'sections.scope.allSections': 'on all sections',
   'sections.scope.thisSection': 'on this section',
-  'sections.geotechCorr.nothingNew': 'Auto-correlate {scope}: nothing new — all {n} automatic tie(s) are already correlated.',
-  'sections.geotechCorr.noTies': 'Auto-correlate {scope}: no automatic packing ties found — subdivide the bodies first.',
+  'sections.geotechCorr.nothingNew': 'Auto-correlate {scope}: nothing new. All {n} automatic tie(s) are already correlated.',
+  'sections.geotechCorr.noTies': 'Auto-correlate {scope}: no automatic packing ties found. Subdivide the bodies first.',
   'sections.geotechCorr.result': 'Auto-correlate {scope}: {accepted} {accWord} banded, {proposed} new {propWord} proposed, {skipped} left untouched{tail}',
   'sections.geotechCorr.accWordOne': 'litho-backed tie',
   'sections.geotechCorr.accWordMany': 'litho-backed ties',
   'sections.geotechCorr.propWordOne': 'packing tie',
   'sections.geotechCorr.propWordMany': 'packing ties',
-  'sections.geotechCorr.resultTailReview': ' — review the ghosts, then "3 · Accept ties".',
-  'sections.geotechCorr.autoFailed': 'Auto-correlate packing failed — see console.',
-  'sections.geotechCorr.acceptFailed': 'Accept packing correlations failed — see console.',
+  'sections.geotechCorr.resultTailReview': '. Review the ghosts, then "3 · Accept ties".',
+  'sections.geotechCorr.autoFailed': 'Auto-correlate packing failed. See console.',
+  'sections.geotechCorr.acceptFailed': 'Accept packing correlations failed. See console.',
   'sections.geotechCorr.noPending': 'No pending packing correlations to accept {scope}.',
   'sections.geotechCorr.accepted': 'Accepted {n} {word} {scope}.',
   'sections.geotechCorr.packingCorrOne': 'packing correlation',
   'sections.geotechCorr.packingCorrMany': 'packing correlations',
-  'sections.bandEdit.splitPlanFailed': 'Could not work out what that split would do — try again.',
-  'sections.bandEdit.mergePlanFailed': 'Could not work out what that merge would do — try again.',
-  'sections.bandEdit.movePlanFailed': 'Could not work out what that move would do — try again.',
-  'sections.bandEdit.absorbPlanFailed': 'Could not work out what that absorb would do — try again.',
+  'sections.bandEdit.splitPlanFailed': 'Could not work out what that split would do. Try again.',
+  'sections.bandEdit.mergePlanFailed': 'Could not work out what that merge would do. Try again.',
+  'sections.bandEdit.movePlanFailed': 'Could not work out what that move would do. Try again.',
+  'sections.bandEdit.absorbPlanFailed': 'Could not work out what that absorb would do. Try again.',
   'sections.bandEdit.classSet': 'Class set to NAD {nadClass}.',
   'sections.bandEdit.classSetFlagged': 'Class set to NAD {nadClass}; {flagged} {word} flagged for review.',
   'sections.bandEdit.acceptedTieOne': 'accepted tie',
   'sections.bandEdit.acceptedTieMany': 'accepted ties',
-  'sections.bandEdit.setClassFailed': 'Could not set the class — try again.',
-  'sections.bandEdit.cleared': 'Cleared {n} {word} on {name} — press 1 (CPT) or 4 (borehole) to rebuild it.',
+  'sections.bandEdit.setClassFailed': 'Could not set the class. Try again.',
+  'sections.bandEdit.cleared': 'Cleared {n} {word} on {name}. Press 1 (CPT) or 4 (borehole) to rebuild it.',
   'sections.bandEdit.bandWordOne': 'band',
   'sections.bandEdit.bandWordMany': 'bands',
-  'sections.bandEdit.clearFailed': 'Could not clear the subdivision — try again.',
-  'sections.bandEdit.savedNotRefreshed': 'The edit was saved, but the correlations on screen could not be refreshed — reopen the section before judging the ties.',
-  'sections.bandEdit.applyFailed': 'Could not apply the edit — try again.',
+  'sections.bandEdit.clearFailed': 'Could not clear the subdivision. Try again.',
+  'sections.bandEdit.savedNotRefreshed': 'The edit was saved, but the correlations on screen could not be refreshed. Reopen the section before judging the ties.',
+  'sections.bandEdit.applyFailed': 'Could not apply the edit. Try again.',
   'sections.packingCorr.added': 'Packing correlation added.',
-  'sections.packingCorr.disconnectFailed': 'Could not disconnect the bands — the tie is still there. Try again.',
+  'sections.packingCorr.disconnectFailed': 'Could not disconnect the bands. The tie is still there. Try again.',
   'sections.packingCorr.acceptFailed': 'Could not accept the packing correlation. Try again or refresh.',
   'sections.packingCorr.confirmFailed': 'Could not confirm the tie. Try again or refresh.',
-  'sections.stat.setBuild': 'Representative statistic set to {statistic} — press "1 · Subdivide CPTs" to build the packing bands under it.',
-  'sections.stat.setReclassify': 'Representative statistic set to {statistic} — press "1 · Subdivide CPTs" to re-classify the bands under it.',
+  'sections.stat.setBuild': 'Representative statistic set to {statistic}. Press "1 · Subdivide CPTs" to build the packing bands under it.',
+  'sections.stat.setReclassify': 'Representative statistic set to {statistic}. Press "1 · Subdivide CPTs" to re-classify the bands under it.',
   'sections.stat.set': 'Representative statistic set to {statistic}.',
-  'sections.lithoCorr.precheckFailed': 'Auto-correlate pre-check failed — see console.',
+  'sections.lithoCorr.precheckFailed': 'Auto-correlate pre-check failed. See console.',
   'sections.lithoCorr.cleared': 'Cleared {n} {word}; re-running…',
   'sections.lithoCorr.autoEdgeOne': 'auto edge',
   'sections.lithoCorr.autoEdgeMany': 'auto edges',
-  'sections.lithoCorr.reCorrelateFailed': 'Re-correlate failed — see console.',
+  'sections.lithoCorr.reCorrelateFailed': 'Re-correlate failed. See console.',
   'sections.lithoCorr.accepted': 'Accepted {n} {word}.',
   'sections.lithoCorr.correlationOne': 'correlation',
   'sections.lithoCorr.correlationMany': 'correlations',
-  'sections.lithoCorr.acceptFailed': 'Accept failed — try again.',
+  'sections.lithoCorr.acceptFailed': 'Accept failed. Try again.',
   'sections.snap.failed': 'Snap failed: {message}',
   'sections.snap.moved': 'Stratigraphic contact moved; surfaces rebuilt.',
   'sections.snap.moveFailed': 'Move failed: {message}',
@@ -884,10 +884,10 @@ export const SECTIONS = {
   'sections.canvasToast.admixturesUpdated': 'Updated admixtures on {n} {word}.',
   'sections.canvasToast.correlatedUnitOne': 'correlated unit',
   'sections.canvasToast.correlatedUnitMany': 'correlated units',
-  'sections.canvasToast.admixturesFailed': 'Could not update the body’s admixtures — try again.',
-  'sections.canvasToast.lensShapeFailed': 'Could not save lens shape — see console.',
+  'sections.canvasToast.admixturesFailed': 'Could not update the body’s admixtures. Try again.',
+  'sections.canvasToast.lensShapeFailed': 'Could not save lens shape. See console.',
   'sections.canvasToast.boundaryCorrAdded': 'Boundary correlation added.',
-  'sections.canvasToast.boundaryCorrFailed': 'Could not create the boundary correlation — try again.',
+  'sections.canvasToast.boundaryCorrFailed': 'Could not create the boundary correlation. Try again.',
   'sections.canvasToast.acceptCorrFailed': 'Could not accept the correlation. Try again or refresh.',
   'sections.canvasToast.bodyNamed': 'Body named: {name}',
   'sections.canvasToast.bodyNameFailed': 'Failed to name body.',
@@ -898,9 +898,9 @@ export const SECTIONS = {
   // Names the soil it saved (owner 2026-09-10: a stray key had turned a sand
   // piece into gravel and the old "updated." said nothing about it).
   'sections.canvasToast.compositionUpdated': 'Layer composition updated: {composition}.',
-  'sections.canvasToast.compositionUpdateFailed': 'Could not update the layer’s composition — try again.',
+  'sections.canvasToast.compositionUpdateFailed': 'Could not update the layer’s composition. Try again.',
   'sections.canvasToast.layerSplit': 'Layer split.',
-  'sections.canvasToast.layerSplitFailed': 'Could not split the layer — the split point may be too close to a boundary.',
+  'sections.canvasToast.layerSplitFailed': 'Could not split the layer. The split point may be too close to a boundary.',
   // Shift-drag an accepted litho contact onto another test (installer #35).
   'sections.canvasToast.lithoContactCopied': 'Litho contact copied: both units created.',
   'sections.canvasToast.lithoBoundaryCopied': 'Boundary copied, compositions kept.',
@@ -913,8 +913,8 @@ export const SECTIONS = {
   'sections.canvasToast.lithoContactCopyClippedOne': '1 boundary lies below this test’s depth and was left out.',
   'sections.canvasToast.lithoContactCopyClippedMany': '{dropped} boundaries lie below this test’s depth and were left out.',
   'sections.canvasToast.lithoContactCopyFailed': 'Could not copy the litho contact. Try again.',
-  'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move — edit it on the litho axis.',
-  'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact — drag it with the handle beside the column.',
+  'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move. Edit it on the litho axis.',
+  'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact. Drag it with the handle beside the column.',
   'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithological contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
   'sections.canvasToast.perpCreated': 'Perpendicular section created.',
 } as const
