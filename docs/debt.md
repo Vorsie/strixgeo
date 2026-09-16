@@ -10006,3 +10006,25 @@ other side's suite.
 worth the churn during the dogfeed loop.
 
 **When to revisit.** The next time a twin is fixed on one side, or with #283.
+
+## 285. Sheet fit mode leaves white space below a lower exaggeration (S — Tier E)
+
+**What.** In fit mode the page-filling exaggeration is seeded once per open;
+when the engineer turns the exaggeration down to make the CPT tracks more
+readable, the drawing gets shorter but the frame keeps the full A3 height,
+so a wide band of white space appears under the profile (owner, installer
+#44, 2026-09-16: "when i turn down the height exaggeration the cpt's become
+even more readable but there is a lot of whitespace below, of course the
+bottom should come up so it better fits the page"). The map, legend and
+title block stay where they are. Pull the bottom up: either re-fit the
+frame to the drawing's height (a shorter sheet in fit mode, the page kept
+A3 landscape only when the drawing needs it) or re-flow the legend and the
+title block up to the drawing's bottom edge.
+
+**Why deferred.** Parked by the owner at the beta release; manual scaling
+covers the case today, and the readable-track and fit-to-A3 rules had just
+landed (#43), so the layout needs one quiet look rather than another
+patch on top.
+
+**When to revisit.** The first tester who exports a PDF at a reduced
+exaggeration, or with the next sheet slice.
