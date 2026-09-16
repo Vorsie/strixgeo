@@ -131,7 +131,7 @@ function pooledSuffix(
 ): string {
   const n = distinctBodyCount(bands, memberInvestigationIds)
   if (n <= 1) return ''
-  return ` — pooled across ${n} bodies`
+  return `, pooled across ${n} bodies`
 }
 
 /**
@@ -290,7 +290,7 @@ export function scopeHeaderLabel(
     case 'litho-unit': {
       // R1's naming requirement, near-verbatim: the header must SAY the pool
       // spans the whole unit, every packing class.
-      const base = `${lithoUnitName(scope.unitId, input)} — whole litho unit, all packing classes`
+      const base = `${lithoUnitName(scope.unitId, input)}: whole litho unit, all packing classes`
       return base + pooledSuffix(bandsForScope(scope, input), memberInvestigationIds)
     }
     case 'litho-body': {
