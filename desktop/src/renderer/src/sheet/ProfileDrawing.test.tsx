@@ -108,17 +108,18 @@ describe('ProfileDrawing — per-column scale header', () => {
     expect(screen.queryByText('4%')).toBeNull()
   })
 
-  it('crowded columns drop the header so the labels never overrun (columns too narrow)', () => {
-    // Many columns sharing the fixed drawing width draw narrow, where the
-    // right-anchored "{scale} MPa" label would overrun the interior ticks — so
-    // the header is dropped, mirroring the on-screen crowded-column behaviour.
-    // (Since installer #40 fit mode fills the width at every spacing, the
-    // dropped header is driven by column COUNT, not by packing the slider down.)
+  it('crowded columns keep the qc / Rf header now the track has a readable minimum width', () => {
+    // Before installer #42 a crowd of columns drew narrower than the header
+    // threshold and the "what is what" header was dropped. The readable minimum
+    // track width (``COLUMN_HALF_WIDTH_MM``, owner: the cpt's were "not enough
+    // horizontally ... unreadable") now clears that threshold, and the columns
+    // are spread far enough apart that the labels do not overrun — so every
+    // crowded CPT column keeps its qc scale label and its Rf ticks.
     const crowd = Array.from({ length: 18 }, (_, i): SheetColumn => ({
       ...cptColumn, investigationId: `c${i}`, code: `S${i}`, alongM: (i * 400) / 17,
     }))
     renderDrawing(payloadWith(crowd))
-    expect(screen.queryByText('40 MPa')).toBeNull()
-    expect(screen.queryByText('2%')).toBeNull()
+    expect(screen.getAllByText('40 MPa')).toHaveLength(crowd.length)
+    expect(screen.getAllByText('2%')).toHaveLength(crowd.length)
   })
 })
