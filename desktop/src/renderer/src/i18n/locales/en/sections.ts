@@ -913,6 +913,13 @@ export const SECTIONS = {
   'sections.canvasToast.lithoContactCopyClippedOne': '1 boundary lies below this test’s depth and was left out.',
   'sections.canvasToast.lithoContactCopyClippedMany': '{dropped} boundaries lie below this test’s depth and were left out.',
   'sections.canvasToast.lithoContactCopyFailed': 'Could not copy the litho contact. Try again.',
+  // Shift-drag a GHOST boundary onto another test (installer #42): the target
+  // gets a ghost column carrying the same units, still to accept.
+  'sections.canvasToast.ghostColumnCopiedOne': 'Suggestion copied: 1 unit.',
+  'sections.canvasToast.ghostColumnCopiedMany': 'Suggestions copied: {units} units.',
+  'sections.canvasToast.ghostCopyTargetHasGhost': 'That test already has suggestions. Clear them first, then copy.',
+  'sections.canvasToast.ghostCopyMixedSelection': 'That column mixes accepted and suggested boundaries. Copy one kind at a time.',
+  'sections.canvasToast.ghostCopyNoPending': 'There are no pending suggestions on that test to copy.',
   'sections.canvasToast.noLithoContact': 'This boundary has no lithological contact to move. Edit it on the litho axis.',
   'sections.canvasToast.packingNotLithoCpt': 'That is a packing boundary, not a lithological contact. Drag it with the handle beside the column.',
   'sections.canvasToast.packingNotLithoBorehole': 'That is a packing boundary, not a lithological contact. A borehole’s packing bands were extrapolated from the CPTs around it, so they cannot be moved here.',
