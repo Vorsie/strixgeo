@@ -106,6 +106,9 @@ declare global {
       // the only console a packaged build's dogfeed report can show.
       closeFlowNote: (note: string) => Promise<void>
       setWindowTitle: (title: string | null) => Promise<void>
+      // Report the interface language so the native menu bar follows it. Called
+      // on boot and on every Settings language flip; main rebuilds the menu.
+      setMenuLanguage: (language: string) => Promise<void>
       /**
        * Show or hide the window without closing it.
        *
