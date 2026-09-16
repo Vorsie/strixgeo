@@ -1,0 +1,20 @@
+{
+  "_comment": "Cross-boundary arbiter fixture (debt #284) for the admixture canonical key: '<soil_code>:<canonical_amount>' with the amount-step synonyms S->V (sterk = veel) and Z->W (zwak = weinig), owner ruling 2026-09-06. IMPORTANT: unlike the section-corridor and packing-class-key twins, this key is CURRENTLY PYTHON-ONLY. Admixture.canonical_key() / canonical_amount() live only in the backend (Accept find-or-create, auto-correlate ranking, litho formation lookup); the renderer sends RAW admixtures {soil_code, amount, locally} to the API and the backend computes the key, so no TypeScript twin exists today. The renderer's buildSeamClassOf is amount-INDEPENDENT by design (soil codes only) and is a different concept, NOT this key's twin. This fixture is read by tests/unit/domain/value_objects/test_twin_admixture_canonical_key.py and is the ready arbiter the moment a renderer needs the same key: add desktop/.../admixtureCanonicalKey.twin.test.ts against this same file and drift becomes cross-language-caught, exactly as debt #284 asks. The locally flag is intentionally excluded from the key.",
+  "amount_synonyms": { "S": "V", "Z": "W" },
+  "key_cases": [
+    { "name": "sterk_folds_to_veel", "soil_code": "KL", "amount": "S", "expected_key": "KL:V" },
+    { "name": "veel_is_canonical", "soil_code": "KL", "amount": "V", "expected_key": "KL:V" },
+    { "name": "zwak_folds_to_weinig", "soil_code": "SI", "amount": "Z", "expected_key": "SI:W" },
+    { "name": "weinig_is_canonical", "soil_code": "SI", "amount": "W", "expected_key": "SI:W" },
+    { "name": "medium_has_no_synonym", "soil_code": "KL", "amount": "M", "expected_key": "KL:M" },
+    { "name": "empty_amount_stays_empty", "soil_code": "GL", "amount": "", "expected_key": "GL:" },
+    { "name": "synonym_folds_on_any_soil", "soil_code": "ZN", "amount": "S", "expected_key": "ZN:V" }
+  ],
+  "equivalence_cases": [
+    { "name": "sterk_equals_veel", "a": { "soil_code": "KL", "amount": "S" }, "b": { "soil_code": "KL", "amount": "V" }, "equal": true },
+    { "name": "zwak_equals_weinig", "a": { "soil_code": "SI", "amount": "Z" }, "b": { "soil_code": "SI", "amount": "W" }, "equal": true },
+    { "name": "zwak_is_not_medium", "a": { "soil_code": "SI", "amount": "Z" }, "b": { "soil_code": "SI", "amount": "M" }, "equal": false },
+    { "name": "veel_is_not_medium", "a": { "soil_code": "KL", "amount": "V" }, "b": { "soil_code": "KL", "amount": "M" }, "equal": false },
+    { "name": "same_key_ignores_locally_flag", "a": { "soil_code": "KL", "amount": "S", "locally": true }, "b": { "soil_code": "KL", "amount": "V", "locally": false }, "equal": true }
+  ]
+}
