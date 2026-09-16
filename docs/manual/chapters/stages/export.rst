@@ -18,8 +18,9 @@ The Export stage is the only place exports live
 
 Every export is a **card on the Export stage**, grouped by model level:
 a cross-section DXF (on any axis), the stratigraphic model to Plaxis 3D, the
-lithological D-Stability ``.stix`` / Plaxis 2D / fence DXF, the geotechnical
-D-Sheet ``.shi`` / Plaxis 2D / fence DXF, and the PDF report sheet. Each card has
+lithological fence DXF, the geotechnical D-Stability ``.stix`` / D-Sheet
+``.shi`` / Plaxis 2D / fence DXF, and the PDF report sheet. D-Stability and
+Plaxis 2D are geotechnical only. Each card has
 its own scope pickers (the cross-section, and the model level where a card offers
 a choice), an Export button, and a reminder of where you last saved that export.
 A card whose prerequisite is missing — no model, no cross-section — explains what
