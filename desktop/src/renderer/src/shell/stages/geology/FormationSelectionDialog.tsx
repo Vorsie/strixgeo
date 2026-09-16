@@ -805,7 +805,7 @@ export default function FormationSelectionDialog({
                     })
                     // catalogName is DOV domain data (a raw token shown as-is),
                     // appended for provenance; null when the code is unknown.
-                    return fc.catalogName ? `${line} — ${fc.catalogName}` : line
+                    return fc.catalogName ? `${line} (${fc.catalogName})` : line
                   })
                   .join('\n')
                 // One-click "accept the DOV code's own formation" target — only
