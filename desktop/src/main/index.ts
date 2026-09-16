@@ -66,6 +66,8 @@ import {
   writeRecovery,
   type RecoveryDescriptor,
 } from './recoveryStore'
+import { buildMenuTemplate } from './menuTemplate'
+import { narrowMenuLanguage, type MenuLanguage } from './menuLabels'
 
 import {
   buildContentSecurityPolicy,
@@ -212,6 +214,13 @@ let apiProcess: ChildProcess | null = null
 // the recent-projects list changes) can target the right one without
 // walking ``BrowserWindow.getAllWindows()``.
 let mainWindow: BrowserWindow | null = null
+
+// Interface language for the native menu bar. The renderer owns the real choice
+// (localStorage ``groundmodel.language`` -> system -> English) and reports its
+// resolved value over ``window:set-language`` on boot and on every Settings flip,
+// which rebuilds the menu. This holds the last reported value; the first paint
+// (before the renderer reports) is seeded from the OS locale at ``whenReady``.
+let menuLanguage: MenuLanguage = 'en'
 
 // Close-handshake state for the main window (see ./quitHandshake). Holds the
 // "the user already confirmed the exit" flag that keeps programmatic
@@ -1038,229 +1047,52 @@ function createWindow(): void {
 // Native menu
 // ---------------------------------------------------------------------------
 
-function buildMenu(win: BrowserWindow): void {
-  // Recent submenu is rebuilt every time the menu is constructed. After a
-  // file is opened or saved the renderer asks main to refresh the menu so
-  // the new entry appears without an app restart.
-  const recent = readRecentProjects()
-  const recentSubmenu: Electron.MenuItemConstructorOptions[] = recent.length
-    ? recent.map(r => ({
-        label: r.name,
-        // Path is the source of truth — name might have drifted in the DB.
-        // The renderer receives the path and re-fetches metadata before
-        // rendering anything to the user.
-        sublabel: r.path,
-        click: () => win.webContents.send('menu:project-open-recent', r.path),
-      }))
-    : [{ label: '(no recent projects)', enabled: false }]
+// Native About dialog. Kept in the main process (native ``dialog.showMessageBox``)
+// and deliberately English-only: the renderer LicensingDialog is the localised
+// build-info surface, this is the OS "About" affordance. The "StrixGeo — …" title
+// keeps its em-dash by convention.
+function showAboutDialog(win: BrowserWindow): void {
+  const provenance = compiledBuildProvenance()
+  const buildLine = provenance?.sha
+    ? `\nBuild ${provenance.sha.slice(0, 12)}${provenance.builtAt ? ` · ${provenance.builtAt}` : ''}`
+    : ''
+  // Owner finding (f): the About line carries the beta expiry too, so a
+  // tester can read which build they hold and when it stops. Long date form
+  // ("1 November 2026") via en-GB.
+  const info = currentBuildInfo()
+  const betaLine =
+    info.expiresAtMs !== null
+      ? `\nBeta build ${info.sha ?? '—'}, expires ${new Date(info.expiresAtMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+      : ''
+  dialog.showMessageBox(win, {
+    type: 'info',
+    title: 'StrixGeo',
+    message: 'StrixGeo — ground model platform',
+    detail: `Version ${app.getVersion()}${buildLine}${betaLine}\nGround model platform for geotechnical engineers.`,
+  })
+}
 
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'New Project…',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => win.webContents.send('menu:project-new'),
-        },
-        {
-          label: 'Open Project…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => win.webContents.send('menu:project-open'),
-        },
-        {
-          label: 'Open Recent',
-          submenu: recentSubmenu,
-        },
-        { type: 'separator' },
-        {
-          label: 'Save',
-          accelerator: 'CmdOrCtrl+S',
-          click: () => win.webContents.send('menu:project-save'),
-        },
-        {
-          label: 'Save As…',
-          accelerator: 'CmdOrCtrl+Shift+S',
-          click: () => win.webContents.send('menu:project-save-as'),
-        },
-        {
-          label: 'Close Project',
-          accelerator: 'CmdOrCtrl+W',
-          click: () => win.webContents.send('menu:project-close'),
-        },
-        { type: 'separator' },
-        {
-          label: 'Import CPT…',
-          accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => win.webContents.send('menu:import-cpt'),
-        },
-        {
-          label: 'Import Borehole…',
-          accelerator: 'CmdOrCtrl+Shift+B',
-          click: () => win.webContents.send('menu:import-borehole'),
-          enabled: false  // Phase 3
-        },
-        {
-          label: 'Import DMT…',
-          click: () => win.webContents.send('menu:import-dmt'),
-          enabled: false  // Phase 3
-        },
-        { type: 'separator' },
-        {
-          label: 'Settings…',
-          // Apple-standard ``Cmd+,`` for Preferences; Ctrl+, on Windows /
-          // Linux matches VS Code + JetBrains for the same intent. Opens
-          // the renderer-side SettingsDialog via IPC; same pattern as
-          // every other menu signal (one-way main→renderer fire).
-          accelerator: 'CmdOrCtrl+,',
-          click: () => win.webContents.send('menu:open-settings'),
-        },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
+function buildMenu(win: BrowserWindow): void {
+  // The template is a pure function of the language + packaging flags + the
+  // recent list (./menuTemplate). Every visible label follows ``menuLanguage``,
+  // which the renderer reports over ``window:set-language``. Rebuilt on every
+  // language flip and after each open/save so "Open Recent" stays fresh, both
+  // without an app restart.
+  const template = buildMenuTemplate({
+    language: menuLanguage,
+    isPackaged: app.isPackaged,
+    rawBackendLogAffordance: rawBackendLogAffordanceEnabled(app.isPackaged),
+    recent: readRecentProjects(),
+    send: (channel, ...args) => win.webContents.send(channel, ...args),
+    onShowLogFile: () => {
+      // shell.openPath (not openExternal) — a local filesystem path, not a URL.
+      void shell.openPath(app.getPath('logs'))
     },
-    {
-      label: 'Edit',
-      submenu: [
-        {
-          label: 'Undo',
-          // ``registerAccelerator: false`` shows the shortcut in the
-          // menu label but lets the renderer's document keydown handler
-          // own the actual keystroke — that handler already gates on
-          // ``isTypingTarget`` so text inputs keep their native undo.
-          accelerator: 'CmdOrCtrl+Z',
-          registerAccelerator: false,
-          click: () => win.webContents.send('menu:edit-undo'),
-        },
-        {
-          label: 'Redo',
-          accelerator: 'CmdOrCtrl+Shift+Z',
-          registerAccelerator: false,
-          click: () => win.webContents.send('menu:edit-redo'),
-        },
-      ]
+    onSaveLogsForSupport: () => {
+      void saveDiagnosticsBundle(win)
     },
-    {
-      label: 'View',
-      // Reload / Force Reload / Toggle DevTools exist in development only
-      // (debt #200, autosave design Q6). ``View → Reload`` is the single most
-      // likely accidental destroyer of renderer-only session state — the litho
-      // ghost workspace, the lumping map, an unsaved metadata draft — none of
-      // which is in Postgres, and all of which a reload throws away without a
-      // prompt. A menu item two rows above "Toggle Full Screen" is not
-      // something a user meant to click. Registering the roles conditionally
-      // also removes their default accelerators (Ctrl+R / F12 / Ctrl+Shift+I),
-      // and ``webPreferences.devTools`` above closes the programmatic path.
-      submenu: app.isPackaged
-        ? [{ role: 'togglefullscreen' }]
-        : [
-            { role: 'reload' },
-            { role: 'toggleDevTools' },
-            { type: 'separator' },
-            { role: 'togglefullscreen' },
-          ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          // Prototype onboarding (#93). One-way fire — the renderer owns the
-          // OnboardingOverlay open state and its "seen" flag.
-          label: 'Getting started…',
-          click: () => win.webContents.send('menu:open-onboarding'),
-        },
-        {
-          // Guided tutorial (#93, spec 2026-09-02). One-way fire — the renderer
-          // owns the TutorialOverlay active flag and its localStorage progress.
-          // "Tutorial" resumes at the last incomplete step (or starts fresh).
-          label: 'Tutorial',
-          click: () => win.webContents.send('menu:tutorial'),
-        },
-        {
-          // Clears saved progress and starts the tutorial from the first step.
-          label: 'Restart tutorial',
-          click: () => win.webContents.send('menu:tutorial-restart'),
-        },
-        {
-          label: 'Gesture cheatsheet…',
-          // One-way main→renderer fire — same pattern as Settings. The
-          // renderer owns the CheatsheetDialog open state.
-          accelerator: 'F1',
-          click: () => win.webContents.send('menu:open-cheatsheet'),
-        },
-        { type: 'separator' },
-        {
-          // Prototype licensing (#3). Opens the renderer LicensingDialog.
-          label: 'Licence & activation…',
-          click: () => win.webContents.send('menu:open-licensing'),
-        },
-        {
-          // Prototype updater (#6). Triggers a manual check; results arrive on
-          // the updater event channel and surface as a renderer notification.
-          label: 'Check for updates…',
-          click: () => win.webContents.send('menu:check-updates'),
-        },
-        // #214d — reveal the logs directory so a developer can open the RAW
-        // ``backend.log``. Gated to development only: that file is un-redacted
-        // (it carries the asyncpg DSN — password included — and raw project
-        // paths), so a packaged build must never hand it to the user. The only
-        // supported way to get logs out of a shipped build is the redacted
-        // "Save diagnostics bundle…" below (security-fix, user-data leak). Uses
-        // shell.openPath (not shell.openExternal) because it is a local
-        // filesystem path, not a URL. In dev the logs dir may be empty; fine.
-        ...(rawBackendLogAffordanceEnabled(app.isPackaged)
-          ? [
-              {
-                label: 'Show log file…',
-                click: (): void => {
-                  const logsDir = app.getPath('logs')
-                  void shell.openPath(logsDir)
-                },
-              },
-            ]
-          : []),
-        {
-          // #16 — the manual half of crash reporting: one zip the user can
-          // inspect and then send. Everything in it is redacted (see
-          // ./crashBundle), which is what makes "mail us your logs" a request
-          // a consultancy's IT can say yes to. This is the ONLY log-export
-          // affordance a packaged build offers.
-          //
-          // The label NAMES THE LOG on purpose (owner 2026-08-28: "user should
-          // be able to send me the logs, is there a workaround"). The bundle
-          // already carries a redacted tail of ``backend.log``, so the
-          // capability was there — a user hunting the menu for the word "log"
-          // simply could not find it behind "diagnostics".
-          label: 'Save logs for support…',
-          click: (): void => {
-            void saveDiagnosticsBundle(win)
-          },
-        },
-        { type: 'separator' },
-        { label: 'About StrixGeo', click: () => {
-          const provenance = compiledBuildProvenance()
-          const buildLine = provenance?.sha
-            ? `\nBuild ${provenance.sha.slice(0, 12)}${provenance.builtAt ? ` · ${provenance.builtAt}` : ''}`
-            : ''
-          // Owner finding (f): the About line carries the beta expiry too, so a
-          // tester can read which build they hold and when it stops. Native
-          // dialog = English only; the renderer LicensingDialog follows the app
-          // language. Long date form ("1 November 2026") via en-GB.
-          const info = currentBuildInfo()
-          const betaLine =
-            info.expiresAtMs !== null
-              ? `\nBeta build ${info.sha ?? '—'}, expires ${new Date(info.expiresAtMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
-              : ''
-          dialog.showMessageBox(win, {
-            type: 'info',
-            title: 'StrixGeo',
-            message: 'StrixGeo — ground model platform',
-            detail: `Version ${app.getVersion()}${buildLine}${betaLine}\nGround model platform for geotechnical engineers.`
-          })
-        }}
-      ]
-    }
-  ]
+    onAbout: () => showAboutDialog(win),
+  })
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
@@ -1636,6 +1468,18 @@ ipcMain.handle('window:set-title', (_event, title: string | null) => {
   if (mainWindow === null) return
   const safe = title && title !== '' ? title.slice(0, _WINDOW_TITLE_MAX_LEN) : 'StrixGeo'
   mainWindow.setTitle(safe)
+})
+
+// The renderer owns the interface language (localStorage ``groundmodel.language``
+// -> system -> English) and reports its resolved value here on boot and on every
+// Settings flip. Main mirrors it into the native menu the same way it mirrors the
+// title — it does not re-resolve the choice, only narrows the reported value for
+// safety. Rebuilds the menu only on a real change so an unchanged report is free.
+ipcMain.handle('window:set-language', (_event, language: string | null) => {
+  const next = narrowMenuLanguage(language)
+  if (next === menuLanguage) return
+  menuLanguage = next
+  if (mainWindow !== null) buildMenu(mainWindow)
 })
 
 // Renderer's response to ``app:before-quit``. ``allowed=true`` means the
@@ -2273,6 +2117,13 @@ if (!gotSingleInstanceLock) {
     // this the first "Open Recent" click after launch would hit the
     // path-validation in project:read-file and get refused (debt #37).
     bootstrapAuthorisedPaths()
+    // Seed the menu language from the OS locale so the very first paint matches a
+    // Dutch machine instead of flashing English. This is only the SYSTEM-language
+    // tier of the renderer's rule; the renderer reports its full resolved choice
+    // (which includes the Settings override) over ``window:set-language`` once it
+    // has loaded, and the menu rebuilds then. ``app.getLocale()`` is reliable
+    // after ``whenReady`` and mirrors the renderer's ``navigator.language``.
+    menuLanguage = narrowMenuLanguage(app.getLocale())
     // Packaged builds move the live cluster off the Roaming profile and point
     // the embedded layout at Local BEFORE the database starts (M1). The DB boot
     // itself is deferred to just below, after the licence gate is known, so the
