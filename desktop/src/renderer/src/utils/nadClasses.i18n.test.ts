@@ -72,7 +72,7 @@ describe('NL display — the backend Dutch source token is selected, not English
       'ZAND, matig gepakt',
     )
     expect(geotechUnitLabel({ nad_class: null, litho_main_soil_code: 'ZAND' }, null, 'nl')).toBe(
-      'ZAND — nog niet ingedeeld',
+      'ZAND, nog niet ingedeeld',
     )
   })
 
