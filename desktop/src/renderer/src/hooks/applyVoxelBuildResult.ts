@@ -111,7 +111,7 @@ export function applyVoxelBuildResult(
     )
   }
   if (problems.length > 0) {
-    toast('warning', `${builtMsg} — ${problems.join('; ')}`)
+    toast('warning', `${builtMsg}: ${problems.join('; ')}`)
   } else {
     toast('success', builtMsg)
   }
