@@ -26,6 +26,7 @@ import {
   nearestDistance2D,
 } from '../../../utils/distanceConfidence'
 import {
+  buildBasemapDrape,
   buildCutFaceBands,
   computeBasemapBounds,
   computeSolidCapTriangles,
@@ -34,6 +35,7 @@ import {
   clipTexTrisToHalfSpace,
   trianglesToWireframeEdgeIndices,
   type CapPlane,
+  type ProjectedBbox,
   type TexVert,
 } from './cesiumGeometry'
 import type { FencePanel } from '../../../utils/fencePanels'
@@ -113,6 +115,10 @@ export interface BasemapLid {
   rect: Cesium.Rectangle
   elevation: number
   url: string
+  /** The projected footprint the GetMap image covers — the drape maps the
+   * ground TIN's (x, y) into (u, v) against it so the aerial follows the
+   * terrain and stays georeferenced (owner 2026-09-16). */
+  projBbox: ProjectedBbox
 }
 
 /**
@@ -151,6 +157,7 @@ export function buildBasemapLid(
     rect: Cesium.Rectangle.fromDegrees(b.minLng, b.minLat, b.maxLng, b.maxLat),
     elevation: b.elevation,
     url: b.url,
+    projBbox: b.projBbox,
   }
 }
 
@@ -1272,29 +1279,59 @@ export function rebuildSurfacePrimitives(
     }
   }
 
-  // Basemap "lid" — the georeferenced orthophoto draped flat at the
-  // model top, built as a textured quad so it can be HALF-SPACE
-  // CLIPPED like the geology (so the aerial is sliced into the two
-  // halves, not a full rectangle over both). Slightly translucent
-  // (alpha 0.65) so the cut/geology reads through it.
+  // Basemap "lid" — the georeferenced orthophoto, built as a textured
+  // triangle soup so it can be HALF-SPACE CLIPPED like the geology (so
+  // the aerial is sliced into the two halves, not a full rectangle over
+  // both). Slightly translucent (alpha 0.65) so the cut/geology reads
+  // through it.
+  //
+  // When a ground-surface TIN exists, the aerial DRAPES on it (owner
+  // 2026-09-16: "can't we make the basemap follow that slope?") — every
+  // ground vertex lifted BASEMAP_LID_ABOVE_GROUND_M and textured by its
+  // position in the WMS footprint, so on a sloped site the basemap follows
+  // the terrain instead of floating as a flat lid above the low end and
+  // cutting through the high end. With no DEM (no ground TIN) it falls back
+  // to the flat quad at the tests' ground level so nothing regresses.
   if (lid) {
-    const r = lid.rect
-    const corner = (lng: number, lat: number): Cesium.Cartesian3 =>
-      Cesium.Cartesian3.fromRadians(lng, lat, lid.elevation)
-    // st matches RectangleGeometry's convention: s = west→east,
-    // t = south→north (so the GetMap image stays upright + aligned).
-    let tris: TexVert[][] = [
-      [
-        { p: corner(r.west, r.south), st: [0, 0] },
-        { p: corner(r.east, r.south), st: [1, 0] },
-        { p: corner(r.east, r.north), st: [1, 1] },
-      ],
-      [
-        { p: corner(r.west, r.south), st: [0, 0] },
-        { p: corner(r.east, r.north), st: [1, 1] },
-        { p: corner(r.west, r.north), st: [0, 1] },
-      ],
-    ]
+    // The ground TIN carries bed overrides (dredged areas) in its z, so the
+    // drape follows them too — the aerial shows the water there, which is right.
+    const drape = buildBasemapDrape(
+      groundSurface ?? null,
+      lid.projBbox,
+      BASEMAP_LID_ABOVE_GROUND_M,
+    )
+    let tris: TexVert[][]
+    if (drape) {
+      // Project each lifted ground vertex to ECEF once, then assemble the
+      // textured triangle soup from the ground TIN's own index buffer.
+      const ecef = drape.positions.map(([x, y, z]) => {
+        const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+        return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+      })
+      tris = drape.triangles.map(([a, b, c]) => [
+        { p: ecef[a], st: drape.sts[a] },
+        { p: ecef[b], st: drape.sts[b] },
+        { p: ecef[c], st: drape.sts[c] },
+      ])
+    } else {
+      const r = lid.rect
+      const corner = (lng: number, lat: number): Cesium.Cartesian3 =>
+        Cesium.Cartesian3.fromRadians(lng, lat, lid.elevation)
+      // st matches RectangleGeometry's convention: s = west→east,
+      // t = south→north (so the GetMap image stays upright + aligned).
+      tris = [
+        [
+          { p: corner(r.west, r.south), st: [0, 0] },
+          { p: corner(r.east, r.south), st: [1, 0] },
+          { p: corner(r.east, r.north), st: [1, 1] },
+        ],
+        [
+          { p: corner(r.west, r.south), st: [0, 0] },
+          { p: corner(r.east, r.north), st: [1, 1] },
+          { p: corner(r.west, r.north), st: [0, 1] },
+        ],
+      ]
+    }
     if (clip) {
       tris = clipTexTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
     }
