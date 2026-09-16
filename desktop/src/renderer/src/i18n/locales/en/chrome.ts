@@ -38,8 +38,8 @@ export const CHROME = {
   'common.depth': 'Depth',
   'common.elevation': 'Elevation',
   'common.optional': '(optional)',
-  'common.none': '— none —',
-  'common.unspecified': '— (unspecified)',
+  'common.none': '(none)',
+  'common.unspecified': '(unspecified)',
   'common.zoomIn': 'Zoom in',
   'common.zoomOut': 'Zoom out',
   'common.resetZoom': 'Reset zoom',
@@ -79,7 +79,7 @@ export const CHROME = {
   'welcome.openFailed':
     "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
   'welcome.openNewerBuild':
-    'This project was saved by a newer version of StrixGeo (file format {version}). Update StrixGeo to open it — your data is safe.',
+    'This project was saved by a newer version of StrixGeo (file format {version}). Update StrixGeo to open it. Your data is safe.',
   'welcome.fileMoved': 'Put it back, or open it from its new location with "Open project from file".',
 
   // -------------------------------------------------------------------------
@@ -95,7 +95,7 @@ export const CHROME = {
   'project.client': 'Client',
   'project.clientPlaceholder': 'e.g. Port of Antwerp',
   'project.site': 'Site / location label',
-  'project.sitePlaceholder': 'e.g. Antwerp port — quay 7',
+  'project.sitePlaceholder': 'e.g. Antwerp port, quay 7',
   'project.description': 'Description',
   'project.descriptionHint': 'Free-text scope notes',
   'project.tags': 'Tags',
@@ -114,12 +114,12 @@ export const CHROME = {
   'project.close': 'Close project',
   'project.closeConfirmTitle': 'Close this project?',
   'project.closeConfirmBody':
-    'The .strix file and your saved data are kept — you can reopen it any time.',
+    'The .strix file and your saved data are kept. You can reopen it any time.',
   'project.closeHint':
-    'Close project — returns to the welcome screen. The .strix file and DB data are kept.',
+    'Close project: returns to the welcome screen. The .strix file and DB data are kept.',
   'project.save': 'Save project (Ctrl+S)',
-  'project.unsavedHint': 'Unsaved changes — File → Save (Ctrl+S) to commit',
-  'project.createdSinceSave': 'Created since last save — File → Save to commit',
+  'project.unsavedHint': 'Unsaved changes. File → Save (Ctrl+S) to commit',
+  'project.createdSinceSave': 'Created since last save. File → Save to commit',
   'project.discardChanges': 'Discard all changes',
   'project.discardBody':
     'Discarding cannot be undone. Cancel keeps the project open so you can save.',
@@ -153,8 +153,8 @@ export const CHROME = {
   'spine.geotechnical': 'Geotech',
   'spine.parameters': 'Parameters',
   'spine.export': 'Export',
-  'spine.selectionFooterAria': '{n} selected — click to clear',
-  'spine.selectionFooterTitle': '{n} selected across stages — click to clear',
+  'spine.selectionFooterAria': '{n} selected. Click to clear',
+  'spine.selectionFooterTitle': '{n} selected across stages. Click to clear',
   'spine.selectionFooterLabel': '{n} selected',
   'spine.selectionFooterAbbr': 'sel.',
   'shell.toolbar': 'Stage toolbar',
@@ -196,9 +196,9 @@ export const CHROME = {
   'app.backendFailedBody':
     'The StrixGeo backend process exited before it was ready. This usually means a database connection problem or a startup crash.',
   'app.backendUnreachableBody':
-    '— saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
+    'Saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
   'app.backendRestartingBody':
-    'The backend restarted and the app is reconnecting. This takes a moment — your work is safe in the database.',
+    'The backend restarted and the app is reconnecting. This takes a moment. Your work is safe in the database.',
   'app.logFile': 'Log file:',
   'app.dxfExported': 'DXF exported.',
   'app.dxfExportFailed': 'Could not export the DXF.',
@@ -234,11 +234,11 @@ export const CHROME = {
   'welcome.recoveryNotNow': 'Not now',
   'welcome.recoveryDeleteBackup': 'Delete backup',
   'welcome.recoveryRestoreDesc':
-    '— puts the unsaved work back. Nothing is saved to the file until you click Save in the app.',
+    'puts the unsaved work back. Nothing is saved to the file until you click Save in the app.',
   'welcome.recoveryNotNowDesc':
-    '— opens the project as last saved. The backup is offered again next launch.',
+    'opens the project as last saved. The backup is offered again next launch.',
   'welcome.recoveryDeleteBackupDesc':
-    '— as if the session never happened: the project returns to its last save and the unsaved work is permanently discarded.',
+    'discards the unsaved work for good: the project returns to its last save, as if the session never happened.',
   'welcome.recoveryLithoTriage': 'Litho suggestion triage on {count} {columnWord}',
   'welcome.recoveryMetadataEdits': 'unsaved project-metadata edits',
   'welcome.recoveryLumpingMap': 'the stratigraphy lumping map ({count} {groupingWord})',
@@ -260,14 +260,14 @@ export const CHROME = {
     "Edit the project's header info. Changes save to the database and the .gmproj file in one go.",
   'project.removeTag': 'Remove {tag}',
   'project.closeConfirmBodyDetailed':
-    "will close and you'll be returned to the welcome screen. The .gmproj file and your saved data are kept — you can reopen from the Recent list.",
+    "will close and you'll be returned to the welcome screen. The .gmproj file and your saved data are kept. You can reopen from the Recent list.",
   'project.closeHintGmproj':
-    'Close project — returns to the welcome screen. The .gmproj file and DB data are kept.',
+    'Close project: returns to the welcome screen. The .gmproj file and DB data are kept.',
   'project.editMetadataHint': 'Click to edit project metadata',
-  'project.editMetadataHintWithPath': '{path} — click to edit project metadata',
+  'project.editMetadataHintWithPath': '{path}: click to edit project metadata',
   'project.revertNotLatest':
     'Could not revert: this file is not the project’s latest save. The backup was kept.',
-  'project.revertFailed': 'Could not revert the project to its last save — the backup was kept.',
+  'project.revertFailed': 'Could not revert the project to its last save. The backup was kept.',
   'project.fileNotFoundToast':
     "Couldn't find the project file at {path}. Did you move or rename it?",
   // Shown once when opening a .strix after a DB wipe rebuilds the project from
@@ -279,10 +279,10 @@ export const CHROME = {
   'project.restoreDroppedToast':
     'Restore skipped oversized data: {series} depth series and {rows} child data rows. See the log.',
   'project.discardLossInterpretation':
-    'Correlations, boundary moves, accepted suggestions and deletions made this session, in any stage — these are not counted here.',
+    'These are not counted here: correlations, boundary moves, accepted suggestions and deletions made this session, in any stage.',
   'project.discardLossMetadata': 'Unsaved edits in the project metadata editor.',
   'project.discardLeadSaved':
-    'Discard reverts the whole project — in the database, across every stage — to its last saved state.',
+    'Discard reverts the whole project (in the database, across every stage) to its last saved state.',
   'project.discardLeadUnsaved':
     'This project has never been saved to a file, so Discard has no saved state to go back to.',
   'project.discardFollowSaved': 'Everything done since the last File → Save is lost',
@@ -297,10 +297,10 @@ export const CHROME = {
   'shell.actionWordOne': 'action',
   'shell.actionWordMany': 'actions',
   'shell.moreActionsTitle':
-    '{n} more {actionWord} — the toolbar is narrower than the full verb row',
+    '{n} more {actionWord}. The toolbar is narrower than the full verb row',
   'shell.collapseInspector': 'Collapse inspector',
   'shell.expandInspector': 'Expand inspector',
-  'shell.clickForOptionsTitle': '{label} — click for options',
+  'shell.clickForOptionsTitle': '{label}: click for options',
   'shell.optionsAria': '{label} options',
   'shell.themeSystem': 'System theme',
   'shell.themeLight': 'Light theme',
