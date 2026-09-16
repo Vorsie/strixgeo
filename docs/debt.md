@@ -9991,7 +9991,34 @@ deliberate slice with the gates above as the acceptance criterion; before any
 Phase-5 feature that touches the fill (true interfingering, sedimentological
 shapes), because those must not be built on the special-case stack.
 
-## 284. Cross-language twins need a shared fixture (S — Tier E)
+## 284. Cross-language twins need a shared fixture (S — Tier E) — RESOLVED 2026-09-16
+
+**RESOLVED 2026-09-16.** One committed JSON arbiter per twin now lives in
+`tests/fixtures/contracts/` (the same home as the Robertson SBT band contract),
+read by BOTH suites so a drift on either side reddens the other. Genuine
+cross-language twins: (1) section corridor membership —
+`section_corridor_membership.json` read by
+`tests/unit/infrastructure/gis/test_twin_section_corridor_membership.py` and
+`desktop/.../utils/sectionCorridorMembership.twin.test.ts` (pins the 1 µm
+endpoint tolerance the 2026-09-06 bug lived on: a test AT the far endpoint, sub-µm
+beyond, clearly beyond, inside/at/outside the buffer, degenerate section); (2)
+packing-class key — `packing_class_key.json` read by
+`tests/unit/domain/services/test_twin_packing_class_key.py` and
+`desktop/.../geotechHierarchicalFill/packingClassKey.twin.test.ts` (`SOIL|CLASS`
+weld, missing-half keeps row identity, unknown-id fallback). Both twins were
+verified to AGREE today, and proven red-on-both-sides by flipping one fixture
+value. The third named item — the **admixture canonical key** (`soil:amount`
+with the S→V / Z→W synonyms) — turned out to be **Python-only**:
+`Admixture.canonical_key()` runs server-side (Accept find-or-create,
+auto-correlate ranking); the renderer sends raw admixtures and never computes it,
+and `buildSeamClassOf` is amount-independent by design (not its twin). Its
+arbiter `admixture_canonical_key.json` + Python contract test
+(`tests/unit/domain/value_objects/test_twin_admixture_canonical_key.py`) is
+committed as the ready arbiter the day a renderer needs the same key. No twin was
+found to disagree; no production code changed. Other candidates checked and NOT
+twins: the `.strix` codec (TS-only), the voxel `_partition_checksum` (Python-only),
+the section-export partition args (a shared schema/producer-consumer, not duplicated
+math).
 
 **What.** Some logic lives once in Python and once in TypeScript by necessity
 (section corridor membership: `infrastructure/gis/section_projection.py` and
