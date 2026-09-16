@@ -235,17 +235,17 @@ export function columnAbsenceClause(code: ColumnAbsenceCode): string {
     case 'unknown-investigation':
       return 'this project no longer lists that investigation, so nothing can be drawn for it'
     case 'not-in-project-file':
-      return 'it is not part of the project file you opened — it was imported in an earlier session that was never saved, so import it again or open the file that has it'
+      return 'it is not part of the project file you opened; it was imported in an earlier session that was never saved, so import it again or open the file that has it'
     case 'hidden-from-project':
-      return 'it was removed from this project view — restore it in the Data stage (Restore items removed from this project)'
+      return 'it was removed from this project view; restore it in the Data stage (Restore items removed from this project)'
     case 'excluded-from-model':
-      return 'the active model excludes it — tick it again under “Boreholes in model”'
+      return 'the active model excludes it; tick it again under “Boreholes in model”'
     case 'excluded-from-section':
       return 'this cross-section excludes it'
     case 'outside-corridor':
-      return 'it falls outside this section’s projection corridor — widen the buffer or move the section line'
+      return 'it falls outside this section’s projection corridor; widen the buffer or move the section line'
     case 'column-focus':
-      return 'column focus is on, so only the focused column is drawn — press Esc to leave focus'
+      return 'column focus is on, so only the focused column is drawn; press Esc to leave focus'
     case 'unknown':
       return 'the section view is not drawing that column, and no display setting explains it'
   }
@@ -283,10 +283,10 @@ export function describeUndrawableTie(description: UndrawableTieDescription): st
     `Pending tie: ${name(tie.a.investigationId)} ${depthSpan(tie.a)} ` +
     `${TIE_ENDPOINT_SEPARATOR} ${name(tie.b.investigationId)} ${depthSpan(tie.b)}`
   if (absences.length === 0) {
-    return `${head} — it is not drawn on this view.`
+    return `${head}. It is not drawn on this view.`
   }
   const reasons = absences
     .map(a => `${name(a.investigationId)} is not drawn here: ${columnAbsenceClause(a.code)}`)
     .join('; ')
-  return `${head} — ${reasons}.`
+  return `${head}. ${reasons}.`
 }
