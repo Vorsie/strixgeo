@@ -33,10 +33,10 @@ export const PANELS = {
   'map.observationsAttached': 'Observations attached',
   'map.samplesAttached': 'Samples attached',
   'map.subPhaseFailed': '{label} failed',
-  'map.dovMissingData': 'DOV did not return this data — the boreholes are imported, but',
+  'map.dovMissingData': 'DOV did not return this data. The boreholes are imported, but',
   'map.dovMissingRetry': ' re-run the import over the same area to retry the missing parts.',
   'map.dovMissingNoRetry':
-    ' DOV’s catalogue lists these and its own service returns nothing; re-running will not help — check the boreholes on dov.vlaanderen.be.',
+    ' DOV’s catalogue lists these and its own service returns nothing; re-running will not help. Check the boreholes on dov.vlaanderen.be.',
   'map.importFailed': 'Import failed',
 
   // -------------------------------------------------------------------------
@@ -62,8 +62,8 @@ export const PANELS = {
   'borelog.columnsHidden': 'Columns ({n} hidden)',
   'borelog.hideColumn': 'Hide column',
   'borelog.trackNotPresent': 'This track is not present on this borehole',
-  'borelog.cannotHideLast': 'Cannot hide — this is the last visible column',
-  'borelog.missingValue': '— missing —',
+  'borelog.cannotHideLast': 'Cannot hide: this is the last visible column',
+  'borelog.missingValue': '(missing)',
   // Observation-track display labels — the DOV observation_type token stays raw
   // in the domain; only the rendered label is translated (TrackHeader + the
   // columns dropdown). Unknown tokens fall back to the raw token.
@@ -89,7 +89,7 @@ export const PANELS = {
   'borelog.zoomOutVertical': 'Zoom out (vertical scale)',
   'borelog.resetZoom1x': 'Reset zoom to 1×',
   'borelog.noSurfaceElevation':
-    'Surface elevation missing — borelog renders without absolute level axis.',
+    'Surface elevation missing. Borelog renders without absolute level axis.',
   // DOV Virtuele Boring overlay + samples/groundwater helpers on the SVG.
   'borelog.noData': 'no data',
   'borelog.waterMarker': '▾ water at {depth} m',
@@ -104,7 +104,7 @@ export const PANELS = {
   'chart.lengthAxis': 'Length (m)',
   'chart.depthAxis': 'Depth (m)',
   'chart.levelAxis': 'Level ({datum})',
-  'chart.surfaceRef': '{level} m — surface',
+  'chart.surfaceRef': '{level} m (surface)',
   'chart.tooltipDepth': 'Depth: {depth} m',
   'chart.tooltipLevelSuffix': '  |  Level: {level}',
   'chart.invertRfAxis': 'Invert Rf axis',
@@ -139,7 +139,7 @@ export const PANELS = {
   'elevation.edit': 'Edit surface elevation',
   'elevation.set': 'Set elevation',
   'elevation.addHint': 'Add a surface elevation so this record can be correlated with others',
-  'elevation.clearHint': "Clear elevation — returns the row to the 'needs Z' state",
+  'elevation.clearHint': "Clear elevation: returns the row to the 'needs Z' state",
   'elevation.verticalReference': 'Vertical reference system',
   'elevation.saveEnter': 'Save (Enter)',
   'elevation.cancelEsc': 'Cancel (Esc)',
@@ -175,9 +175,9 @@ export const PANELS = {
   'composition.tabExisting': 'Existing units',
   'composition.tabNew': 'New unit',
   'composition.noUnitsInFormation':
-    'No litho units in this stratigraphic formation yet — use the "New unit" tab to create one.',
+    'No litho units in this stratigraphic formation yet. Use the "New unit" tab to create one.',
   'composition.noUnitsInModel':
-    'No litho units in this model yet — use the "New unit" tab to create the first one.',
+    'No litho units in this model yet. Use the "New unit" tab to create the first one.',
   'composition.under': 'under {name}',
   'composition.creating': 'Creating…',
   'composition.createUnit': 'Create unit',
@@ -185,25 +185,25 @@ export const PANELS = {
   'formation.newHere': 'New formation here',
   'formation.newHereHint': 'Create a new formation and commit this contact in one step',
   'formation.fromBoreholes': 'From boreholes',
-  'formation.noneDefined': 'No formations defined yet — create one with the button below',
+  'formation.noneDefined': 'No formations defined yet. Create one with the button below',
   'formation.blurb': 'A formation is a substrate unit you reference in the interpretation.',
   'formation.namePlaceholder': 'e.g. Boom Klei',
   'formation.codePlaceholder': 'e.g. stratigraphic chart code',
-  'formation.lensCodeHint': '(optional — sets the lens code)',
+  'formation.lensCodeHint': '(optional: sets the lens code)',
   'formation.searchFormal': 'Search formal unit (e.g. Holoceen, QH)…',
-  'formation.notInModel': ' — formation not in your model.',
+  'formation.notInModel': ' (formation not in your model).',
   // FormationDialog (create/edit) + FormationPickerDialog chrome.
   'formation.editTitle': 'Edit formation',
   'formation.newTitle': 'New formation',
   'formation.dialogBlurb':
-    'A formation is a substrate unit you reference in the stratigraphic model — e.g.',
+    'A formation is a substrate unit you reference in the stratigraphic model, e.g.',
   'formation.exampleQuaternary': 'Quaternary deposits',
   'formation.colour': 'Colour',
   'formation.regionalReference': 'Regional reference',
   'formation.formalStratigraphy': 'Formal stratigraphy',
   'formation.clear': 'Clear',
   'formation.noneDefinedPickerPre':
-    'No formations defined yet — create one with the button below or use',
+    'No formations defined yet. Create one with the button below or use',
   'formation.noneDefinedPickerPost': 'in the Ground model pane.',
 
   // -------------------------------------------------------------------------
@@ -228,12 +228,12 @@ export const PANELS = {
   'dialog.dedupePairsMany':
     'will be permanently deleted, across {pairs} investigation-and-formation pairs that carry more than one pick.',
   'dialog.dedupeUndo':
-    'This cannot be undone — nothing puts a removed contact back. Closing the project without saving rolls the whole project back to the last save.',
+    'This cannot be undone. Nothing puts a removed contact back. Closing the project without saving rolls the whole project back to the last save.',
   'dialog.reCorrelateTitle': 'Auto-correlate found existing edges',
-  'dialog.reCorrelateRerun': 'Re-correlate — delete auto edges and rerun',
-  'dialog.reCorrelateSkip': 'Skip — keep existing',
+  'dialog.reCorrelateRerun': 'Re-correlate: delete auto edges and rerun',
+  'dialog.reCorrelateSkip': 'Skip: keep existing',
   'dialog.reCorrelateNote':
-    "Manual edges — and other sections' suggestions — are preserved either way.",
+    "Manual edges (and other sections' suggestions) are preserved either way.",
   // Body sentence, split around the bold count so "{n}" can be emphasised.
   'dialog.reCorrelateBodyPreOne': 'There is already',
   'dialog.reCorrelateBodyPreMany': 'There are already',
@@ -244,7 +244,7 @@ export const PANELS = {
   'dialog.snapTitle': 'Snap to stratigraphic contact?',
   'dialog.snapLithoToGeo': 'Snap litho to stratigraphic',
   'dialog.snapGeoToLitho': 'Move stratigraphic to litho',
-  'dialog.snapKeepSeparate': 'Cancel — keep separate',
+  'dialog.snapKeepSeparate': 'Cancel: keep separate',
   'dialog.snapPickContact': 'Pick a stratigraphic contact',
   'dialog.copyCompositionTitle': 'Replace target composition?',
   'dialog.copyCompositionReplace': 'Replace',
@@ -347,6 +347,6 @@ export const PANELS = {
   'cheatsheet.borelogCharts': 'Borehole log & charts',
   'cheatsheet.escHint':
     'Context-dependent: close dialog / panel · cancel draw, drag or marquee · peel one section interaction layer · clear selection',
-  'cheatsheet.searchPlaceholder': 'Search gestures — e.g. marquee, alt, zoom',
+  'cheatsheet.searchPlaceholder': 'Search gestures, e.g. marquee, alt, zoom',
   'cheatsheet.noMatch': 'No gesture matches “{query}”.',
 } as const
