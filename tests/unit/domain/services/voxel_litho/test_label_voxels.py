@@ -990,6 +990,26 @@ def _section_with_an_unfilled_middle() -> SectionPartitionInput:
     )
 
 
+def _section_with_a_subvoxel_unfilled_middle() -> SectionPartitionInput:
+    """Section A, but only the thin interval +0.5 -> -0.5 is UNKNOWN.
+
+    A one-metre unknown middle between two thick KLEI bodies — SMALLER than the
+    2 m voxel height used by the tests, so the builder closes it (owner ruling
+    installer #41).  Same +10 / -10 envelope as :func:`_section_a`.
+    """
+    columns = (
+        SectionColumnInput("A0", along_m=0.0, world_x=0.0, world_y=0.0),
+        SectionColumnInput("A1", along_m=80.0, world_x=80.0, world_y=0.0),
+    )
+    regions = (
+        RegionInput(_KLEI, "kleiTop", ((0.0, 10.0), (1.0, 10.0), (1.0, 0.5), (0.0, 0.5)), 0),
+        RegionInput(_KLEI, "kleiBot", ((0.0, -0.5), (1.0, -0.5), (1.0, -10.0), (0.0, -10.0)), 0),
+    )
+    return SectionPartitionInput(
+        start_x=0.0, start_y=0.0, end_x=80.0, end_y=0.0, columns=columns, regions=regions
+    )
+
+
 def _formations_between(grid, x: float, y: float, low: float, high: float) -> set[str | None]:
     """Every formation (``None`` for void) the column at ``(x, y)`` shows in a band."""
     i = int(np.argmin(np.abs(grid.gx - x)))
@@ -1003,38 +1023,38 @@ def _formations_between(grid, x: float, y: float, low: float, high: float) -> se
     return out
 
 
-def test_an_interior_unknown_is_closed_by_the_thicker_neighbour():
-    """The builder closes an interior void — the model shows no interior sliver.
+def test_a_subvoxel_interior_unknown_is_closed_by_the_thicker_neighbour():
+    """A sub-voxel interior void is closed — the model shows no interior sliver.
 
-    Owner installer #40 (model-check clause 6) SUPERSEDES the 2026-07-30 stance
-    for an INTERIOR void: a void between two labelled entries takes the label of
-    the thicker neighbour (the upper one when equal).  Here the clay above and
-    below the unknown interval are equally thick (both 6 m), so the void takes
-    the UPPER clay, which grows down through it.  A BELOW-TD void is a different
-    case and stays unknown — it is not interior (see
-    ``test_close_interior_voids``).
+    Owner ruling installer #41: a void SMALLER than one voxel height is a
+    sampling sliver the builder closes by extending the thicker neighbour (the
+    upper one when equal).  Here the one-metre unknown middle is below the 2 m
+    voxel height, so the equally thick clay above and below close it.  A void of
+    ONE VOXEL OR MORE stays unknown (see ``test_close_interior_voids``); a
+    below-TD void is a different case and also stays unknown.
 
     Read beyond the sections (nearer A than B, outside the band between them) so
     the column is A's own partition extended sideways.
     """
     domain = _domain_for_two_sections()
-    sections = [_section_with_an_unfilled_middle(), _section_b()]
+    sections = [_section_with_a_subvoxel_unfilled_middle(), _section_b()]
 
     grid = label_voxels(domain, 2.0, sections)
 
-    # The middle interval is no longer void — the thicker (here equal → upper) KLEI
-    # neighbour was extended into it.
+    # The sub-voxel middle interval is no longer void — the KLEI neighbour was
+    # extended into it, and clause 6 has nothing to report.
     assert _formations_between(grid, x=40.0, y=-3.0, low=-4.0, high=4.0) == {_KLEI}
+    assert grid.report.hairline_gaps_actionable == 0
 
 
-def test_the_lithology_around_a_closed_interior_void_is_unchanged():
-    """Closing the void changes only the void; the clay above and below stays clay.
+def test_the_lithology_around_a_closed_subvoxel_void_is_unchanged():
+    """Closing the sliver changes only the void; the clay above and below stays clay.
 
     The fill takes a NEIGHBOUR'S label, so both bracketing bodies keep their own
     lithology and only the interval between them is filled (with the same KLEI).
     """
     domain = _domain_for_two_sections()
-    sections = [_section_with_an_unfilled_middle(), _section_b()]
+    sections = [_section_with_a_subvoxel_unfilled_middle(), _section_b()]
 
     grid = label_voxels(domain, 2.0, sections)
 
