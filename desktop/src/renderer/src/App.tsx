@@ -49,6 +49,7 @@ import UpdateNotification from './components/updater/UpdateNotification'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
 import { activationGateDecision, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
+import { useLanguage } from './i18n/languageSelect'
 import type {
   ActivationActionResultDto,
   ActivationStatusDto,
@@ -127,6 +128,17 @@ export default function App() {
   // Appearance section so the user can pin light/dark; absent that
   // override, the hook tracks the OS preference live.
   const { choice: themeChoice, setChoice: setThemeChoice } = useTheme()
+
+  // Interface language — device-local, owned here (localStorage -> system ->
+  // English). The renderer is the single source of truth; the native menu bar
+  // cannot read localStorage, so we report the resolved language to main on
+  // mount and on every Settings flip, and main rebuilds the menu to match.
+  // ``setMenuLanguage`` is optional-chained so an older preload or a test window
+  // without it degrades to "menu stays as built" rather than throwing.
+  const language = useLanguage()
+  useEffect(() => {
+    void window.electron.setMenuLanguage?.(language)
+  }, [language])
 
   // Undo / redo for geological-model edits (debt #45). Each mutation
   // handler below pushes a Command after success; Ctrl+Z reverts,
