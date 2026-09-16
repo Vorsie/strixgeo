@@ -68,7 +68,7 @@ describe('StageSpine selection footer (debt #44)', () => {
     render(<StageSpine activeStageId="data" onSelectStage={vi.fn()} />)
     expect(screen.getByTestId('selection-footer-clear')).toHaveAttribute(
       'aria-label',
-      '2 geselecteerd — klik om te wissen',
+      '2 geselecteerd. Klik om te wissen',
     )
   })
 
