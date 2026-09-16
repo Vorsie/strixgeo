@@ -51,25 +51,23 @@ build must not refuse a model because the engineer left a hole on purpose.
 """
 
 STACK_VOID_ACTIONABLE_M: float = 0.10
-"""Smallest interior void the gapless gate reports as a broken guarantee.
+"""FALLBACK floor for the interior-void report when the voxel height is unknown.
 
-The hairline limit above (15 mm) separates a snapped-flush contact from a real
-gap for MEASUREMENT, but every gap over it — down to a couple of centimetres —
-was being reported as a broken promise.  The owner's installer-#35 build flagged
-"4 column stacks carry an interior void over 15 mm, worst 33.5 mm": a void a
-third of the vertical voxel height, invisible on screen and below anything an
-engineer could act on, reported as a guarantee failure with no action to take.
+Since installer #41 (owner ruling 2026-09-16, *"close interior voids smaller
+than voxel height?  Sounds about right"*) the LIVE clause-6 threshold is the
+build's own vertical voxel height (``dz``): the builder closes every interior
+void shorter than one voxel and clause 6 reports a void of one voxel or more.
+That threshold travels on the label report as ``voxel_vertical_m``, so this
+constant is no longer the live cutoff for a build that carries a voxel height.
 
-A void between the hairline limit and this threshold is real but sub-actionable:
-it is carried in the report as a NOTE (the largest such residue is shown) and the
-clause still PASSES.  A void at or above this threshold is a hole an engineer can
-see and act on — a tenth of a metre is the coarsest reasonable "you can act on
-this" floor and an order of magnitude above the snap noise — so the clause FAILS
-and names it.  Owner directive 2026-09-13: report only what the engineer can act
-on, and give every violation an action.
-
-OWNER-CALIBRATION-PENDING like the reconciliation tolerance: 0.10 m is the
-starting floor, to be re-set once more real builds are measured against it.
+It survives as the FALLBACK the report assembler quotes when
+``voxel_vertical_m`` is ``0.0`` — a report stored before installer #41 (which
+had no voxel-height field) or a build that labelled no grid.  A tenth of a metre
+is the coarsest reasonable "you can act on this" floor and an order of magnitude
+above the snap noise, so it reads sensibly for such a legacy report.  Because the
+smallest voxel height the build request permits is 0.25 m (the litho-segmenter
+bound), the live threshold is always larger than this floor; a void surviving the
+close pass therefore always clears 0.10 m as well.
 """
 
 #: Upper bound on the number of per-column progress ticks a single build emits.
