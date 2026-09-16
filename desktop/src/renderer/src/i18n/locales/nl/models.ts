@@ -721,7 +721,7 @@ export const MODELS_NL = {
   'geotech.clause.stack-voids.meaning':
     'Geen kolom mag tussen zijn lagen een leegte bevatten die groot genoeg is om aan te pakken.',
   'geotech.clause.stack-voids.action':
-    'De bouwer vult elke leegte die een kolom tussen zijn lagen laat, dus dit hoort nooit te falen. Een leegte die toch overblijft is een bouwfout, niets om in het model op te lossen. Stuur ons het .strix-bestand en we bekijken het.',
+    'De bouwer sluit elke leegte kleiner dan een voxel, dus een dun spleetje bereikt deze clausule nooit. Een grotere leegte die overblijft is een bouwfout, niets om in het model op te lossen. Stuur ons het .strix-bestand en we bekijken het.',
   'geotech.clause.stack-voids.entry':
     '{count} kolomstapel(s) bevatten een leegte boven {threshold} mm; ergste {worst} mm',
   'geotech.clause.stack-voids.entryNote':
