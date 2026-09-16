@@ -329,6 +329,7 @@ export const PANELS = {
   'undo.excludeBoreholeLitho': 'Exclude borehole from lithological model',
   'undo.editCptElevation': 'Edit CPT elevation',
   'undo.editBoreholeElevation': 'Edit borehole elevation',
+  'undo.dovImport': 'DOV import',
   // The diverged-state safety net toast (no em-dash: sentence-final period).
   'undo.undoFailed': 'Undo failed: {action}. History cleared to keep state safe.',
   'undo.redoFailed': 'Redo failed: {action}. History cleared to keep state safe.',
