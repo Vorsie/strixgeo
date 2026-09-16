@@ -42,8 +42,8 @@ export const PENDING_TIE_TOAST_KEY = 'geotech-pending-tie-reveal'
  * honest if it is somehow reached anyway.
  */
 export const PENDING_TIE_NONE_HERE =
-  'No packing tie is waiting on this cross-section. The count on the chip is the model total — open the section named in its tooltip to review the rest.'
+  'No packing tie is waiting on this cross-section. The count on the chip is the model total. Open the section named in its tooltip to review the rest.'
 
 /** What a press says before the section canvas has mounted. */
 export const PENDING_TIE_NO_CANVAS =
-  'Open a cross-section first — finding a pending tie needs the section it sits on to be on screen.'
+  'Open a cross-section first. Finding a pending tie needs the section it sits on to be on screen.'
