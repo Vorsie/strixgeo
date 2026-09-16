@@ -266,15 +266,22 @@ class LabelReport:
         RESIDUE count (15 mm .. the action threshold): real but sub-actionable, it
         is noted, not reported as a violation — see ``hairline_gaps_actionable``.
     hairline_gaps_actionable : int
-        Interior gaps at or above
-        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`
-        — a hole an engineer can see and act on.  Clause 6 (stack-voids) fails on
-        THIS count, not on ``hairline_gaps_over_limit``, so a snap-round residue a
-        third of a voxel tall no longer reads as a broken guarantee (owner finding,
-        installer #35).
+        Interior gaps of ONE VOXEL HEIGHT OR MORE (``>= voxel_vertical_m``) — a
+        real hole the builder left unknown, since the builder closes only a void
+        SHORTER than one voxel (owner ruling installer #41).  Clause 6
+        (stack-voids) fails on THIS count, not on ``hairline_gaps_over_limit``.
+        Because the close pass and this count share one threshold (the voxel
+        height), no gap falls between "closed" and "reported".
     hairline_worst_m : float
         Height of the tallest interior gap in any final stack, in metres —
         reported whether or not it passed the limit, so the margin is visible.
+    voxel_vertical_m : float
+        The vertical voxel height (metres) this build used — the size threshold
+        that both bounds the close pass (a void shorter than this is a sliver the
+        builder closes) and names what clause 6 reports (a void of one voxel or
+        more).  ``0.0`` on a report written before installer #41 or when no grid
+        was labelled; the report assembler then falls back to
+        :data:`~groundmodel.domain.services.voxel_litho.voxel_constants.STACK_VOID_ACTIONABLE_M`.
     logs_below_grid_floor : tuple of (str, float)
         ``(investigation_id, metres_below)`` for every honored investigation whose
         log reaches deeper than the grid floor and is therefore truncated.  The
@@ -310,6 +317,7 @@ class LabelReport:
     hairline_gaps_over_limit: int = 0
     hairline_gaps_actionable: int = 0
     hairline_worst_m: float = 0.0
+    voxel_vertical_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
     in_footprint_columns: int = 0
     empty_in_footprint_columns: int = 0
