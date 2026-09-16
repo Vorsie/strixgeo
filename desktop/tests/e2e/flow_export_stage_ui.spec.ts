@@ -47,14 +47,16 @@ test.describe('flow_export_stage_ui', () => {
       // Model-wide Plaxis 3D export is always actionable (active model present).
       await expect(page.getByRole('button', { name: 'Export Plaxis 3D' })).toBeEnabled()
 
-      // The section-scoped cards (DXF + the sole, geotechnical, Plaxis 2D)…
+      // The section-scoped cards (DXF + the sole, geotechnical, Plaxis 2D) show
+      // a guidance line ("Pick a cross-section above to export it.") until a
+      // section is picked; their export buttons, which carry the testids, only
+      // render after the pick. So: pick first, then both buttons are there and
+      // enabled.
+      await page.locator('#export-section-select').selectOption({ index: 0 })
       const dxf = page.getByTestId('export-canvas-dxf')
       const plaxis2d = page.getByTestId('export-canvas-geotech-plaxis2d')
       await expect(dxf).toBeVisible()
       await expect(plaxis2d).toBeVisible()
-
-      // …pick a section in the picker → both enable.
-      await page.locator('#export-section-select').selectOption({ index: 0 })
       await expect(dxf).toBeEnabled()
       await expect(plaxis2d).toBeEnabled()
     } finally {
