@@ -455,49 +455,41 @@ surfaces. Offset each formation's vertices by a tiny `display_order * 0.01 m`
 in the z direction to avoid z-fighting without visual distortion. This is a
 well-known Cesium pattern for co-planar polygon stacks.
 
-### 4.4 Basemap cutout drape
+### 4.4 Basemap drape (current state)
 
-The "basemap draped on the model footprint" requirement means: the active 2D
-basemap (from `basemapSources.ts`) is visible on the 3D surface as a texture,
-clipped to the project's model extent.
+Cesium ion is disabled (`Cesium.Ion.defaultAccessToken = ''`) — no globe tiles,
+no terrain CDN. The basemap is **one** Geopunt orthophoto `GetMap` image for the
+model footprint (WMS 1.1.1, `EPSG:31370`, long side capped at 2048 px), rendered
+as a translucent textured mesh (`DEFAULT_BASEMAP_LID_ALPHA = 0.65`) so the
+geology reads through it. Only Belgian Lambert-72 (`EPSG:31370`) projects get a
+basemap; other CRSs get none. The footprint math + one-shot URL are the pure,
+unit-tested `computeBasemapBounds` (`cesiumGeometry.ts`); `buildBasemapLid`
+(`geology3DPrimitives.ts`) wraps it; `rebuildSurfacePrimitives` builds the
+primitive.
 
-Cesium supports this natively via `ImageryLayer`:
+**The image drapes on the ground surface so it follows the terrain**
+(owner 2026-09-16, installer #41: "can't we make the basemap follow that
+slope?"). When a DEM ground-surface TIN exists, `buildBasemapDrape` lifts every
+ground vertex by `BASEMAP_LID_ABOVE_GROUND_M` (0.5 m — clear of the translucent
+ground sheet and the subsurface formation tops without floating) and textures it
+by each vertex's position inside the WMS footprint (`u` west→east, `v`
+south→north). On a sloped site the aerial follows the relief instead of floating
+above the low end and cutting through the high end. The ground TIN carries bed
+overrides (dredged areas) in its z, so the drape follows those too (the aerial
+shows the water surface there, which is correct).
 
-```javascript
-viewer.imageryLayers.addImageryProvider(
-  new Cesium.UrlTemplateImageryProvider({
-    url: activeBasemap.url,
-    // subdomains, credit, etc from BasemapSource
-  })
-)
-```
+**No DEM → flat-lid fallback.** With no ground surface the basemap is a flat
+textured quad at the ground level at the investigations
+(`lidElevationAtInvestigations`, the highest ground sampled under any
+investigation + 0.5 m; a fallback to the highest surface vertex when no
+investigation lands on the TIN). The fence cutout (`UnitFenceScene`) passes
+`groundSurface={null}` deliberately (B6a) and always renders the flat lid from
+the wall-panel footprint.
 
-This drapes the tile layer over the entire globe. To clip it to the model
-footprint, either:
-
-**Option A (simpler):** Do not clip. Let the full basemap tile layer cover the
-globe; the user orbit/pans to the project area. The model TIN surfaces are
-centred on the project site. The basemap provides geographic context without
-clipping.
-
-**Option B (precise):** Use a `RectanglePrimitive` or a `ClippingPolygon` (Cesium
-1.107+) to restrict the basemap to the bounding box of the formation contacts.
-More complex; requires computing the bounding box of all contact positions.
-
-**Recommendation: Option A for v1.0, Option B as a post-launch enhancement.**
-The 3D viewer is geographic context for the TIN surfaces — the engineer does
-not need a pixel-perfect cutout to understand the model. Cesium's globe +
-basemap tiles + TIN surfaces on top is already compelling. Option B is a
-cosmetic refinement.
-
-Geopunt tiles (WMTS KVP syntax in `basemapSources.ts`) work with
-`UrlTemplateImageryProvider` only if the URL can be expressed as a template.
-The Geopunt WMTS URLs use `{z}`, `{y}`, `{x}` substitution — these map
-directly to Cesium's `{z}`, `{y}`, `{x}` tokens. However, Cesium expects
-TMS/XYZ order by default; Geopunt's WMTS `TILEROW`/`TILECOL` may need a
-`WebMapTileServiceImageryProvider` instead for the KVP-format endpoints. This
-is a concrete implementation detail to verify in Phase G2 against live
-Geopunt tiles.
+Both forms are one textured triangle soup, so the **split view** clips them the
+same way — `clipTexTrisToHalfSpace` slices the aerial into each half along the
+user's split plane (st lerped by the same `t` as the position, so the image
+stays georeferenced across the cut).
 
 ### 4.5 Orbit/pan/zoom
 
@@ -1613,10 +1605,10 @@ G7 instead:
   bundle field + version bump then, designed per the Backwards-Compat
   upgrade-chain — out of scope for G7.
 * **Frontend:** `Geology3DViewer` renders the ground-surface TIN as the
-  scene base in place of the flat ellipsoid, drapes the basemap on it,
-  and renders formation surfaces already clamped (the clamp is
-  server-side; the viewer just draws what `rebuild` returns). The
-  basemap-cutout drape (§4.4) now drapes onto real relief.
+  scene base in place of the flat ellipsoid and renders formation
+  surfaces already clamped (the clamp is server-side; the viewer just
+  draws what `rebuild` returns). The basemap drapes onto that same TIN
+  (`buildBasemapDrape`, §4.4) so the aerial follows real relief.
 
 ### 11.6 Build rhythm
 
