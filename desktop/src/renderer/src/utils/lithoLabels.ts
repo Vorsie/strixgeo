@@ -281,7 +281,7 @@ export const ADMIXTURE_SOIL_OPTIONS: ReadonlyArray<{ code: string; label: string
  * Shared with the picker dialog + ghost composition editor.
  */
 export const ADMIXTURE_AMOUNT_OPTIONS: ReadonlyArray<{ code: string; label: string }> = [
-  { code: '', label: '— (unspecified)' },
+  { code: '', label: '(unspecified)' },
   { code: 'Z', label: 'Weakly (Z)' },
   { code: 'W', label: 'Slightly (W)' },
   { code: 'M', label: 'Moderately (M)' },
