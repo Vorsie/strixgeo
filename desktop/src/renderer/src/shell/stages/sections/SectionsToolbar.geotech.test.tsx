@@ -314,6 +314,7 @@ function makeCtx(overrides: {
       // ``unknown``, so a missing field is a runtime crash, not a tsc error.
       columnsNeedingRederive: [],
       handleCreateManualLithoGhost: vi.fn(),
+      copyGhostColumn: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
       // F4 — "Subdivide all bodies" verb handler.
