@@ -452,3 +452,26 @@ diagnostics store and the embedded stack all resolve paths off userData —
   `pgdata`. The decision doc's accepted shortcut stands — the `.gmproj` bundle
   is the data anchor, so the recovery is dump/restore or wipe-and-reopen — but
   nothing detects the mismatch yet beyond the server refusing to start.
+
+## Releasing: the version must be greater than the last published one
+
+`npm run release` runs `scripts/require-clean-release.mjs` first. The guard
+refuses a package version that is not GREATER than the latest published one,
+because electron-updater offers an update only for a greater semver. It reads
+that "published" version from the newest `v<semver>` git tag AND, when the
+file exists, from `desktop/dist/latest.yml`, which every local `npm run dist`
+writes with the current package version. Hit on 2026-09-16 at the first beta
+release: the local test builds had left a 0.1.0 feed file, the guard called
+0.1.0 "published" while the releases repo was empty (Vorsie/Strix #9).
+
+Before every release:
+
+1. Bump `"version"` in `desktop/package.json` above the last published
+   release (check `gh release list --repo Vorsie/strixgeo-releases`), land the
+   bump on a branch and push develop; the guard also demands a clean tree
+   level with `origin/develop`.
+2. Remove `desktop/dist/latest.yml` left by local test builds.
+3. Run the release; it creates a DRAFT release named after the package
+   version (`v0.1.0`) on the releases repo. Publish it by hand after a
+   download check; the git tag on the private repo (`v0.1.0-beta.1`) is a
+   separate name.
