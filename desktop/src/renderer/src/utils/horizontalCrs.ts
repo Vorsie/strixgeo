@@ -56,13 +56,13 @@ export function sectionCrsBlockReason(
   if (isSupportedSectionCrs(epsg)) return null
   if (epsg == null) {
     return (
-      'No horizontal CRS resolved — set a metric Default horizontal CRS ' +
+      'No horizontal CRS resolved. Set a metric Default horizontal CRS ' +
       '(e.g. Belgian Lambert 72) in Project metadata to create sections.'
     )
   }
   return (
     `${horizontalCrsLabel(epsg)} is not a projected metric CRS. ` +
-    'Cross-section geometry needs metres — set a metric Default ' +
+    'Cross-section geometry needs metres. Set a metric Default ' +
     'horizontal CRS in Project metadata.'
   )
 }
