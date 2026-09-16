@@ -19,6 +19,12 @@ desktop/src/
 │                      mirroring the renderer's `localStorage['strix.log.trace']`
 │                      switch — the debug stream is per-API-call and would flood
 │                      the terminal a bug report is pasted from.
+│                      Native menu bar follows the app language: `menuLabels.ts`
+│                      (EN/NL label table) + `menuTemplate.ts` (pure template
+│                      builder). The renderer owns the language and reports it
+│                      over `window:set-language` (`setMenuLanguage` in preload)
+│                      on boot and on every Settings flip; `buildMenu` rebuilds.
+│                      First paint is seeded from the OS locale (`app.getLocale`).
 ├── preload/           Context bridge: openFile, readFile, waitForApi, menu events
 └── renderer/src/
     ├── api/
