@@ -46,7 +46,7 @@ export function divideBoreholesToastMessage(
       ? `, ${keptHandEdits} kept ${keptHandEdits === 1 ? 'its' : 'their'} hand edits`
       : ''
   return (
-    `${wholeModel ? 'Boreholes' : 'Borehole'} divided — ` +
+    `${wholeModel ? 'Boreholes' : 'Borehole'} divided: ` +
     `${result.divided_borehole_count} split, ` +
     `${result.single_band_borehole_count} single-band${keptNote}${tieNote}${supersededNote}${crossingNote}.`
   )
