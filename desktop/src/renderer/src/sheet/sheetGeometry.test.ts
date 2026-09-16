@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { computeSheetGeometry, pageFillingVex, VEX_SLIDER_MAX } from './sheetGeometry'
 import {
   COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM, COLUMN_HEADER_MIN_HALF_WIDTH_MM,
-  DRAWING_HEIGHT_FIT_MM, GUTTER_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM, PAPER_MIN_WIDTH_MM,
-  PROFILE_TRAILING_MM,
+  DRAWING_HEIGHT_FIT_MM, GUTTER_MM, MAP_HEIGHT_MM, MAP_LEGEND_GAP_MM, MARGIN_MM,
+  MIN_PAPER_HEIGHT_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM, PAPER_MIN_WIDTH_MM,
+  PROFILE_TRAILING_MM, SCALE_LINE_MM, TITLE_BLOCK_MM, VERTICAL_CHROME_MM,
 } from './sheetConstants'
 
 const base = {
@@ -32,7 +33,11 @@ describe('computeSheetGeometry — the sheet fits the profile', () => {
     expect(v20.paperWidthMm).toBe(v10.paperWidthMm)
     expect(v20.columnHalfWidthMm).toBeCloseTo(v10.columnHalfWidthMm, 6)
     expect(v20.vexEffective).toBeCloseTo(20, 6)
-    expect(v20.paperHeightMm).toBe(PAPER_HEIGHT_MM)
+    // The sheet is no longer padded to full A3 height: the taller drawing makes
+    // the PAGE taller too (debt #285), with no white band under it. It never gets
+    // NARROWER — the width and horizontal scale are unchanged above.
+    expect(v20.paperHeightMm).toBeGreaterThan(v10.paperHeightMm)
+    expect(v20.paperHeightMm).toBe(Math.ceil(v20.drawingHeightMm + VERTICAL_CHROME_MM))
   })
   it('fit mode: the drawing never grows past the page; beyond that the whole drawing shrinks and keeps the exaggeration', () => {
     const g = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex: 40, spacing: 1 })
@@ -228,7 +233,11 @@ describe('computeSheetGeometry — fit mode keeps the A3 paper', () => {
   it('in fit mode the paper stays A3 when the readable tracks push the columns apart', () => {
     const g = computeSheetGeometry({ ...cs1, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(cs1), spacing: 1 })
     expect(g.paperWidthMm).toBe(PAPER_MIN_WIDTH_MM)
-    expect(g.paperHeightMm).toBe(PAPER_HEIGHT_MM)
+    // The page stays A3 WIDTH (420) — the scale re-fit keeps the spread columns
+    // inside the A3 drawing width. The HEIGHT now follows the drawing (debt #285):
+    // at cs1's page-filling exaggeration the width re-fit leaves the drawing about
+    // 224 mm tall, so the honest page is that plus chrome, not a padded 297.
+    expect(g.paperHeightMm).toBe(Math.ceil(g.drawingHeightMm + VERTICAL_CHROME_MM))
     // The tracks are still at least the readable minimum, and the profile's
     // trailing edge lands inside the A3 drawing area (no overrun, no wider paper).
     expect(g.columnHalfWidthMm).toBeGreaterThanOrEqual(12)
@@ -281,5 +290,56 @@ describe('pageFillingVex — the exaggeration that fills the page', () => {
     const vast = { ...base, levelMaxM: 0, levelMinM: -1, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 100000 }] }
     expect(pageFillingVex(vast)).toBe(VEX_SLIDER_MAX)
     expect(Number.isInteger(pageFillingVex(long) * 10)).toBe(true)
+  })
+})
+
+// Debt #285 (owner, installer #44, 2026-09-16): "when i turn down the height
+// exaggeration the cpt's become even more readable but there is a lot of
+// whitespace below, of course the bottom should come up so it better fits the
+// page." The drawing gets shorter as the exaggeration drops, but the page used
+// to keep the full A3 height, so a wide white band opened under the profile. Now
+// the page height follows the drawing: paper = the drawing plus its fixed chrome,
+// floored only at the room the right column (map inset, legend, title block)
+// needs.
+describe('computeSheetGeometry — the sheet bottom follows the drawing (debt #285)', () => {
+  const long = { ...base, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 450 }, { id: 'c', alongM: 900 }] }
+
+  it('when the exaggeration goes down the bottom of the sheet comes up: no white band under the profile', () => {
+    const full = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(long), spacing: 1 })
+    const lower = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex: 20, spacing: 1 })
+    // Turning the exaggeration down shortens the drawing and the page comes up with it.
+    expect(lower.drawingHeightMm).toBeLessThan(full.drawingHeightMm)
+    expect(lower.paperHeightMm).toBeLessThan(full.paperHeightMm)
+    // No white band: the page is exactly the drawing plus its fixed chrome.
+    expect(lower.paperHeightMm).toBe(Math.ceil(lower.drawingHeightMm + VERTICAL_CHROME_MM))
+  })
+
+  it('at the page-filling exaggeration the sheet is unchanged', () => {
+    // Where the drawing genuinely fills the A3 drawing area (a width-comfortable
+    // profile), the page stays a full A3 — 420 x 297, no change.
+    const g = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(long), spacing: 1 })
+    expect(g.drawingHeightMm).toBeCloseTo(DRAWING_HEIGHT_FIT_MM, 3)
+    expect(g.paperWidthMm).toBe(PAPER_MIN_WIDTH_MM)
+    expect(g.paperHeightMm).toBe(PAPER_HEIGHT_MM)
+  })
+
+  it('the map inset and the title block keep their room', () => {
+    // A very low exaggeration draws almost nothing, but the page never shrinks
+    // below the right column's fixed stack, so the map inset (top) and the title
+    // block (bottom) still fit without overlapping.
+    const g = computeSheetGeometry({ ...long, scaleMode: 'fit', hScale: null, vScale: null, vex: 1, spacing: 1 })
+    expect(g.paperHeightMm).toBe(Math.ceil(MIN_PAPER_HEIGHT_MM))
+    const rightColumnHeightMm = g.paperHeightMm - 2 * MARGIN_MM
+    expect(rightColumnHeightMm).toBeGreaterThanOrEqual(
+      MAP_HEIGHT_MM + MAP_LEGEND_GAP_MM + TITLE_BLOCK_MM + SCALE_LINE_MM,
+    )
+  })
+
+  it('explicit mode also pulls the bottom up under the profile — no dead band', () => {
+    // The engineer chose a fine scale that makes a short drawing; the page still
+    // should not carry a dead band below it (range 25 m at V 1:200 draws 125 mm).
+    const g = computeSheetGeometry({ ...base, scaleMode: 'explicit', hScale: 2000, vScale: 200, vex: 5, spacing: 1 })
+    expect(g.paperHeightMm).toBe(Math.ceil(Math.max(MIN_PAPER_HEIGHT_MM, g.drawingHeightMm + VERTICAL_CHROME_MM)))
+    expect(g.paperHeightMm).toBeLessThan(PAPER_HEIGHT_MM)
   })
 })
