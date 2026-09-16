@@ -305,6 +305,55 @@ describe('useCopyLithoContact', () => {
     expect(deleted).toContain('bottom-1')
   })
 
+  it('onto a shallow test the copy clips: the fitting units land and the toast reports the dropped boundary (owner 2026-09-16)', async () => {
+    // Source is 10 m (clay 0..3 / sand 3..6 / silt 6..10); the target is only 5 m
+    // deep. The 6 m boundary is dropped; clay 0..3 and sand 3..5 (cut at the target
+    // depth) still land, and the toast says one boundary fell below the test's depth.
+    const result = renderHost({ lithoLayers: SOURCE_THREE, terminalDepthM: () => 5 })
+    await act(async () => {
+      await result.current.hook.copyLithoContact({
+        sourceInvestigationId: 'cpt-a',
+        contactDepthsM: [3, 6],
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
+      })
+    })
+    const items = result.current.api.bulkCreateLayers.mock.calls[0][2]
+    expect(
+      items.map((i: { formation_id: string; depth_top_m: number; depth_base_m: number }) => [
+        i.formation_id,
+        i.depth_top_m,
+        i.depth_base_m,
+      ]),
+    ).toEqual([
+      ['f-clay', 0, 3],
+      ['f-sand', 3, 5],
+    ])
+    const [level, message] = result.current.toast.mock.calls[0]
+    expect(level).toBe('success')
+    expect(message).toMatch(/below this test|left out/i)
+  })
+
+  it('a mechanical CPT (CPTM, q_total series, no qc) is a normal CPT target for the copy', async () => {
+    // Nothing in the copy path reads qc: a CPTM's terminal depth resolves like any
+    // CPT (targetKind 'cpt') and both units land. Guard against a qc-only regression.
+    const result = renderHost({ terminalDepthM: (_id, kind) => (kind === 'cpt' ? 9 : null) })
+    await act(async () => {
+      await result.current.hook.copyLithoContact({
+        sourceInvestigationId: 'cpt-a',
+        contactDepthsM: [3],
+        targetInvestigationId: 'cptm-b',
+        targetKind: 'cpt',
+      })
+    })
+    expect(result.current.api.bulkCreateLayers).toHaveBeenCalledTimes(1)
+    const items = result.current.api.bulkCreateLayers.mock.calls[0][2]
+    expect(items).toEqual([
+      expect.objectContaining({ formation_id: 'f-clay', depth_top_m: 0, depth_base_m: 3 }),
+      expect.objectContaining({ formation_id: 'f-sand', depth_top_m: 3, depth_base_m: 9 }),
+    ])
+  })
+
   it('a drop on the source column is a silent no-op (no API call, no toast)', async () => {
     const result = renderHost()
     await act(async () => {
