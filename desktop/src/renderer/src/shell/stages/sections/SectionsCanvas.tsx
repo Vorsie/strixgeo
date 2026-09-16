@@ -2655,7 +2655,7 @@ export default function SectionsCanvas(): JSX.Element {
         "error",
         apiFailureMessage(
           err,
-          "The contact could not be moved — nothing was changed.",
+          "The contact could not be moved. Nothing was changed.",
         ),
       );
     } finally {
