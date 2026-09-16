@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { computeSheetGeometry, pageFillingVex, VEX_SLIDER_MAX } from './sheetGeometry'
 import {
-  COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM,
+  COLUMN_HALF_WIDTH_MAX_MM, COLUMN_HALF_WIDTH_MM, COLUMN_HEADER_MIN_HALF_WIDTH_MM,
   DRAWING_HEIGHT_FIT_MM, GUTTER_MM, PAPER_HEIGHT_MM, PAPER_MAX_WIDTH_MM, PAPER_MIN_WIDTH_MM,
   PROFILE_TRAILING_MM,
 } from './sheetConstants'
@@ -141,6 +141,122 @@ describe('computeSheetGeometry — the sheet fits the profile', () => {
     const g = computeSheetGeometry({ ...base, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 50_000 }], scaleMode: 'explicit', hScale: 100, vScale: 100, vex: 1, spacing: 1 })
     expect(g.paperWidthMm).toBeGreaterThan(PAPER_MAX_WIDTH_MM)
     expect(g.overCap).toBe(true)
+  })
+})
+
+// Owner, installer #42 dogfeed (2026-09-16, verbatim): "the cpt's are too
+// stretched vertically and not enough horizontally which kinda makes them
+// unreadable." On his 563 m by ~20 m section at fit + page-fill the horizontal
+// scale was H 1:2382, so each qc / Rf track drew only a few mm wide while 250 mm
+// tall — unreadable spikes. A CPT track therefore has a readable MINIMUM width on
+// paper, independent of the horizontal scale; where the widened tracks no longer
+// fit, the columns spread apart (and the paper grows) so the traces stay legible.
+describe('computeSheetGeometry — a CPT track has a readable minimum width', () => {
+  // 12 mm on A3: a qc track reading 0..40 MPa with its 2 / 10 MPa interior
+  // references and the right-edge scale label needs ~12 mm to read (0.3 mm/MPa);
+  // it clears the 8 mm header threshold so the "what is what" header always
+  // prints; it stays under the 18 mm cap so widely-spaced columns still widen.
+  const READABLE_MIN_TRACK_MM = 12
+  // A long section crowded with CPTs — the shape of the owner's report: at fit
+  // the spacing-derived width would collapse toward the old 5 mm floor.
+  const crowded = {
+    levelMaxM: 5,
+    levelMinM: -20,
+    columns: Array.from({ length: 24 }, (_, i) => ({ id: `c${i}`, alongM: i * 24 })),
+  }
+
+  it('a CPT track on the sheet is never narrower than the readable minimum, whatever the horizontal scale', () => {
+    // Fit at several exaggerations (the page-fill value included) and the owner's
+    // own explicit H 1:2382 — every one keeps the track at least the minimum.
+    for (const vex of [1, 5, 20, 29]) {
+      const g = computeSheetGeometry({ ...crowded, scaleMode: 'fit', hScale: null, vScale: null, vex, spacing: 1 })
+      expect(g.columnHalfWidthMm).toBeGreaterThanOrEqual(READABLE_MIN_TRACK_MM)
+    }
+    const owner = computeSheetGeometry({ ...crowded, scaleMode: 'explicit', hScale: 2382, vScale: 81, vex: 5, spacing: 1 })
+    expect(owner.columnHalfWidthMm).toBeGreaterThanOrEqual(READABLE_MIN_TRACK_MM)
+  })
+
+  it('at a coarse horizontal scale the track keeps its true centre and grows to the minimum width', () => {
+    const g = computeSheetGeometry({ ...crowded, scaleMode: 'fit', hScale: null, vScale: null, vex: 20, spacing: 1 })
+    // Crowded columns cannot each be scale-wide, so the width grows exactly to
+    // the readable minimum — not below it.
+    expect(g.columnHalfWidthMm).toBeCloseTo(READABLE_MIN_TRACK_MM, 6)
+    // Each column stays on its own along-section centre: the layout keeps the
+    // order and spreads the columns so the widened tracks (± a full half-width
+    // each side) never overlap.
+    const xs = [...g.columnXmm]
+    for (let i = 1; i < xs.length; i += 1) {
+      expect(xs[i]).toBeGreaterThan(xs[i - 1])
+      expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(2 * g.columnHalfWidthMm - 1e-6)
+    }
+  })
+
+  it('at a fine horizontal scale the track keeps its scale-derived width, no shrink', () => {
+    // Few, widely-drawn columns: the width follows the on-paper spacing — above
+    // the readable minimum, up to the cap. Raising the floor never shrinks it.
+    const wide = { levelMaxM: 5, levelMinM: -20, columns: [{ id: 'a', alongM: 0 }, { id: 'b', alongM: 100 }, { id: 'c', alongM: 400 }] }
+    const g = computeSheetGeometry({ ...wide, scaleMode: 'fit', hScale: null, vScale: null, vex: 1, spacing: 1 })
+    expect(g.columnHalfWidthMm).toBeGreaterThan(READABLE_MIN_TRACK_MM)
+    expect(g.columnHalfWidthMm).toBeLessThanOrEqual(COLUMN_HALF_WIDTH_MAX_MM)
+  })
+
+  it('the readable minimum track always prints its qc / Rf scale header', () => {
+    // The per-column "what is what" header prints once a column reaches
+    // COLUMN_HEADER_MIN_HALF_WIDTH_MM; the readable minimum clears it, so every
+    // CPT column on the sheet now shows its qc / Rf ticks.
+    expect(COLUMN_HALF_WIDTH_MM).toBeGreaterThanOrEqual(COLUMN_HEADER_MIN_HALF_WIDTH_MM)
+  })
+})
+
+// Owner ruling 2026-09-11 "Fit to A3": in fit mode the paper STAYS A3 — the
+// drawing fits the A3 width and the vertical follows the exaggeration. The
+// readable minimum track width (installer #42) spreads crowded columns apart, so
+// at the length-fit scale a real section can push the profile past the A3 width.
+// Rather than growing the paper (which would break "Fit to A3"), the horizontal
+// scale is reduced until the spread columns fit A3; the columns keep their true
+// centres at the smaller scale and their 26 mm minimum spacing. Only when even
+// the minimum spacing cannot fit does the paper grow.
+describe('computeSheetGeometry — fit mode keeps the A3 paper', () => {
+  // His Cross-section 1: 9 tests over 563 m by ~21 m, with a few close pairs
+  // (e.g. two tests ~15 mm apart on paper) whose readable tracks push them apart.
+  const cs1 = {
+    levelMaxM: 3,
+    levelMinM: -18,
+    columns: [0, 120, 240, 300, 335, 370, 405, 480, 563].map((alongM, i) => ({ id: `t${i}`, alongM })),
+  }
+
+  it('in fit mode the paper stays A3 when the readable tracks push the columns apart', () => {
+    const g = computeSheetGeometry({ ...cs1, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(cs1), spacing: 1 })
+    expect(g.paperWidthMm).toBe(PAPER_MIN_WIDTH_MM)
+    expect(g.paperHeightMm).toBe(PAPER_HEIGHT_MM)
+    // The tracks are still at least the readable minimum, and the profile's
+    // trailing edge lands inside the A3 drawing area (no overrun, no wider paper).
+    expect(g.columnHalfWidthMm).toBeGreaterThanOrEqual(12)
+    const profileRight = Math.max(...g.columnXmm) + g.columnHalfWidthMm + PROFILE_TRAILING_MM
+    expect(profileRight).toBeLessThanOrEqual(g.rightColumnLeftMm - GUTTER_MM + 1e-6)
+  })
+
+  it('only when the columns cannot fit at any scale does the paper grow', () => {
+    // Nine spread tests fit the A3 width at a reduced scale (above).
+    const fits = computeSheetGeometry({ ...cs1, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(cs1), spacing: 1 })
+    expect(fits.paperWidthMm).toBe(PAPER_MIN_WIDTH_MM)
+    // Far more tests than the A3 drawing width can hold at the 26 mm minimum
+    // spacing: the scale cannot shrink enough, so the paper grows (the dialog's
+    // paper-size readout then shows the wider sheet).
+    const tooMany = {
+      levelMaxM: 3,
+      levelMinM: -18,
+      columns: Array.from({ length: 24 }, (_, i) => ({ id: `c${i}`, alongM: i * 24 })),
+    }
+    const grown = computeSheetGeometry({ ...tooMany, scaleMode: 'fit', hScale: null, vScale: null, vex: pageFillingVex(tooMany), spacing: 1 })
+    expect(grown.paperWidthMm).toBeGreaterThan(PAPER_MIN_WIDTH_MM)
+  })
+
+  it('explicit scale mode keeps growing the paper — the engineer chose the scale', () => {
+    // Fit-to-A3 is fit-mode only. In explicit mode a chosen coarse scale that
+    // spreads the columns past A3 still grows the paper (the user asked for it).
+    const g = computeSheetGeometry({ ...cs1, scaleMode: 'explicit', hScale: 100, vScale: 100, vex: 5, spacing: 1 })
+    expect(g.paperWidthMm).toBeGreaterThan(PAPER_MIN_WIDTH_MM)
   })
 })
 
