@@ -327,14 +327,11 @@ export const OUTPUTS_NL = {
   'export.cardPlaxis3dTitle': 'Stratigrafisch model → Plaxis 3D',
   'export.cardPlaxis3dDesc':
     'Het volledige model als uitvoerbaar plxscripting-script: één voorlopige grondsoort en één boring per grondonderzoek.',
-  'export.cardLithoDstabilityDesc':
-    'Het lithologische dwarsprofiel als gesloten D-Stability-polygonen (alleen geometrie, geen ontwerpparameters).',
-  'export.cardLithoPlaxis2dTitle': 'Plaxis 2D',
-  'export.cardLithoPlaxis2dDesc':
-    'Het lithologische dwarsprofiel als uitvoerbaar Plaxis 2D plxscripting-script, één boring per kolom.',
   'export.cardLithoFenceTitle': 'Hekkendiagram (DXF)',
   'export.cardLithoFenceDesc':
     'De lithologische 3D-hekwanden als DXF: één laag per profiel per eenheid.',
+  'export.cardGeotechDstabilityDesc':
+    'Het geotechnische dwarsprofiel als gesloten D-Stability-polygonen (alleen geometrie, geen ontwerpparameters).',
   'export.cardGeotechDsheetDesc':
     'Een 1D-grondprofiel doorheen het geotechnische dwarsprofiel als D-Sheet .shi (alleen geometrie).',
   'export.cardGeotechPlaxis2dTitle': 'Plaxis 2D (pakkingsklassen)',
