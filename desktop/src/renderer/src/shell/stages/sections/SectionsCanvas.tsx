@@ -74,6 +74,7 @@ import { apiFailureMessage } from "../../../utils/apiFailureMessage";
 import { buildRestatedContactUndoCommand } from "./restatedContactUndo";
 import { buildSplitLayerUndoCommand } from "./splitLayerUndo";
 import { useCopyLithoContact } from "../../../hooks/useCopyLithoContact";
+import { useCopyGhostContact } from "../../../hooks/useCopyGhostContact";
 import { useFlaggedTiePrompt } from "./useFlaggedTiePrompt";
 import { useGeotechBandEdit } from "./useGeotechBandEdit";
 import { joinErrorToastKey } from "./joinErrorToastKey";
@@ -188,6 +189,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleAbsorbLithoLayer,
       handleCreateManualLithoGhost,
       handleExtendLithoGhostToNearestContacts,
+      copyGhostColumn,
       clearBulkLithoGhosts,
       backdropSurfacesByFormationId,
       handleLoadBackdropSurfaces,
@@ -1822,6 +1824,24 @@ export default function SectionsCanvas(): JSX.Element {
     [projectCpts, projectBoreholes],
   );
 
+  // Surface elevation (mTAW) of an investigation — a Shift-drag-copied GHOST
+  // column renders depth-below-collar against the TARGET's own collar, so the
+  // copy stamps the target's elevation into the created column (installer #42).
+  const surfaceElevationForInvestigation = useCallback(
+    (investigationId: string, kind: "cpt" | "borehole"): number | null => {
+      if (kind === "cpt") {
+        return (
+          projectCpts.find((c) => c.id === investigationId)?.elevation_m ?? null
+        );
+      }
+      return (
+        projectBoreholes.find((b) => b.id === investigationId)?.elevation_m ??
+        null
+      );
+    },
+    [projectCpts, projectBoreholes],
+  );
+
   // Shift-drag an accepted litho boundary onto another test → copy BOTH units
   // (owner ask, installer #35). The hook plans the drop and fires the EXISTING
   // endpoints — bulk-create both units on an empty target, or split the spanning
@@ -1849,6 +1869,19 @@ export default function SectionsCanvas(): JSX.Element {
       refetchLithoContacts();
       requestBodyRecompute("litho");
     },
+  });
+
+  // Shift-drag a GHOST boundary onto another test → give that test a GHOST column
+  // with the same units (installer #42 owner ask: "can we drag copy ghosts
+  // also?"). Unlike the accepted copy above this writes NO server row: the target
+  // gets pending suggestions the user still accepts. ``copyGhostColumn`` commits
+  // the built column through the ghost workspace as ONE undo step and reveals it.
+  const { copyGhostContact } = useCopyGhostContact({
+    ghostsByAnchor,
+    terminalDepthM,
+    surfaceElevationM: surfaceElevationForInvestigation,
+    createGhostColumn: copyGhostColumn,
+    toast,
   });
 
   // Join two bodies into ONE group (owner ruling 2026-09-01, geotech axis only) —
@@ -2784,6 +2817,10 @@ export default function SectionsCanvas(): JSX.Element {
       // target belongs to (the unified ghostsByAnchor Map covers every
       // anchor including the focused one).
       onCrossColumnPaste: handleEditBulkLitho,
+      // Installer #42: Shift-drag a ghost boundary onto another test → give that
+      // test a ghost column with the same units (the pending sibling of the
+      // accepted-boundary copy).
+      onCopyGhostContactToColumn: copyGhostContact,
       // Debt #85: insert a new pending litho layer at a shared boundary.
       // The focused anchor's id is captured at SectionsCanvas level so
       // the ghost component doesn't need to know it.
@@ -2867,6 +2904,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleRejectLithoSuggestion,
     handleEditLithoSuggestion,
     handleEditBulkLitho,
+    copyGhostContact,
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
@@ -2911,6 +2949,9 @@ export default function SectionsCanvas(): JSX.Element {
       onEdit: handleEditBulkLitho,
       // Debt #86: same handler â€” works for any target anchor in the Map.
       onCrossColumnPaste: handleEditBulkLitho,
+      // Installer #42: Shift-drag a ghost boundary onto another test → give that
+      // test a ghost column with the same units.
+      onCopyGhostContactToColumn: copyGhostContact,
       // Debt #85: bulk variant takes (anchorId, afterIdx, composition).
       // SectionPanel forwards anchorId at the call site.
       onInsertLayer: handleInsertLithoLayer,
@@ -2939,6 +2980,7 @@ export default function SectionsCanvas(): JSX.Element {
     sectionAwareAcceptBulkLitho,
     handleRejectBulkLitho,
     handleEditBulkLitho,
+    copyGhostContact,
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
