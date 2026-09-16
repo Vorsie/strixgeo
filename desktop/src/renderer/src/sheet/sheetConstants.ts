@@ -39,6 +39,32 @@ export const TITLE_BLOCK_MM = 40
 export const SCALE_LINE_MM = 6
 
 /**
+ * The project legend flows between the map inset (top) and the title block
+ * (bottom) of the right column; it needs at least this much height for a couple
+ * of rows plus the "projects" note. Used only to size the fit-mode floor below.
+ */
+export const PROJECT_LEGEND_MIN_MM = 15
+/**
+ * The right column's fixed vertical stack: the map inset, the map-to-legend gap,
+ * the project-legend floor, the title block and the scale line. The fit-mode
+ * sheet never shrinks its paper below the room this needs, so the map inset and
+ * the title block keep their place even under a low exaggeration (debt #285).
+ */
+export const RIGHT_COLUMN_MIN_HEIGHT_MM =
+  MAP_HEIGHT_MM + MAP_LEGEND_GAP_MM + PROJECT_LEGEND_MIN_MM + TITLE_BLOCK_MM + SCALE_LINE_MM
+/**
+ * The fit-mode sheet's minimum paper height (mm). In fit mode the page height
+ * now follows the drawing so no white band opens under a short profile (owner,
+ * installer #44, 2026-09-16: "when i turn down the height exaggeration the cpt's
+ * become even more readable but there is a lot of whitespace below, of course
+ * the bottom should come up so it better fits the page"). It never drops below
+ * the two side margins plus the right column's stack, so the map inset and the
+ * title block always fit. 171.5 mm on the shipped constants — well under A3's
+ * 297 mm, so a low exaggeration pulls the page bottom right up under the profile.
+ */
+export const MIN_PAPER_HEIGHT_MM = 2 * MARGIN_MM + RIGHT_COLUMN_MIN_HEIGHT_MM
+
+/**
  * The readable MINIMUM half-width of a drawn column on paper (mm) — one qc (or
  * Rf) track spans exactly this reach, so the minimum is the width the qc axis
  * (0..full scale MPa) is given no matter how coarse the horizontal scale is.
