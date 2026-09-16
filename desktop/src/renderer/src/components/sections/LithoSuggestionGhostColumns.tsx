@@ -160,6 +160,19 @@ export interface LithoSuggestionGhostColumnsProps {
     },
   ) => void
   /**
+   * Installer #42: Shift-drag a ghost BOUNDARY from this column onto another test
+   * to copy the WHOLE pending column there (owner: *"can we drag copy ghosts
+   * also?"*). The whole source ghost column is carried — the composer plans +
+   * clips + builds the target's ghost column. Fired on mouseup over a DIFFERENT
+   * column; a drop on the source column or off any column is a no-op. Optional —
+   * when absent the Shift-drag falls back to the normal edge-resize gesture.
+   */
+  onCopyGhostContactToColumn?: (params: {
+    sourceInvestigationId: string
+    targetInvestigationId: string
+    targetKind: 'cpt' | 'borehole'
+  }) => void
+  /**
    * Debt #85: insert a new pending litho layer at the shared boundary
    * between ``afterIdx`` and ``afterIdx+1``.  Fired when the user
    * right-clicks a shared boundary between two adjacent pending
@@ -330,6 +343,7 @@ export default function LithoSuggestionGhostColumns({
   edits,
   onEdit,
   onCrossColumnPaste,
+  onCopyGhostContactToColumn,
   onInsertLayer,
   onSplitLayer,
   onMergeLayers,
@@ -412,6 +426,17 @@ export default function LithoSuggestionGhostColumns({
   // the body rect's onClick would otherwise fire onAccept. Reset on
   // the next mousedown.
   const copyDragJustEndedRef = useRef(false)
+
+  // Installer #42: Shift-drag a ghost BOUNDARY across to another column copies
+  // the WHOLE pending column there. Armed from an edge hit-strip mousedown while
+  // Shift is held (instead of the normal edge-resize). Carries the cursor's
+  // screen position for the live drop-target highlight; ``targetColId`` is the
+  // column under the cursor (null = off any column). null = no ghost-copy drag.
+  const [ghostCopyDrag, setGhostCopyDrag] = useState<{
+    clientX: number
+    clientY: number
+    targetColId: string | null
+  } | null>(null)
 
   // Pending overwrite confirmation when the copy-drag drop lands on a
   // target that already has an edit (debt #86 owner directive: Confirm
@@ -619,6 +644,57 @@ export default function LithoSuggestionGhostColumns({
     }
   }, [copyDrag, edits, investigationId, onCrossColumnPaste, onEdit, suggestions])
 
+  // Installer #42: document-level mousemove + mouseup while a ghost-COPY drag is
+  // active. The cursor is hit-tested against the full-height drop targets this
+  // component renders during the drag (one per placed column, tagged
+  // ``data-ghost-drop-anchor-id`` / ``data-ghost-drop-kind``), so the copy lands
+  // even on a bare test with no ghost overlay of its own — the elementsFromPoint
+  // read stays in screen space and needs no coordinate conversion.
+  useEffect(() => {
+    if (ghostCopyDrag === null) return
+    function resolveTarget(
+      clientX: number,
+      clientY: number,
+    ): { anchorId: string; kind: 'cpt' | 'borehole' } | null {
+      if (typeof document.elementsFromPoint !== 'function') return null
+      for (const el of document.elementsFromPoint(clientX, clientY)) {
+        const anchorId = el.getAttribute?.('data-ghost-drop-anchor-id')
+        const kind = el.getAttribute?.('data-ghost-drop-kind')
+        if (anchorId && (kind === 'cpt' || kind === 'borehole')) {
+          // A drop on the source column is not a target.
+          if (anchorId === investigationId) return null
+          return { anchorId, kind }
+        }
+      }
+      return null
+    }
+    function handleMove(e: MouseEvent): void {
+      const target = resolveTarget(e.clientX, e.clientY)
+      setGhostCopyDrag(d =>
+        d !== null
+          ? { clientX: e.clientX, clientY: e.clientY, targetColId: target?.anchorId ?? null }
+          : null,
+      )
+    }
+    function handleUp(e: MouseEvent): void {
+      const target = resolveTarget(e.clientX, e.clientY)
+      if (target !== null && onCopyGhostContactToColumn !== undefined) {
+        onCopyGhostContactToColumn({
+          sourceInvestigationId: investigationId,
+          targetInvestigationId: target.anchorId,
+          targetKind: target.kind,
+        })
+      }
+      setGhostCopyDrag(null)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [ghostCopyDrag, investigationId, onCopyGhostContactToColumn])
+
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
   const col = columns.find(c => c.proj.item.id === investigationId)
@@ -680,6 +756,36 @@ export default function LithoSuggestionGhostColumns({
       >
         {t('sections.axis.litho')}
       </text>
+
+      {/* Installer #42: while a Shift-drag ghost copy is active, render a
+          full-height drop target over every OTHER column so the copy can land
+          on a bare test with no ghost overlay of its own, plus a soft highlight
+          on the column under the cursor. The source column gets no target. */}
+      {ghostCopyDrag !== null &&
+        columns.map(c => {
+          if (c.proj.item.id === investigationId) return null
+          const cLeft = c.nudgedX - bandHalfWidth
+          const cWidth = bandHalfWidth * 2
+          const isHover = ghostCopyDrag.targetColId === c.proj.item.id
+          return (
+            <rect
+              key={`ghost-copy-drop-${c.proj.item.id}`}
+              x={cLeft}
+              y={plotTop}
+              width={cWidth}
+              height={Math.max(0, plotBottom - plotTop)}
+              fill={isHover ? '#2563eb' : 'transparent'}
+              fillOpacity={isHover ? 0.12 : 0}
+              stroke={isHover ? '#2563eb' : 'none'}
+              strokeOpacity={isHover ? 0.6 : 0}
+              strokeDasharray="4 3"
+              data-ghost-drop-anchor-id={c.proj.item.id}
+              data-ghost-drop-kind={c.kind}
+              data-testid={`ghost-copy-drop-${c.proj.item.id}`}
+              style={{ cursor: 'copy' }}
+            />
+          )
+        })}
 
       {suggestions.map((rawLayer, idx) => {
         // Resolve effective depths: committed edits → live drag override.
@@ -856,6 +962,16 @@ export default function LithoSuggestionGhostColumns({
                   onMouseDown={e => {
                     e.stopPropagation()
                     e.preventDefault()
+                    // Installer #42: Shift + drag copies the WHOLE pending column
+                    // onto another test instead of resizing this edge.
+                    if (e.shiftKey && onCopyGhostContactToColumn !== undefined) {
+                      setGhostCopyDrag({
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        targetColId: null,
+                      })
+                      return
+                    }
                     const bounds = computeDragBounds(
                       'top',
                       idx,
@@ -886,6 +1002,16 @@ export default function LithoSuggestionGhostColumns({
                   onMouseDown={e => {
                     e.stopPropagation()
                     e.preventDefault()
+                    // Installer #42: Shift + drag copies the WHOLE pending column
+                    // onto another test instead of resizing this edge.
+                    if (e.shiftKey && onCopyGhostContactToColumn !== undefined) {
+                      setGhostCopyDrag({
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        targetColId: null,
+                      })
+                      return
+                    }
                     const bounds = computeDragBounds(
                       'base',
                       idx,
