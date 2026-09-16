@@ -162,3 +162,25 @@ describe('SheetPreviewDialog — the sheet opens filling the page', () => {
     expect(Number(slider.max)).toBeGreaterThanOrEqual(50)
   })
 })
+
+describe('SheetPreviewDialog — the sheet bottom follows the drawing (debt #285)', () => {
+  // Owner, installer #44 (2026-09-16): "when i turn down the height exaggeration
+  // the cpt's become even more readable but there is a lot of whitespace below,
+  // of course the bottom should come up so it better fits the page." Turning the
+  // exaggeration down shortens the drawing; the paper-size readout must then show
+  // a shorter page, not the padded full A3 height.
+  const heightOf = (text: string): number => Number(text.match(/×\s*(\d+)\s*mm/)?.[1] ?? '0')
+
+  it('the paper-size readout height shrinks when the exaggeration is turned down', async () => {
+    renderDialog()
+    const paper = await screen.findByTestId('sheet-paper-size')
+    const slider = (await screen.findByTestId('sheet-vex')) as HTMLInputElement
+    // Opens filling the page: a full A3, 297 mm high.
+    await waitFor(() => expect(slider.value).toBe('4.2'))
+    await waitFor(() => expect(heightOf(paper.textContent ?? '')).toBe(297))
+    // Turn the exaggeration all the way down: the drawing shortens and the page
+    // comes up under it — a shorter sheet, no white band below the profile.
+    fireEvent.change(slider, { target: { value: '1' } })
+    await waitFor(() => expect(heightOf(paper.textContent ?? '')).toBeLessThan(297))
+  })
+})
