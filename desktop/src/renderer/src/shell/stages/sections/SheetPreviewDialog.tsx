@@ -183,7 +183,7 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
       await persist()
       const safe = p.section.name.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'section'
       const path = await window.electron.showExportSaveDialog(
-        `${safe} – ${t('sheet.fileSuffix')}.pdf`,
+        `${safe} (${t('sheet.fileSuffix')}).pdf`,
         [{ name: 'PDF', extensions: ['pdf'] }],
       )
       if (path === null) return
@@ -263,8 +263,8 @@ export function SheetPreviewDialog(p: SheetPreviewDialogProps): JSX.Element | nu
             className={`px-4 py-2 text-sm ${overCap ? 'text-amber-700 dark:text-amber-400' : 'text-neutral-600 dark:text-neutral-300'}`}
           >
             {geometry ? t('sheet.paperSize', { w: geometry.paperWidthMm, h: geometry.paperHeightMm }) : ''}
-            {overCap && geometry ? ` — ${t('sheet.tooWide', { w: geometry.paperWidthMm })}` : ''}
-            {noFill ? ` — ${t('sheet.noFill')}` : ''}
+            {overCap && geometry ? `. ${t('sheet.tooWide', { w: geometry.paperWidthMm })}` : ''}
+            {noFill ? `. ${t('sheet.noFill')}` : ''}
           </div>
         </div>
         <aside className="flex w-80 flex-none flex-col gap-4 overflow-y-auto border-l border-neutral-200 p-4 text-sm text-neutral-800 dark:border-neutral-700 dark:text-neutral-100">
