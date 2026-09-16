@@ -152,7 +152,7 @@ export function makeVoxelRequestBuilder(
           `section(s) failed to load their correlations — ${named.join(', ')}`,
       )
       throw new VoxelBuildInputsError(
-        `Could not build — correlations failed to load for ${named.length} of ` +
+        `Could not build. Correlations failed to load for ${named.length} of ` +
           `${visibleSections.length} cross-section(s): ${named.join(', ')}. ` +
           'Nothing was changed; retry the build.',
       )
@@ -213,7 +213,7 @@ export function makeVoxelRequestBuilder(
           err,
         )
         throw new VoxelBuildInputsError(
-          'Could not build — the hand-drawn body boundaries failed to load, and ' +
+          'Could not build. The hand-drawn body boundaries failed to load, and ' +
             'building without them would not match the cross-sections. Nothing was ' +
             'changed; retry the build.',
         )
@@ -236,7 +236,7 @@ export function makeVoxelRequestBuilder(
             `correlations — ${named.join(', ')}`,
         )
         throw new VoxelBuildInputsError(
-          `Could not build — the lithostratigraphic correlations failed to load for ` +
+          `Could not build. The lithostratigraphic correlations failed to load for ` +
             `${named.length} of ${visibleSections.length} cross-section(s): ${named.join(', ')}. ` +
             'Nothing was changed; retry the build.',
         )
