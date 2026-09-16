@@ -79,7 +79,6 @@ from groundmodel.domain.services.voxel_litho.voxel_constants import (
     HAIRLINE_LIMIT_M,
     PROGRESS_TICK_TARGET,
     PROJECTION_TIE_EPS_M,
-    STACK_VOID_ACTIONABLE_M,
 )
 from groundmodel.domain.services.voxel_litho.voxel_grid_budget import check_voxel_grid_budget
 from groundmodel.domain.services.voxel_litho.voxel_types import (
@@ -196,6 +195,7 @@ class _LabelTally:
     hairline_gaps_over_limit: int = 0
     hairline_gaps_actionable: int = 0
     hairline_worst_m: float = 0.0
+    voxel_vertical_m: float = 0.0
     logs_below_grid_floor: tuple[tuple[str, float], ...] = ()
     in_footprint_columns: int = 0
     empty_in_footprint_columns: int = 0
@@ -219,6 +219,7 @@ class _LabelTally:
             hairline_gaps_over_limit=self.hairline_gaps_over_limit,
             hairline_gaps_actionable=self.hairline_gaps_actionable,
             hairline_worst_m=self.hairline_worst_m,
+            voxel_vertical_m=self.voxel_vertical_m,
             logs_below_grid_floor=self.logs_below_grid_floor,
             in_footprint_columns=self.in_footprint_columns,
             empty_in_footprint_columns=self.empty_in_footprint_columns,
@@ -271,46 +272,60 @@ def _mid(e: _Entry) -> float:
     return (e.top_elev + e.base_elev) / 2.0
 
 
-def _close_interior_voids(stack: list[_Entry]) -> list[_Entry]:
-    """Fill each interior void by extending its THICKER vertical neighbour.
+def _close_interior_voids(stack: list[_Entry], dz: float) -> list[_Entry]:
+    """Fill each SUB-VOXEL interior void by extending its THICKER neighbour.
 
-    Owner ruling (installer #40, model-check clause 6 — the site around
-    GEO-07/182-B2): the 3-D builder closes an interior void a section column
-    leaves between two labelled entries, so a model whose 2-D fills are complete
-    (the gapless clauses 1-3 pass) carries no sliver the cross-sections do not
-    show.  A void BETWEEN two labelled entries — below the ground/bed and above
-    the model floor — takes the label of the THICKER neighbour, or the UPPER one
-    when the two are equally thick.
+    Owner ruling (installer #41 dogfeed, 2026-09-16, model-check clause 6):
+    *"Clause 6: close interior voids smaller than voxel height? Sounds about
+    right."*  A void BETWEEN two labelled entries that is SMALLER than one voxel
+    height (``dz``) is a sampling sliver a sloped 2-D contact left when the
+    column read it at a fraction — the region above it and the region below it
+    come back a hairline apart.  The builder closes it, taking the label of the
+    THICKER neighbour, or the UPPER one when the two are equally thick, so a
+    model whose 2-D fills are complete carries no sub-voxel sliver the
+    cross-sections do not show.
+
+    A void of ONE VOXEL HEIGHT OR MORE (``height >= dz``) is a real gap, not a
+    sampling artefact: it is LEFT exactly as it was, stays unknown in the grid,
+    and clause 6 (stack-voids) reports it — the clause's action copy says a
+    remaining gap is a build defect, send us the .strix.  This supersedes the
+    installer-#40 pass that closed every interior void whatever its height (which
+    made clause 6 always read zero).
 
     The gaps come from the per-section column projection, not the two-section
-    blend (:func:`_layout` is gap-free by construction).  A sloped contact
-    sampled at a fraction can leave the region above it and the region below it a
-    hairline apart — the sub-voxel sliver the owner sees flagged.  A BOTTOM void
-    (below the deepest entry, a below-TD unknown) is left exactly as it was
-    (owner ruling 2026-07-30, *"leave it unknown"*): :func:`_interior_gaps` only
-    ever returns a gap sandwiched between two entries, so a below-TD interval is
+    blend (:func:`_layout` is gap-free by construction).  A BOTTOM void (below
+    the deepest entry, a below-TD unknown) is left exactly as it was (owner
+    ruling 2026-07-30, *"leave it unknown"*): :func:`_interior_gaps` only ever
+    returns a gap sandwiched between two entries, so a below-TD interval is
     never a candidate here and clause 6 does not count it either.
 
     Parameters
     ----------
     stack : list of _Entry
         The per-column stack, shallow → deep.
+    dz : float
+        The vertical voxel height (metres) of this build — the size threshold.
+        Only a void strictly shorter than one voxel is closed.
 
     Returns
     -------
     list of _Entry
-        The stack with every interior void folded into a neighbour — gap-free
-        between its extremes, same top and same base.  A fresh unchanged copy
-        when the stack has no interior void (the common case).
+        The stack with every SUB-VOXEL interior void folded into a neighbour;
+        voids of one voxel or more untouched.  A fresh unchanged copy when the
+        stack has no closable void (the common case, and any all-large-void
+        stack).
     """
     gaps = _interior_gaps(stack)  # (base, top) between-entry ranges, deep → shallow
-    if not gaps:
+    # Only a void shorter than one voxel is a sampling sliver to close; a taller
+    # gap is a real hole left unknown for clause 6 (owner ruling installer #41).
+    closable = [(base, top) for base, top in gaps if top - base < dz]
+    if not closable:
         return list(stack)
     # Widen the chosen neighbour's bound per void; "thicker" is read from the
     # ORIGINAL heights so two voids sharing one neighbour decide the same way.
     tops = [e.top_elev for e in stack]
     bases = [e.base_elev for e in stack]
-    for base, top in gaps:
+    for base, top in closable:
         # The entry directly ABOVE the void (its base is the void's top) and the
         # one directly BELOW (its top is the void's base).
         above = min(
@@ -2146,7 +2161,7 @@ def label_voxels(
     terminations: dict[str, tuple[Termination, ...]] | None = (
         body_terminations(sections) if measured_pinch else None
     )
-    tally = _LabelTally()
+    tally = _LabelTally(voxel_vertical_m=v)
     # REGRESSION BACKSTOP, silent by construction on the current framing. The grid frame
     # above extends ``zmin`` DOWN to every honored log's base ("down to the deepest
     # investigation"), so no honored log can fall below the floor and this tally is empty
@@ -2193,27 +2208,30 @@ def label_voxels(
                 labeller = _column_labels_gapped
             else:
                 stack = _stack_at(sections, x, y, terminations, reach_to_evidence, tally)
-                # The builder closes an interior void this column leaves between
-                # two labelled entries (owner installer #40, clause 6): a
-                # sub-voxel sliver a sloped contact left when the column read it
-                # at a fraction is folded into the thicker neighbour, so a
-                # complete-2-D model shows no slivers and clause 6 counts only a
-                # void it could NOT close.  A below-TD void is not interior and
-                # is untouched.  Un-bounded path only — the geology-bounded path
-                # keeps its intentional pinch-out voids.
-                stack = _close_interior_voids(stack)
+                # The builder closes a SUB-VOXEL interior void this column leaves
+                # between two labelled entries (owner installer #41, clause 6): a
+                # sliver a sloped contact left when the column read it at a
+                # fraction, SHORTER than one voxel (``v``), is folded into the
+                # thicker neighbour.  A void of one voxel or more is a real gap:
+                # it is left unknown and clause 6 reports it below.  A below-TD
+                # void is not interior and is untouched.  Un-bounded path only —
+                # the geology-bounded path keeps its intentional pinch-out voids.
+                stack = _close_interior_voids(stack, v)
                 labeller = _column_labels
-            # A void the partition MEANT stays void, so this measures rather than
-            # closes.  It separates the two ways a stack can be discontinuous: the
-            # 2-D engine's millimetre snapping of a contact drawn flush (rounding),
-            # and a gap tall enough that rounding cannot explain it.
+            # Every void surviving the close pass is one voxel or more (the
+            # builder took the rest), so it is a real gap clause 6 reports.  The
+            # count keys on the voxel height ``v`` — a void of one voxel or more —
+            # not on a fixed floor: the closing threshold and the reporting
+            # threshold are ONE value, so no gap falls between "closed" and
+            # "reported".  ``hairline_gaps_over_limit`` and ``hairline_worst_m``
+            # stay as the pre-#41 diagnostics of any surviving gap.
             for base, top in _interior_gaps(stack):
                 gap_m = top - base
                 if gap_m > tally.hairline_worst_m:
                     tally.hairline_worst_m = gap_m
                 if gap_m > HAIRLINE_LIMIT_M:
                     tally.hairline_gaps_over_limit += 1
-                if gap_m >= STACK_VOID_ACTIONABLE_M:
+                if gap_m >= v:
                     tally.hairline_gaps_actionable += 1
             honored = honored_by_cell.get((i, j))
             if honored is not None:
