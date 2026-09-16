@@ -429,3 +429,97 @@ describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
     expect(gb2UnderLb2.groupNumber).toBe(1)
   })
 })
+
+// Owner dogfeed 2026-09-16 (installer #41), verbatim: "So is that Zand (GL:|KL:)
+// without dropdown, i thought we were moving the geotech packings to that dropdown
+// instead of beneath SAND?" and, asked to confirm: "parameters tree, yeah it is a
+// separate litho unit, so gets a separate dropdown."
+//
+// An admixture VARIANT (e.g. ZAND (GL|KL) — glauconitic, clayey sand) is its own
+// litho FORMATION row, distinct from the plain ZAND. In the litho model the two
+// weld into ONE body mass (shared body_id), and the body's roster HOME is the
+// plain unit. Their geotech packing bands carry ``source_litho_formation_id`` = the
+// variant. Before the fix the tree homed each geotech band by the welded litho
+// body's home formation, so the variant unit rendered as a childless leaf and its
+// packing sat beneath the plain unit. The tree must home the packing by the SOURCE
+// litho formation: the variant unit gets its own dropdown, and a packing body never
+// sits under another formation's node.
+describe('parameterBodyTree — an admixture variant is its own unit node (owner 2026-09-16)', () => {
+  // ZAND and ZAND (GL|KL) are two litho FORMATIONS welded into ONE body 'zbW'; the
+  // roster homes that body to the plain ZAND. Each formation is subdivided to NAD 6
+  // (one geotech body each): the plain sand's packing is 'gzMd', the variant's is
+  // 'ggMd'.
+  function makeVariantScene(): ParameterTreeInput {
+    const lithoFormations = [
+      formation('zand', { name: 'ZAND', display_order: 0, litho_main_soil_code: 'ZAND' }),
+      formation('zand-glkl', { name: 'ZAND (GL|KL)', display_order: 1, litho_main_soil_code: 'ZAND' }),
+    ]
+    const geotechFormations = [
+      formation('zand-md', { nad_class: 6, source_litho_formation_id: 'zand' }),
+      formation('zandglkl-md', { nad_class: 6, source_litho_formation_id: 'zand-glkl' }),
+    ]
+    const lithoLayers = [
+      layer('Lz', { formation_id: 'zand', body_id: 'zbW', cpt_id: 'c1' }),
+      layer('Lg', { formation_id: 'zand-glkl', body_id: 'zbW', cpt_id: 'c1' }),
+    ]
+    const geotechLayers = [
+      layer('gz', { formation_id: 'zand-md', parent_litho_layer_id: 'Lz', body_id: 'gzMd', cpt_id: 'c1' }),
+      layer('gg', { formation_id: 'zandglkl-md', parent_litho_layer_id: 'Lg', body_id: 'ggMd', cpt_id: 'c1' }),
+    ]
+    // The welded body's ONE roster home is the plain ZAND — what made the variant a
+    // childless leaf and pushed its packing beneath SAND.
+    const lithoBodies = roster([['zbW', { name: null, body_ordinal: 0, formation_id: 'zand' }]])
+    const geotechBodies = roster([
+      ['gzMd', { name: null, body_ordinal: 0, formation_id: 'zand-md' }],
+      ['ggMd', { name: null, body_ordinal: 0, formation_id: 'zandglkl-md' }],
+    ])
+    return { lithoFormations, geotechFormations, lithoLayers, geotechLayers, lithoBodies, geotechBodies }
+  }
+
+  const unitNode = (tree: ParameterTreeNode[], unitId: string): ParameterTreeNode | undefined =>
+    tree.find(n => (n.scope as { unitId?: string }).unitId === unitId)
+
+  // The collapsed sole-body class row that stands for a unit's single packing body:
+  // litho unit ▸ litho body ▸ class row (its ``groupableBodyId`` IS the body).
+  const packingRow = (tree: ParameterTreeNode[], unitId: string): ParameterTreeNode | undefined =>
+    unitNode(tree, unitId)?.children[0]?.children[0]
+
+  it('PT-V1 — "ZAND (GL|KL) is its own unit node with a dropdown"', () => {
+    const tree = buildParameterTree(makeVariantScene())
+    const variant = unitNode(tree, 'zand-glkl')
+    expect(variant).toBeDefined()
+    expect(variant!.scope.kind).toBe('litho-unit')
+    // A dropdown = it carries children (a litho body holding its packing), not a leaf.
+    expect(variant!.children.length).toBeGreaterThan(0)
+    expect(variant!.children[0].scope.kind).toBe('litho-body')
+  })
+
+  it('PT-V2 — "its packing bodies sit under it, not beneath SAND"', () => {
+    const scene = makeVariantScene()
+    const tree = buildParameterTree(scene)
+    // The variant's packing (ggMd) sits under ZAND (GL|KL)...
+    expect(packingRow(tree, 'zand-glkl')?.groupableBodyId).toBe('ggMd')
+    // ...and the plain sand carries only its OWN packing (gzMd), never the variant's.
+    expect(packingRow(tree, 'zand')?.groupableBodyId).toBe('gzMd')
+
+    // The variant's class row pools the variant band 'gg' alone; the plain sand's
+    // pools 'gz' alone — the packing is homed by source formation, not the welded body.
+    const variantBands = bandsForScope(packingRow(tree, 'zand-glkl')!.scope, scene)
+      .map(b => b.id)
+      .sort()
+    expect(variantBands).toEqual(['gg'])
+    const plainBands = bandsForScope(packingRow(tree, 'zand')!.scope, scene)
+      .map(b => b.id)
+      .sort()
+    expect(plainBands).toEqual(['gz'])
+  })
+
+  it('PT-V3 — "a join across two litho parents still shows the group on both members"', () => {
+    const tree = buildParameterTree({
+      ...makeVariantScene(),
+      groupByBodyId: new Map([['gzMd', 1], ['ggMd', 1]]),
+    })
+    expect(packingRow(tree, 'zand')?.groupNumber).toBe(1)
+    expect(packingRow(tree, 'zand-glkl')?.groupNumber).toBe(1)
+  })
+})
