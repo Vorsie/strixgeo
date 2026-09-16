@@ -37,11 +37,11 @@ export const PANELS_NL = {
   'map.observationsAttached': 'Observaties gekoppeld',
   'map.samplesAttached': 'Monsters gekoppeld',
   'map.subPhaseFailed': '{label} mislukt',
-  'map.dovMissingData': 'DOV heeft deze gegevens niet teruggegeven — de boringen zijn geïmporteerd, maar',
+  'map.dovMissingData': 'DOV heeft deze gegevens niet teruggegeven. De boringen zijn geïmporteerd, maar',
   'map.dovMissingRetry':
     ' voer de import opnieuw uit over hetzelfde gebied om de ontbrekende delen opnieuw te proberen.',
   'map.dovMissingNoRetry':
-    ' DOV’s catalogus vermeldt deze wel, maar de eigen dienst geeft niets terug; opnieuw uitvoeren helpt niet — controleer de boringen op dov.vlaanderen.be.',
+    ' DOV’s catalogus vermeldt deze wel, maar de eigen dienst geeft niets terug; opnieuw uitvoeren helpt niet. Controleer de boringen op dov.vlaanderen.be.',
   'map.importFailed': 'Import mislukt',
 
   // -------------------------------------------------------------------------
@@ -69,8 +69,8 @@ export const PANELS_NL = {
   'borelog.columnsHidden': 'Kolommen ({n} verborgen)',
   'borelog.hideColumn': 'Kolom verbergen',
   'borelog.trackNotPresent': 'Deze kolom is niet aanwezig op deze boring',
-  'borelog.cannotHideLast': 'Kan niet verbergen — dit is de laatste zichtbare kolom',
-  'borelog.missingValue': '— ontbreekt —',
+  'borelog.cannotHideLast': 'Kan niet verbergen: dit is de laatste zichtbare kolom',
+  'borelog.missingValue': '(ontbreekt)',
   // Weergavelabels van de observatiekolommen — de DOV observation_type-token
   // blijft ruw in het domein; enkel het getoonde label wordt vertaald.
   'borelog.obs.coded_lithology': 'Gecodeerde lithologie',
@@ -98,7 +98,7 @@ export const PANELS_NL = {
   // FLAG alt: Maaiveldpeil ontbreekt | Hoogte maaiveld ontbreekt — this is the
   // "needs Z" state: without a collar level the log has no mTAW axis.
   'borelog.noSurfaceElevation':
-    'Maaiveldpeil ontbreekt — de boorstaat wordt getekend zonder absolute peilas.',
+    'Maaiveldpeil ontbreekt. De boorstaat wordt getekend zonder absolute peilas.',
   // DOV Virtuele Boring-overlay + monster/grondwater-helpers op de SVG.
   'borelog.noData': 'geen gegevens',
   'borelog.waterMarker': '▾ water op {depth} m',
@@ -115,7 +115,7 @@ export const PANELS_NL = {
   'chart.lengthAxis': 'Lengte (m)',
   'chart.depthAxis': 'Diepte (m)',
   'chart.levelAxis': 'Peil ({datum})',
-  'chart.surfaceRef': '{level} m — maaiveld',
+  'chart.surfaceRef': '{level} m (maaiveld)',
   'chart.tooltipDepth': 'Diepte: {depth} m',
   'chart.tooltipLevelSuffix': '  |  Peil: {level}',
   'chart.invertRfAxis': 'Rf-as omkeren',
@@ -154,7 +154,7 @@ export const PANELS_NL = {
   'elevation.set': 'Peil instellen',
   'elevation.addHint':
     'Voeg een maaiveldpeil toe zodat dit onderzoek met andere gecorreleerd kan worden',
-  'elevation.clearHint': "Peil wissen — de regel keert terug naar de toestand 'Z ontbreekt'",
+  'elevation.clearHint': "Peil wissen: de regel keert terug naar de toestand 'Z ontbreekt'",
   'elevation.verticalReference': 'Verticaal referentiestelsel',
   'elevation.saveEnter': 'Opslaan (Enter)',
   'elevation.cancelEsc': 'Annuleren (Esc)',
@@ -194,9 +194,9 @@ export const PANELS_NL = {
   'composition.tabExisting': 'Bestaande eenheden',
   'composition.tabNew': 'Nieuwe eenheid',
   'composition.noUnitsInFormation':
-    'Nog geen litho-eenheden in deze stratigrafische formatie — gebruik het tabblad "Nieuwe eenheid" om er een aan te maken.',
+    'Nog geen litho-eenheden in deze stratigrafische formatie. Gebruik het tabblad "Nieuwe eenheid" om er een aan te maken.',
   'composition.noUnitsInModel':
-    'Nog geen litho-eenheden in dit model — gebruik het tabblad "Nieuwe eenheid" om de eerste aan te maken.',
+    'Nog geen litho-eenheden in dit model. Gebruik het tabblad "Nieuwe eenheid" om de eerste aan te maken.',
   'composition.under': 'onder {name}',
   'composition.creating': 'Aanmaken…',
   'composition.createUnit': 'Eenheid aanmaken',
@@ -206,26 +206,26 @@ export const PANELS_NL = {
     'Maak een nieuwe formatie aan en leg deze laaggrens in één stap vast',
   'formation.fromBoreholes': 'Uit de boringen',
   'formation.noneDefined':
-    'Nog geen formaties vastgelegd — maak er een aan met de knop hieronder',
+    'Nog geen formaties vastgelegd. Maak er een aan met de knop hieronder',
   'formation.blurb':
     'Een formatie is een substraateenheid waarnaar je in de interpretatie verwijst.',
   'formation.namePlaceholder': 'bv. Boom Klei',
   'formation.codePlaceholder': 'bv. code uit de stratigrafische tabel',
-  'formation.lensCodeHint': '(optioneel — bepaalt de lenscode)',
+  'formation.lensCodeHint': '(optioneel: bepaalt de lenscode)',
   'formation.searchFormal': 'Zoek een formele eenheid (bv. Holoceen, QH)…',
-  'formation.notInModel': ' — formatie zit niet in je model.',
+  'formation.notInModel': ' (formatie zit niet in je model).',
   // FormationDialog (aanmaken/bewerken) + FormationPickerDialog-chrome.
   'formation.editTitle': 'Formatie bewerken',
   'formation.newTitle': 'Nieuwe formatie',
   'formation.dialogBlurb':
-    'Een formatie is een substraateenheid waarnaar je in het stratigrafische model verwijst — bv.',
+    'Een formatie is een substraateenheid waarnaar je in het stratigrafische model verwijst, bv.',
   'formation.exampleQuaternary': 'Kwartaire afzettingen',
   'formation.colour': 'Kleur',
   'formation.regionalReference': 'Regionale referentie',
   'formation.formalStratigraphy': 'Formele stratigrafie',
   'formation.clear': 'Wissen',
   'formation.noneDefinedPickerPre':
-    'Nog geen formaties vastgelegd — maak er een aan met de knop hieronder of gebruik',
+    'Nog geen formaties vastgelegd. Maak er een aan met de knop hieronder of gebruik',
   // FLAG alt: in het venster Geologie — "Ground model pane" = the geology stage;
   // "Grondmodel" keeps the product concept, "Geologie" matches the stage rail.
   'formation.noneDefinedPickerPost': 'in het venster Grondmodel.',
@@ -252,13 +252,13 @@ export const PANELS_NL = {
   'dialog.dedupePairsMany':
     'worden definitief verwijderd, verspreid over {pairs} onderzoek-en-formatieparen die meer dan één keuze dragen.',
   'dialog.dedupeUndo':
-    'Dit kan niet ongedaan gemaakt worden — niets zet een verwijderde laaggrens terug. Het project sluiten zonder opslaan zet het hele project terug naar de laatste bewaaractie.',
+    'Dit kan niet ongedaan gemaakt worden. Niets zet een verwijderde laaggrens terug. Het project sluiten zonder opslaan zet het hele project terug naar de laatste bewaaractie.',
   'dialog.reCorrelateTitle': 'Autocorrelatie vond bestaande verbindingen',
   'dialog.reCorrelateRerun':
-    'Opnieuw correleren — automatische verbindingen verwijderen en opnieuw uitvoeren',
-  'dialog.reCorrelateSkip': 'Overslaan — bestaande behouden',
+    'Opnieuw correleren: automatische verbindingen verwijderen en opnieuw uitvoeren',
+  'dialog.reCorrelateSkip': 'Overslaan: bestaande behouden',
   'dialog.reCorrelateNote':
-    'Handmatige verbindingen — en voorstellen van andere profielen — blijven hoe dan ook bewaard.',
+    'Handmatige verbindingen (en voorstellen van andere profielen) blijven hoe dan ook bewaard.',
   // Tekstzin, gesplitst rond het vetgedrukte aantal zodat "{n}" benadrukt kan worden.
   'dialog.reCorrelateBodyPreOne': 'Er is al',
   'dialog.reCorrelateBodyPreMany': 'Er zijn al',
@@ -269,7 +269,7 @@ export const PANELS_NL = {
   'dialog.snapTitle': 'Vastklikken op de stratigrafische laaggrens?',
   'dialog.snapLithoToGeo': 'Litho op stratigrafie vastklikken',
   'dialog.snapGeoToLitho': 'Stratigrafie naar litho verplaatsen',
-  'dialog.snapKeepSeparate': 'Annuleren — apart houden',
+  'dialog.snapKeepSeparate': 'Annuleren: apart houden',
   'dialog.snapPickContact': 'Kies een stratigrafische laaggrens',
   'dialog.copyCompositionTitle': 'Samenstelling van het doel vervangen?',
   'dialog.copyCompositionReplace': 'Vervangen',
@@ -378,6 +378,6 @@ export const PANELS_NL = {
   'cheatsheet.escHint':
     'Afhankelijk van de context: dialoogvenster / paneel sluiten · tekenen, slepen of selecteren annuleren · één interactielaag van het profiel afpellen · selectie wissen',
   // FLAG alt: Zoek gebaren — bv. selectievak, alt, zoom — "marquee" = selectiekader.
-  'cheatsheet.searchPlaceholder': 'Zoek gebaren — bv. selectiekader, alt, zoom',
+  'cheatsheet.searchPlaceholder': 'Zoek gebaren, bv. selectiekader, alt, zoom',
   'cheatsheet.noMatch': 'Geen gebaar komt overeen met “{query}”.',
 } as const
