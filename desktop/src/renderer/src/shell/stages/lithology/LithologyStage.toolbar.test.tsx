@@ -221,6 +221,7 @@ function makeCtx(overrides: {
       geotechFormations: [],
       columnsNeedingRederive: [],
       handleCreateManualLithoGhost: vi.fn(),
+      copyGhostColumn: vi.fn(),
       handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
       markMutated: vi.fn(),
       // F4 — stub so the interface is satisfied; not exercised in litho tests.
