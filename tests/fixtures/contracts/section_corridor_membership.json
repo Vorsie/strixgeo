@@ -1,0 +1,223 @@
+{
+  "_comment": "Cross-language TWIN fixture (debt #284). The single arbiter read by BOTH tests/unit/infrastructure/gis/test_twin_section_corridor_membership.py and desktop/src/renderer/src/utils/sectionCorridorMembership.twin.test.ts. It pins the section-corridor membership rule (lateral buffer AND the along-span between the drawn endpoints, with a 1 micron endpoint tolerance) shared by section_projection.py (project_onto_section_corridor) and sectionProjection.ts (investigationsOnSection). on_section is asserted strictly; along/offset within 1e-4 m. Change a value here and BOTH suites go red. Regenerate: scratchpad/gen_section_corridor_fixture.py.",
+  "endpoint_tolerance_m": 1e-06,
+  "along_offset_abs_tol_m": 0.0001,
+  "cases": [
+    {
+      "name": "midpoint_on_line",
+      "description": "A point sitting on the line at mid-length is a member with zero offset.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152730.555,
+      "point_y": 210337.055,
+      "expected": {
+        "on_section": true,
+        "along": 449.2222775698042,
+        "offset": 0.0
+      }
+    },
+    {
+      "name": "far_endpoint_exact",
+      "description": "A test whose coordinate IS the far endpoint is a member (the 2026-09-06 bug: float noise must not drop it).",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 153120.987,
+      "point_y": 210559.234,
+      "expected": {
+        "on_section": true,
+        "along": 898.4445551396084,
+        "offset": 0.0
+      }
+    },
+    {
+      "name": "start_endpoint_exact",
+      "description": "A test whose coordinate IS the start endpoint is a member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152340.123,
+      "point_y": 210114.876,
+      "expected": {
+        "on_section": true,
+        "along": 0.0,
+        "offset": 0.0
+      }
+    },
+    {
+      "name": "submicron_beyond_far_endpoint",
+      "description": "Half a micron past the far endpoint, inside the 1 um endpoint tolerance (the 2026-09-06 ruling admits endpoint float-noise) -> member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 153120.98700043457,
+      "point_y": 210559.2340002473,
+      "expected": {
+        "on_section": true,
+        "along": 898.4445556396217,
+        "offset": 4.945377440890297e-12
+      }
+    },
+    {
+      "name": "clearly_beyond_far_endpoint",
+      "description": "One millimetre past the far endpoint, well outside the 1 um tolerance -> not a member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 153120.98786912876,
+      "point_y": 210559.2344945859,
+      "expected": {
+        "on_section": false,
+        "along": null,
+        "offset": null
+      }
+    },
+    {
+      "name": "submicron_before_start",
+      "description": "Half a micron before the start endpoint, inside the tolerance -> member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152340.1229995654,
+      "point_y": 210114.8759997527,
+      "expected": {
+        "on_section": true,
+        "along": -5.000133217804836e-07,
+        "offset": -4.931856904156943e-12
+      }
+    },
+    {
+      "name": "clearly_before_start",
+      "description": "One millimetre before the start endpoint, outside the tolerance -> not a member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152340.12213087123,
+      "point_y": 210114.8755054141,
+      "expected": {
+        "on_section": false,
+        "along": null,
+        "offset": null
+      }
+    },
+    {
+      "name": "inside_buffer_left",
+      "description": "18 m to the left of the line, buffer 25 m -> member, positive offset.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152739.45754602161,
+      "point_y": 210321.41068236282,
+      "expected": {
+        "on_section": true,
+        "along": 449.2222775698159,
+        "offset": 17.9999999999921
+      }
+    },
+    {
+      "name": "inside_buffer_right",
+      "description": "18 m to the right of the line -> member, negative offset.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152721.65245397837,
+      "point_y": 210352.69931763716,
+      "expected": {
+        "on_section": true,
+        "along": 449.2222775697925,
+        "offset": -17.9999999999921
+      }
+    },
+    {
+      "name": "at_buffer_edge",
+      "description": "Exactly at the buffer half-width (25 m) -> member (the bound is inclusive).",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152742.91964725225,
+      "point_y": 210315.32678105947,
+      "expected": {
+        "on_section": true,
+        "along": 449.2222775698149,
+        "offset": 24.999999999998863
+      }
+    },
+    {
+      "name": "outside_buffer",
+      "description": "30 m off the line, buffer 25 m -> not a member.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 153120.987,
+        "end_y": 210559.234
+      },
+      "buffer_m": 25.0,
+      "point_x": 152745.3925767027,
+      "point_y": 210310.98113727136,
+      "expected": {
+        "on_section": false,
+        "along": null,
+        "offset": null
+      }
+    },
+    {
+      "name": "degenerate_zero_length_section",
+      "description": "A zero-length section admits nothing.",
+      "section": {
+        "start_x": 152340.123,
+        "start_y": 210114.876,
+        "end_x": 152340.123,
+        "end_y": 210114.876
+      },
+      "buffer_m": 25.0,
+      "point_x": 152340.123,
+      "point_y": 210120.0,
+      "expected": {
+        "on_section": false,
+        "along": null,
+        "offset": null
+      }
+    }
+  ]
+}
