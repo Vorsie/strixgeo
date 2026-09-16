@@ -148,7 +148,7 @@ describe('a merge is bounded by the same litho body', () => {
 
     expect(result.ok).toBe(false)
     if (result.ok === false) {
-      expect(result.reason).toContain('drag the contact')
+      expect(result.reason).toContain('Drag the contact')
       // The rule is the half that did not change; a reword must not quietly drop it.
       expect(result.reason).toContain('never crosses')
     }
