@@ -161,6 +161,47 @@ describe('useCopyGhostContact', () => {
     expect(toast).toHaveBeenCalledWith('warning', expect.any(String), expect.any(String))
   })
 
+  // Owner, installer #44 (2026-09-16): "when dragging ghosts, i get this test
+  // already has suggestions when it clearly does not". The segmenter leaves a
+  // ghost RECORD on every column it ran on, also when it suggested nothing, so
+  // "has a record" is not "has suggestions". A free target is one with no
+  // PENDING suggestion: none at all, all accepted, or all rejected.
+  it('a test the segmenter ran on but left empty is a free target', () => {
+    const ghosts = new Map([
+      ['cpt-a', sourceGhost()],
+      ['cpt-b', sourceGhost({ suggestions: [] })],
+    ])
+    const { result, createGhostColumn } = renderHost(ghosts)
+    act(() => {
+      result.current.copyGhostContact({
+        sourceInvestigationId: 'cpt-a',
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
+      })
+    })
+    expect(createGhostColumn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a test whose suggestions were all accepted or all rejected is a free target', () => {
+    const allAccepted = sourceGhost({ accepted: new Set([0, 1]) })
+    const allRejected = sourceGhost({ rejected: new Set([0, 1]) })
+    for (const target of [allAccepted, allRejected]) {
+      const ghosts = new Map([
+        ['cpt-a', sourceGhost()],
+        ['cpt-b', target],
+      ])
+      const { result, createGhostColumn } = renderHost(ghosts)
+      act(() => {
+        result.current.copyGhostContact({
+          sourceInvestigationId: 'cpt-a',
+          targetInvestigationId: 'cpt-b',
+          targetKind: 'cpt',
+        })
+      })
+      expect(createGhostColumn).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('a drop on the source column is a silent no-op', () => {
     const ghosts = new Map([['cpt-a', sourceGhost()]])
     const { result, createGhostColumn, toast } = renderHost(ghosts)
