@@ -2,19 +2,19 @@
  * Flow — Export stage UI surface (debt #130).
  *
  * The Export stage had ZERO e2e coverage. It is the spine's terminal stage:
- * a Cross-section card (section picker + DXF + Plaxis 2D) and a model-wide
- * Plaxis 3D card (debt #30 — the spine no longer ends in a "coming soon"
- * room). This spec proves every export affordance is reachable and that
- * selecting a section enables the section-scoped buttons.
+ * the export hub, one card per export target grouped by model level (installer
+ * #35). This spec proves the section-scoped exports are reachable and enable
+ * once a section is chosen. Since installer #42 D-Stability and Plaxis 2D are
+ * geotechnical-only, so the sole Plaxis 2D card is the geotech one.
  *
- * The fixture ships an *active* geological model + 2 cross-sections, so both
- * cards render their actions (not their "define a model first" guidance).
- * Export buttons are NOT clicked — firing a real export writes a file /
- * opens a save dialog; reachability + enabled-state is the contract here.
+ * The fixture ships active geological + litho + geotech models + 2
+ * cross-sections, so the cards render their actions (not their "define a model
+ * first" guidance). Export buttons are NOT clicked — firing a real export
+ * writes a file / opens a save dialog; reachability + enabled-state is the
+ * contract here.
  *
- * Selectors are role/text + the stable ``#export-section-select`` id (the
- * Export cards carry no testids today). Follows the
- * ``flow_sections_toolbar_ui`` template.
+ * Selectors are the cards' stable testids + the ``#export-section-select`` id.
+ * Follows the ``flow_sections_toolbar_ui`` template.
  *
  * Prerequisites: FastAPI :8765, Postgres :5433 (``groundmodel_integration``),
  * fixture seeded (``E2E_FIXTURE_PROJECT_ID`` set).
@@ -32,14 +32,14 @@ test.describe('flow_export_stage_ui', () => {
     'E2E_FIXTURE_PROJECT_ID not set — run tests/e2e/fixtures/build_synthetic_fixture.py first',
   )
 
-  test('both export cards render and section selection enables DXF + Plaxis 2D', async () => {
+  test('the hub renders and section selection enables DXF + geotech Plaxis 2D', async () => {
     const { app, page } = await launchApp({ E2E_FIXTURE_PROJECT_ID: FIXTURE_PROJECT_ID })
     let tmpPath = ''
     try {
       tmpPath = await openFixtureProject(app, page, FIXTURE_PROJECT_ID)
       await goToStage(page, 'Export')
 
-      // Stage heading + both card titles.
+      // Stage heading + a group heading + the Plaxis 3D card title.
       await expect(page.getByRole('heading', { name: 'Export' })).toBeVisible()
       await expect(page.getByText('Cross-section', { exact: true })).toBeVisible()
       await expect(page.getByText('Stratigraphic model → Plaxis 3D')).toBeVisible()
@@ -47,9 +47,9 @@ test.describe('flow_export_stage_ui', () => {
       // Model-wide Plaxis 3D export is always actionable (active model present).
       await expect(page.getByRole('button', { name: 'Export Plaxis 3D' })).toBeEnabled()
 
-      // Section-scoped buttons start disabled (no section chosen yet)…
-      const dxf = page.getByRole('button', { name: 'Export DXF' })
-      const plaxis2d = page.getByRole('button', { name: 'Export Plaxis 2D' })
+      // The section-scoped cards (DXF + the sole, geotechnical, Plaxis 2D)…
+      const dxf = page.getByTestId('export-canvas-dxf')
+      const plaxis2d = page.getByTestId('export-canvas-geotech-plaxis2d')
       await expect(dxf).toBeVisible()
       await expect(plaxis2d).toBeVisible()
 
