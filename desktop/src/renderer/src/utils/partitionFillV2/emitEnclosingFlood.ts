@@ -392,11 +392,26 @@ function closeInterval(
   // the seam then walled the deep clay off at 0.5 and handed the far half back to the sand the
   // construct had just closed. Where nobody declared a meeting, the constructs decide and the
   // remaining mass floods around them.
+  // BOTTOM TIE INTO THE SHALLOW TD IS NOT A DECLARED MEETING (owner installer #42, 2026-09-16). A
+  // MIXED base<->top tie whose SHALLOW endpoint sits on the interval's ``td`` floor — the shallow
+  // test's deepest contact — is the R3/R4 bottom tie: the DEEP unit's ``bottomTieToTd`` onlap
+  // (``drawTermination``, reach 1.0) already fills this whole sub-band interval to the shallow column.
+  // A ``declared`` mid-gap seam here would fence that onlap at ``INTERIOR_PINCH_FRACTION`` and hand the
+  // far half back white — the exact coverage hole ruling 5's TOP-to-TOP restriction cured for the
+  // ``crossLithoDeclaredMeeting`` seam, here on the honest-meeting path. Owner's case: Cross-section 1
+  // GEO-02/145-S13 -> S14, plain ZAND band over ZAND (GL:|KL:) welded into one body, the GL top tied to
+  // S14's plain-ZAND base (= S14's TD); the thin white sliver at ~-4.8 m TAW is that fence. Such a tie
+  // never justifies the seam (a legitimate top-to-top meeting on the same pair still does).
+  const isBottomTieIntoShallowTd = (t: ResolvedTie): boolean =>
+    base.kind === 'td' &&
+    ((Math.abs(t.left.y - base.leftElev) <= ELEV_EPS && t.leftSide === 'base' && t.rightSide === 'top') ||
+      (Math.abs(t.right.y - base.rightElev) <= ELEV_EPS && t.rightSide === 'base' && t.leftSide === 'top'))
   const declared =
     (top.kind === 'topband' && base.kind === 'tie') ||
     activeTies.some(
       (t) =>
         t.gapIndex === gapIndex &&
+        !isBottomTieIntoShallowTd(t) &&
         tieLandsOn(t, 'left', leftEncl.unitIndex) &&
         tieLandsOn(t, 'right', rightEncl.unitIndex),
     ) ||
