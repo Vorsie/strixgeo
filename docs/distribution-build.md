@@ -38,10 +38,14 @@ both `dist` and `release`:
 * refuses **unpushed commits** (HEAD ahead of its upstream, or no upstream at
   all) — CI has never verified them;
 * on `release` only, refuses a **stale version** — `package.json` `version` must
-  be strictly newer (SemVer) than the latest published version (a `v<semver>`
-  git tag or `dist/latest.yml`). electron-updater offers an update only for a
-  *greater* version, so re-publishing an equal or older one is invisible to
-  every installed client.
+  be strictly newer (SemVer) than the latest **published** version. "Published"
+  is read only from sources an installed client can actually be offered: the
+  GitHub releases feed of `Vorsie/strixgeo-releases` (read-only, via `gh`) when
+  reachable, else the `v<semver>` git tags on the source repo. A local
+  `desktop/dist/latest.yml` is never a source (see below). electron-updater
+  offers an update only for a *greater* version, so re-publishing an equal or
+  older one is invisible to every installed client. When the feed and the tags
+  are both empty, any version is allowed (first release).
 
 The clean/pushed checks are skippable with `STRIX_ALLOW_DIRTY_DIST=1` for a
 LOCAL test build (`dist`, never `release`); the version check has no opt-out.
@@ -455,23 +459,35 @@ diagnostics store and the embedded stack all resolve paths off userData —
 
 ## Releasing: the version must be greater than the last published one
 
-`npm run release` runs `scripts/require-clean-release.mjs` first. The guard
-refuses a package version that is not GREATER than the latest published one,
-because electron-updater offers an update only for a greater semver. It reads
-that "published" version from the newest `v<semver>` git tag AND, when the
-file exists, from `desktop/dist/latest.yml`, which every local `npm run dist`
-writes with the current package version. Hit on 2026-09-16 at the first beta
-release: the local test builds had left a 0.1.0 feed file, the guard called
-0.1.0 "published" while the releases repo was empty (Vorsie/Strix #9).
+`npm run release` runs `scripts/require-clean-release.mjs release` first. The
+guard refuses a package version that is not GREATER than the latest published
+one, because electron-updater offers an update only for a greater semver.
+
+It reads the "published" version only from what an installed client can actually
+be offered, never from a local build output. In order:
+
+1. **The releases feed** of `Vorsie/strixgeo-releases`, read-only via `gh`
+   (`gh api repos/Vorsie/strixgeo-releases/releases`), using the same
+   `GH_TOKEN`/`gh` auth the publish uses. Drafts are excluded; prereleases
+   count. This is the primary source: it is exactly what the updater sees.
+2. **The `v<semver>` git tags** on the source repo, as a fallback when the feed
+   cannot be read (no token, offline, `gh` not installed). The guard prints that
+   the feed was unreachable and which source it used.
+
+A local `desktop/dist/latest.yml` is **never** consulted: every `npm run dist`
+rewrites it with the current package version, so treating it as "published"
+once refused the first beta release while the releases repo was still empty
+(the guard now says `published version: none published` in that state, and any
+version is allowed). This is the resolution in
+`desktop/scripts/publishedVersion.mjs`; its tests pin it.
 
 Before every release:
 
-1. Bump `"version"` in `desktop/package.json` above the last published
-   release (check `gh release list --repo Vorsie/strixgeo-releases`), land the
-   bump on a branch and push develop; the guard also demands a clean tree
-   level with `origin/develop`.
-2. Remove `desktop/dist/latest.yml` left by local test builds.
-3. Run the release; it creates a DRAFT release named after the package
-   version (`v0.1.0`) on the releases repo. Publish it by hand after a
-   download check; the git tag on the private repo (`v0.1.0-beta.1`) is a
-   separate name.
+1. Bump `"version"` in `desktop/package.json` above the last published release
+   (check `gh release list --repo Vorsie/strixgeo-releases`), land the bump on a
+   branch and push develop; the guard also demands a clean tree level with
+   `origin/develop`. The version bump is required for every release because the
+   updater only offers a strictly greater semver.
+2. Run the release; it creates a DRAFT release named after the package version
+   (`v0.1.0`) on the releases repo. Publish it by hand after a download check;
+   the git tag on the private repo (`v0.1.0-beta.1`) is a separate name.
