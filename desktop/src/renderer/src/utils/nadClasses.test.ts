@@ -308,15 +308,15 @@ describe('geotechUnitLabel — an unclassified unit is never blank (L)', () => {
   })
 
   it('L2 — it names the ground it is, and says the class is still missing', () => {
-    expect(geotechUnitLabel(unit())).toBe('SAND — not yet classified')
+    expect(geotechUnitLabel(unit())).toBe('SAND, not yet classified')
   })
 
   it('L2b — the soil word comes from the unit own lithology, not from sand always', () => {
     expect(geotechUnitLabel(unit({ litho_main_soil_code: 'KLEI' }))).toBe(
-      'CLAY — not yet classified',
+      'CLAY, not yet classified',
     )
     expect(geotechUnitLabel(unit({ litho_main_soil_code: 'VEEN' }))).toBe(
-      'PEAT — not yet classified',
+      'PEAT, not yet classified',
     )
   })
 
@@ -332,18 +332,18 @@ describe('geotechUnitLabel — an unclassified unit is never blank (L)', () => {
     // born from a DIFFERENT litho formation. Without the source name on the row
     // they read as five copies of one thing.
     expect(geotechUnitLabel(unit({ litho_main_soil_code: 'KLEI' }), 'CLAY | sandy')).toBe(
-      'CLAY — not yet classified (CLAY | sandy)',
+      'CLAY, not yet classified (CLAY | sandy)',
     )
   })
 
   it('L5 — with nothing to disambiguate against, no parenthetical is added', () => {
-    expect(geotechUnitLabel(unit(), null)).toBe('SAND — not yet classified')
-    expect(geotechUnitLabel(unit(), undefined)).toBe('SAND — not yet classified')
+    expect(geotechUnitLabel(unit(), null)).toBe('SAND, not yet classified')
+    expect(geotechUnitLabel(unit(), undefined)).toBe('SAND, not yet classified')
   })
 
   it('L6 — a unit with neither class nor soil code still names itself, never blank', () => {
     const nameless = unit({ litho_main_soil_code: null, name: 'Odd unit' })
-    expect(geotechUnitLabel(nameless)).toBe('Odd unit — not yet classified')
+    expect(geotechUnitLabel(nameless)).toBe('Odd unit, not yet classified')
   })
 
   it('L7 — nadClassName keeps returning "" for null (the band overlay skips blanks)', () => {
