@@ -681,7 +681,7 @@ export const MODELS = {
   'geotech.clause.stack-voids.meaning':
     'No column may hold a gap between its layers large enough for an engineer to act on.',
   'geotech.clause.stack-voids.action':
-    'The builder fills any interior gap a column leaves between its layers, so this should never fail. A gap that remains is a build defect, not something to fix in the model. Send us the .strix file and we will look into it.',
+    'The builder closes any interior gap smaller than one voxel, so a small sliver never reaches this clause. A larger gap that remains is a build defect, not something to fix in the model. Send us the .strix file and we will look into it.',
   'geotech.clause.stack-voids.entry':
     '{count} column stack(s) hold an interior void over {threshold} mm; worst {worst} mm',
   'geotech.clause.stack-voids.entryNote':
