@@ -27,7 +27,7 @@ describe('CheatsheetDialog', () => {
     // A representative sample of the area headings.
     expect(screen.getByText('Global')).toBeTruthy()
     expect(screen.getByText('Map')).toBeTruthy()
-    expect(screen.getByText('Sections — contacts')).toBeTruthy()
+    expect(screen.getByText('Sections: contacts')).toBeTruthy()
   })
 
   it('CS3 — renders the Alt+drag MOVE gesture', () => {
