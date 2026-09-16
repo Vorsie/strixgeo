@@ -30,7 +30,7 @@ describe('CrossingTieWarningChip — §8 Q4 crossing-tie warning surface', () =>
     expect(chip).not.toBeNull()
     const text = chip?.querySelector('text')?.textContent ?? ''
     expect(text).toContain('crossing correlation ties')
-    expect(text).toContain('resolve to restore bands')
+    expect(text).toContain('Resolve to restore bands')
     // Amber fill on the badge rect (the project warning colour).
     const rect = chip?.querySelector('rect')
     expect(rect?.getAttribute('fill')).toBe('#f59e0b')
@@ -52,7 +52,7 @@ describe('CrossingTieWarningChip — §8 Q4 crossing-tie warning surface', () =>
   it('CHIP4: singular copy for exactly one conflict', () => {
     const c = renderChip(1)
     const text = c.querySelector('[data-testid="crossing-tie-warning"] text')?.textContent ?? ''
-    expect(text).toContain('1 crossing correlation tie —')
+    expect(text).toContain('1 crossing correlation tie.')
     expect(text).not.toContain('ties')
   })
 })
