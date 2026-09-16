@@ -41,7 +41,7 @@ function baseName(path: string): string {
 export function failedSaveMessage(filePath: string | null): string {
   const target = filePath === null ? 'the project file' : baseName(filePath)
   return (
-    `Could not save to ${target} — the project is still unsaved. ` +
+    `Could not save to ${target}. The project is still unsaved. ` +
     `Close the file in Explorer or your sync client (OneDrive, Dropbox) and try again.`
   )
 }
@@ -115,7 +115,7 @@ export function failedRevertMessage(filePath: string | null): string {
   const target = filePath === null ? 'the project file' : baseName(filePath)
   return (
     `Could not restore this project from ${target}, so the close was cancelled. ` +
-    `Nothing was deleted — your session's work is still here. Check the file is ` +
+    `Nothing was deleted. Your session's work is still here. Check the file is ` +
     `readable and try again.`
   )
 }
