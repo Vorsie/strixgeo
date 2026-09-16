@@ -36,8 +36,8 @@ export const PICKABLE_HORIZONTAL_EPSGS: ReadonlyArray<{
   epsg: number
   label: string
 }> = [
-  { epsg: 31370, label: 'BE — Lambert 72 (EPSG:31370)' },
-  { epsg: 28992, label: 'NL — Amersfoort / RD New (EPSG:28992)' },
+  { epsg: 31370, label: 'BE: Lambert 72 (EPSG:31370)' },
+  { epsg: 28992, label: 'NL: Amersfoort / RD New (EPSG:28992)' },
 ]
 
 // Default datum the editor picker opens with when the row has no z_epsg yet
