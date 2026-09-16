@@ -511,7 +511,7 @@ export const MODELS = {
   'geotech.preflightKeep':
     'Run the standard subdivide / divide steps on them, then build',
   'geotech.preflightIgnore':
-    'Ignore them completely — the result is the model you had before they were imported',
+    'Ignore them completely: the result is the model you had before they were imported',
   'geotech.subdivideFirst': 'Subdivide the bodies first.',
   // Re-subdivide confirm dialog body (ReSubdivideConfirmDialog). Split around
   // the bold / em-emphasised fragments so each keeps its emphasis.
@@ -520,10 +520,10 @@ export const MODELS = {
   'geotech.reSubdivideModelMid': 'clears all subdivisions',
   'geotech.reSubdivideModelWide': 'model-wide',
   'geotech.reSubdivideModelPost':
-    '— every section’s packing bands and connections are rebuilt from the CPT data, and every borehole goes empty until you divide it again.',
+    ': every section’s packing bands and connections are rebuilt from the CPT data, and every borehole goes empty until you divide it again.',
   'geotech.reSubdivideRegenPre':
     'Re-subdividing regenerates the geotech packing connections on',
-  'geotech.reSubdivideRegenPost': '— any manual connections you made there will be cleared.',
+  'geotech.reSubdivideRegenPost': ': any manual connections you made there will be cleared.',
   'geotech.reSubdivideHandPre': 'It also rebuilds the packing bands on',
   'geotech.reSubdivideHandMid': 'from the CPT data, so its',
   'geotech.reSubdivideHandBandOne': '{n} hand-edited band',
