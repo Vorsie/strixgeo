@@ -2683,4 +2683,89 @@ describe('LOCK1 — UP-drag after absorb-down (dogfeed 2026-05-30)', () => {
     fireEvent.mouseUp(document)
     expect(onUpdateContactDepth).not.toHaveBeenCalled()
   })
+
+  // Installer #42: Shift-drag a ghost boundary onto another test copies the whole
+  // pending column there. The whole-column copy needs a second column as target.
+  function renderTwoColumnGhost(onCopyGhostContactToColumn: (p: {
+    sourceInvestigationId: string
+    targetInvestigationId: string
+    targetKind: 'cpt' | 'borehole'
+  }) => void) {
+    const source = makeColumn('cpt-a')
+    const target = { ...makeColumn('cpt-b'), nudgedX: 400 } as unknown as PlacedColumn
+    return render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[source, target]}
+          investigationId="cpt-a"
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4, suggested_lithology: 'KLEI' }),
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={vi.fn()}
+          onCopyGhostContactToColumn={onCopyGhostContactToColumn}
+        />
+      </svg>,
+    )
+  }
+
+  it('GC1 — Shift-drag a ghost boundary onto another test fires the whole-column copy', () => {
+    const onCopy = vi.fn()
+    const { container } = renderTwoColumnGhost(onCopy)
+    // Arm the copy: Shift-mousedown on a ghost boundary edge handle.
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
+    fireEvent.mouseDown(topHandle, { clientX: 200, clientY: 100, shiftKey: true })
+    // Drop targets render during the drag; the target column's rect is the hit target.
+    const dropRect = container.querySelector('[data-testid="ghost-copy-drop-cpt-b"]')
+    expect(dropRect).not.toBeNull()
+    // jsdom has no elementsFromPoint — assign a stub that returns the target rect.
+    const docAny = document as unknown as { elementsFromPoint?: unknown }
+    const orig = docAny.elementsFromPoint
+    docAny.elementsFromPoint = vi.fn().mockReturnValue([dropRect as Element])
+    fireEvent.mouseMove(document, { clientX: 400, clientY: 300 })
+    fireEvent.mouseUp(document, { clientX: 400, clientY: 300 })
+    docAny.elementsFromPoint = orig
+    expect(onCopy).toHaveBeenCalledWith({
+      sourceInvestigationId: 'cpt-a',
+      targetInvestigationId: 'cpt-b',
+      targetKind: 'cpt',
+    })
+  })
+
+  it('GC2 — a plain (no-Shift) boundary drag does not fire the ghost copy', () => {
+    const onCopy = vi.fn()
+    const { container } = renderTwoColumnGhost(onCopy)
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
+    // No Shift → the normal edge-resize gesture; no drop targets are armed.
+    fireEvent.mouseDown(topHandle, { clientX: 200, clientY: 100 })
+    expect(container.querySelector('[data-testid="ghost-copy-drop-cpt-b"]')).toBeNull()
+    fireEvent.mouseMove(document, { clientX: 400, clientY: 300 })
+    fireEvent.mouseUp(document, { clientX: 400, clientY: 300 })
+    expect(onCopy).not.toHaveBeenCalled()
+  })
+
+  it('GC3 — a Shift-drop back on the source column is a no-op', () => {
+    const onCopy = vi.fn()
+    const { container } = renderTwoColumnGhost(onCopy)
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
+    fireEvent.mouseDown(topHandle, { clientX: 200, clientY: 100, shiftKey: true })
+    // The source column is not a drop target (it has no ghost-copy-drop rect).
+    expect(container.querySelector('[data-testid="ghost-copy-drop-cpt-a"]')).toBeNull()
+    // Hit-test resolves to an element with no drop attributes → no target.
+    const docAny = document as unknown as { elementsFromPoint?: unknown }
+    const orig = docAny.elementsFromPoint
+    docAny.elementsFromPoint = vi.fn().mockReturnValue([document.body as Element])
+    fireEvent.mouseUp(document, { clientX: 200, clientY: 100 })
+    docAny.elementsFromPoint = orig
+    expect(onCopy).not.toHaveBeenCalled()
+  })
 })
