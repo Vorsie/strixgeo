@@ -356,3 +356,8 @@ every 2 s — a request in the first seconds after a file swap can still run the
 old code; wait before judging a red. Beta cohort 1 (18 keys, 30 d from first
 activation) minted right after; keys live only in `server/activation/dist/beta-keys.txt`.
 
+**2026-09-17 — two more cohort-1 keys.** Licence ids 26 and 27 (both DEME) were
+minted with the same shape, so the cohort is 20 keys. Their notes read
+`beta cohort 1 (added 2026-09-17)`. `--holder` is the tester email, the
+convention the first 18 use. Both keys are appended to `dist/beta-keys.txt`.
+
