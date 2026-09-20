@@ -216,6 +216,10 @@ const LOG_MAX_BYTES = 5 * 1024 * 1024
 const LOG_MAX_FILES = 3
 
 let apiProcess: ChildProcess | null = null
+// Readiness windows the current engine spawn has consumed. Reset per spawn so
+// a respawn gets its own budget; bounded by BACKEND_READY_MAX_WINDOWS so a
+// live-but-unreachable backend still reaches the boot-error screen.
+let readinessWindowsUsed = 0
 
 // Single-window app today; we cache the main window so menu rebuilds (after
 // the recent-projects list changes) can target the right one without
@@ -428,6 +432,19 @@ function startApi(): void {
   // startup crash (exit before ready) from a normal shutdown (exit after
   // the user quit the app).
   let backendBecameReady = false
+
+  // Fresh spawn, fresh readiness budget.
+  readinessWindowsUsed = 0
+
+  // A process that cannot be spawned at all (ENOENT on a missing or
+  // quarantined interpreter after a partial install) emits 'error', never
+  // 'exit'. Without this handler ``apiProcess`` stayed non-null and every
+  // readiness window reported "still starting", so the app spun forever
+  // instead of failing. Null it here so the deadline reports a real failure.
+  apiProcess.on('error', (err) => {
+    writeLog(`[api] process failed to start: ${err.message}`)
+    apiProcess = null
+  })
 
   apiProcess.on('exit', (code) => {
     writeLog(`[api] process exited with code ${code}`)
@@ -1545,7 +1562,8 @@ ipcMain.handle('api:ready', async () => {
     }
     await new Promise(r => setTimeout(r, BACKEND_READY_POLL_MS))
   }
-  return readinessDeadlineResult(apiProcess !== null)
+  readinessWindowsUsed += 1
+  return readinessDeadlineResult(apiProcess !== null, readinessWindowsUsed)
 })
 
 // ---------------------------------------------------------------------------
