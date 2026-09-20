@@ -79,7 +79,19 @@ if (-not (Test-Path (Join-Path $StagedBackendSrc 'groundmodel'))) {
 
 if (-not $ScratchDir) { $ScratchDir = Join-Path $env:TEMP 'strix-native-gate' }
 $GatePytest = Join-Path $ScratchDir 'gate-pytest'
-$GateWork = Join-Path $ScratchDir 'work'
+# The marker test must NOT live under %TEMP%. pytest walks the ancestor
+# directories of every target path and, on Windows, falls back to
+# samefile_nofollow() -- which lstat()s BOTH sides -- whenever a sibling node's
+# path does not string-match (short-path handling, pytest #11895). %TEMP% is a
+# high-churn directory: any unrelated process (a Codex session, uv, another
+# python) deleting one of its temp dirs between pytest's listing and that lstat
+# raises FileNotFoundError and aborts COLLECTION. The gate then reported exit 2
+# as "a compiled .pyd deviates from its source behaviour" and failed the build
+# for a reason that had nothing to do with the natives. Keep the marker (the only
+# path pytest is asked to collect from here) in a quiet repo-local directory.
+# gate-pytest and numba-cache stay in %TEMP%: they are PYTHONPATH / cache only,
+# never collection targets.
+$GateWork = Join-Path $RepoRoot '.native-gate-work'
 $NumbaCache = Join-Path $ScratchDir 'numba-cache'
 New-Item -ItemType Directory -Force -Path $GateWork | Out-Null
 New-Item -ItemType Directory -Force -Path $NumbaCache | Out-Null
@@ -201,7 +213,15 @@ Get-ChildItem -Path $StagedBackendSrc -Recurse -Directory -Filter '__pycache__' 
     Sort-Object -Property FullName -Descending |
     ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
 
-if ($pytestExit -ne 0) {
-    throw "the behavioural native gate FAILED (pytest exit $pytestExit) -- a compiled .pyd deviates from its source behaviour; the dist build must not proceed"
+# Only pytest exit 1 means "a test ran and failed", which is the deviation this
+# gate exists to catch. 2-5 mean the gate could not RUN (collection interrupted,
+# internal error, usage error, nothing collected) and say NOTHING about the
+# natives -- reporting those as a .pyd deviation sent a past debug session
+# hunting a compiled-code bug that did not exist.
+if ($pytestExit -eq 1) {
+    throw "the behavioural native gate FAILED (pytest exit 1) -- a compiled .pyd deviates from its source behaviour; the dist build must not proceed"
+}
+elseif ($pytestExit -ne 0) {
+    throw "the behavioural native gate could not RUN (pytest exit $pytestExit; 2=collection interrupted, 3=internal error, 4=usage error, 5=nothing collected). This is a harness or environment failure and is NOT evidence about the compiled .pyd. Read the pytest output above."
 }
 Write-Step 'behavioural native gate PASSED'
