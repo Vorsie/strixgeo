@@ -20,6 +20,8 @@ export interface UseAppBootResult {
   ready: boolean
   /** True when the API failed to start within its timeout budget. */
   apiError: boolean
+  /** True after a live backend has exceeded its initial boot budget. */
+  takingLong?: boolean
 }
 
 /**
@@ -48,6 +50,7 @@ export interface UseAppBootResult {
 export function useAppBoot(gateOpen: boolean): UseAppBootResult {
   const [ready, setReady] = useState(false)
   const [apiError, setApiError] = useState(false)
+  const [takingLong, setTakingLong] = useState(false)
   const startedRef = useRef(false)
 
   useEffect(() => {
@@ -59,17 +62,25 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
       const base = await window.electron.getApiBaseUrl()
       setBaseUrl(base)
       log.info('boot', `API base = ${base}`)
-      const ok = await window.electron.waitForApi()
-      if (ok) {
-        log.info('boot', 'API ready')
-        setReady(true)
-      } else {
-        log.error('boot', 'API failed to come up within timeout')
-        setApiError(true)
+      for (;;) {
+        const result = await window.electron.waitForApi()
+        if (result === 'still-starting') {
+          log.info('boot', 'API is still starting after its initial wait budget')
+          setTakingLong(true)
+          continue
+        }
+        if (result) {
+          log.info('boot', 'API ready')
+          setReady(true)
+        } else {
+          log.error('boot', 'API process exited before it became ready')
+          setApiError(true)
+        }
+        return
       }
     }
     void boot()
   }, [gateOpen])
 
-  return { ready, apiError }
+  return { ready, apiError, takingLong }
 }
