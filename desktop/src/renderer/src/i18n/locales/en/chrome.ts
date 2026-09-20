@@ -51,8 +51,9 @@ export const CHROME = {
   // -------------------------------------------------------------------------
   'app.name': 'StrixGeo',
   'app.starting': 'Starting StrixGeo API…',
+  'app.startingLong': 'This first start is taking longer than usual. StrixGeo is still preparing its data service…',
   'app.bootFailedTitle': 'Failed to start the StrixGeo API',
-  'app.bootFailedBody': 'Help → Show log file… opens the backend log with the Python traceback.',
+  'app.bootFailedBody': 'Help → Save logs for support… saves a diagnostic bundle for support.',
   'app.backendFailedTitle': 'StrixGeo failed to start',
   'app.backendUnreachable': 'Backend unreachable',
   // Backend refusal codes an engineer can hit in normal use (api/clients/apiCodeMessages.ts).
@@ -87,7 +88,7 @@ export const CHROME = {
   // -------------------------------------------------------------------------
   'project.new': 'New project',
   'project.name': 'Project name',
-  'project.namePlaceholder': 'e.g. GEO-22/040 Bruges',
+  'project.namePlaceholder': 'e.g. Project 2026-001 — Site',
   'project.metadata': 'Project metadata',
   'project.metadataBlurb': "Edit the project's header info. Changes save to the database",
   'project.number': 'Project number',
@@ -246,16 +247,15 @@ export const CHROME = {
 
   // -------------------------------------------------------------------------
   // project — new-project blurb, metadata + close copy, discard/revert toasts.
-  // NOTE (owner reconcile): namePlaceholderExample ("Brugge") differs from the
-  // catalogue namePlaceholder ("Bruges"); metadataBlurbFull, closeConfirmBody-
-  // Detailed and closeHintGmproj carry the component's stale ".gmproj" wording
+  // NOTE (owner reconcile): metadataBlurbFull, closeConfirmBody-Detailed and
+  // closeHintGmproj carry the component's stale ".gmproj" wording
   // (the catalogue's project.metadataBlurb / .closeConfirmBody / .closeHint use
   // ".strix").
   // -------------------------------------------------------------------------
   'project.newBlurb':
     "Name it now; richer details (client, site, tags, default CRSes…) can be added from the project's metadata editor when that lands.",
   'project.createEllipsis': 'Create…',
-  'project.namePlaceholderExample': 'e.g. GEO-22/040 Brugge',
+  'project.namePlaceholderExample': 'e.g. Project 2026-001 — Site',
   'project.metadataBlurbFull':
     "Edit the project's header info. Changes save to the database and the .gmproj file in one go.",
   'project.removeTag': 'Remove {tag}',
