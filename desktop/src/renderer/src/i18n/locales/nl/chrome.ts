@@ -99,7 +99,7 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   'project.new': 'Nieuw project',
   'project.name': 'Projectnaam',
-  'project.namePlaceholder': 'bv. Project 2026-001 — Locatie',
+  'project.namePlaceholder': 'bv. Project 2026-001, Locatie',
   'project.metadata': 'Projectgegevens',
   'project.metadataBlurb':
     'Bewerk de hoofdgegevens van het project. Wijzigingen worden in de databank opgeslagen',
@@ -268,7 +268,7 @@ export const CHROME_NL = {
   'project.newBlurb':
     'Geef nu een naam; rijkere details (opdrachtgever, locatie, labels, standaard-CRSen…) kan je toevoegen via de metadata-editor van het project zodra die er is.',
   'project.createEllipsis': 'Aanmaken…',
-  'project.namePlaceholderExample': 'bv. Project 2026-001 — Locatie',
+  'project.namePlaceholderExample': 'bv. Project 2026-001, Locatie',
   'project.metadataBlurbFull':
     'Bewerk de hoofdgegevens van het project. Wijzigingen worden in één keer opgeslagen in de databank en het .gmproj-bestand.',
   // Removing a tag chip is form editing; "verwijderen" reads right. Since the
