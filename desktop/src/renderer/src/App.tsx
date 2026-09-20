@@ -121,7 +121,7 @@ export default function App() {
   const [activationGate, setActivationGate] = useState<GateDecision | 'unknown'>(() =>
     window.electron.launchFlags.packaged && !window.electron.launchFlags.e2e ? 'unknown' : 'pass',
   )
-  const { ready, apiError } = useAppBoot(activationGate === 'pass')
+  const { ready, apiError, takingLong } = useAppBoot(activationGate === 'pass')
 
   // Initialise the theme system. The hook itself owns the class on
   // <html>. ``choice`` + ``setChoice`` feed the Settings dialog's
@@ -1439,7 +1439,7 @@ export default function App() {
   }
 
   if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading /></>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong === true} /></>
 
 
   if (!project) {
