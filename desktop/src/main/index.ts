@@ -101,7 +101,14 @@ import { registerBackendLifecycle } from './backendLifecycle'
 import { killProcessTreeSync } from './killProcessTree'
 import { performShutdown, type ShutdownIo, type ShutdownMode } from './shutdownSequencer'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
-import { backendProbeHeaders, classifyBackendProbe, type ProbeVerdict, backendReadyAttempts, BACKEND_READY_POLL_MS } from './backendProbe'
+import {
+  backendProbeHeaders,
+  classifyBackendProbe,
+  type ProbeVerdict,
+  backendReadyAttempts,
+  BACKEND_READY_POLL_MS,
+  readinessDeadlineResult,
+} from './backendProbe'
 import { decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
@@ -1538,7 +1545,7 @@ ipcMain.handle('api:ready', async () => {
     }
     await new Promise(r => setTimeout(r, BACKEND_READY_POLL_MS))
   }
-  return false
+  return readinessDeadlineResult(apiProcess !== null)
 })
 
 // ---------------------------------------------------------------------------
