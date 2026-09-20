@@ -38,7 +38,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
   // 1 · Je project ----------------------------------------------------------
   'tutorial.project-name.title': 'Geef je project een naam',
   'tutorial.project-name.body':
-    'Elk project begint met een naam. Kies iets dat je later herkent, je dossiernummer en de locatie, zoals GEO-22/040 Brugge. Klant, fase en andere gegevens voeg je nadien toe.',
+    'Elk project begint met een naam. Kies iets dat je later herkent, je dossiernummer en de locatie, zoals Project 2026-001 — Locatie. Klant, fase en andere gegevens voeg je nadien toe.',
   'tutorial.project-create.title': 'Maak het project aan',
   'tutorial.project-create.body':
     'Klik op Project aanmaken om het te openen. Vanaf hier leeft elke sondering, boring, dwarsprofiel en model in dit project en wordt het mee opgeslagen.',
