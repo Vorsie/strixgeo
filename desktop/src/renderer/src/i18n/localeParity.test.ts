@@ -142,6 +142,23 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
 ])
 
 describe('locale catalogues', () => {
+  it('LP0 — startup support copy names the packaged Help command and project examples are neutral', () => {
+    expect(EN['app.bootFailedBody']).toContain('Help → Save logs for support…')
+    expect(NL['app.bootFailedBody']).toContain('Help → Logs opslaan voor support…')
+    expect(EN['app.startingLong']).toBeTruthy()
+    expect(NL['app.startingLong']).toBeTruthy()
+
+    const projectExamples = [
+      EN['project.namePlaceholder'],
+      EN['project.namePlaceholderExample'],
+      EN['tutorial.project-name.body'],
+      NL['project.namePlaceholder'],
+      NL['project.namePlaceholderExample'],
+      NL['tutorial.project-name.body'],
+    ]
+    expect(projectExamples.join('\n')).not.toMatch(/GEO-22\/040|Brugge|Bruges/i)
+  })
+
   it('LP1 — no key is defined in two modules (a spread would swallow one)', () => {
     for (const [locale, modules] of [
       ['en', EN_MODULES],
