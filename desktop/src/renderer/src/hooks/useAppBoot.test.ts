@@ -60,4 +60,16 @@ describe('useAppBoot — the activation gate comes first', () => {
     finishNextWait?.(true)
     await waitFor(() => expect(result.current.ready).toBe(true))
   })
+
+  // Rule (owner, 2026-09-20): every boot path ends somewhere the user can act
+  // on. A readiness check that throws must show the boot-error screen, not
+  // leave the loading spinner up with a silent console rejection.
+  it('a readiness check that rejects still reaches the boot error screen', async () => {
+    waitForApi.mockRejectedValueOnce(new Error('ipc channel closed'))
+
+    const { result } = renderHook(() => useAppBoot(true))
+
+    await waitFor(() => expect(result.current.apiError).toBe(true))
+    expect(result.current.ready).toBe(false)
+  })
 })
