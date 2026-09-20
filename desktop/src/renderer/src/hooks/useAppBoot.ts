@@ -21,7 +21,7 @@ export interface UseAppBootResult {
   /** True when the API failed to start within its timeout budget. */
   apiError: boolean
   /** True after a live backend has exceeded its initial boot budget. */
-  takingLong?: boolean
+  takingLong: boolean
 }
 
 /**
@@ -79,7 +79,14 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
         return
       }
     }
-    void boot()
+    // A rejected IPC (the main process reloading the window mid-invoke, an
+    // unexpected fetch error in the handler) must still land on a terminal
+    // state. Without this the hook left ready=false and apiError=false, which
+    // renders the loading screen forever.
+    void boot().catch(err => {
+      log.error('boot', `API readiness check failed: ${String(err)}`)
+      setApiError(true)
+    })
   }, [gateOpen])
 
   return { ready, apiError, takingLong }
