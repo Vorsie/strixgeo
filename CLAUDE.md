@@ -66,7 +66,7 @@ See [docs/commercial-direction.md](docs/commercial-direction.md) — Distributio
 
 ## Backwards Compatibility — non-negotiable from now on
 
-See [docs/backwards-compat.md](docs/backwards-compat.md) — **RE-ARMED 2026-09-05** (owner: "back compatibility on"; the closed beta ships installer #17). The floor is the shape that build emits: backend bundle `format_version = 4` (3 and 4 restore), `.strix` `PROJECT_FILE_FORMAT_VERSION = 3`, activation store format 1. From this floor forward: additive-only schema/API/bundle changes, an upgrade step for every version bump, and a `.strix` written by any beta build must open in every later build. Load before any `.strix` / bundle / format-version / migration change.
+See [docs/backwards-compat.md](docs/backwards-compat.md) — **RE-ARMED 2026-09-05** (owner: "back compatibility on"). The floor is the shape the **v0.1.0 closed beta** emits (published 2026-09-16, installer #44 = `cb912b382`): backend bundle `format_version = 4` (3 and 4 restore), `.strix` `PROJECT_FILE_FORMAT_VERSION = 3`, activation store format 1. From this floor forward: additive-only schema/API/bundle changes, an upgrade step for every version bump, and a `.strix` written by any beta build must open in every later build. Load before any `.strix` / bundle / format-version / migration change.
 
 ---
 
@@ -476,7 +476,7 @@ Current-state design of the interpretation subsystems. Each doc describes ONLY t
 
 * [docs/design/section-fill.md](docs/design/section-fill.md) — the 2D section partition: the **contact-correlation model** (2→BAND / 1→ONLAP / 0→LENS), the deep-to-deep substrate pass, the **CS1 real-data gate**, dogfeed traps. **Load before touching `partitionFill.ts` / `PartitionFillOverlay` / `computeSectionFill` or the 3D voxel labelling.**
 * [docs/design/body-model.md](docs/design/body-model.md) — bodies as resolver connected-components, the partition fill as single source of truth for body shape, the body-extent retirement summary, lens-detection behavioral rules, the Tier-D export note. **Load before body / correlation / lens work.**
-* [docs/design/geotech-stage.md](docs/design/geotech-stage.md) — geotech subdivision + the **fraction-space refinement** render model + connecting geotech units. **Load before any geotech-stage work (the current milestone).**
+* [docs/design/geotech-stage.md](docs/design/geotech-stage.md) — geotech subdivision + the **fraction-space refinement** render model + connecting geotech units. **Load before any geotech-stage work.**
 * [docs/design/autosave-recovery.md](docs/design/autosave-recovery.md) — why a crash loses NO interpretation (Postgres outlives Electron; every gesture is an awaited call), the six renderer-only items that ARE lost, the lumping map's new columns + revision reconciliation, and the recovery-file mechanism. **Load before autosave / recovery / stratigraphy-lumping work.**
 * [docs/design/beta-expiry.md](docs/design/beta-expiry.md) — the beta-build expiry primitive (build stamp, monotonic clock anchor, hard stop) every activation option reuses. **Load before licensing / activation / build-stamp work (debt #3/#5).**
 * [docs/design/diagnostics-capture.md](docs/design/diagnostics-capture.md) — local diagnostics capture (NDJSON store, redaction, consent default-off, crash bundle) + the consent-gated, disk-queued transmit half (`diagnosticsUploader.ts` → `POST /v1/diagnostics` on the activation origin; inert until consent + endpoint). **Load before telemetry / crash-report work (debt #16).**
@@ -496,13 +496,13 @@ Format conventions for debt items:
 * Numbers stay stable through a debt-fixing campaign; explicit cleanup passes compact them.
 * Each open item carries three fields: **What** / **Why deferred** / **When to revisit**. The trigger condition is the most important field — without it, debt items live forever.
 
-Priority is **milestone-gated** — the current milestone is the **Geotech-subdivision stage**. Open index (one-liners only; details in docs/debt.md):
+Priority is **milestone-gated** — the current milestone is the **tester feedback loop on the v0.1.0 beta** (one GitHub issue per finding, one `fix/<slug>` branch per fix). Open index (one-liners only; details in docs/debt.md):
 
 **Tier G — finish the litho stage:** #123 clay→silt correlation suggestion bug (needs owner repro; diagnostic SQL in debt entry) · #149 double SAND/SILT units after Accept (narrowed to the find-or-create `(soil_code, sig)` key; next step in the debt entry) · #134-C-bulk SHELVED (owner: build nothing; revisit at geotech-inspector design) · #163(f) split-suggestion-into-2-for-lenses (needs design; Ctrl-drag offers a complementary path).
 
-**═══ GEOTECH-STAGE GATE — everything below waits ═══**
+**═══ The geotech stage SHIPPED in the beta; this divider no longer gates anything ═══**
 
-**Tier B — commercial launch gates + pre-distribution hardening:** #2 bundled Postgres · #3 subscription activation (re-scoped from license keys, 2026-06-25) · #4 auth on by-id endpoints · #5 tamper hardening · #6 installer + code signing + auto-update · #7 marketing site + name · #200 Electron pre-distribution remainder (`file://` nav wildcard; support-window verification).
+**Tier B — post-beta hardening.** The v0.1.0 closed beta (2026-09-16) shipped #2 bundled Postgres, #3 subscription activation, #6 installer + auto-update, #7 marketing site, #200 Electron hardening, #213/#214/#215 and #226 `.strix` opacity. STILL OPEN: **#4** auth on by-id endpoints (its own trigger has FIRED — it said "day-1 of #3", and #3 is live) · **#225** save must never write a 0-edge bundle (trigger FIRED — it said "before first external distribution"; a data-loss guard, and the slice was stopped mid-flight) · **#5** tamper-hardening residual · **#6-signing** (unsigned by ruling until the KBO/org cert exists).
 
 **Tier D — Phase-4 export step + post-launch:** #106 application layer welded to the ORM · #107 schema integrity hardening · #108 documentation refresh · #111 useGeologicalModel duplication · #44 cross-stage selection · #52 PDF report slices B/C/D · #56 manual-lump reuse · #70/#71 decision-log + ML pipeline · #79 DOV Phase-2 import wall (instrument before speed work) · #93 first-use tutorial/onboarding (pre-coworker-binary) · #11 multilingual stratigraphy catalog · #100b Correlate sticky reveal · #220 smooth non-blocky litho 3D (Phase 5 visual) · #283 fill-engine emission layer rewritten from the 2/1/0 oracle (post-beta).
 
