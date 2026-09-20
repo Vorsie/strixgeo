@@ -18,12 +18,17 @@
  */
 import { useT } from '../i18n/translate'
 
-export default function AppLoading(): JSX.Element {
+interface Props {
+  /** True once a live backend has exceeded its first boot window. */
+  takingLong: boolean
+}
+
+export default function AppLoading({ takingLong }: Props): JSX.Element {
   const t = useT()
   return (
     <div className="flex items-center justify-center h-screen bg-surface-app text-text-secondary text-sm gap-2">
       <div className="animate-spin rounded-full border-2 border-border-default border-t-accent w-5 h-5" />
-      {t('app.starting')}
+      {t(takingLong ? 'app.startingLong' : 'app.starting')}
     </div>
   )
 }
