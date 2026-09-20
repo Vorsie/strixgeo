@@ -6551,7 +6551,9 @@ before any external distribution.
 check in `saveProject` + an atomic `.bak` keep-last-good. Relates to
 [[project_two_stage_save_model]], [[project_decisions_in_bundle]].
 
-## 226. Make `.strix` non-trivially editable (opaque/binary encoding) (Tier B — distribution, S)
+## 226. Make `.strix` non-trivially editable (opaque/binary encoding) (Tier B — distribution, S) — RESOLVED 2026-09-01
+
+**RESOLVED 2026-09-01** (`bad73fe17`; entry updated 2026-09-20, the fix shipped without this entry being closed). `desktop/src/main/strixCodec.ts` wraps the bundle JSON in a versioned binary container: `STRIXB1` magic + header + deterministic gzip + an add-mod-256 seeded keystream, with a crc32 so a truncated or tampered file is caught on open, and a random per-save seed so every save is byte-different. That is exactly the fix direction below (magic header + gzip + checksum). **Backwards compatibility holds:** `decodeStrix` SNIFFS — a file whose first non-whitespace byte is `{` is legacy plain JSON and is returned verbatim, so every `.strix` / `.gmproj` written before the codec still opens, forever. The module's own docstring is explicit that this is OPACITY tier, not cryptography (the seed must sit in the header for decode, and gzip's `1f 8b` is known plaintext), and must never be marketed as encryption nor confused with the engine's native `.pyd` protection — which matches the owner's "enough deterrent" ruling.
 
 **What.** `.strix` is pretty-printed JSON (`JSON.stringify(payload, null, 2)`), so a
 user can open it in Notepad and hand-edit (or corrupt) it. Owner directive
