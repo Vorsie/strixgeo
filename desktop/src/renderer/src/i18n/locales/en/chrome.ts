@@ -88,7 +88,7 @@ export const CHROME = {
   // -------------------------------------------------------------------------
   'project.new': 'New project',
   'project.name': 'Project name',
-  'project.namePlaceholder': 'e.g. Project 2026-001 — Site',
+  'project.namePlaceholder': 'e.g. Project 2026-001, Site',
   'project.metadata': 'Project metadata',
   'project.metadataBlurb': "Edit the project's header info. Changes save to the database",
   'project.number': 'Project number',
@@ -255,7 +255,7 @@ export const CHROME = {
   'project.newBlurb':
     "Name it now; richer details (client, site, tags, default CRSes…) can be added from the project's metadata editor when that lands.",
   'project.createEllipsis': 'Create…',
-  'project.namePlaceholderExample': 'e.g. Project 2026-001 — Site',
+  'project.namePlaceholderExample': 'e.g. Project 2026-001, Site',
   'project.metadataBlurbFull':
     "Edit the project's header info. Changes save to the database and the .gmproj file in one go.",
   'project.removeTag': 'Remove {tag}',
