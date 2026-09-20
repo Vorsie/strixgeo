@@ -9,7 +9,9 @@ import { renderHook, waitFor } from '@testing-library/react'
 
 import { useAppBoot } from './useAppBoot'
 
-const waitForApi = vi.fn<() => Promise<boolean>>()
+type ApiWaitResult = boolean | 'still-starting'
+
+const waitForApi = vi.fn<() => Promise<ApiWaitResult>>()
 const getApiBaseUrl = vi.fn<() => Promise<string>>()
 
 beforeEach(() => {
@@ -41,5 +43,21 @@ describe('useAppBoot — the activation gate comes first', () => {
     waitForApi.mockResolvedValue(false)
     const { result } = renderHook(() => useAppBoot(true))
     await waitFor(() => expect(result.current.apiError).toBe(true))
+  })
+
+  it('keeps waiting when a live backend outlasts the initial boot budget', async () => {
+    let finishNextWait: ((value: ApiWaitResult) => void) | undefined
+    waitForApi
+      .mockResolvedValueOnce('still-starting')
+      .mockImplementationOnce(() => new Promise(resolve => { finishNextWait = resolve }))
+
+    const { result } = renderHook(() => useAppBoot(true))
+
+    await waitFor(() => expect(result.current.takingLong).toBe(true))
+    expect(result.current.apiError).toBe(false)
+    expect(waitForApi).toHaveBeenCalledTimes(2)
+
+    finishNextWait?.(true)
+    await waitFor(() => expect(result.current.ready).toBe(true))
   })
 })
