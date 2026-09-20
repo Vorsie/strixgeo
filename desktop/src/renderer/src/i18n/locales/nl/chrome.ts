@@ -58,8 +58,9 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   'app.name': 'StrixGeo',
   'app.starting': 'StrixGeo API wordt gestart…',
+  'app.startingLong': 'Deze eerste start duurt langer dan gewoonlijk. StrixGeo bereidt de dataservice nog voor…',
   'app.bootFailedTitle': 'Kon de StrixGeo API niet starten',
-  'app.bootFailedBody': 'Help → Show log file… opent het backend-logboek met de Python-traceback.',
+  'app.bootFailedBody': 'Help → Logs opslaan voor support… slaat een diagnostisch bestand op voor support.',
   'app.backendFailedTitle': 'StrixGeo kon niet starten',
   'app.backendUnreachable': 'Backend onbereikbaar',
   // Weigeringscodes van de backend die een ingenieur in normaal gebruik kan zien.
@@ -98,7 +99,7 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   'project.new': 'Nieuw project',
   'project.name': 'Projectnaam',
-  'project.namePlaceholder': 'bv. GEO-22/040 Brugge',
+  'project.namePlaceholder': 'bv. Project 2026-001 — Locatie',
   'project.metadata': 'Projectgegevens',
   'project.metadataBlurb':
     'Bewerk de hoofdgegevens van het project. Wijzigingen worden in de databank opgeslagen',
@@ -267,7 +268,7 @@ export const CHROME_NL = {
   'project.newBlurb':
     'Geef nu een naam; rijkere details (opdrachtgever, locatie, labels, standaard-CRSen…) kan je toevoegen via de metadata-editor van het project zodra die er is.',
   'project.createEllipsis': 'Aanmaken…',
-  'project.namePlaceholderExample': 'bv. GEO-22/040 Brugge',
+  'project.namePlaceholderExample': 'bv. Project 2026-001 — Locatie',
   'project.metadataBlurbFull':
     'Bewerk de hoofdgegevens van het project. Wijzigingen worden in één keer opgeslagen in de databank en het .gmproj-bestand.',
   // Removing a tag chip is form editing; "verwijderen" reads right. Since the
