@@ -1439,7 +1439,7 @@ export default function App() {
   }
 
   if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong === true} /></>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong} /></>
 
 
   if (!project) {
