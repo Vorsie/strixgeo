@@ -76,6 +76,9 @@ export function classifyBackendProbe(packaged: boolean, status: number): ProbeVe
 /** Poll interval of the readiness loop in ``api:ready`` (ms). */
 export const BACKEND_READY_POLL_MS = 500
 
+/** A readiness wait either succeeds, fails, or needs another long-start window. */
+export type BackendReadyResult = true | false | 'still-starting'
+
 /**
  * How long the app waits for the engine to answer its readiness probe.
  *
@@ -93,4 +96,15 @@ export function backendReadyDeadlineMs(packaged: boolean): number {
 /** Number of ``BACKEND_READY_POLL_MS`` attempts that cover the deadline. */
 export function backendReadyAttempts(packaged: boolean): number {
   return Math.ceil(backendReadyDeadlineMs(packaged) / BACKEND_READY_POLL_MS)
+}
+
+/**
+ * Classify a readiness deadline without calling a slow but alive child failed.
+ *
+ * A packaged first launch can spend longer than the initial budget loading
+ * Defender-scanned compiled dependencies. The renderer must keep polling that
+ * child, while an exited child is an actual failed startup.
+ */
+export function readinessDeadlineResult(processIsAlive: boolean): BackendReadyResult {
+  return processIsAlive ? 'still-starting' : false
 }
