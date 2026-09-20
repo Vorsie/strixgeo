@@ -5,7 +5,12 @@
 // restarts stay snappy.
 import { describe, expect, it } from 'vitest'
 
-import { backendReadyDeadlineMs, backendReadyAttempts, BACKEND_READY_POLL_MS } from './backendProbe'
+import {
+  backendReadyDeadlineMs,
+  backendReadyAttempts,
+  BACKEND_READY_POLL_MS,
+  readinessDeadlineResult,
+} from './backendProbe'
 
 describe('backendReadyDeadlineMs', () => {
   it('a packaged app waits at least three minutes for a cold engine', () => {
@@ -19,5 +24,15 @@ describe('backendReadyDeadlineMs', () => {
   it('the attempt count covers the deadline at the poll interval', () => {
     expect(backendReadyAttempts(true) * BACKEND_READY_POLL_MS).toBeGreaterThanOrEqual(backendReadyDeadlineMs(true))
     expect(backendReadyAttempts(false) * BACKEND_READY_POLL_MS).toBeGreaterThanOrEqual(backendReadyDeadlineMs(false))
+  })
+
+  it('an alive backend stays in the starting state when the initial wait budget expires', () => {
+    // A cold packaged engine can outlast the first budget while Defender scans
+    // its compiled extensions. That is slow, not a failed launch.
+    expect(readinessDeadlineResult(true)).toBe('still-starting')
+  })
+
+  it('a backend that has exited by the deadline is a real startup failure', () => {
+    expect(readinessDeadlineResult(false)).toBe(false)
   })
 })
