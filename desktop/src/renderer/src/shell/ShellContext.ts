@@ -508,7 +508,10 @@ export interface ShellContextValue {
   /** Undo / redo stack — push + undo + redo + clear + canUndo + canRedo + busy. */
   undo: UseUndoStackResult
   /** API boot — ``ready`` and ``apiError`` (stable refs; rarely needed by stages). */
-  boot: UseAppBootResult
+  // Only the two states the stages act on. ``takingLong`` is deliberately not
+  // here: it drives the pre-shell loading screen in App.tsx, which is unmounted
+  // by the time any stage renders.
+  boot: Pick<UseAppBootResult, 'ready' | 'apiError'>
   /**
    * Map layer-visibility, viewport bounds, and Leaflet camera persistence.
    *
