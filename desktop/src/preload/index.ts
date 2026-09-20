@@ -10,6 +10,8 @@ interface RecentProject {
   lastOpened: string
 }
 
+type ApiReadyResult = boolean | 'still-starting'
+
 // Descriptor of one crash-recovery file, as returned by ``recovery:list``.
 // Mirrors ``RecoveryDescriptor`` in src/main/recoveryStore.ts — duplicated
 // rather than imported for the same reason as RecentProject above (the
@@ -59,7 +61,7 @@ contextBridge.exposeInMainWorld('electron', {
   getApiBaseUrl: (): Promise<string> =>
     ipcRenderer.invoke('api:base-url'),
 
-  waitForApi: (): Promise<boolean> =>
+  waitForApi: (): Promise<ApiReadyResult> =>
     ipcRenderer.invoke('api:ready'),
 
   openFile: (filters: Electron.FileFilter[]): Promise<string | null> =>
