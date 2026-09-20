@@ -597,3 +597,35 @@ live in `tests/fixtures/contracts/` (`section_corridor_membership.json`,
 `robertson_sbt_bands.json`); each is read by a Python `test_twin_*.py` and a TS
 `*.twin.test.ts`, so a fix that drifts on one side reddens the other. Change the
 rule by changing the fixture first.
+
+## A pytest target under %TEMP% makes an unrelated process able to fail your build (2026-09-20)
+
+The behavioural native gate failed a release with "a compiled .pyd deviates
+from its source behaviour". Nothing had deviated: pytest never got past
+COLLECTION. It died on `FileNotFoundError` for a directory in `%TEMP%` that no
+longer existed, and the directory it named was DIFFERENT on each run
+(`codex-review-empty-<guid>` once, `python-gvOFvp` the next).
+
+Mechanism: pytest walks the ancestor directories of every target path it is
+given, and on Windows, when a sibling node's path does not string-match the
+requested one, it falls back to `samefile_nofollow()` (short-path handling,
+pytest #11895), which `lstat()`s both sides. The gate's marker test lived at
+`%TEMP%\strix-native-gate\work\`, so collection enumerated `%TEMP%`'s
+children. `%TEMP%` is shared with every other tool on the machine, so any
+unrelated process deleting one of its temp dirs inside that window aborts the
+run. A Codex session churning temp dirs was enough.
+
+Proved rather than guessed, under deliberately forced temp churn: the marker in
+`%TEMP%` exited 2, the same marker in a repo-local directory exited 0. The fix
+is one line, `$GateWork` now resolves under the repo (`.native-gate-work/`,
+gitignored); `gate-pytest` and the numba cache stay in `%TEMP%` because they are
+PYTHONPATH and cache only, never collection targets.
+
+Two rules. **Never hand pytest a target path inside a directory other processes
+write to** — the collector reads that directory's siblings, so you inherit
+their lifetime. And **a gate must not translate an exit code into a claim it
+cannot support**: only pytest exit 1 means a test ran and failed; 2 to 5 mean
+the harness never ran and say nothing about the thing under test. Reporting
+those as a `.pyd` deviation sent a debug session hunting a compiled-code bug
+that did not exist.
+
