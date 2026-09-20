@@ -39,7 +39,7 @@ export const TUTORIAL = {
   // 1 · Your project --------------------------------------------------------
   'tutorial.project-name.title': 'Name your project',
   'tutorial.project-name.body':
-    "Every project starts with a name. Use something you'll recognise later, your job number and the site, like GEO-22/040 Brugge. Client, phase and other details can be added afterwards.",
+    "Every project starts with a name. Use something you'll recognise later, your job number and the site, like Project 2026-001 — Site. Client, phase and other details can be added afterwards.",
   'tutorial.project-create.title': 'Create the project',
   'tutorial.project-create.body':
     'Click Create project to open it. From here on every CPT, borehole, section and model lives inside this project and is saved with it.',
