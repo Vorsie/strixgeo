@@ -99,12 +99,32 @@ export function backendReadyAttempts(packaged: boolean): number {
 }
 
 /**
+ * How many readiness windows a cold start may use before it is a failure.
+ *
+ * Two windows of ``backendReadyDeadlineMs`` (6 minutes packaged). The bound is
+ * the whole point: a backend that is alive but never binds its port (a spawn
+ * that failed, a wedged Defender scan) must still reach the boot-error screen
+ * with its "Save logs for support" hint, instead of leaving the user on a
+ * spinner forever. Owner ruling 2026-09-20, after a beta tester's install.
+ */
+export const BACKEND_READY_MAX_WINDOWS = 2
+
+/**
  * Classify a readiness deadline without calling a slow but alive child failed.
  *
  * A packaged first launch can spend longer than the initial budget loading
- * Defender-scanned compiled dependencies. The renderer must keep polling that
- * child, while an exited child is an actual failed startup.
+ * Defender-scanned compiled dependencies, so an alive child gets another
+ * window. An exited child is an actual failed startup, and so is an alive
+ * child that has used every window it is allowed.
+ *
+ * @param processIsAlive - Whether the engine child process is still running.
+ * @param windowsUsed - Readiness windows consumed so far, including this one.
+ * @returns ``'still-starting'`` only while a further window remains.
  */
-export function readinessDeadlineResult(processIsAlive: boolean): BackendReadyResult {
-  return processIsAlive ? 'still-starting' : false
+export function readinessDeadlineResult(
+  processIsAlive: boolean,
+  windowsUsed: number,
+): BackendReadyResult {
+  if (!processIsAlive) return false
+  return windowsUsed < BACKEND_READY_MAX_WINDOWS ? 'still-starting' : false
 }
