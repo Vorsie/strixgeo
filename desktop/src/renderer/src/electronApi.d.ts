@@ -54,7 +54,7 @@ declare global {
   interface Window {
     electron: {
       getApiBaseUrl: () => Promise<string>
-      waitForApi: () => Promise<boolean>
+      waitForApi: () => Promise<boolean | 'still-starting'>
       openFile: (filters: FileFilter[]) => Promise<string | null>
       openFiles: (filters: FileFilter[]) => Promise<string[]>
       readFile: (filePath: string) => Promise<Buffer>
