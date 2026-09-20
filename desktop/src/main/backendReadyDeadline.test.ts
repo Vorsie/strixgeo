@@ -10,6 +10,7 @@ import {
   backendReadyAttempts,
   BACKEND_READY_POLL_MS,
   readinessDeadlineResult,
+  BACKEND_READY_MAX_WINDOWS,
 } from './backendProbe'
 
 describe('backendReadyDeadlineMs', () => {
@@ -29,10 +30,23 @@ describe('backendReadyDeadlineMs', () => {
   it('an alive backend stays in the starting state when the initial wait budget expires', () => {
     // A cold packaged engine can outlast the first budget while Defender scans
     // its compiled extensions. That is slow, not a failed launch.
-    expect(readinessDeadlineResult(true)).toBe('still-starting')
+    expect(readinessDeadlineResult(true, 1)).toBe('still-starting')
   })
 
   it('a backend that has exited by the deadline is a real startup failure', () => {
-    expect(readinessDeadlineResult(false)).toBe(false)
+    expect(readinessDeadlineResult(false, 1)).toBe(false)
+  })
+
+  // Rule (owner, 2026-09-20): a cold engine gets a second three-minute window.
+  // A backend still not ready after both windows is a real failure, so the app
+  // reaches its boot-error screen instead of spinning forever, which is the
+  // bad-install case a beta tester hit.
+  it('a backend still not ready after the second window is a real failure', () => {
+    expect(readinessDeadlineResult(true, BACKEND_READY_MAX_WINDOWS)).toBe(false)
+  })
+
+  it('the cold start is allowed exactly two readiness windows', () => {
+    expect(BACKEND_READY_MAX_WINDOWS).toBe(2)
+    expect(BACKEND_READY_MAX_WINDOWS * backendReadyDeadlineMs(true)).toBe(360_000)
   })
 })
