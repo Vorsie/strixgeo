@@ -73,6 +73,15 @@ import {
 } from '../utils/stratigraphyLumping'
 import { projectMetadataEqual } from '../utils/projectMetadataFields'
 import type { ProjectMetadataField } from '../utils/projectMetadataFields'
+import {
+  assessEmptyBundleGuard,
+  countBundleCollections,
+  describeEmptyBundleFindings,
+} from '../utils/saveBundleGuard'
+import type {
+  BundleCollectionCounts,
+  EmptyCollectionFinding,
+} from '../utils/saveBundleGuard'
 
 /**
  * Outcome of ``revertToLastSaved`` — four states that want four behaviours.
@@ -490,6 +499,7 @@ function idsFromBundle(rows: Record<string, unknown>[]): string[] {
 export function useProject(
   {
     toast,
+    confirmEmptyBundleOverwrite,
   }: {
     // From ``useToasts``. Optional so the many hook tests that render
     // ``useProject()`` bare keep compiling; the App always supplies it. Held in
@@ -497,6 +507,15 @@ export function useProject(
     // identity stays stable (it re-registers the File-menu IPC effect on every
     // change, and ``toast`` is a fresh closure each render).
     toast?: (type: 'success' | 'error' | 'warning', message: string) => void
+    // Asked by the pre-write empty-bundle guard (debt #225) when a re-fetched
+    // bundle STILL reads 0 for a collection the last save held. Resolves
+    // ``true`` = overwrite the file anyway, ``false`` = keep the file. Optional
+    // so the bare-hook tests keep compiling; the App wires it to a
+    // ``usePromiseConfirm`` dialog. Held in a ref below so the save callbacks
+    // need not list it in their deps.
+    confirmEmptyBundleOverwrite?: (
+      findings: EmptyCollectionFinding[],
+    ) => Promise<boolean>
   } = {},
 ): UseProject {
   const [project, setProject] = useState<ProjectResponse | null>(null)
@@ -509,6 +528,12 @@ export function useProject(
   // re-render and always reflects the current closure.
   const toastRef = useRef(toast)
   toastRef.current = toast
+
+  // Same ref-stable pattern for the empty-bundle overwrite question (debt
+  // #225): the guard reads it at save time only, so holding it in a ref keeps
+  // it out of the save callbacks' dep arrays.
+  const confirmEmptyBundleRef = useRef(confirmEmptyBundleOverwrite)
+  confirmEmptyBundleRef.current = confirmEmptyBundleOverwrite
 
   // Audit L8: drop the module-level proj4 memo caches (``useWgs84``) whenever the
   // active project changes — open, switch, or close (``project?.id`` → a new id
@@ -558,6 +583,15 @@ export function useProject(
   // re-rendering the app on a save-outcome flag would buy nothing.
   const fileWriteSucceededRef = useRef(false)
   const lastSaveWroteFile = useCallback((): boolean => fileWriteSucceededRef.current, [])
+
+  // Row counts of the last opened / saved .strix, per guarded collection —
+  // "what the app knows it holds" for the pre-write empty-bundle guard
+  // (debt #225). A ref, not state: it is read at save time only and drives no
+  // render. Seeded on every open / restore / new / Save-As adopt and refreshed
+  // after every successful save; cleared on close. Null before the first open,
+  // which leaves the interpretation collections unguarded (a save is never
+  // blocked on a count the app cannot yet trust).
+  const lastKnownBundleCountsRef = useRef<BundleCollectionCounts | null>(null)
 
   // Has a save been ATTEMPTED at all this session? Pairs with
   // ``fileWriteSucceededRef`` to separate the two states that flag conflates:
@@ -786,6 +820,10 @@ export function useProject(
         setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
         setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
         setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
+        // Seed the empty-bundle guard baseline (debt #225): the file just
+        // opened is "what the app knows it holds" for the interpretation
+        // collections that have no session-manifest home.
+        lastKnownBundleCountsRef.current = countBundleCollections(parsed)
         seedLumpingOnOpen(fresh, parsed.stratigraphy_lumping ?? null)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
@@ -843,6 +881,9 @@ export function useProject(
             setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
             setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
             setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
+            // Seed the empty-bundle guard baseline (debt #225) from the file,
+            // same as the happy path.
+            lastKnownBundleCountsRef.current = countBundleCollections(parsed)
             // Seed both lumping slots on restore — same pattern as the happy path.
             seedLumpingOnOpen(restored, parsed.stratigraphy_lumping ?? null)
             // Sum contacts across every model so the log reports the
@@ -946,6 +987,10 @@ export function useProject(
       setManifestBoreholeIds(new Set())
       setManifestFormationIds(new Set())
       setManifestSectionIds(new Set())
+      // A fresh project's file is empty by construction, so the empty-bundle
+      // guard baseline (debt #225) is all-zeros — its first real save is
+      // measured against nothing, which is correct.
+      lastKnownBundleCountsRef.current = countBundleCollections({})
       // A new project has no lumping decision — reset both staging and
       // saved snapshots so prior-project state does not leak in. The
       // revision resets with them: a fresh row has never been staged, so
@@ -1077,6 +1122,112 @@ export function useProject(
     [],
   )
 
+  // Pre-write data-loss guard (debt #225). Returns the bundle the caller
+  // should WRITE, or ``null`` to ABORT the write. The imported collections'
+  // expected counts are the live session manifest; the interpretation
+  // collections' are the last opened / saved file (``lastKnownBundleCountsRef``).
+  // A collection whose expected count is unknown (null ref before the first
+  // open) is left unguarded — a save is never blocked on a count the app cannot
+  // trust.
+  //
+  // The mechanism stops the SILENT overwrite, not every overwrite (owner clears
+  // collections on purpose all the time — a hard block would loop "your data is
+  // safe, retry" forever):
+  //
+  //   1. If nothing came back empty-while-expected, the fetched bundle is safe
+  //      to write.
+  //   2. If a guarded collection came back 0 while the app holds rows, re-fetch
+  //      the bundle ONCE. The observed cause (2026-06-25) is a transient bad
+  //      export state, so the immediate retry usually heals; when it does, write
+  //      the healed bundle (WARNING log, no error toast — the save succeeds).
+  //   3. If the re-fetch STILL reads 0, do not silently overwrite: ASK. Confirm
+  //      writes the still-empty bundle (its counts become the new baseline after
+  //      the write); Cancel returns ``null`` so the caller writes nothing and
+  //      the project stays dirty. Without a confirm wired (a bare-hook render)
+  //      the guard blocks conservatively.
+  const guardEmptyBundle = useCallback(
+    async (
+      fetchedBundle: ProjectBundleResponse,
+      projectId: string,
+    ): Promise<ProjectBundleResponse | null> => {
+      const known = lastKnownBundleCountsRef.current
+      const expected: Partial<BundleCollectionCounts> = {
+        cpts: manifestCptIds.size,
+        boreholes: manifestBoreholeIds.size,
+        geological_formations: manifestFormationIds.size,
+        cross_sections: manifestSectionIds.size,
+        litho_contact_correlation_edges: known?.litho_contact_correlation_edges,
+        litho_layers: known?.litho_layers,
+        formation_contacts: known?.formation_contacts,
+        bodies: known?.bodies,
+      }
+      const firstFindings = assessEmptyBundleGuard(
+        countBundleCollections(fetchedBundle),
+        expected,
+      )
+      // (1) Clean — write the bundle as-is.
+      if (firstFindings.length === 0) return fetchedBundle
+
+      // (2) A guarded collection came back empty. Re-fetch ONCE before assuming
+      // the data is really gone.
+      log.warn(
+        'project',
+        `empty-bundle guard (debt #225): ${describeEmptyBundleFindings(firstFindings)} ` +
+          `came back empty on the first fetch; re-fetching once`,
+      )
+      let retried: ProjectBundleResponse
+      try {
+        retried = await api.project.bundle(projectId)
+      } catch (err) {
+        // The re-fetch itself failed, so "healed" cannot be told from "really
+        // empty". Fall through to the ASK path on the first findings rather than
+        // silently overwriting.
+        log.warn('project', 'empty-bundle guard: the re-fetch threw; asking', err)
+        retried = fetchedBundle
+      }
+      const retryFindings = assessEmptyBundleGuard(
+        countBundleCollections(retried),
+        expected,
+      )
+      if (retryFindings.length === 0) {
+        // The transient state healed on the retry — write the healed bundle.
+        // No error toast: the save is succeeding normally.
+        log.warn(
+          'project',
+          `empty-bundle guard: a re-fetch was needed and healed ` +
+            `(${describeEmptyBundleFindings(firstFindings)} now populated); ` +
+            `writing the healed bundle`,
+        )
+        return retried
+      }
+
+      // (3) Still empty after the re-fetch — this is no longer presumed
+      // transient. Ask before replacing the last save.
+      log.warn(
+        'project',
+        `empty-bundle guard: still empty after the re-fetch ` +
+          `(${describeEmptyBundleFindings(retryFindings)}); asking before overwriting`,
+      )
+      const ask = confirmEmptyBundleRef.current
+      if (ask === undefined) {
+        // No question wired (a bare-hook render). Block conservatively rather
+        // than silently overwrite; production always supplies the confirm.
+        log.warn('project', 'empty-bundle guard: no confirm wired; refusing the write')
+        return null
+      }
+      const proceed = await ask(retryFindings)
+      if (!proceed) {
+        log.info(
+          'project',
+          'empty-bundle guard: the engineer cancelled; the file is left unchanged',
+        )
+        return null
+      }
+      return retried
+    },
+    [manifestCptIds, manifestBoreholeIds, manifestFormationIds, manifestSectionIds],
+  )
+
   // File → Save / Ctrl+S / "Save and close" all funnel here. Returns
   // ``true`` only when the project reached BOTH of its durable homes — the
   // database and the .strix on disk — and ``false`` otherwise.
@@ -1124,7 +1275,18 @@ export function useProject(
         // user-initiated action so the extra round-trip and JSON-
         // encoding cost (potentially MB for big projects) is
         // acceptable, even when nothing has changed since last save.
-        const bundle = await api.project.bundle(project.id)
+        const fetched = await api.project.bundle(project.id)
+        // Pre-write data-loss guard (debt #225): a collection that came back
+        // empty while the model holds rows is re-fetched once; if it heals we
+        // write the healed bundle, otherwise we ASK before overwriting. ``null``
+        // = abort (the engineer cancelled, or no question was wired) — the save
+        // reports failure so the project stays dirty for a retry and the crash-
+        // recovery clear keeps the still-homeless delta (``fileWriteSucceeded``
+        // is already ``false`` from the top of this function).
+        const bundle = await guardEmptyBundle(fetched, project.id)
+        if (bundle === null) {
+          return false
+        }
         // Trim every bundle-tracked top-level array to the in-memory
         // manifest before writing. The DB may carry rows from a
         // previous session that the user never saved (imports +
@@ -1211,6 +1373,11 @@ export function useProject(
         // recovery clear, which must NOT trust this function's return value
         // (see ``lastSaveWroteFile``).
         fileWriteSucceededRef.current = true
+        // Refresh the guard baseline (debt #225) to the counts just written —
+        // the file on disk is once again "what the app knows it holds", so a
+        // later transient-empty fetch is measured against this save, not a
+        // stale one.
+        lastKnownBundleCountsRef.current = countBundleCollections(trimmedBundle)
         // REPAIR BEFORE PROMOTE. ``stageLumping`` deliberately keeps the
         // user's map in memory when its PUT fails (the design's "file wins"
         // case, §3), so a backend blip during Apply leaves the DATABASE
@@ -1277,6 +1444,7 @@ export function useProject(
     stageToDatabase,
     promoteInDatabase,
     writeSaveAnchor,
+    guardEmptyBundle,
   ])
 
   // Put the lumping's staged slot back onto the saved snapshot — the shared
@@ -1451,6 +1619,26 @@ export function useProject(
       // bundle endpoint returns everything we need. No trim applied
       // because the duplicate is freshly minted (no extras yet).
       dupBundle = await api.project.bundle(duplicated.id)
+      // Pre-write data-loss guard (debt #225): the same retry-then-ask the
+      // ordinary save applies. A duplicate whose fresh bundle came back empty
+      // for a collection the source holds is re-fetched once; if it still reads
+      // empty the engineer is asked. On abort (cancel or no confirm wired) roll
+      // the freshly-minted duplicate row back — no orphan project — and refuse
+      // rather than write a hollow .strix under a new name.
+      const guardedDup = await guardEmptyBundle(dupBundle, duplicated.id)
+      if (guardedDup === null) {
+        try {
+          await api.project.archive(duplicated.id)
+        } catch (rollbackErr) {
+          log.warn(
+            'project',
+            'saveAsProject: rollback-archive after empty-bundle guard failed',
+            rollbackErr,
+          )
+        }
+        return null
+      }
+      dupBundle = guardedDup
       // WHY carry currentLumping: the lumping map is keyed on NORMALISED
       // STRATIGRAPHY NAMES (not borehole or CPT instance ids), so it is
       // valid for a duplicate — the copy has the same stratigraphy names.
@@ -1497,6 +1685,10 @@ export function useProject(
     )
     setManifestFormationIds(new Set(idsFromBundle(dupBundle.geological_formations)))
     setManifestSectionIds(new Set(idsFromBundle(dupBundle.cross_sections)))
+    // Seed the empty-bundle guard baseline (debt #225) from the duplicate's
+    // bundle — the copy is now the live project, so the file just written is
+    // "what the app knows it holds".
+    lastKnownBundleCountsRef.current = countBundleCollections(dupBundle)
     // The file we just wrote carries currentLumping — align savedLumping
     // so dirty correctly reports false after Save As. Without this,
     // a project that has a staged (unsaved) lumping would open dirty
@@ -1522,6 +1714,7 @@ export function useProject(
     applyLumpingRevision,
     stageToDatabase,
     promoteInDatabase,
+    guardEmptyBundle,
   ])
 
   function clearAllManifests(): void {
@@ -1538,6 +1731,10 @@ export function useProject(
     // Same reasoning for the anchor: carrying the closed project's token
     // into the next open would compare two unrelated projects' saves.
     dbAnchorRef.current = null
+    // And the empty-bundle guard baseline (debt #225): the next project seeds
+    // its own on open, but until then a stale count from the closed project
+    // must not decide the next one's first save.
+    lastKnownBundleCountsRef.current = null
   }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
