@@ -17,12 +17,12 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { BodyBoundaryResponse, LithoLayerResponse } from '../../api/client'
+import type { BodyBoundaryResponse } from '../../api/client'
 import type { SectionRegion } from '../../utils/sectionPartition'
 import * as engineSelect from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay, { type Props } from './PartitionFillOverlay'
 import { REJECT_COLOR } from './unsafeDragUX'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => {
   cleanup()
@@ -32,46 +32,6 @@ afterEach(() => {
 // S98 unified handle: a lens edge now renders the ONE teal BOUNDARY_COLOR, not the
 // retired amber LENS_COLOR. The rejected-drag frame still reddens to REJECT_COLOR.
 const NORMAL_LENS_COLOR = '#38bdf8' // BOUNDARY_COLOR (sky-400) — the one unified handle colour
-
-function layer(
-  id: string,
-  inv: string,
-  bodyId: string,
-  formationId: string,
-  top: number,
-  base: number,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 const colors = new Map([
   ['fSand', '#fbbf24'],
@@ -84,10 +44,10 @@ const labels = new Map([
 
 // Enclosed silt lens in a sand matrix on L; continuous sand on R (mirrors PFO7's lensLayers).
 const lensLayers = [
-  layer('l1', 'L', 'sand', 'fSand', 0, 4),
-  layer('l2', 'L', 'silt', 'fSilt', 4, 5),
-  layer('l3', 'L', 'sand', 'fSand', 5, 10),
-  layer('r1', 'R', 'sand', 'fSand', 0, 10),
+  layer({ id: 'l1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+  layer({ id: 'l2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 5 }),
+  layer({ id: 'l3', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 5, depthBaseM: 10 }),
+  layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
 ]
 
 const transforms = {
@@ -98,7 +58,7 @@ const transforms = {
 
 const baseProps: Props = {
   lithoLayers: lensLayers,
-  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
   formationColorById: colors,
   formationLabelById: labels,
   showBands: true,
