@@ -81,6 +81,7 @@ _APPLICATION_PREFIX = "groundmodel.application."
 # deliberately absent because they delegate their algorithm to a compiled
 # domain/services module and stay source.
 _ENGINE_APPLICATION_EXPECTED = {
+    "groundmodel.application.band_planning",
     "groundmodel.application.divide_boreholes",
     "groundmodel.application.subdivide_all_bodies",
     "groundmodel.application.geotech_edge_derivation",
