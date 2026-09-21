@@ -106,6 +106,7 @@ export type GhostContactCopyPlan =
       kind: 'refused'
       reason:
         | 'target_has_ghost'
+        | 'target_has_accepted'
         | 'mixed_accepted_ghost'
         | 'no_pending_ghost'
         | 'below_terminal'
@@ -151,8 +152,15 @@ export function planGhostContactCopy(params: {
   // column with no suggestions, or one whose suggestions are all accepted or all
   // rejected, is a free target. Overwriting live pending suggestions would be a
   // silent surprise, so that case is refused.
-  const targetHasPendingSuggestion = targetSuggestions.some(s => !s.accepted && !s.rejected)
-  if (targetHasPendingSuggestion) {
+  // Owner ruling 2026-09-21: a column is occupied by anything it has NOT
+  // rejected. A pending suggestion is one the engineer has not judged yet; an
+  // accepted one is committed work. Only a column with no suggestions at all,
+  // or only rejected ones, is a free target. The two refusals carry different
+  // reasons so the toast can name accepted layers rather than "suggestions".
+  if (targetSuggestions.some(s => s.accepted)) {
+    return { kind: 'refused', reason: 'target_has_accepted' }
+  }
+  if (targetSuggestions.some(s => !s.accepted && !s.rejected)) {
     return { kind: 'refused', reason: 'target_has_ghost' }
   }
 
