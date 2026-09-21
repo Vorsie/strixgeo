@@ -50,6 +50,10 @@ export type PortVerdict = 'reachable' | 'foreign' | 'unreachable'
  *     ``'respawn'`` for the first death, or one after the window elapsed;
  *     ``'give-up'`` for a death still inside the window.
  */
+// ``lastRespawnAtMs`` is the moment the previous respawn became READY, not the
+// moment it was spawned. A slow packaged respawn can take up to the full
+// readiness window to bind; measured from spawn, a child that bound late and
+// died at once would look like a genuine recovery and be respawned forever.
 export function decideBackendRespawn(
   lastRespawnAtMs: number | null,
   nowMs: number,
