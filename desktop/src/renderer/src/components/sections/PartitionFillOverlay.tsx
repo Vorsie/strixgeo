@@ -71,6 +71,7 @@ import { resolveHighlightLayer } from './unjoinSpotlight'
 import UnitStatisticsPortalMenu, { type UnitStatsMenuState } from './UnitStatisticsPortalMenu'
 import { resolveRegionBodyId } from './regionBodyId'
 import { forwardContextMenuToColumn } from './forwardColumnContextMenu'
+import { fillRegionMenuTargetAt } from './fillRegionMenuTargetAt'
 import { resolveJoinPick, type JoinPick } from './joinPick'
 import { buildFillGroups, type FillGroupElement } from './sectionFillGroups'
 import {
@@ -3390,10 +3391,18 @@ export default function PartitionFillOverlay({
           )
         })}
 
-      {/* Per-region hit path + seam stroke. Rendered on EVERY axis: on the
-          geotech axis ``bodies`` is empty, so ``interactive`` is false and only
-          the stroke paints — the fill's hairline closure the packing bands
-          need, with none of the body gestures the axis does not have. */}
+      {/* Per-region hit path + seam stroke. Rendered on EVERY axis.
+          NOT "the geotech axis has no bodies" — that claim used to sit here and
+          is wrong: ``subdivide_all_bodies`` groups by
+          ``(body_id, source_geo_formation_id)``, so a geotech layer carries its
+          LITHO parent's ``body_id`` and ``resolveRegionBodyId`` (below) finds it
+          in ``bodyById``. The body menu is live on the geotech axis by the owner's
+          2026-08-31 ruling and is pinned by
+          ``PartitionFillOverlay.geotechBodyMenu.test.tsx`` (GBM1-3). What the
+          geotech axis lacks is contact EDITING (``viewOnly``), not bodies. The
+          unit-statistics menu is the fallback for a region whose layers resolve to
+          no body, for the roster still loading, and for the stratigraphy axis,
+          where ``bodyMenuEnabled`` is false because that model has no bodies. */}
       {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
@@ -3407,11 +3416,23 @@ export default function PartitionFillOverlay({
         // ``bodyById``.
         const resolvedBodyId = viewOnly ? layerResolvedBodyId : sr.region.bodyId
         const body = resolvedBodyId ? bodyById.get(resolvedBodyId) : undefined
-        // #279 item-1: the body menu waits for the body list to land — before
-        // that the stats menu (statsInteractive below) is the deliberate answer.
-        // Gated on ``bodyMenuEnabled`` (litho + geotech), NOT ``!viewOnly`` — the
-        // geotech axis opens the body menu without becoming edit-capable.
-        const interactive = Boolean(onBodyContextMenu && body) && bodyMenuEnabled && bodiesLoaded
+        // #279: one right-click opens exactly ONE menu, resolved once here and
+        // read by BOTH the cursor and the contextmenu handler so they can never
+        // disagree (the shared-cursor drift the debt entry documents). The body
+        // menu wins whenever it is genuinely available — wired, enabled
+        // (``bodyMenuEnabled`` is litho + geotech, NOT gated on ``!viewOnly`` so
+        // the geotech axis opens it without becoming edit-capable), a single body
+        // resolved, and the roster landed (#278 gate); otherwise the
+        // unit-statistics menu answers where its handler is wired — the only menu
+        // a pooled / mid-load region can offer, and a body's own menu carries the
+        // same statistics item. See ``fillRegionMenuTargetAt``.
+        const menuTarget = fillRegionMenuTargetAt({
+          bodyMenuWired: onBodyContextMenu !== undefined,
+          bodyMenuEnabled,
+          bodyResolved: body !== undefined,
+          rosterLoaded: bodiesLoaded,
+          statsMenuWired: unitStatsHandlerForAxis !== undefined,
+        })
         // Debt #278: while a Join is armed, EVERY region is left-clickable so the
         // engineer can pick the other body — the resolution through the region's
         // own layers decides commit / same / cross-class / unresolvable.
@@ -3426,14 +3447,6 @@ export default function PartitionFillOverlay({
         // body gesture, not contact editing. (The Separate arm was removed in the
         // body-verb simplification, owner 2026-09-01.)
         const armActive = joinArm != null && onJoinPick !== undefined && !correlateMode
-        // R2 / S7b (2026-08-27): a fill region answers right-click with
-        // "Unit statistics…" for its unit — on BOTH the litho and geotech axes
-        // (piece B), and on each it is the FALLBACK the body menu leaves behind:
-        // it answers only where ``interactive`` is false, i.e. where no single
-        // body resolves or the roster has not landed yet (a body's own menu
-        // carries its statistics item). Gated on the axis's handler so an unwired
-        // axis is byte-identical.
-        const statsInteractive = unitStatsHandlerForAxis !== undefined && !interactive
         // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
         // when a body is selected; the selected body renders at natural opacity
         // ("demote, never remove" precedent — the fill stays visible, just dimmed).
@@ -3472,7 +3485,7 @@ export default function PartitionFillOverlay({
                     // yields to correlate mode; ``armActive`` is already false
                     // under correlateMode, this is defence in depth.
                     { pointerEvents: interactivePtr, cursor: 'crosshair' }
-                  : interactive || statsInteractive
+                  : menuTarget !== null
                     ? { pointerEvents: interactivePtr, cursor: 'context-menu' }
                     : { pointerEvents: 'none' }
               }
@@ -3497,52 +3510,51 @@ export default function PartitionFillOverlay({
                   : undefined
               }
               onContextMenu={
-                interactive
-                  ? (e) => {
+                menuTarget === null
+                  ? undefined
+                  : (e) => {
                       e.preventDefault()
                       e.stopPropagation()
                       // Over a column the unified column menu wins (installer #40,
                       // owner: the fill overlay "eats my click"): forward the
                       // right-click to the ContactsLayer band beneath and stop —
-                      // the body menu is for the fill BETWEEN columns only. Litho
+                      // the fill menu is for the fill BETWEEN columns only. Litho
                       // axis only (the geotech axis has no per-column band menu).
+                      // The forwarder guards non-finite coords internally (a
+                      // synthetic event without a point), so it never throws.
                       if (
                         axisMode === 'lithostratigraphic' &&
                         forwardContextMenuToColumn(e.clientX, e.clientY)
                       )
                         return
-                      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                      onBodyContextMenu?.(
-                        body as BodyListItem,
-                        e.clientX - (rect?.left ?? 0),
-                        e.clientY - (rect?.top ?? 0),
-                        sr.region.layerIds,
-                      )
-                    }
-                  : statsInteractive
-                    ? (e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        // Same column-menu precedence for the stats fallback.
-                        if (
-                          axisMode === 'lithostratigraphic' &&
-                          forwardContextMenuToColumn(e.clientX, e.clientY)
+                      if (menuTarget === 'body') {
+                        const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
+                        onBodyContextMenu?.(
+                          body as BodyListItem,
+                          e.clientX - (rect?.left ?? 0),
+                          e.clientY - (rect?.top ?? 0),
+                          sr.region.layerIds,
                         )
-                          return
-                        setUnitStatsMenu({
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                          formationId: sr.region.formationId,
-                          bodyId: layerResolvedBodyId,
-                          // The region's own layers let the GEOTECH jump ladder
-                          // reach a class row when the body is unresolved (spec
-                          // §2 step 2, weld-merged regions). Only the geotech
-                          // (view-only) axis has a class level, so the litho
-                          // axis keeps its two-argument jump unchanged.
-                          regionLayerIds: viewOnly ? sr.region.layerIds : undefined,
-                        })
+                        return
                       }
-                    : undefined
+                      // The unit-statistics fallback. Its header NAMES the unit so
+                      // the two menus read as one family (#279): a right-click on a
+                      // fill always opens "the menu for this unit", richer when a
+                      // single body resolves.
+                      setUnitStatsMenu({
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        formationId: sr.region.formationId,
+                        bodyId: layerResolvedBodyId,
+                        // The region's own layers let the GEOTECH jump ladder
+                        // reach a class row when the body is unresolved (spec
+                        // §2 step 2, weld-merged regions). Only the geotech
+                        // (view-only) axis has a class level, so the litho
+                        // axis keeps its two-argument jump unchanged.
+                        regionLayerIds: viewOnly ? sr.region.layerIds : undefined,
+                        header: formationLabelById?.get(sr.region.formationId),
+                      })
+                    }
               }
             />
             {strokeD && (
