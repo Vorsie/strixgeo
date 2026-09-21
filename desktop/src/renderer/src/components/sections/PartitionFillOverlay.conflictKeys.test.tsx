@@ -13,11 +13,10 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { LithoLayerResponse } from '../../api/client'
 import type { TieConflict } from '../../utils/partitionFillV2'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 /** Conflicts the mocked engine reports for the next render. */
 const mockConflicts: { value: TieConflict[] } = { value: [] }
@@ -43,42 +42,9 @@ beforeEach(() => {
   mockConflicts.value = []
 })
 
-function layer(id: string, inv: string, formationId: string): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: 0,
-    depth_base_m: 10,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: 'b1',
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: 10 } },
-  } as unknown as PlacedColumn
-}
-
 const BASE: Props = {
-  lithoLayers: [layer('l1', 'L', 'fSand'), layer('l2', 'R', 'fSand')],
-  placedColumns: [column('L', 0), column('R', 200)],
+  lithoLayers: [layer({ id: 'l1', investigationId: 'L', formationId: 'fSand' }), layer({ id: 'l2', investigationId: 'R', formationId: 'fSand' })],
+  placedColumns: [column({ investigationId: 'L', along: 0 }), column({ investigationId: 'R', along: 200 })],
   formationColorById: new Map([['fSand', '#fbbf24']]),
   showBands: true,
   levelToScreen: (l: number) => 100 - l * 10,
