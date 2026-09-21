@@ -6523,33 +6523,55 @@ on-click Build path the voxel extraction already pays for). Pairs with the voxel
 builder ([[project_voxel_litho_builder]]) and the model-from-solids fill
 ([[project_litho_model_from_solids]]).
 
-## 225. Save must never silently write a 0-edge bundle when the model has edges (Tier B — data-loss guard, S)
+## 225. Save must never silently write a 0-edge bundle when the model has edges (Tier B — data-loss guard) — RESOLVED 2026-09-21
 
-**What.** `useProject.saveProject` does a fresh `GET /bundle` then writes the file.
-If that bundle comes back with `litho_contact_correlation_edges: []` (or any other
-normally-populated array empty) while the DB/model actually has rows, the save
-silently overwrites the `.strix` with empty data — a data-loss shape. Observed
-2026-06-25: a `test.strix` saved at 18:07 had **0 correlation edges** while the DB
-held **481** (the export query is correct and returns 707 when re-run, so the 18:07
-fetch hit a transient bad state). Add a guard: before `writeProjectFile`, if the
-freshly-fetched bundle has 0 edges (or 0 layers, etc.) but the in-memory
-model/section state says there should be edges, **abort the write + surface an
-error toast** ("Save aborted — the bundle came back empty; your data is safe in
-the app, retry") rather than writing the empty file. Belt-and-suspenders: keep the
-PREVIOUS good file as a `.bak` until the new write is validated (count-sanity:
-new-file edge count ≥ a small fraction of the prior, or ≥ what the section view
-shows).
+A pre-write guard now sits in the single `.strix` write funnel. `useProject`
+carries a per-collection count of the last opened / saved file
+(`lastKnownBundleCountsRef`, seeded on open / restore / new / Save-As adopt and
+refreshed after every successful save); before `writeProjectFile`, `saveProject`
+and `saveAsProject` compare the freshly fetched bundle against it.
 
-**Why deferred.** Not reproducible from the current DB (the export now returns all
-707), so it's a transient-state guard, not a live bug; and it sits in the save path
-which wasn't otherwise being touched. But it is the difference between "transient
-glitch, no harm" and "silent overwrite of the user's saved work", so it should land
-before any external distribution.
+**The rule is RETRY ONCE, THEN ASK** (owner, 2026-09-21, after a first version
+that hard-blocked the write). The hard block was wrong: clearing a model on
+purpose and then saving is a normal thing to do, and refusing it left the
+engineer looping through "your data is safe, retry" with no way forward. What
+must never happen is the overwrite going through *without being asked*. So:
 
-**When to revisit.** Before the coworker binary / first external distribution
-(pairs with the backwards-compat re-arm + #47). Implement as a pre-write invariant
-check in `saveProject` + an atomic `.bak` keep-last-good. Relates to
-[[project_two_stage_save_model]], [[project_decisions_in_bundle]].
+1. Nothing empty-while-expected: write the fetched bundle, exactly as before.
+2. A guarded collection came back `0` while the app holds rows: re-fetch the
+   bundle ONCE. The observed cause (2026-06-25) is a transient bad export state,
+   so the retry usually heals; when it does, the healed bundle is written and the
+   engineer is never bothered (WARNING log only, the save succeeds normally).
+3. The re-fetch STILL reads `0`: ask. A `ConfirmDialog` (Cancel default-focused,
+   the danger button reads "Save anyway" / "Toch opslaan") lists every affected
+   collection as "{label}: last save {expected}, now {now}". Confirm writes the
+   still-empty bundle; Cancel writes nothing, leaves the last good file untouched
+   and the project dirty (so the crash-recovery file is kept), and Save-As rolls
+   its freshly-minted duplicate row back so no orphan is left. With no dialog
+   wired (a bare-hook render) the guard refuses rather than overwrite.
+
+Expected counts: the live session manifest for the imported collections
+(`cpts` / `boreholes` / `geological_formations` / `cross_sections`), the
+last-known file counts for the interpretation collections
+(`litho_contact_correlation_edges`, per-model `litho_layers`, per-model formation
+`contacts`, `bodies`); a collection whose expected count is unknown (null ref
+before the first open) is left unguarded, so a save is never blocked on a count
+the app cannot trust.
+
+The pure decision is `desktop/src/renderer/src/utils/saveBundleGuard.ts`
+(`countBundleCollections` + `assessEmptyBundleGuard`), pinned in
+`saveBundleGuard.test.ts`; the orchestration is wired-tested in
+`useProject.saveRestore.test.tsx` (the healed re-fetch, ask-then-cancel,
+ask-then-save-anyway, the no-dialog refusal, a genuinely empty project, matching
+counts with no second fetch, and the Save-As question). The five guard tests were
+verified RED against the un-guarded save path before being accepted.
+
+The **belt-and-suspenders keep-last-good was already in place** and did NOT need
+adding: `project:write-file` writes through `writeFileAtomicKeepingGenerations`
+(temp file + fsync, then rotate `.strix.1..3`, then rename), so a crash mid-write
+never leaves a half file and the previous three generations survive a bad save.
+Relates to [[project_two_stage_save_model]], [[project_decisions_in_bundle]],
+docs/design/autosave-recovery.md §7.
 
 ## 226. Make `.strix` non-trivially editable (opaque/binary encoding) (Tier B — distribution, S) — RESOLVED 2026-09-01
 
