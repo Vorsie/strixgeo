@@ -21,49 +21,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
 import { nadClassColor } from '../../utils/nadClasses'
 import type { BodyListItem, LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => cleanup())
-
-function layer(
-  id: string,
-  inv: string,
-  formationId: string,
-  top: number,
-  base: number,
-  bodyId: string,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'geo-model-1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactCorrelationEdge {
   return {
@@ -83,10 +43,10 @@ function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactC
 // sand into n5 over n7 on both columns, both pairs tied — the n5 regions are all
 // body gb-0, the n7 regions body gb-1.
 const GEOTECH_LAYERS: LithoLayerResponse[] = [
-  layer('ga-L-0', 'L', 'nad-zand-5', 0, 6, 'gb-0'),
-  layer('ga-L-1', 'L', 'nad-zand-7', 6, 10, 'gb-1'),
-  layer('ga-R-0', 'R', 'nad-zand-5', 0, 5, 'gb-0'),
-  layer('ga-R-1', 'R', 'nad-zand-7', 5, 10, 'gb-1'),
+  layer({ id: 'ga-L-0', investigationId: 'L', formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 6, bodyId: 'gb-0' }),
+  layer({ id: 'ga-L-1', investigationId: 'L', formationId: 'nad-zand-7', depthTopM: 6, depthBaseM: 10, bodyId: 'gb-1' }),
+  layer({ id: 'ga-R-0', investigationId: 'R', formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 5, bodyId: 'gb-0' }),
+  layer({ id: 'ga-R-1', investigationId: 'R', formationId: 'nad-zand-7', depthTopM: 5, depthBaseM: 10, bodyId: 'gb-1' }),
 ]
 const GEOTECH_EDGES: LithoContactCorrelationEdge[] = [
   edge('ga-L-0', 'ga-R-0'),
@@ -96,8 +56,8 @@ const GEOTECH_EDGES: LithoContactCorrelationEdge[] = [
 
 const LITHO_FRAME: GeotechLithoFrame = {
   lithoLayers: [
-    layer('a1', 'L', 'formation-sand', 0, 10, 'body-sand'),
-    layer('b1', 'R', 'formation-sand', 0, 10, 'body-sand'),
+    layer({ id: 'a1', investigationId: 'L', formationId: 'formation-sand', depthTopM: 0, depthBaseM: 10, bodyId: 'body-sand' }),
+    layer({ id: 'b1', investigationId: 'R', formationId: 'formation-sand', depthTopM: 0, depthBaseM: 10, bodyId: 'body-sand' }),
   ],
   lithoEdges: [edge('a1', 'b1')],
   lithoFormationColorById: new Map([['formation-sand', '#fbbf24']]),
@@ -130,7 +90,7 @@ const geotechProps: Props = {
   lithoFrame: LITHO_FRAME,
   axisMode: 'geotechnical',
   bodies: [],
-  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
   formationColorById: NAD_COLOURS,
   showBands: true,
   levelToScreen: (l: number) => 200 - l * 10,
