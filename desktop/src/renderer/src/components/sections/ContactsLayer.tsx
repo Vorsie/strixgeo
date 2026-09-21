@@ -47,7 +47,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -64,7 +63,11 @@ import type {
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import type { ContactDragRelease } from './geotechSnapTargets'
-import { UnitStatisticsItem } from './unitStatisticsMenuItem'
+import {
+  MENU_HEADER_STYLE,
+  MENU_ITEM_BASE_STYLE as LITHO_MENU_ITEM_BASE_STYLE,
+  UnitStatisticsItem,
+} from './unitStatisticsMenuItem'
 import type { ColumnMenuVerb } from './columnMenuVerbs'
 import { lithoMenuTargetAt } from './lithoMenuTargetAt'
 import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
@@ -747,21 +750,10 @@ const PACKING_BOUNDARY_LINE_COLOR = '#94a3b8'
 // no commit, no state change. Mirrors the existing "zero-delta release"
 // no-op rule on the depth-only drag.
 const CLICK_TO_DRAG_THRESHOLD_PX = 3
-// Shared base style for the litho-band right-click menu's item buttons (Edit
-// composition / Split here / Remove / Add). Each button spreads this and sets
-// only its own ``color`` (danger vs primary) and an optional ``borderTop``
-// divider — extracted once the menu grew past two items (owner ruling
-// 2026-09-07 added Edit composition + Split here).
-const LITHO_MENU_ITEM_BASE_STYLE: CSSProperties = {
-  display: 'block',
-  width: '100%',
-  padding: '6px 12px',
-  textAlign: 'left',
-  fontSize: 12,
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-}
+// The litho-band right-click menu's item buttons (Edit composition / Split here
+// / Remove / Add) spread the shared colour-less ``MENU_ITEM_BASE_STYLE``
+// (imported above as ``LITHO_MENU_ITEM_BASE_STYLE``) and set only their own
+// ``color`` (danger vs primary) and an optional ``borderTop`` divider.
 // The menu-item divider (used to set apart the danger Remove verb and the
 // navigate-away Unit statistics jump from the edit verbs above them).
 const LITHO_MENU_ITEM_DIVIDER = '1px solid var(--color-border-default, #334155)'
@@ -3740,15 +3732,7 @@ export default function ContactsLayer({
                 acting on the unit below it (owner 2026-09-11). */}
             {menuColumnVerbs.length > 0 && (
               <>
-                <div
-                  data-testid="litho-band-context-menu-header"
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: 11,
-                    color: 'var(--color-text-secondary, #94a3b8)',
-                    borderBottom: LITHO_MENU_ITEM_DIVIDER,
-                  }}
-                >
+                <div data-testid="litho-band-context-menu-header" style={MENU_HEADER_STYLE}>
                   {lithoBandMenu.anchorName}
                 </div>
                 {menuColumnVerbs.map(verb => (
