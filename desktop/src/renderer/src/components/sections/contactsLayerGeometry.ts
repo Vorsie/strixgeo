@@ -4,9 +4,10 @@
  * This module is a zero-React, zero-side-effect extraction from
  * ``ContactsLayer.tsx``.  Every export here is a plain TypeScript
  * interface or a deterministic pure function — no hooks, no component
- * state, no DOM access.  That makes the module independently
- * unit-testable and keeps the parent component file focused on the
- * stateful drag state machine.
+ * state, and (with the single exception of ``svgLocalPointFromEvent``,
+ * which reads one element's bounding rect) no DOM access.  That makes the
+ * module independently unit-testable and keeps the parent component file
+ * focused on the stateful drag state machine.
  *
  * Contents
  * --------
@@ -174,6 +175,44 @@ export interface PolylineVertex {
  */
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+/**
+ * Convert a mouse event's viewport coordinates to a point local to an SVG
+ * element, by subtracting that element's bounding-rect top-left.
+ *
+ * The single source of the ``client − rect`` conversion the section overlays'
+ * drag and menu handlers repeat. ``svgOwner`` is typically
+ * ``someRef.current?.ownerSVGElement`` — possibly ``null`` before mount, and in
+ * jsdom ``getBoundingClientRect`` returns all-zero, so the ``?? 0`` fallbacks are
+ * load-bearing: a missing rect yields the raw client coordinates unchanged.
+ *
+ * The one export in this module that touches the DOM (a single
+ * ``getBoundingClientRect`` read); still deterministic given the DOM state, so a
+ * unit test injects a fake ``svgOwner`` with a known rect.
+ *
+ * Parameters
+ * ----------
+ * svgOwner
+ *     The SVG element to map into, or ``null`` / ``undefined``.
+ * e
+ *     Anything carrying viewport ``clientX`` / ``clientY`` (a React or native
+ *     mouse event).
+ *
+ * Returns
+ * -------
+ * { x: number; y: number }
+ *     The point in the SVG element's local pixel space.
+ */
+export function svgLocalPointFromEvent(
+  svgOwner: SVGSVGElement | null | undefined,
+  e: { clientX: number; clientY: number },
+): { x: number; y: number } {
+  const rect = svgOwner?.getBoundingClientRect()
+  return {
+    x: e.clientX - (rect?.left ?? 0),
+    y: e.clientY - (rect?.top ?? 0),
+  }
 }
 
 /**
