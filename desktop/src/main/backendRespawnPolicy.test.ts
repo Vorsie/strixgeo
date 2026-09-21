@@ -29,6 +29,15 @@ describe('decideBackendRespawn', () => {
     )
   })
 
+  it('measures the window from the respawn becoming READY, so a slow bind that dies at once is a crash loop', () => {
+    // A packaged respawn can spend most of its 3-minute readiness window
+    // binding. Counted from the SPAWN, a child ready at +70 s and dead at +75 s
+    // would read as a recovery (75 s > 60 s) and be respawned forever. The
+    // stamp the caller hands in is the READY moment, so this is 5 s: give up.
+    const readyAt = 1_000_000
+    expect(decideBackendRespawn(readyAt, readyAt + 5_000, BACKEND_RESPAWN_GUARD_MS)).toBe('give-up')
+  })
+
   it('the guard window is a minute', () => {
     expect(BACKEND_RESPAWN_GUARD_MS).toBe(60_000)
   })
