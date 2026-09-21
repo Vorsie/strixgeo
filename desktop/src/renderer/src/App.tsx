@@ -460,7 +460,7 @@ export default function App() {
   }>({ horizontal: null, vertical: null })
 
   // Geology deep-link target — set from the Sections (litho) canvas when
-  // the user picks "Edit in Geology stage" on a geological contact.
+  // the user picks "Edit in Stratigraphy stage" on a geological contact.
   // AppShell watches this, switches to the geology stage, and selects the
   // section. GeologyInspector reads it to highlight the specific contact.
   // Cleared after the navigation applies (single-fire).
