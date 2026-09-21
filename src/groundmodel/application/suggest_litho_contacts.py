@@ -21,6 +21,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.application.borehole_observation_layers_options import (
+    borehole_observation_layers_options,
+)
 from groundmodel.domain.services.gwt_resolution import resolve_gwt
 from groundmodel.domain.services.litho_segmentation import (
     LithoLayerSuggestion,
@@ -31,7 +34,6 @@ from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -264,11 +266,7 @@ class SuggestLithoContacts(GroundModelLogger):
                     BoreholeOrm.id == borehole_id,
                     BoreholeOrm.app_project_id == project_id,
                 )
-                .options(
-                    selectinload(BoreholeOrm.observations)
-                    .selectinload(ObservationOrm.layers)
-                    .selectinload(ObservationLayerOrm.admixtures)
-                )
+                .options(*borehole_observation_layers_options(include_admixtures=True))
             )
         ).scalar_one_or_none()
         if borehole is None:
