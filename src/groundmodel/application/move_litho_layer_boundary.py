@@ -46,16 +46,14 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
+from groundmodel.shared.constants.db_constraints import MIN_LAYER_THICKNESS_M
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-# Minimum resulting layer thickness for a boundary move. The no-overlap
-# exclusion constraint rounds depths to the millimetre (round(.,3)); a move
-# that leaves a layer thinner than this collapses to an empty/degenerate range
-# at the DB and trips ``litho_layer_accepted_no_overlap`` (dogfeed/e2e
-# 2026-06-06: a 1µm layer surfaced as an unhandled 500). Reject such moves
-# cleanly instead — the FE drag clamp keeps a larger gap, so a normal drag
-# never reaches this floor.
-_MIN_LAYER_THICKNESS_M = 0.001
+# Minimum resulting layer thickness for a boundary move: a move that would leave
+# a layer thinner than this is rejected cleanly (the FE drag clamp keeps a larger
+# gap, so a normal drag never reaches this floor). Rationale + value:
+# ``MIN_LAYER_THICKNESS_M``.
+_MIN_LAYER_THICKNESS_M = MIN_LAYER_THICKNESS_M
 
 
 class BoundaryMoveError(ValueError):
