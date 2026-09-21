@@ -40,7 +40,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from groundmodel.domain.services.dem_clip_constants import (
-    KIND_CONTACT_ABOVE_DEM,
     KIND_DEM_CELL_LOW_CONFIDENCE,
 )
 from groundmodel.domain.services.tin_surface import ContactPoint3D, TinSurface, compute_tin
@@ -69,122 +68,6 @@ class GroundPoint:
     x_m: float
     y_m: float
     surface_elevation_m: float | None = None
-
-
-@dataclass(frozen=True)
-class ClipResult:
-    """Output of ``clip_tin_to_dem``.
-
-    Attributes
-    ----------
-    surface : TinSurface
-        The clamped TIN.  When no DEM data is available for a vertex the
-        vertex is returned unchanged.  Triangle indices are unchanged.
-    issues : list[GapIssue]
-        Zero or more validation findings.  Empty list = clean clip.
-    clamp_count : int
-        Number of vertices that were actually lowered.
-    """
-
-    surface: TinSurface
-    issues: list[GapIssue]
-    clamp_count: int
-
-
-def clip_tin_to_dem(
-    surface: TinSurface,
-    dem_sample: Callable[[float, float], float | None],
-    *,
-    formation_name: str = "",
-) -> ClipResult:
-    """Clamp every TIN vertex to the DEM elevation at the same (x, y).
-
-    Parameters
-    ----------
-    surface : TinSurface
-        The formation's un-clamped surface from Delaunay triangulation.
-    dem_sample : Callable[[float, float], float | None]
-        Function that accepts ``(x, y)`` in the project CRS and returns the
-        DEM elevation in metres, or ``None`` when the cell is NoData /
-        outside coverage.  Typically ``DemZGrid.sample_at`` — passed as a
-        callable to keep this module import-free from infrastructure.
-    formation_name : str, optional
-        Human-readable name used in ``GapIssue.detail`` messages.  Empty
-        string is fine for tests.
-
-    Returns
-    -------
-    ClipResult
-        Clamped surface + validation issues + clamp count.
-
-    Notes
-    -----
-    * Vertices in a surface without triangles (degenerate TIN — fewer than
-      3 non-collinear contacts) are still clamped.  The caller may render
-      them as dots; the clamp ensures dots also honour the terrain.
-    * Triangle indices are UNCHANGED — clamping only mutates z values,
-      never removes vertices or reorders them.
-    """
-    if not surface.vertices:
-        return ClipResult(surface=surface, issues=[], clamp_count=0)
-
-    clamped_vertices: list[tuple[float, float, float]] = []
-    issues: list[GapIssue] = []
-    clamp_count = 0
-
-    for x, y, z in surface.vertices:
-        dem_z = dem_sample(x, y)
-
-        if dem_z is None:
-            # NoData cell — could be outside coverage or a water body.
-            # Leave vertex z unchanged; flag as low-confidence.
-            clamped_vertices.append((x, y, z))
-            issues.append(
-                GapIssue(
-                    kind=KIND_DEM_CELL_LOW_CONFIDENCE,
-                    detail=(
-                        f"DEM cell at ({x:.1f}, {y:.1f}) is NoData — "
-                        "may be outside coverage or over a water body "
-                        f"(formation: {formation_name!r}). "
-                        "Ground-surface clip not applied at this vertex."
-                    ),
-                    depth_m=None,
-                )
-            )
-            continue
-
-        if z > dem_z:
-            # Formation top overshoots the terrain.  Clamp and flag.
-            clamp_count += 1
-            clamped_vertices.append((x, y, dem_z))
-            if z - dem_z > 0.05:
-                # Only emit a contact-above-DEM issue when the overshoot
-                # is > 5 cm — rounding at the survey / model boundary means
-                # tiny differences are expected and not actionable.
-                issues.append(
-                    GapIssue(
-                        kind=KIND_CONTACT_ABOVE_DEM,
-                        detail=(
-                            f"Vertex at ({x:.1f}, {y:.1f}) z={z:.3f} m is "
-                            f"{z - dem_z:.3f} m above DEM ({dem_z:.3f} m) — "
-                            f"clamped to terrain (formation: {formation_name!r}). "
-                            "Check contact elevation or DEM accuracy."
-                        ),
-                        depth_m=round(z - dem_z, 3),
-                    )
-                )
-        else:
-            clamped_vertices.append((x, y, z))
-
-    clamped_surface = TinSurface(
-        vertices=clamped_vertices,
-        triangles=surface.triangles,
-    )
-    return ClipResult(
-        surface=clamped_surface,
-        issues=issues,
-        clamp_count=clamp_count,
-    )
 
 
 def build_ground_surface_tin(
@@ -217,7 +100,8 @@ def build_ground_surface_tin(
     Parameters
     ----------
     dem_sample : Callable[[float, float], float | None]
-        DEM sampler; same contract as in ``clip_tin_to_dem``.
+        DEM sampler returning the elevation at `(x, y)` in the project CRS,
+        or `None` for a NoData cell.
     hull_points : list[tuple[float, float]]
         (x, y) locations of all investigations in the project.  Used both to
         derive the bounding box and as anchor vertices.
@@ -353,7 +237,8 @@ def assess_ground_coverage(
     Parameters
     ----------
     dem_sample : Callable[[float, float], float | None]
-        DEM sampler; same contract as in ``clip_tin_to_dem``.
+        DEM sampler returning the elevation at `(x, y)` in the project CRS,
+        or `None` for a NoData cell.
     points : Sequence[GroundPoint]
         Investigation locations to check, each carrying a display label.
 
