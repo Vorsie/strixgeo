@@ -64,10 +64,7 @@ from groundmodel.domain.services.geotech_band_reclassification import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-
-# Depths are rounded to the millimetre before they are written — the no-overlap
-# exclusion constraint compares ``round(depth, 3)``.
-_DEPTH_DECIMALS = 3
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 
 # The allowance within which two depths on one column are the same depth. A
 # rounding width, not a matching heuristic: the band materialiser rounds to 3
@@ -225,7 +222,7 @@ class MoveRestatedContact(GeotechBoreholeMaterialiser):
         rows = [upper_ctx.band_rows[str(upper_band_id)], upper_ctx.band_rows[str(lower_band_id)]]
         rows.sort(key=lambda r: r.depth_top_m)
         upper_row, lower_row = rows[0], rows[1]
-        boundary_m = round(new_depth_m, _DEPTH_DECIMALS)
+        boundary_m = round(new_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
 
         # The litho pair is resolved from the DATABASE, at the boundary being
         # moved — never handed in by the caller. The renderer used to match the
