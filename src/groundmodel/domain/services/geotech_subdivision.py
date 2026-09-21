@@ -19,6 +19,7 @@ from groundmodel.domain.services.representative_statistic import (
     representative_qc,
 )
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 from groundmodel.shared.constants.litho_constants import BaseLithology
 
 # Owner rule (2026-07-25): a unit is flagged "needs review" (no guessed NAD class)
@@ -749,7 +750,10 @@ def suggest_geotech_subdivision(
     #
     #    Rounded FIRST, so the classes are derived from exactly the intervals that get
     #    written, not from intervals half a millimetre away from them.
-    bands = [[round(top, 3), round(base, 3), cls] for top, base, cls in bands]
+    bands = [
+        [round(top, LITHO_LAYER_DEPTH_DECIMALS), round(base, LITHO_LAYER_DEPTH_DECIMALS), cls]
+        for top, base, cls in bands
+    ]
     for _ in range(_REDERIVE_MAX_PASSES):
         rederived = [
             [
