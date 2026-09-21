@@ -52,56 +52,15 @@ import type {
   BodyBoundaryResponse,
   BodyListItem,
   LithoContactCorrelationEdge,
-  LithoLayerResponse,
 } from '../../api/client'
 import type { PartitionRegion } from '../../utils/sectionPartition'
 import * as partitionEngineSelect from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import { isApexShapeable } from './partitionFillOverlayHelpers'
 import type { Props } from './PartitionFillOverlay'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => cleanup())
-
-function layer(
-  id: string,
-  inv: string,
-  bodyId: string,
-  formationId: string,
-  top: number,
-  base: number,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 const colors = new Map([
   ['fSand', '#fbbf24'],
@@ -118,12 +77,12 @@ const labels = new Map([
 // R at x=100 (leftX=80, rightX=120).  Gap: leftX=20, rightX=80.
 const base: Props = {
   lithoLayers: [
-    layer('a1', 'L', 'sand', 'fSand', 0, 5),
-    layer('a2', 'L', 'clay', 'fClay', 5, 10),
-    layer('b1', 'R', 'sand', 'fSand', 0, 6),
-    layer('b2', 'R', 'clay', 'fClay', 6, 10),
+    layer({ id: 'a1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+    layer({ id: 'a2', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+    layer({ id: 'b1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 6 }),
+    layer({ id: 'b2', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 6, depthBaseM: 10 }),
   ],
-  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
   formationColorById: colors,
   formationLabelById: labels,
   showBands: true,
@@ -267,10 +226,10 @@ function distSqPointToSeg(p: { x: number; y: number }, a: { x: number; y: number
 // Enclosed silt lens in a sand matrix on L; continuous sand on R.
 // Column L: nudgedX=0, width=40 → gap leftX=20, rightX=80.
 const lensLayers = [
-  layer('l1', 'L', 'sand', 'fSand', 0, 4),
-  layer('l2', 'L', 'silt', 'fSilt', 4, 5),
-  layer('l3', 'L', 'sand', 'fSand', 5, 10),
-  layer('r1', 'R', 'sand', 'fSand', 0, 10),
+  layer({ id: 'l1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+  layer({ id: 'l2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 5 }),
+  layer({ id: 'l3', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 5, depthBaseM: 10 }),
+  layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
 ]
 
 describe('PartitionFillOverlay', () => {
@@ -351,12 +310,12 @@ describe('PartitionFillOverlay', () => {
   it('PFO4 — an interrupted body renders as TWO pieces, not one swept band', () => {
     const { queryAllByTestId } = renderOverlay({
       lithoLayers: [
-        layer('l1', 'L', 'sandtop', 'fSand', 0, 2),
-        layer('l2', 'L', 'silt', 'fSilt', 2, 4),
-        layer('l3', 'L', 'clay', 'fClay', 4, 10),
-        layer('r1', 'R', 'clay', 'fClay', 0, 2),
-        layer('r2', 'R', 'silt', 'fSilt', 2, 4),
-        layer('r3', 'R', 'clay', 'fClay', 4, 10),
+        layer({ id: 'l1', investigationId: 'L', bodyId: 'sandtop', formationId: 'fSand', depthTopM: 0, depthBaseM: 2 }),
+        layer({ id: 'l2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 2, depthBaseM: 4 }),
+        layer({ id: 'l3', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 4, depthBaseM: 10 }),
+        layer({ id: 'r1', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 0, depthBaseM: 2 }),
+        layer({ id: 'r2', investigationId: 'R', bodyId: 'silt', formationId: 'fSilt', depthTopM: 2, depthBaseM: 4 }),
+        layer({ id: 'r3', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 4, depthBaseM: 10 }),
       ],
     })
     expect(queryAllByTestId('partition-region-clay').length).toBeGreaterThanOrEqual(2)
@@ -441,14 +400,14 @@ describe('PartitionFillOverlay', () => {
   const threeColLens: Partial<Props> = {
     // L sand, M sand/silt/sand (enclosed lens), R sand → silt pinches BOTH ways.
     lithoLayers: [
-      layer('L1', 'L', 'sandL', 'fSand', 0, 10),
-      layer('M1', 'M', 'sandM', 'fSand', 0, 4),
-      layer('M2', 'M', 'silt', 'fSilt', 4, 5),
-      layer('M3', 'M', 'sandMlo', 'fSand', 5, 10),
-      layer('R1', 'R', 'sandR', 'fSand', 0, 10),
+      layer({ id: 'L1', investigationId: 'L', bodyId: 'sandL', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
+      layer({ id: 'M1', investigationId: 'M', bodyId: 'sandM', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+      layer({ id: 'M2', investigationId: 'M', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 5 }),
+      layer({ id: 'M3', investigationId: 'M', bodyId: 'sandMlo', formationId: 'fSand', depthTopM: 5, depthBaseM: 10 }),
+      layer({ id: 'R1', investigationId: 'R', bodyId: 'sandR', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
     ],
     // L@0, M@100, R@200 (width 40) → gap0 [20,80], gap1 [120,180].
-    placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+    placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'M', along: 100, elevationM: 10 }), column({ investigationId: 'R', along: 200, elevationM: 10 })],
   }
 
   it('LB-GAP — a two-gap lens renders each apex node only in its owning gap', () => {
@@ -589,12 +548,12 @@ describe('PartitionFillOverlay', () => {
     // The partition extracts silt as a lens; sand + clay are matched quads.
     // Both a boundary add-strip AND lens add-strips should exist.
     const mixedLayers = [
-      layer('m1', 'L', 'sand', 'fSand', 0, 4),
-      layer('m2', 'L', 'silt', 'fSilt', 4, 5),
-      layer('m3', 'L', 'sand', 'fSand', 5, 8),
-      layer('m4', 'L', 'clay', 'fClay', 8, 10),
-      layer('m5', 'R', 'sand', 'fSand', 0, 7),
-      layer('m6', 'R', 'clay', 'fClay', 7, 10),
+      layer({ id: 'm1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+      layer({ id: 'm2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 5 }),
+      layer({ id: 'm3', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 5, depthBaseM: 8 }),
+      layer({ id: 'm4', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 8, depthBaseM: 10 }),
+      layer({ id: 'm5', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 7 }),
+      layer({ id: 'm6', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 7, depthBaseM: 10 }),
     ]
     const { getByTestId } = renderOverlay({
       lithoLayers: mixedLayers,
@@ -889,18 +848,18 @@ describe('PartitionFillOverlay', () => {
     // lens is enclosed in sand (present on L and R) so it is extracted into
     // BOTH flanking gaps — the exact collision the old keying produced.
     const threeCol = [
-      layer('l1', 'L', 'sand', 'fSand', 0, 5),
-      layer('l2', 'L', 'clay', 'fClay', 5, 10),
-      layer('m1', 'M', 'sand', 'fSand', 0, 2),
-      layer('m2', 'M', 'silt', 'fSilt', 2, 3),
-      layer('m3', 'M', 'sand', 'fSand', 3, 5),
-      layer('m4', 'M', 'clay', 'fClay', 5, 10),
-      layer('r1', 'R', 'sand', 'fSand', 0, 5),
-      layer('r2', 'R', 'clay', 'fClay', 5, 10),
+      layer({ id: 'l1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+      layer({ id: 'l2', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+      layer({ id: 'm1', investigationId: 'M', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 2 }),
+      layer({ id: 'm2', investigationId: 'M', bodyId: 'silt', formationId: 'fSilt', depthTopM: 2, depthBaseM: 3 }),
+      layer({ id: 'm3', investigationId: 'M', bodyId: 'sand', formationId: 'fSand', depthTopM: 3, depthBaseM: 5 }),
+      layer({ id: 'm4', investigationId: 'M', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+      layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+      layer({ id: 'r2', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
     ]
     renderOverlay({
       lithoLayers: threeCol,
-      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+      placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'M', along: 100, elevationM: 10 }), column({ investigationId: 'R', along: 200, elevationM: 10 })],
       ...transforms,
       onSaveBoundary: vi.fn(),
       plotRight: 300,
@@ -999,8 +958,8 @@ describe('PartitionFillOverlay', () => {
     // 1 * 0.15 = 0.15 < MIN_FONT (8); fit gate: height(1) < 8+2 → no label.
     const { queryAllByTestId } = renderOverlay({
       lithoLayers: [
-        layer('t1', 'L', 'thin', 'fSand', 0, 0.1),
-        layer('t2', 'R', 'thin', 'fSand', 0, 0.1),
+        layer({ id: 't1', investigationId: 'L', bodyId: 'thin', formationId: 'fSand', depthTopM: 0, depthBaseM: 0.1 }),
+        layer({ id: 't2', investigationId: 'R', bodyId: 'thin', formationId: 'fSand', depthTopM: 0, depthBaseM: 0.1 }),
       ],
     })
     expect(queryAllByTestId('partition-label-thin')).toHaveLength(0)
@@ -1010,13 +969,13 @@ describe('PartitionFillOverlay', () => {
     // Three columns: L, M, R. Sand body spans both (L,M) and (M,R) gaps.
     // The per-body rule ensures we emit only ONE <text> for the sand body.
     const threeCols = [
-      layer('s1', 'L', 'sand', 'fSand', 0, 10),
-      layer('s2', 'M', 'sand', 'fSand', 0, 10),
-      layer('s3', 'R', 'sand', 'fSand', 0, 10),
+      layer({ id: 's1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
+      layer({ id: 's2', investigationId: 'M', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
+      layer({ id: 's3', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
     ]
     const { getAllByTestId, queryAllByTestId } = renderOverlay({
       lithoLayers: threeCols,
-      placedColumns: [column('L', 0, 10), column('M', 100, 10), column('R', 200, 10)],
+      placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'M', along: 100, elevationM: 10 }), column({ investigationId: 'R', along: 200, elevationM: 10 })],
       plotRight: 300,
     })
     // At least one sand region renders (sanity).
@@ -1141,10 +1100,10 @@ describe('PartitionFillOverlay', () => {
     // no stroke segment midpoint may lie ON a shared same-litho edge.
     const { container } = renderOverlay({
       lithoLayers: [
-        layer('l1', 'L', 'clayA', 'fClay', 0, 4),
-        layer('l2', 'L', 'silt', 'fSilt', 4, 6),
-        layer('l3', 'L', 'clayB', 'fClay', 6, 10),
-        layer('r1', 'R', 'clayA', 'fClay', 0, 10),
+        layer({ id: 'l1', investigationId: 'L', bodyId: 'clayA', formationId: 'fClay', depthTopM: 0, depthBaseM: 4 }),
+        layer({ id: 'l2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 6 }),
+        layer({ id: 'l3', investigationId: 'L', bodyId: 'clayB', formationId: 'fClay', depthTopM: 6, depthBaseM: 10 }),
+        layer({ id: 'r1', investigationId: 'R', bodyId: 'clayA', formationId: 'fClay', depthTopM: 0, depthBaseM: 10 }),
       ],
     })
     // The right column is ALL clay: where the silt pinches out mid-gap, clayA
@@ -1261,10 +1220,10 @@ describe('PartitionFillOverlay', () => {
     // — a same-litho interior seam that must dissolve into ONE clay paint op.
     const { container } = renderOverlay({
       lithoLayers: [
-        layer('l1', 'L', 'clayA', 'fClay', 0, 4),
-        layer('l2', 'L', 'silt', 'fSilt', 4, 6),
-        layer('l3', 'L', 'clayB', 'fClay', 6, 10),
-        layer('r1', 'R', 'clayA', 'fClay', 0, 10),
+        layer({ id: 'l1', investigationId: 'L', bodyId: 'clayA', formationId: 'fClay', depthTopM: 0, depthBaseM: 4 }),
+        layer({ id: 'l2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 6 }),
+        layer({ id: 'l3', investigationId: 'L', bodyId: 'clayB', formationId: 'fClay', depthTopM: 6, depthBaseM: 10 }),
+        layer({ id: 'r1', investigationId: 'R', bodyId: 'clayA', formationId: 'fClay', depthTopM: 0, depthBaseM: 10 }),
       ],
     })
     const groups = Array.from(
@@ -1321,11 +1280,11 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
   // L: clay / silt / sand ; R: clay / sand. Silt is present on L only and its TOP
   // is tied to R's sand top -> v2 onlap pinch tip (kind:'pinch', frac 0..<1).
   const onlapLayers = [
-    layer('l-clay', 'L', 'clay', 'fClay', 0, 3),
-    layer('l-silt', 'L', 'silt', 'fSilt', 3, 4),
-    layer('l-sand', 'L', 'sand', 'fSand', 4, 8),
-    layer('r-clay', 'R', 'clay', 'fClay', 0, 3),
-    layer('r-sand', 'R', 'sand', 'fSand', 3, 8),
+    layer({ id: 'l-clay', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'l-silt', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 4 }),
+    layer({ id: 'l-sand', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4, depthBaseM: 8 }),
+    layer({ id: 'r-clay', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'r-sand', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 3, depthBaseM: 8 }),
   ]
 
   it('V2P1 — a lone v2 pinch tip (onlap) exposes the apex freedraw add-strips', () => {
@@ -1403,10 +1362,10 @@ describe('PartitionFillOverlay — apex gesture on engine v2 (V2P)', () => {
   // that band (a vertex past 80 would spill into the right column — the overlap
   // the owner forbids).
   const v2LensLayers = [
-    layer('vl1', 'L', 'sand', 'fSand', 0, 4),
-    layer('vl2', 'L', 'silt', 'fSilt', 4, 6),
-    layer('vl3', 'L', 'sand2', 'fSand', 6, 10),
-    layer('vr1', 'R', 'sand', 'fSand', 0, 10),
+    layer({ id: 'vl1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+    layer({ id: 'vl2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 6 }),
+    layer({ id: 'vl3', investigationId: 'L', bodyId: 'sand2', formationId: 'fSand', depthTopM: 6, depthBaseM: 10 }),
+    layer({ id: 'vr1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
   ]
   const GAP_LEFT_X = 20
   const GAP_RIGHT_X = 80
@@ -1571,10 +1530,10 @@ describe('PartitionFillOverlay — contact wiring on engine v2 (CW)', () => {
     } as LithoContactCorrelationEdge
   }
   const cwLayers = [
-    layer('a1', 'L', 'sand', 'fSand', 0, 5),
-    layer('a2', 'L', 'clay', 'fClay', 5, 10),
-    layer('b1', 'R', 'sand', 'fSand', 0, 5),
-    layer('b2', 'R', 'clay', 'fClay', 5, 10),
+    layer({ id: 'a1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+    layer({ id: 'a2', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+    layer({ id: 'b1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+    layer({ id: 'b2', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
   ]
   const cwProps = { lithoLayers: cwLayers, contactEdges: [cwEdge('a1', 'b1'), cwEdge('a2', 'b2')] }
 
@@ -1736,14 +1695,14 @@ describe('PartitionFillOverlay — stacked-lens targeting on engine v2 (ST)', ()
   // way the real wide pinch tips do (a column-hugging synthetic lens never
   // overlaps the click). L = the stack; R = full sand.
   const stackLayers = [
-    layer('s0', 'L', 'sand', 'fSand', 0, 3.5),
-    layer('u2', 'L', 'silt2', 'fSilt', 3.5, 4.1), // upper silt lens
-    layer('sa', 'L', 'sand', 'fSand', 4.1, 4.3),
-    layer('u3', 'L', 'silt3', 'fSilt', 4.3, 4.9), // middle silt lens
-    layer('sb', 'L', 'sand', 'fSand', 4.9, 5.1),
-    layer('u4', 'L', 'silt4', 'fSilt', 5.1, 6.2), // lower silt lens
-    layer('s5', 'L', 'sand', 'fSand', 6.2, 10),
-    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+    layer({ id: 's0', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3.5 }),
+    layer({ id: 'u2', investigationId: 'L', bodyId: 'silt2', formationId: 'fSilt', depthTopM: 3.5, depthBaseM: 4.1 }), // upper silt lens
+    layer({ id: 'sa', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.1, depthBaseM: 4.3 }),
+    layer({ id: 'u3', investigationId: 'L', bodyId: 'silt3', formationId: 'fSilt', depthTopM: 4.3, depthBaseM: 4.9 }), // middle silt lens
+    layer({ id: 'sb', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.9, depthBaseM: 5.1 }),
+    layer({ id: 'u4', investigationId: 'L', bodyId: 'silt4', formationId: 'fSilt', depthTopM: 5.1, depthBaseM: 6.2 }), // lower silt lens
+    layer({ id: 's5', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 6.2, depthBaseM: 10 }),
+    layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
   ]
   // Give each lens a mid-gap apex so its add-strips span the gap (overlapping
   // region near the click). levelToScreen: y = 100 - elev*10.
@@ -1814,14 +1773,14 @@ describe('PartitionFillOverlay — region-containment targeting invariant (RC, e
   // The gap5 shape: thin stacked silt lenses in a sand matrix, each pushed to a
   // mid-gap apex so their edges span the gap (as the real wide pinch tips do).
   const stackLayers = [
-    layer('s0', 'L', 'sand', 'fSand', 0, 3.5),
-    layer('u2', 'L', 'silt2', 'fSilt', 3.5, 4.1),
-    layer('sa', 'L', 'sand', 'fSand', 4.1, 4.3),
-    layer('u3', 'L', 'silt3', 'fSilt', 4.3, 4.9),
-    layer('sb', 'L', 'sand', 'fSand', 4.9, 5.1),
-    layer('u4', 'L', 'silt4', 'fSilt', 5.1, 6.2),
-    layer('s5', 'L', 'sand', 'fSand', 6.2, 10),
-    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+    layer({ id: 's0', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3.5 }),
+    layer({ id: 'u2', investigationId: 'L', bodyId: 'silt2', formationId: 'fSilt', depthTopM: 3.5, depthBaseM: 4.1 }),
+    layer({ id: 'sa', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.1, depthBaseM: 4.3 }),
+    layer({ id: 'u3', investigationId: 'L', bodyId: 'silt3', formationId: 'fSilt', depthTopM: 4.3, depthBaseM: 4.9 }),
+    layer({ id: 'sb', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.9, depthBaseM: 5.1 }),
+    layer({ id: 'u4', investigationId: 'L', bodyId: 'silt4', formationId: 'fSilt', depthTopM: 5.1, depthBaseM: 6.2 }),
+    layer({ id: 's5', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 6.2, depthBaseM: 10 }),
+    layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
   ]
   const stackBoundaries = new Map<string, BodyBoundaryResponse>([
     ['silt2', { upper_nodes: [{ along_m: 55, elevation_m: 6.3 }], lower_nodes: [{ along_m: 55, elevation_m: 5.85 }] } as unknown as BodyBoundaryResponse],
@@ -2006,14 +1965,14 @@ describe('PartitionFillOverlay — ghost-contact handle suppression (GH, engine 
   // interior seam the engine floods back); each silt lens is a LIVE enclosed lens
   // the engine consumes. So: sand handle SUPPRESSED, silt handles PRESENT.
   const ghostStack = [
-    layer('s0', 'L', 'sand', 'fSand', 0, 3.5),
-    layer('u2', 'L', 'silt2', 'fSilt', 3.5, 4.1),
-    layer('sa', 'L', 'sand', 'fSand', 4.1, 4.3),
-    layer('u3', 'L', 'silt3', 'fSilt', 4.3, 4.9),
-    layer('sb', 'L', 'sand', 'fSand', 4.9, 5.1),
-    layer('u4', 'L', 'silt4', 'fSilt', 5.1, 6.2),
-    layer('s5', 'L', 'sand', 'fSand', 6.2, 10),
-    layer('r1', 'R', 'sand', 'fSand', 0, 10),
+    layer({ id: 's0', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3.5 }),
+    layer({ id: 'u2', investigationId: 'L', bodyId: 'silt2', formationId: 'fSilt', depthTopM: 3.5, depthBaseM: 4.1 }),
+    layer({ id: 'sa', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.1, depthBaseM: 4.3 }),
+    layer({ id: 'u3', investigationId: 'L', bodyId: 'silt3', formationId: 'fSilt', depthTopM: 4.3, depthBaseM: 4.9 }),
+    layer({ id: 'sb', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4.9, depthBaseM: 5.1 }),
+    layer({ id: 'u4', investigationId: 'L', bodyId: 'silt4', formationId: 'fSilt', depthTopM: 5.1, depthBaseM: 6.2 }),
+    layer({ id: 's5', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 6.2, depthBaseM: 10 }),
+    layer({ id: 'r1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
   ]
 
   it('GH1 — a ghost same-litho convergence tip renders NO grab handle, a live lens keeps its handle', async () => {
@@ -2117,12 +2076,12 @@ describe('PartitionFillOverlay — S72 node-on-boundary + apex-floor (engine v2)
     } as LithoContactCorrelationEdge
   }
   const matchedStackN = [
-    layer('a1', 'L', 'sand', 'fSand', 0, 3),
-    layer('a2', 'L', 'silt', 'fSilt', 3, 5),
-    layer('a3', 'L', 'clay', 'fClay', 5, 10),
-    layer('b1', 'R', 'sand', 'fSand', 0, 3),
-    layer('b2', 'R', 'silt', 'fSilt', 3, 5),
-    layer('b3', 'R', 'clay', 'fClay', 5, 10),
+    layer({ id: 'a1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'a2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 5 }),
+    layer({ id: 'a3', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+    layer({ id: 'b1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'b2', investigationId: 'R', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 5 }),
+    layer({ id: 'b3', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
   ]
   const matchedEdgesN = [nEdge('a1', 'b1'), nEdge('a2', 'b2'), nEdge('a3', 'b3')]
 
@@ -2263,12 +2222,12 @@ describe('PartitionFillOverlay — S72 tie-bounded base grab (engine v2)', () =>
     } as LithoContactCorrelationEdge
   }
   const matchedStack = [
-    layer('a1', 'L', 'sand', 'fSand', 0, 3),
-    layer('a2', 'L', 'silt', 'fSilt', 3, 5),
-    layer('a3', 'L', 'clay', 'fClay', 5, 10),
-    layer('b1', 'R', 'sand', 'fSand', 0, 3),
-    layer('b2', 'R', 'silt', 'fSilt', 3, 5),
-    layer('b3', 'R', 'clay', 'fClay', 5, 10),
+    layer({ id: 'a1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'a2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 5 }),
+    layer({ id: 'a3', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+    layer({ id: 'b1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'b2', investigationId: 'R', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 5 }),
+    layer({ id: 'b3', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
   ]
   const matchedEdges = [tEdge('a1', 'b1'), tEdge('a2', 'b2'), tEdge('a3', 'b3')]
 
@@ -2389,11 +2348,11 @@ describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2
   // ONLAP tip. The onlap carves SAND into a shapeable pinch in the gap while sand is
   // also a full-width band elsewhere — the exact SC1 collision.
   const onlapLayers = [
-    layer('l-clay', 'L', 'clay', 'fClay', 0, 3),
-    layer('l-silt', 'L', 'silt', 'fSilt', 3, 4),
-    layer('l-sand', 'L', 'sand', 'fSand', 4, 8),
-    layer('r-clay', 'R', 'clay', 'fClay', 0, 3),
-    layer('r-sand', 'R', 'sand', 'fSand', 3, 8),
+    layer({ id: 'l-clay', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'l-silt', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 3, depthBaseM: 4 }),
+    layer({ id: 'l-sand', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 4, depthBaseM: 8 }),
+    layer({ id: 'r-clay', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 0, depthBaseM: 3 }),
+    layer({ id: 'r-sand', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 3, depthBaseM: 8 }),
   ]
 
   function allHandleDots(container: HTMLElement): Element[] {
@@ -2498,10 +2457,10 @@ describe('PartitionFillOverlay — single-surface per stored node (SC, engine v2
   // An ENCLOSED silt lens in a sand matrix on L; continuous sand on R — the engine-
   // consumed shapeable face (S64). Gap [20,80].
   const enclosedLensLayers = [
-    layer('vl1', 'L', 'sand', 'fSand', 0, 4),
-    layer('vl2', 'L', 'silt', 'fSilt', 4, 6),
-    layer('vl3', 'L', 'sand2', 'fSand', 6, 10),
-    layer('vr1', 'R', 'sand', 'fSand', 0, 10),
+    layer({ id: 'vl1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+    layer({ id: 'vl2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 6 }),
+    layer({ id: 'vl3', investigationId: 'L', bodyId: 'sand2', formationId: 'fSand', depthTopM: 6, depthBaseM: 10 }),
+    layer({ id: 'vr1', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 10 }),
   ]
 
   function siltApexReach(el: HTMLElement): number {
