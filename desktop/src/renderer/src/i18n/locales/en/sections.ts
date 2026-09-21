@@ -517,12 +517,9 @@ export const SECTIONS = {
   'sections.header.streamToggles':
     'Borehole interpretation stream toggles: each enabled stream renders as its own strip side by side',
   'sections.header.formalStratigraphy': 'Formal stratigraphy',
-  'sections.header.formalStratigraphyShort': 'F-Strat',
   'sections.header.informalStratigraphy': 'Informal stratigraphy',
-  'sections.header.informalStratigraphyShort': 'I-Strat',
   'sections.header.codedLithology': 'Coded lithology',
   'sections.header.geotechnicalCoding': 'Geotechnical coding',
-  'sections.header.geotechnicalCodingShort': 'Geo',
 
   'sections.hints.f1': 'Press F1 for the full gesture reference',
   // The canvas-wide pan/zoom/column gesture line (was hardcoded in CanvasHints
