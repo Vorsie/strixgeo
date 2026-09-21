@@ -37,6 +37,8 @@ from __future__ import annotations
 from collections import deque
 from uuid import UUID
 
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
+
 
 def bridge_litho_edges_over_bandless_columns(
     *,
@@ -187,7 +189,7 @@ def bridged_contact_pairs(
         inv, top, base = entry
         # Millimetre identity: litho depths are stored on the mm grid, so two
         # rows naming one contact agree to well under this rounding.
-        return (inv, round(top if side == "top" else base, 3))
+        return (inv, round(top if side == "top" else base, LITHO_LAYER_DEPTH_DECIMALS))
 
     # The contact graph: node → {(neighbour node, how the tie names the
     # neighbour end)}. The (layer, side) label rides along so an emitted pair
