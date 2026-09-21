@@ -19,6 +19,8 @@ Covered:
 
 from __future__ import annotations
 
+import warnings
+
 import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -389,6 +391,88 @@ async def test_v3_bundle_still_restores(db_session: AsyncSession, project_with_l
     assert layer is not None
     assert layer.status == "accepted"
     assert layer.depth_top_m == 4.0
+
+
+# ---------------------------------------------------------------------------
+# Debt #193 — FC→LL trigger identity collision in v4 bundle restore
+# ---------------------------------------------------------------------------
+
+
+# The two exact SAWarning message fragments SQLAlchemy emits when a PENDING
+# instance is inserted while a PERSISTENT instance already owns its identity
+# key. Asserting on the message text (not the SAWarning category alone) pins
+# the *collision* class specifically and ignores every other benign warning.
+_FC_LL_COLLISION_MARKERS = (
+    "conflicts with persistent instance",
+    "Identity map already had an identity",
+)
+
+
+async def test_replace_restore_emits_no_fc_ll_identity_collision_warning(
+    db_session: AsyncSession, project_with_litho: dict
+) -> None:
+    """A build→replace-restore on one session raises NO FC→LL identity
+    collision warning (debt #193).
+
+    The FC↔LL mirror makes ``litho_layer.id`` equal its mirrored
+    ``formation_contact.id`` (see ``test_v4_bundle_emits_litho_layers_under_each_model``
+    — ``layer["id"] == str(contact.id)``). ``build_project_bundle``
+    ``selectin``-loads each model's ``litho_layers``, so after a build the
+    session holds every accepted ``LithoLayerOrm`` as a PERSISTENT instance.
+    A ``replace=True`` restore on the SAME session wipes those rows with a
+    Core ``delete()`` — which removes them at the DB level but does NOT evict
+    them from the identity map — then re-inserts the same id from the bundle's
+    ``litho_layers`` payload.
+
+    Before the fix the stale persistent instance collided with the
+    payload-staged PENDING one and SQLAlchemy emitted, per accepted layer,
+    both "New instance ... conflicts with persistent instance" and "Identity
+    map already had an identity ... replacing it with newly flushed object"
+    (the ~16 SAWarning lines the debt entry counted across this module). This
+    pins that the restore reconciles the identity map to the wiped DB state so
+    neither warning fires — while the accepted layer still round-trips intact.
+
+    Reproduces one collision in isolation (one accepted layer, one borehole),
+    as the debt entry asks for.
+    """
+    p = project_with_litho
+    contact = FormationContactOrm(
+        id=uuid7(),
+        model_id=p["litho_model"].id,
+        formation_id=p["sand"].id,
+        borehole_id=p["bh"].id,
+        depth_top_m=3.0,
+        source="manual_pick",
+        confidence="medium",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    contact_id = contact.id
+
+    # The build ``selectin``-loads the accepted layer, so LithoLayerOrm(X) is
+    # now a persistent instance in THIS session's identity map — the stale
+    # object that survives the Core-level wipe and drives the collision.
+    bundle = await build_project_bundle(db_session, p["project"])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        await _restore_bundle(db_session, p["project"].id, bundle, replace=True)
+
+    collisions = [
+        str(w.message)
+        for w in caught
+        if any(marker in str(w.message) for marker in _FC_LL_COLLISION_MARKERS)
+    ]
+    assert collisions == [], (
+        "replace-restore must not raise the FC→LL identity-collision warning "
+        f"(debt #193); got {len(collisions)}: {collisions}"
+    )
+
+    # The fix must not drop data: the accepted layer still round-trips.
+    layer = await db_session.get(LithoLayerOrm, contact_id)
+    assert layer is not None, "the accepted layer must survive the restore"
+    assert layer.status == "accepted"
+    assert layer.depth_top_m == 3.0
 
 
 async def test_v4_skipped_explicit_insert_does_not_double_up(
