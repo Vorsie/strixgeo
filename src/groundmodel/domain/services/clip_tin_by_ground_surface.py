@@ -6,7 +6,8 @@ and passes the result here as a callable; this module only does geometry.
 
 The rule (owner ruling 2026-09-06)
 ----------------------------------
-The old ``clip_tin_to_dem`` clamped every vertex to ``min(z, ground_z)`` point
+The old ``clip_tin_to_dem`` (removed 2026-09-21, it had no production caller
+once this shipped) clamped every vertex to ``min(z, ground_z)`` point
 by point.  On a site where a canal was dredged out, the DEM over the water
 carries the WATER surface, and clamping flattened a formation top to a plateau
 at that surface instead of cutting it.  The owner's rule instead:
