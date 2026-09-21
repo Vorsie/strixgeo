@@ -917,6 +917,7 @@ export const SECTIONS = {
   // gets a ghost column carrying the same units, still to accept.
   'sections.canvasToast.ghostColumnCopiedOne': 'Suggestion copied: 1 unit.',
   'sections.canvasToast.ghostColumnCopiedMany': 'Suggestions copied: {units} units.',
+  'sections.canvasToast.ghostCopyTargetHasAccepted': 'This test already has accepted layers. A copy would draw over them.',
   'sections.canvasToast.ghostCopyTargetHasGhost': 'That test already has suggestions. Clear them first, then copy.',
   'sections.canvasToast.ghostCopyMixedSelection': 'That column mixes accepted and suggested boundaries. Copy one kind at a time.',
   'sections.canvasToast.ghostCopyNoPending': 'There are no pending suggestions on that test to copy.',
