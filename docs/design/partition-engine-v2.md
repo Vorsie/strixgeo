@@ -160,13 +160,13 @@ ADDED to this table with a disposition — nothing is dropped silently.
 
 ## 5. Output contract (unchanged — consumers untouched)
 
-`computeSectionFill(columns, edges, lensApexOverrides?, alongM?) →
+`computeSectionFillActive(columns, edges, lensApexOverrides?, alongM?) →
 SectionRegion[]` with `{formationId, bodyId, kind: 'quad'|'pinch'|'lens',
 polygon: {fraction, elevation}[], gapIndex}`. v2 faces span multiple gaps →
 **slice each face at the column verticals** and emit one per-gap polygon per
 slice, `kind` mapped from the face classification (BAND→quad, one-sided
 closure→pinch, LENS→lens). Consumers that must not change:
-`PartitionFillOverlay`, `refineLithoPartition` (geotech), the voxel builder,
+`PartitionFillOverlay`, the voxel builder,
 `buildSectionModelFill`, fence/`buildProjectFence`.
 
 ## 6. Migration — COMPLETE, v1 archived (2026-08-31)
