@@ -84,11 +84,8 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // locale only would break the spine/track layout.
   'spine.lithology',
   'spine.geotechnical',
-  'sections.header.formalStratigraphyShort',
-  'sections.header.informalStratigraphyShort',
-  'sections.header.geotechnicalCodingShort',
   // Axis-pill segment abbreviations — kept as-is in BE Dutch, like the
-  // stratigraphy short forms above.
+  // spine abbreviations above.
   'sections.axis.geoShort',
   'sections.axis.litho',
   'sections.axis.geotech',
