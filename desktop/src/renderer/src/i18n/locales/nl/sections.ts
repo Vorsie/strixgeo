@@ -542,12 +542,9 @@ export const SECTIONS_NL = {
   'sections.header.streamToggles':
     'Schakelaars voor de interpretatiestromen van de boring: elke ingeschakelde stroom krijgt zijn eigen strook naast de andere',
   'sections.header.formalStratigraphy': 'Formele stratigrafie',
-  'sections.header.formalStratigraphyShort': 'F-Strat',
   'sections.header.informalStratigraphy': 'Informele stratigrafie',
-  'sections.header.informalStratigraphyShort': 'I-Strat',
   'sections.header.codedLithology': 'Gecodeerde lithologie',
   'sections.header.geotechnicalCoding': 'Geotechnische codering',
-  'sections.header.geotechnicalCodingShort': 'Geo',
 
   // ---------------------------------------------------------------------------
   // aanwijzingen op het canvas
