@@ -108,6 +108,7 @@ import {
   backendReadyAttempts,
   BACKEND_READY_POLL_MS,
   readinessDeadlineResult,
+  pollBackendUntilReady,
 } from './backendProbe'
 import { decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
@@ -615,16 +616,28 @@ async function handleReadyBackendExit(): Promise<void> {
  * banner.
  */
 async function awaitRespawnedBackendReady(): Promise<void> {
-  for (let i = 0; i < 60; i++) {
-    if (i > 0 && apiProcess === null) break // the respawn crashed before ready
-    const verdict = await probeBackendOnce()
-    if (verdict === 'reachable') {
-      markBackendReady?.()
-      writeMainLog('[main] respawned backend is ready')
-      mainWindow?.webContents.send('app:backend-ready')
-      return
-    }
-    await new Promise(r => setTimeout(r, 500))
+  // Wait the SAME packaged-aware window a first start gets (three minutes
+  // packaged, 30 s in dev) via the shared budget, not the old hard-coded
+  // 60 × 500 ms = 30 s cap that hard-failed a slow packaged respawn (~40 s)
+  // while it was still coming up — the same bug the first-start path already
+  // fixed, surviving here at a second call site.
+  //
+  // A respawn deliberately gets ONE window, NOT the cold start's two: the second
+  // first-start window exists only to absorb the Defender scan of a freshly
+  // installed compiled tree, a tax a warm mid-session restart does not pay (the
+  // tree was already read and scanned when the session first came up).
+  const outcome = await pollBackendUntilReady({
+    attempts: backendReadyAttempts(app.isPackaged),
+    pollMs: BACKEND_READY_POLL_MS,
+    probe: probeBackendOnce,
+    processIsAlive: () => apiProcess !== null,
+    sleep: ms => new Promise(r => setTimeout(r, ms)),
+  })
+  if (outcome === 'ready') {
+    markBackendReady?.()
+    writeMainLog('[main] respawned backend is ready')
+    mainWindow?.webContents.send('app:backend-ready')
+    return
   }
   writeMainLog('[main] respawned backend never became ready — sending app:backend-failed')
   mainWindow?.webContents.send('app:backend-failed')
@@ -1545,6 +1558,20 @@ ipcMain.handle('api:ready', async () => {
   // the owner's machine and the old 30 s deadline called it dead. After the
   // first tick, if the process has already exited we bail immediately rather
   // than waiting out the deadline.
+  //
+  // RETURN CONTRACT — this resolves a ``BackendReadyResult``, NOT a boolean:
+  //   * ``true``           — the backend answered; it is serving.
+  //   * ``false``          — a real failure: the process exited, a FOREIGN
+  //                          backend holds the port (wrong token, 403), or the
+  //                          child was alive but has now used every readiness
+  //                          window (``BACKEND_READY_MAX_WINDOWS``).
+  //   * ``'still-starting'``— alive but this window's budget is spent and a
+  //                          further window remains; the renderer must call
+  //                          again (``useAppBoot`` loops on it and shows the
+  //                          "taking longer than usual" copy). It is NOT ready.
+  // A caller that writes ``if (await waitForApi())`` would treat the truthy
+  // STRING as ready and proceed over a backend that is still coming up — check
+  // for ``=== true`` (or handle ``'still-starting'`` explicitly) instead.
   const attempts = backendReadyAttempts(app.isPackaged)
   for (let i = 0; i < attempts; i++) {
     if (i > 0 && apiProcess === null) return false  // process crashed
