@@ -122,10 +122,6 @@ describe('planGhostContactCopy', () => {
     const freeTargets: { accepted: boolean; rejected: boolean }[][] = [
       [],
       [
-        { accepted: true, rejected: false },
-        { accepted: true, rejected: false },
-      ],
-      [
         { accepted: false, rejected: true },
         { accepted: false, rejected: true },
       ],
@@ -139,6 +135,29 @@ describe('planGhostContactCopy', () => {
         targetTerminalDepthM: 10,
       })
       expect(plan.kind).toBe('create')
+    }
+  })
+
+  it('a target whose suggestions were all accepted is occupied: a copy would draw over real work', () => {
+    // Owner ruling 2026-09-21: accepted layers are real work. Only a column with
+    // no suggestions at all, or only rejected ones, is a free target. A copy
+    // onto accepted layers is refused with its own reason, so the toast can say
+    // "accepted layers", not "suggestions".
+    for (const targetSuggestions of [
+      [{ accepted: true, rejected: false }],
+      [
+        { accepted: true, rejected: false },
+        { accepted: false, rejected: true },
+      ],
+    ]) {
+      const plan = planGhostContactCopy({
+        sourceInvestigationId: 'cpt-a',
+        targetInvestigationId: 'cpt-b',
+        sourceSuggestions: GHOST_TWO,
+        targetSuggestions,
+        targetTerminalDepthM: 10,
+      })
+      expect(plan).toEqual({ kind: 'refused', reason: 'target_has_accepted' })
     }
   })
 
