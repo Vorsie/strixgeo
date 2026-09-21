@@ -49,6 +49,8 @@ import UpdateNotification from './components/updater/UpdateNotification'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
 import { activationGateDecision, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
+import { emptyBundleOverwriteBody } from './utils/saveBundleGuardMessages'
+import type { EmptyCollectionFinding } from './utils/saveBundleGuard'
 import { useLanguage } from './i18n/languageSelect'
 import type {
   ActivationActionResultDto,
@@ -86,6 +88,21 @@ export default function App() {
   // deps and is safe to call this early in the App body.
   const { toasts, toast, dismissToast } = useToasts()
 
+  // Empty-bundle overwrite question (debt #225). The pre-write save guard asks
+  // this when a re-fetched bundle STILL reads 0 for a collection the last save
+  // held. Declared BEFORE useProject so it can be injected — ``usePromiseConfirm``
+  // holds no external deps, so it is safe this early; the findings drive the
+  // dialog body (rendered below near the other confirmation dialogs).
+  const emptyBundleConfirm = usePromiseConfirm()
+  const [emptyBundleFindings, setEmptyBundleFindings] = useState<EmptyCollectionFinding[]>([])
+  const confirmEmptyBundleOverwrite = useCallback(
+    (findings: EmptyCollectionFinding[]): Promise<boolean> => {
+      setEmptyBundleFindings(findings)
+      return emptyBundleConfirm.ask()
+    },
+    [emptyBundleConfirm.ask],
+  )
+
   const {
     project,
     saved: savedProject,
@@ -113,7 +130,7 @@ export default function App() {
     saveAsProject,
     closeProject,
     stageLumping,
-  } = useProject({ toast })
+  } = useProject({ toast, confirmEmptyBundleOverwrite })
 
   // API boot sequence — extracted to useAppBoot.
   // The activation START-SCREEN gate state lives above the boot hook: the API
@@ -1615,6 +1632,27 @@ export default function App() {
           testid: 'discard-backup-force-revert-confirm',
         }}
         testid="discard-backup-force-revert-dialog"
+      />
+      {/* Empty-bundle overwrite question (debt #225): a re-fetch STILL read 0
+          for a collection the last save held. Ask instead of blocking — the
+          owner clears collections on purpose, so a hard block would loop.
+          Cancel is default-focused (keeps the file); the danger button names
+          the overwrite. */}
+      <ConfirmDialog
+        open={emptyBundleConfirm.open}
+        labelledBy="save-empty-bundle-title"
+        title={tMsg('project.saveEmptyBundleAskTitle')}
+        titleTestid="save-empty-bundle-title"
+        body={emptyBundleOverwriteBody(emptyBundleFindings)}
+        onCancel={() => emptyBundleConfirm.answer(false)}
+        cancelTestid="save-empty-bundle-cancel"
+        confirm={{
+          label: tMsg('project.saveEmptyBundleAskConfirm'),
+          onClick: () => emptyBundleConfirm.answer(true),
+          variant: 'danger',
+          testid: 'save-empty-bundle-confirm',
+        }}
+        testid="save-empty-bundle-dialog"
       />
       {/* App-level Settings dialog. Lives outside AppDialogs because
           it persists into ``project.view_state`` (per-project sections)
