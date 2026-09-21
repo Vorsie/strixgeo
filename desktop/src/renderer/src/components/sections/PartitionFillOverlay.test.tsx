@@ -318,6 +318,36 @@ describe('PartitionFillOverlay', () => {
     expect(r2.getAllByTestId('partition-region-sand')[0].style.pointerEvents).toBe('none')
   })
 
+  // #279 item-1 — the two menus used to share one blank cursor, so you could not
+  // tell from the screen which one a right-click would give you. Each region now
+  // SAYS which menu it opens: "body" when the body menu is wired here, "stats"
+  // for the pooled unit-statistics fallback, and nothing when neither is wired.
+  it('MT1 — a region whose body menu is wired says on the screen it opens the body menu', () => {
+    const { getAllByTestId } = renderOverlay({
+      axisMode: 'lithostratigraphic',
+      bodies: [{ id: 'sand' } as BodyListItem, { id: 'clay' } as BodyListItem],
+      onBodyContextMenu: vi.fn(),
+    })
+    expect(getAllByTestId('partition-region-sand')[0].getAttribute('data-menu-target')).toBe('body')
+  })
+
+  it('MT2 — a region with no body but wired for statistics says it opens the stats menu', () => {
+    // No body resolves (empty roster), but the unit-statistics jump is wired: the
+    // deliberate #279 fallback is the stats menu — and the region names it.
+    const { getAllByTestId } = renderOverlay({
+      axisMode: 'lithostratigraphic',
+      bodies: [],
+      onBodyContextMenu: vi.fn(),
+      onShowLithoUnitStatistics: vi.fn(),
+    })
+    expect(getAllByTestId('partition-region-sand')[0].getAttribute('data-menu-target')).toBe('stats')
+  })
+
+  it('MT3 — a region wired for neither menu makes no promise (no data-menu-target)', () => {
+    const { getAllByTestId } = renderOverlay({ axisMode: 'lithostratigraphic' })
+    expect(getAllByTestId('partition-region-sand')[0].hasAttribute('data-menu-target')).toBe(false)
+  })
+
   it('PFO4 — an interrupted body renders as TWO pieces, not one swept band', () => {
     const { queryAllByTestId } = renderOverlay({
       lithoLayers: [
