@@ -51,8 +51,8 @@
 
 ## Body shape — single source of truth
 
-The **partition fill** (`utils/partitionFill.computePartitionFill` /
-`computeSectionFill` + `PartitionFillOverlay` + freedraw `body_boundary_nodes`
+The **partition fill** (`utils/partitionEngineSelect.computeSectionFillActive` →
+`partitionFillV2/computeSectionFillV2` + `PartitionFillOverlay` + freedraw `body_boundary_nodes`
 via `SaveBodyBoundary`) derives bands + pinch-outs + lenses purely from
 aligning adjacent column unit-stacks. It is the single source of truth for
 body shape (owner directive 2026-06-06).
