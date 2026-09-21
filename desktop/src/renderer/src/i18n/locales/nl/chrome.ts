@@ -125,6 +125,20 @@ export const CHROME_NL = {
   'project.defaultHorizontalCrs': 'Standaard horizontaal CRS',
   'project.defaultVerticalCrs': 'Standaard verticaal CRS',
   'project.close': 'Project sluiten',
+  // Zie de Engelse catalogus voor de regel achter deze vraag (debt #225).
+  'project.saveEmptyBundleAskTitle': 'Sommige gegevens kwamen leeg terug',
+  'project.saveEmptyBundleAskBody':
+    'Het project is twee keer gelezen en de onderstaande items kwamen leeg terug, terwijl je laatste opslag ze wel bevatte. Nu opslaan vervangt dat bestand. Je werk staat nog in de app, dus je kunt annuleren en het opnieuw proberen.',
+  'project.saveEmptyBundleAskConfirm': 'Toch opslaan',
+  'project.saveEmptyBundleRow': '{label}: laatste opslag {expected}, nu {now}',
+  'project.emptyBundleCollection.correlations': 'Correlaties',
+  'project.emptyBundleCollection.lithoLayers': 'Lithologische lagen',
+  'project.emptyBundleCollection.formationContacts': 'Formatiegrenzen',
+  'project.emptyBundleCollection.bodies': 'Lichamen',
+  'project.emptyBundleCollection.cpts': 'Sonderingen (CPT)',
+  'project.emptyBundleCollection.boreholes': 'Boringen',
+  'project.emptyBundleCollection.formations': 'Formaties',
+  'project.emptyBundleCollection.crossSections': 'Profielen',
   'project.closeConfirmTitle': 'Dit project sluiten?',
   'project.closeConfirmBody':
     'Het .strix-bestand en je opgeslagen gegevens blijven bewaard. Je kan het altijd opnieuw openen.',
