@@ -34,6 +34,7 @@ from groundmodel.application.litho_geo_link_helpers import (
 )
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 
 # ---------------------------------------------------------------------------
@@ -1092,6 +1093,114 @@ async def test_ac3_non_adjacent_same_litho_stays_separate() -> None:
 
     assert len(result.created_contact_ids) == 3
     assert len(result.created_formation_ids) == 2
+
+
+# ---------------------------------------------------------------------------
+# AC4-AC5 — #149: find-or-create dedup across a prior accept (stored-JSON
+# round-trip).  AC1/AC3 pin the WITHIN-request reuse (the second suggestion of
+# one call finds the formation created by the first, via the in-memory dict).
+# The doubling the owner reported after Accept is a CROSS-accept concern: a unit
+# already committed by an earlier accept is re-loaded via ``list_formations`` and
+# its admixtures are rebuilt from the stored ``litho_admixtures`` JSON before the
+# key is compared.  If that round-trip drifts (the classic mechanism behind
+# "two SAND units"), the existing unit is missed and a duplicate is created.
+# ---------------------------------------------------------------------------
+
+
+def _stored_litho_unit(soil: str, admixtures: tuple[Admixture, ...]) -> GeologicalFormationOrm:
+    """A litho unit row exactly as ``create_litho_formation`` persists it.
+
+    ``litho_admixtures`` is the JSON list of dicts (``build_litho_formation_lookup``
+    rebuilds ``Admixture`` objects from it before hashing the key), and
+    ``source_litho_formation_id`` is ``None`` — the discriminator a litho row
+    never carries and its geotech derivatives always do.
+    """
+    return GeologicalFormationOrm(
+        id=uuid4(),
+        app_project_id=PROJECT_ID,
+        name=soil,
+        color="#facc15",
+        display_order=0,
+        litho_main_soil_code=soil,
+        litho_admixtures=[
+            {"soil_code": a.soil_code, "amount": a.amount, "locally": a.locally} for a in admixtures
+        ],
+        source_litho_formation_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_ac4_reaccept_same_admixture_composition_reuses_existing_unit() -> None:
+    """Accepting a SAND composition that already has a unit reuses it — no double (#149).
+
+    The narrowing behind #149 is that the find-or-create key
+    ``(litho_main_soil_code, canonical_admixture_signature)`` dedups
+    deterministically, so two SAND units after Accept can only mean their
+    signatures genuinely differ.  This pins the load-bearing half of that claim
+    on the path that produces the report: a ZAND unit already stored WITH a
+    weak-clay admixture (as the ``litho_admixtures`` JSON a prior accept wrote)
+    is FOUND — not duplicated — when the SAME composition is accepted on a fresh
+    investigation.  The write-side signature (from the suggestion's ``Admixture``
+    objects) and the read-side signature (rebuilt from the stored JSON) must
+    agree across the round-trip, or the engineer gets two ZAND units where one
+    is expected.
+    """
+    existing = _stored_litho_unit("ZAND", (Admixture("KL", "Z"),))
+    session = _make_session(
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],  # this investigation has no contact yet
+    )
+    uc = _use_case(session, formations=[existing])
+
+    suggestions = [_make_suggestion(0.0, 5.0, "ZAND", admixtures=(Admixture("KL", "Z"),))]
+    result = await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+    )
+
+    # The existing unit is reused across the stored-JSON round-trip — no second
+    # ZAND row is created.
+    assert result.created_formation_ids == []
+    assert result.found_formation_ids == [existing.id]
+    # The layer itself is genuinely new (a new contact on this investigation).
+    assert len(result.created_contact_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_ac5_different_admixture_amount_is_a_distinct_unit_by_design() -> None:
+    """A different admixture AMOUNT is a distinct unit — by design (#149 owner lever).
+
+    Owner decision (kept through the S↔V / Z↔W synonym fold, 2026-09-06):
+    ``amount`` participates in the find-or-create bucket.  A unit already stored
+    for ZAND with WEAK clay (``KL:Z`` → canonical ``KL:W``) does NOT absorb an
+    accept of ZAND with MEDIUM clay (``KL:M``); they are two compositions, so two
+    units.  This is the exact lever #149 hands back to the owner — if he ever
+    rules that amount should not split the bucket, THIS test changes.  Until then
+    it documents the boundary so a second SAND unit here reads as intent, not a
+    bug.
+    """
+    existing = _stored_litho_unit("ZAND", (Admixture("KL", "Z"),))  # weak clay
+    session = _make_session(
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],
+    )
+    uc = _use_case(session, formations=[existing])
+
+    # Medium clay — not a synonym of weak, so a genuinely different signature.
+    suggestions = [_make_suggestion(0.0, 5.0, "ZAND", admixtures=(Admixture("KL", "M"),))]
+    result = await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+    )
+
+    # A new unit — medium clay is a different composition from weak clay.
+    assert len(result.created_formation_ids) == 1
+    assert result.created_formation_ids[0] != existing.id
+    assert result.found_formation_ids == []
 
 
 # ---------------------------------------------------------------------------
