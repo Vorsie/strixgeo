@@ -1,4 +1,4 @@
-# Geotech Stage — current design (ACTIVE MILESTONE)
+# Geotech Stage — current design
 
 > Current state only. The 2026-06-24 "connected NAD-band section render" and
 > the 2026-07-07 fraction-space refinement are both SUPERSEDED by the direct
