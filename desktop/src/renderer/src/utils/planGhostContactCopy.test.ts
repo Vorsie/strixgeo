@@ -45,7 +45,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: GHOST_TWO,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 10,
     })
     expect(plan.kind).toBe('create')
@@ -68,7 +68,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: GHOST_THREE,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 5,
     })
     expect(plan.kind).toBe('create')
@@ -93,21 +93,53 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: mixed,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 10,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'mixed_accepted_ghost' })
   })
 
-  it('a target that already has a ghost column is refused', () => {
+  it('a target that already holds a pending suggestion is refused', () => {
+    // The planner now derives "the target is occupied" itself, from the target's
+    // own suggestions: a pending one (neither accepted nor rejected) means the
+    // drop would overwrite the user's live suggestions, so it is refused.
     const plan = planGhostContactCopy({
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: GHOST_TWO,
-      targetHasGhost: true,
+      targetSuggestions: [{ accepted: false, rejected: false }],
       targetTerminalDepthM: 10,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'target_has_ghost' })
+  })
+
+  it('a target the segmenter ran on but left with no pending suggestion is a free target', () => {
+    // The segmenter leaves a RECORD on every column it ran on, also when it
+    // suggested nothing. A record with zero suggestions, or one whose
+    // suggestions are all accepted or all rejected, is NOT occupied and is a
+    // free target (owner, installer #44: "this test already has suggestions when
+    // it clearly does not"). This occupied-check now lives in the planner.
+    const freeTargets: { accepted: boolean; rejected: boolean }[][] = [
+      [],
+      [
+        { accepted: true, rejected: false },
+        { accepted: true, rejected: false },
+      ],
+      [
+        { accepted: false, rejected: true },
+        { accepted: false, rejected: true },
+      ],
+    ]
+    for (const targetSuggestions of freeTargets) {
+      const plan = planGhostContactCopy({
+        sourceInvestigationId: 'cpt-a',
+        targetInvestigationId: 'cpt-b',
+        sourceSuggestions: GHOST_TWO,
+        targetSuggestions,
+        targetTerminalDepthM: 10,
+      })
+      expect(plan.kind).toBe('create')
+    }
   })
 
   it('a drop on the source column is a no-op', () => {
@@ -115,7 +147,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-a',
       sourceSuggestions: GHOST_TWO,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 10,
     })
     expect(plan).toEqual({ kind: 'noop', reason: 'same_column' })
@@ -130,7 +162,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: allAccepted,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 10,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'no_pending_ghost' })
@@ -141,7 +173,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: GHOST_TWO,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 0,
     })
     expect(plan).toEqual({ kind: 'refused', reason: 'below_terminal' })
@@ -159,7 +191,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: withRejected,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: 10,
     })
     expect(plan.kind).toBe('create')
@@ -172,7 +204,7 @@ describe('planGhostContactCopy', () => {
       sourceInvestigationId: 'cpt-a',
       targetInvestigationId: 'cpt-b',
       sourceSuggestions: GHOST_TWO,
-      targetHasGhost: false,
+      targetSuggestions: [],
       targetTerminalDepthM: null,
     })
     expect(plan.kind).toBe('create')
