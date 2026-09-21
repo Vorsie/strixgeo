@@ -63,6 +63,7 @@ import {
   lensApexOverrideKey,
 } from '../../utils/sectionPartition'
 import { computeUnderColumnSubstrateForRender } from './underColumnSubstrate'
+import { svgLocalPointFromEvent } from './contactsLayerGeometry'
 import { buildApexOverridesForGaps, detectPersistedLensBodies } from './apexOverrideWiring'
 import { fillIdentityOf } from './sectionFillIdentity'
 import { computeSectionSeamStrokes } from './sectionSeamStrokeElements'
@@ -640,13 +641,8 @@ export default function PartitionFillOverlay({
   // Reads the ownerSVGElement bounding rect at call time (cheap DOM read,
   // same pattern as the click handlers above).
   const svgCoordsFromEvent = useCallback(
-    (e: React.MouseEvent): { x: number; y: number } => {
-      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-      return {
-        x: e.clientX - (rect?.left ?? 0),
-        y: e.clientY - (rect?.top ?? 0),
-      }
-    },
+    (e: React.MouseEvent): { x: number; y: number } =>
+      svgLocalPointFromEvent(rootRef.current?.ownerSVGElement, e),
     [],
   )
 
@@ -3529,13 +3525,8 @@ export default function PartitionFillOverlay({
                         forwardContextMenuToColumn(e.clientX, e.clientY)
                       )
                         return
-                      const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
-                      onBodyContextMenu?.(
-                        body as BodyListItem,
-                        e.clientX - (rect?.left ?? 0),
-                        e.clientY - (rect?.top ?? 0),
-                        sr.region.layerIds,
-                      )
+                      const { x, y } = svgCoordsFromEvent(e)
+                      onBodyContextMenu?.(body as BodyListItem, x, y, sr.region.layerIds)
                     }
                   : statsInteractive
                     ? (e) => {
@@ -3680,11 +3671,11 @@ export default function PartitionFillOverlay({
                 if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
-                const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
                 // Global nearest-boundary router (S70): where stacked strips
                 // overlap, the click routes to the body whose edge is physically
                 // nearest the cursor, NOT this strip by z-order.
-                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
+                const { x, y } = svgCoordsFromEvent(e)
+                routeAddStripClick(x, y)
               }}
             />
             {/* Per-node draggable handles */}
@@ -3820,12 +3811,12 @@ export default function PartitionFillOverlay({
                 if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
-                const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
                 // Global nearest-boundary router (S70): where stacked lenses' strips
                 // overlap, the click routes to the body (and within a lens, the edge)
                 // physically nearest the cursor — not this strip by z-order. The old
                 // per-strip nearerLensEdge only arbitrated ONE lens's two edges.
-                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
+                const { x, y } = svgCoordsFromEvent(e)
+                routeAddStripClick(x, y)
               }}
             />
             {/* Lower-edge add-strip. Hover shows a preview dot ON the nearest edge. */}
@@ -3857,9 +3848,9 @@ export default function PartitionFillOverlay({
                 if (e.button !== 0) return
                 e.preventDefault()
                 e.stopPropagation()
-                const rect = rootRef.current?.ownerSVGElement?.getBoundingClientRect()
                 // Global nearest-boundary router (S70): see the upper strip's note.
-                routeAddStripClick(e.clientX - (rect?.left ?? 0), e.clientY - (rect?.top ?? 0))
+                const { x, y } = svgCoordsFromEvent(e)
+                routeAddStripClick(x, y)
               }}
             />
             {/* Upper-edge node handles */}
