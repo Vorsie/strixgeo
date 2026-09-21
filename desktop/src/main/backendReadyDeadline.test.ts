@@ -11,6 +11,8 @@ import {
   BACKEND_READY_POLL_MS,
   readinessDeadlineResult,
   BACKEND_READY_MAX_WINDOWS,
+  pollBackendUntilReady,
+  type ProbeVerdict,
 } from './backendProbe'
 
 describe('backendReadyDeadlineMs', () => {
@@ -48,5 +50,61 @@ describe('backendReadyDeadlineMs', () => {
   it('the cold start is allowed exactly two readiness windows', () => {
     expect(BACKEND_READY_MAX_WINDOWS).toBe(2)
     expect(BACKEND_READY_MAX_WINDOWS * backendReadyDeadlineMs(true)).toBe(360_000)
+  })
+})
+
+// Rule (owner finding 1, 2026-09-20): a mid-session backend RESPAWN must wait
+// the same packaged-aware window a first start gets, not the fixed 30 s that a
+// hard-coded 60 polls at 500 ms produced. On the machine class this exists for,
+// a respawn that needs 40 s used to show the backend-failed modal over a backend
+// that was about to come up.
+describe('pollBackendUntilReady — a respawn waits its whole packaged window', () => {
+  const noSleep = (): Promise<void> => Promise.resolve()
+
+  it('catches a packaged respawn that only binds its port past the old 30 s cap', async () => {
+    // The backend answers only on its 90th probe — 45 s at the poll interval,
+    // well past the old 60-probe (30 s) cap. With the packaged budget it is
+    // still caught instead of being declared dead.
+    let probes = 0
+    const outcome = await pollBackendUntilReady({
+      attempts: backendReadyAttempts(true),
+      pollMs: BACKEND_READY_POLL_MS,
+      probe: async (): Promise<ProbeVerdict> => (++probes >= 90 ? 'reachable' : 'unreachable'),
+      processIsAlive: () => true,
+      sleep: noSleep,
+    })
+    expect(outcome).toBe('ready')
+    expect(probes).toBeGreaterThan(60)
+  })
+
+  it('gives up once the window is spent when the respawn never binds its port', async () => {
+    const outcome = await pollBackendUntilReady({
+      attempts: 4,
+      pollMs: BACKEND_READY_POLL_MS,
+      probe: async (): Promise<ProbeVerdict> => 'unreachable',
+      processIsAlive: () => true,
+      sleep: noSleep,
+    })
+    expect(outcome).toBe('failed')
+  })
+
+  it('gives up at once when the respawned process dies before it is ready', async () => {
+    // A respawn that crashed before binding the port is a failure now, not
+    // something to keep polling for the whole three-minute window.
+    let probes = 0
+    let alive = true
+    const outcome = await pollBackendUntilReady({
+      attempts: backendReadyAttempts(true),
+      pollMs: BACKEND_READY_POLL_MS,
+      probe: async (): Promise<ProbeVerdict> => {
+        probes += 1
+        alive = false
+        return 'unreachable'
+      },
+      processIsAlive: () => alive,
+      sleep: noSleep,
+    })
+    expect(outcome).toBe('failed')
+    expect(probes).toBeLessThan(5)
   })
 })
