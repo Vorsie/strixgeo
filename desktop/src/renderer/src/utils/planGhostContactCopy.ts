@@ -27,11 +27,16 @@
  *   The gesture cannot be both an accepted copy and a ghost copy at once (owner:
  *   "an accepted and a ghost boundary in one drag are refused"). Rejected
  *   suggestions are excluded entirely — they neither copy nor count as a mix.
- * - **A target that already carries a ghost column is refused.** A ghost column
- *   is renderer-only, and the valuable case is a bare test the segmenter left
- *   empty; overwriting a user's pending suggestions would be a silent surprise.
- *   (The alternative — split-and-recompose like the accepted copy — is murky on
- *   a free-form suggestion stack; refusing keeps the workspace predictable.)
+ * - **A target that already holds a PENDING suggestion is refused.** A ghost
+ *   column is renderer-only, and the valuable case is a bare test the segmenter
+ *   left empty; overwriting a user's pending suggestions would be a silent
+ *   surprise. The segmenter leaves a record on every column it ran on even when
+ *   it suggested nothing, so "occupied" is specifically "has a suggestion that
+ *   is neither accepted nor rejected" — this predicate lives here in the planner
+ *   so every copy rule sits in one tested module (owner, installer #44: "this
+ *   test already has suggestions when it clearly does not"). (The alternative —
+ *   split-and-recompose like the accepted copy — is murky on a free-form
+ *   suggestion stack; refusing keeps the workspace predictable.)
  * - **A drop on the source column is a no-op.**
  *
  * Pure — no React, no I/O — so the owner's rules are pinned as plain data.
@@ -62,6 +67,18 @@ export interface GhostCopySourceSuggestion {
   /** The user accepted this suggestion (it became a committed litho layer). */
   accepted: boolean
   /** The user rejected this suggestion (excluded from the copy AND the mix check). */
+  rejected: boolean
+}
+
+/** One suggestion the TARGET column already holds, reduced to the two flags the
+ *  "is the target occupied?" rule reads. The segmenter leaves a record on every
+ *  column it ran on (also when it suggested nothing), so the planner — not the
+ *  caller — decides what counts as occupied: a PENDING suggestion, one neither
+ *  accepted nor rejected. */
+export interface GhostCopyTargetSuggestion {
+  /** The user accepted this suggestion (it became a committed litho layer). */
+  accepted: boolean
+  /** The user rejected this suggestion. */
   rejected: boolean
 }
 
@@ -101,7 +118,9 @@ export type GhostContactCopyPlan =
  * @param params.targetInvestigationId - The column dropped on.
  * @param params.sourceSuggestions - The source column's suggestions (effective
  *   depths + composition), each flagged accepted / rejected.
- * @param params.targetHasGhost - Whether the target already carries a ghost column.
+ * @param params.targetSuggestions - The suggestions the target column already
+ *   holds (accepted / rejected flags only). The planner derives whether the
+ *   target is occupied from these — an empty array is a bare test.
  * @param params.targetTerminalDepthM - The target investigation's terminal depth
  *   (CPT ``max_depth_m`` / borehole ``total_depth_m``), or null when unknown.
  * @returns The plan the caller applies (create / no-op / refused).
@@ -110,14 +129,14 @@ export function planGhostContactCopy(params: {
   sourceInvestigationId: string
   targetInvestigationId: string
   sourceSuggestions: readonly GhostCopySourceSuggestion[]
-  targetHasGhost: boolean
+  targetSuggestions: readonly GhostCopyTargetSuggestion[]
   targetTerminalDepthM: number | null
 }): GhostContactCopyPlan {
   const {
     sourceInvestigationId,
     targetInvestigationId,
     sourceSuggestions,
-    targetHasGhost,
+    targetSuggestions,
     targetTerminalDepthM,
   } = params
 
@@ -126,9 +145,14 @@ export function planGhostContactCopy(params: {
     return { kind: 'noop', reason: 'same_column' }
   }
 
-  // A ghost column is renderer-only; overwriting the target's own pending
-  // suggestions would be a silent surprise. Refuse rather than guess.
-  if (targetHasGhost) {
+  // A target is "occupied" only when it holds a PENDING suggestion — one neither
+  // accepted nor rejected. The segmenter leaves a record on every column it ran
+  // on even when it suggested nothing, so "has a record" is NOT "occupied"; a
+  // column with no suggestions, or one whose suggestions are all accepted or all
+  // rejected, is a free target. Overwriting live pending suggestions would be a
+  // silent surprise, so that case is refused.
+  const targetHasPendingSuggestion = targetSuggestions.some(s => !s.accepted && !s.rejected)
+  if (targetHasPendingSuggestion) {
     return { kind: 'refused', reason: 'target_has_ghost' }
   }
 
