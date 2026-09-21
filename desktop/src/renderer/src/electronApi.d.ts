@@ -13,6 +13,10 @@ import type {
   UpdaterEventDto,
 } from './utils/launchPrototypeTypes'
 import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
+// The ``api:ready`` result shape, from its single source of truth. It is a
+// dependency-free declaration module, so this type-only cross-project import
+// pulls in no runtime and is accepted by the composite renderer project (item 2).
+import type { BackendReadyResult } from '../main/backendReadyResult'
 
 interface RecentProject {
   path: string
@@ -54,7 +58,7 @@ declare global {
   interface Window {
     electron: {
       getApiBaseUrl: () => Promise<string>
-      waitForApi: () => Promise<boolean | 'still-starting'>
+      waitForApi: () => Promise<BackendReadyResult>
       openFile: (filters: FileFilter[]) => Promise<string | null>
       openFiles: (filters: FileFilter[]) => Promise<string[]>
       readFile: (filePath: string) => Promise<Buffer>
