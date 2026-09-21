@@ -56,10 +56,12 @@ from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
 
 from groundmodel.application.auto_populate_outcome import AutoPopulateOutcome
+from groundmodel.application.borehole_observation_layers_options import (
+    borehole_observation_layers_options,
+)
 from groundmodel.application.lumping_collision import LumpingCollision
 
 # The bridge/resolution helpers and the candidate scan were extracted to
@@ -90,7 +92,6 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
-from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -315,7 +316,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 BoreholeOrm.id.in_(borehole_id_list),
                 BoreholeOrm.app_project_id == project_id,
             )
-            .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+            .options(*borehole_observation_layers_options())
         )
         boreholes = list((await self._session.execute(bh_stmt)).scalars().all())
 
