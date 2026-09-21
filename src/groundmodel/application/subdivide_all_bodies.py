@@ -201,6 +201,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
     LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES
 
 # Minimum geotech sub-unit thickness when the view-state knob is absent.
@@ -351,8 +352,8 @@ def _mm_clamped_intervals(
         The clamped ``(top, base)`` intervals and their classes, parallel; empty
         when the extent degenerates on the mm grid.
     """
-    top_r = round(geo_top_m, 3)
-    base_r = round(geo_base_m, 3)
+    top_r = round(geo_top_m, LITHO_LAYER_DEPTH_DECIMALS)
+    base_r = round(geo_base_m, LITHO_LAYER_DEPTH_DECIMALS)
     intervals: list[tuple[float, float]] = []
     classes: list[int | None] = []
     for sp in splits:
@@ -1541,7 +1542,10 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 # Same mm grid as the split path, so a skeleton band meets its
                 # neighbours exactly; only a sub-millimetre extent keeps the raw
                 # pair (rounding would degenerate it into a zero-width row).
-                top_r, base_r = round(geo_top, 3), round(geo_base, 3)
+                top_r, base_r = (
+                    round(geo_top, LITHO_LAYER_DEPTH_DECIMALS),
+                    round(geo_base, LITHO_LAYER_DEPTH_DECIMALS),
+                )
                 if base_r - top_r > 1e-6:
                     sub_intervals = [(top_r, base_r)]
                 else:
