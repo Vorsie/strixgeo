@@ -1,0 +1,82 @@
+{
+  "_comment": "Cross-language TWIN fixture (debt #284/#275). The single arbiter read by BOTH tests/unit/domain/services/test_twin_nad_admixture_choice.py and desktop/src/renderer/src/utils/admixtureNadChoice.twin.test.ts. It pins the admixture -> NAD-fork DETECTION rule (owner ruling 2026-09-04): given a unit's main soil and its admixture soil_codes, whether the pure-vs-with-admixture NAD choice is a real fork the engineer must be prompted for. This is the one operation both sides compute independently and can drift on -- Python domain/services/nad_admixture_choice.py (unit_admixture_is_ambiguous, via NAD_QC_BANDS + the _SECONDARY_ADMIXTURE_CODES sets) and TS desktop/src/renderer/src/utils/admixtureNadChoice.ts (unitAdmixtureIsAmbiguous, via the SECONDARY_ADMIXTURE_CODES sets ported VERBATIM from nad_classification_constants.py). Each case gives a soil, its admixture codes and the agreed expected_ambiguous boolean; the Python callable takes Admixture(soil_code=..., amount='M') and the TS callable takes AdmixtureItem{soil_code,...}. Flip any expected_ambiguous here and BOTH suites go red. NOTE: the sibling 'which column a stored answer binds to' mapping (pure->clean / with_admixture->secondary) is Python-only (resolve_admixture_variant; the backend resolves it), so it is NOT a cross-language twin and is covered by the Python unit test alone.",
+  "cases": [
+    {
+      "name": "silty_sand_is_ambiguous",
+      "description": "Sand + a silt/clay admixture -> classifier could pick clean (5-8) or secondary (9-12): a real fork.",
+      "soil": "ZAND",
+      "admixture_codes": ["KL"],
+      "expected_ambiguous": true
+    },
+    {
+      "name": "silty_gravel_is_ambiguous",
+      "description": "Gravel + a silt/clay admixture forks clean (1-2) vs secondary (3-4).",
+      "soil": "GRIND",
+      "admixture_codes": ["KL"],
+      "expected_ambiguous": true
+    },
+    {
+      "name": "sandy_silt_is_ambiguous",
+      "description": "Silt + a sand admixture forks clean (13-16) vs secondary (17-20).",
+      "soil": "SILT",
+      "admixture_codes": ["XZ"],
+      "expected_ambiguous": true
+    },
+    {
+      "name": "sandy_clay_is_ambiguous",
+      "description": "Clay + a sand admixture forks clean (21-24) vs secondary (25-28).",
+      "soil": "KLEI",
+      "admixture_codes": ["XZ"],
+      "expected_ambiguous": true
+    },
+    {
+      "name": "clean_sand_is_not_ambiguous",
+      "description": "No admixture -> nothing forks -> no prompt.",
+      "soil": "ZAND",
+      "admixture_codes": [],
+      "expected_ambiguous": false
+    },
+    {
+      "name": "sandy_sand_is_not_ambiguous",
+      "description": "A SAND admixture on SAND is not the coarse-soil fork (silt/clay is); no 'sandy sand' NAD column exists.",
+      "soil": "ZAND",
+      "admixture_codes": ["XZ"],
+      "expected_ambiguous": false
+    },
+    {
+      "name": "gravelly_sand_is_not_ambiguous",
+      "description": "Owner ruling 2026-09-05: gravel does not count; a gravel admixture (XG, not GL) never forks a sand.",
+      "soil": "ZAND",
+      "admixture_codes": ["XG"],
+      "expected_ambiguous": false
+    },
+    {
+      "name": "glauconitic_sand_is_ambiguous",
+      "description": "Owner ruling walk22b: glauconite (GL) forks a sand into the secondary column, prompted like a silty/clayey sand.",
+      "soil": "ZAND",
+      "admixture_codes": ["GL"],
+      "expected_ambiguous": true
+    },
+    {
+      "name": "silty_silt_is_not_ambiguous",
+      "description": "A silt/clay admixture on SILT is not the fine-soil fork (sand is); no 'silty silt' NAD column exists.",
+      "soil": "SILT",
+      "admixture_codes": ["KL"],
+      "expected_ambiguous": false
+    },
+    {
+      "name": "peat_is_never_ambiguous",
+      "description": "VEEN's secondary NAD column mirrors its clean column, so even a sand admixture on peat forks nothing.",
+      "soil": "VEEN",
+      "admixture_codes": ["XZ"],
+      "expected_ambiguous": false
+    },
+    {
+      "name": "unknown_soil_is_not_ambiguous",
+      "description": "A soil with no NAD column at all is not ambiguous (the caller skips it).",
+      "soil": "ROCK",
+      "admixture_codes": ["XZ"],
+      "expected_ambiguous": false
+    }
+  ]
+}
