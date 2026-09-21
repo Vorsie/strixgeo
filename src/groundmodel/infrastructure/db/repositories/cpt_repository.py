@@ -33,7 +33,7 @@ class CptRepository(GroundModelLogger):
 
     A message broker (RabbitMQ, Redis Streams) belongs at the *application*
     layer when you need async task queuing — e.g. processing large batch imports
-    in the background.  The ``TaskQueue`` abstraction in ``application/queue.py``
+    in the background.  The ``TaskQueue`` abstraction in ``application/task_queue.py``
     is the hook for that.  The repository itself stays simple: one session, one
     unit of work.
     """
