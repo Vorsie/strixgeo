@@ -12,7 +12,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { GeologicalFormationResponse } from '../../api/clients/geology'
 import { nadClassColor, nadClassName } from '../../utils/nadClasses'
-import { formationDisplayLabel, geotechDisplayFormation } from './contactsLayerGeometry'
+import {
+  formationDisplayLabel,
+  geotechDisplayFormation,
+  svgLocalPointFromEvent,
+} from './contactsLayerGeometry'
 
 /** Build a GeologicalFormationResponse with all required fields, override per case. */
 function makeFormation(over: Partial<GeologicalFormationResponse>): GeologicalFormationResponse {
@@ -107,5 +111,24 @@ describe('geotechDisplayFormation — colour', () => {
     const f = makeFormation({ nad_class: 6, color: '#c2b280', color_override: '#ff00ff' })
 
     expect(geotechDisplayFormation(f, 'lithostratigraphic').color).toBe('#c2b280')
+  })
+})
+
+describe('svgLocalPointFromEvent', () => {
+  // jsdom returns all-zero rects, so a real owner is faked with a known rect.
+  const owner = (left: number, top: number): SVGSVGElement =>
+    ({ getBoundingClientRect: () => ({ left, top }) as DOMRect }) as unknown as SVGSVGElement
+
+  it('subtracts the owner rect top-left from the event client point', () => {
+    expect(svgLocalPointFromEvent(owner(100, 50), { clientX: 130, clientY: 80 })).toEqual({
+      x: 30,
+      y: 30,
+    })
+  })
+
+  it('falls back to the raw client point when the owner is null or undefined', () => {
+    // The load-bearing ``?? 0`` guard: no rect → subtract nothing.
+    expect(svgLocalPointFromEvent(null, { clientX: 42, clientY: 17 })).toEqual({ x: 42, y: 17 })
+    expect(svgLocalPointFromEvent(undefined, { clientX: 5, clientY: 9 })).toEqual({ x: 5, y: 9 })
   })
 })
