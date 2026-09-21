@@ -28,6 +28,16 @@ export interface UnitStatsMenuState {
    * (spec §2 step 2).
    */
   regionLayerIds?: readonly string[]
+  /**
+   * Optional header NAMING the unit this menu is for (#279). When the fill-region
+   * menu falls back to statistics (a pooled or mid-load region, so the richer
+   * body menu cannot answer), it still names its unit here — so the two menus a
+   * fill right-click can open read as one family, "the menu for this unit",
+   * instead of two anonymous look-alikes with the same cursor. Absent (the
+   * model-fill consumer, which has no per-region label to name) → no header,
+   * byte-identical to before.
+   */
+  header?: string
 }
 
 interface Props {
@@ -91,6 +101,23 @@ export default function UnitStatisticsPortalMenu({
           minWidth: 200,
         }}
       >
+        {menu.header !== undefined && menu.header !== '' && (
+          // Names the unit this menu is for, mirroring the body menu's header so
+          // a fill right-click always reads "the menu for this unit" (#279).
+          <div
+            data-testid={`${menuTestid}-header`}
+            style={{
+              padding: '6px 12px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--color-text-secondary, #94a3b8)',
+              borderBottom: '1px solid var(--color-border-default, #334155)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {menu.header}
+          </div>
+        )}
         <UnitStatisticsItem
           unitId={menu.formationId}
           bodyId={menu.bodyId ?? null}
