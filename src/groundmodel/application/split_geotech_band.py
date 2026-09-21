@@ -64,11 +64,7 @@ from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.domain.services.geotech_band_reclassification import plan_split
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
-
-# Depths are rounded to the millimetre before they are written: the no-overlap
-# exclusion constraint compares ``round(depth, 3)``, so writing the raw float
-# would let sub-millimetre noise decide whether two bands "touch".
-_DEPTH_DECIMALS = 3
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 
 
 class SplitGeotechBand(GeotechBoreholeMaterialiser):
@@ -222,7 +218,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
 
         target = context.band_rows[str(band_id)]
         original_base_m = target.depth_base_m
-        boundary_m = round(split_depth_m, _DEPTH_DECIMALS)
+        boundary_m = round(split_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
 
         # Upper half — the original row, resized and (re)classified.
         upper_formation = await formation_for_class(
@@ -254,7 +250,7 @@ class SplitGeotechBand(GeotechBoreholeMaterialiser):
             model_id=geotech_model_id,
             formation_id=lower_formation.id,
             depth_top_m=boundary_m,
-            depth_base_m=round(original_base_m, _DEPTH_DECIMALS),
+            depth_base_m=round(original_base_m, LITHO_LAYER_DEPTH_DECIMALS),
             status="accepted",
             source=lower_source,
             confidence="medium",
