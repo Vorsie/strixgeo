@@ -42,12 +42,15 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import (
     LithoLayerRepository,
 )
+from groundmodel.shared.constants.db_constraints import (
+    LITHO_LAYER_DEPTH_DECIMALS,
+    MIN_LAYER_THICKNESS_M,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-# Minimum resulting half thickness (metres). Matches MoveLithoLayerBoundary: a
-# thinner half collapses to a degenerate mm-rounded range and trips the
-# no-overlap exclusion at commit.
-_MIN_LAYER_THICKNESS_M = 0.001
+# Minimum resulting half thickness (metres), matching MoveLithoLayerBoundary.
+# Rationale + value: ``MIN_LAYER_THICKNESS_M``.
+_MIN_LAYER_THICKNESS_M = MIN_LAYER_THICKNESS_M
 
 
 class SplitError(ValueError):
@@ -108,7 +111,7 @@ class SplitLithoLayer(GroundModelLogger):
         """
         # Round to the millimetre the column is stored at, so the thickness guard
         # and the two resulting rows use the same precision the DB will.
-        depth_m = round(depth_m, 3)
+        depth_m = round(depth_m, LITHO_LAYER_DEPTH_DECIMALS)
         self.info(f"SplitLithoLayer: layer={layer_id} model={model_id} depth={depth_m:.3f}m")
 
         # Scope read BEFORE the lock (IDOR guard): a missing / foreign-model layer
