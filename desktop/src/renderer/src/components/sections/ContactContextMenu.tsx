@@ -24,7 +24,7 @@ import ContextMenu from '../ui/ContextMenu'
  * formationName
  *     Human-readable formation name — shown as the menu subtitle.
  * onEditInGeologyStage
- *     Fired when the user picks "Edit in Geology stage" — only wired for
+ *     Fired when the user picks "Edit in Stratigraphy stage" — only wired for
  *     REFERENCE (geological backdrop) contacts on the litho axis.  When
  *     present, Delete is suppressed (those belong on the geological axis).
  *     When absent the item is hidden.
@@ -34,7 +34,7 @@ import ContextMenu from '../ui/ContextMenu'
  *     confirm dialog (DeleteContactConfirmDialog) — ContactContextMenu itself
  *     does not add a second gate.
  * onUnlinkLithoFromGeo
- *     Fired when the user picks "Unlink from geology" — only shown when the
+ *     Fired when the user picks "Unlink from stratigraphy" — only shown when the
  *     contact is coupled (``parent_geo_contact_id != null``).  Nulls the
  *     coupling without deleting either contact.  When absent the item is
  *     hidden.
@@ -71,12 +71,12 @@ export interface ContactContextMenuProps {
  * formationName
  *     Shown as the menu subtitle for unambiguous context.
  * onEditInGeologyStage
- *     Optional — shows the "Edit in Geology stage" item (reference
+ *     Optional — shows the "Edit in Stratigraphy stage" item (reference
  *     contacts on the litho axis).  Suppresses Delete when present.
  * onDelete
  *     Optional — shows the "Delete contact" item.
  * onUnlinkLithoFromGeo
- *     Optional — shows the "Unlink from geology" item when the contact
+ *     Optional — shows the "Unlink from stratigraphy" item when the contact
  *     is coupled (``parent_geo_contact_id != null``).
  * onLinkLithoToGeo
  *     Optional — shows the "Link to geology" item when the contact is
