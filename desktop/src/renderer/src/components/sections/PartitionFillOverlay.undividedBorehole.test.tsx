@@ -45,49 +45,9 @@ import { nadClassColor } from '../../utils/nadClasses'
 import PartitionFillOverlay, { type GeotechLithoFrame, type Props } from './PartitionFillOverlay'
 import { coverageDefects, paintedElements } from './partitionFillSampling.testutil'
 import type { LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => cleanup())
-
-function layer(
-  id: string,
-  inv: string,
-  formationId: string,
-  top: number,
-  base: number,
-  bodyId: string,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'model-1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactCorrelationEdge {
   return {
@@ -122,8 +82,8 @@ const GAP_X: Record<number, [number, number]> = {
 }
 
 const LITHO_LAYERS: LithoLayerResponse[] = COLUMNS.flatMap((inv) => [
-  layer(`l-${inv}-sand`, inv, 'formation-sand', 0, 10, 'body-sand'),
-  layer(`l-${inv}-clay`, inv, 'formation-clay', 10, 15, 'body-clay'),
+  layer({ id: `l-${inv}-sand`, investigationId: inv, formationId: 'formation-sand', depthTopM: 0, depthBaseM: 10, bodyId: 'body-sand' }),
+  layer({ id: `l-${inv}-clay`, investigationId: inv, formationId: 'formation-clay', depthTopM: 10, depthBaseM: 15, bodyId: 'body-clay' }),
 ])
 const LITHO_EDGES: LithoContactCorrelationEdge[] = COLUMNS.slice(0, -1).flatMap((inv, i) => {
   const next = COLUMNS[i + 1]
@@ -137,9 +97,9 @@ const LITHO_EDGES: LithoContactCorrelationEdge[] = COLUMNS.slice(0, -1).flatMap(
 // The packing model: L, M and R subdivided; B has NOTHING.
 const BANDED = ['L', 'M', 'R'] as const
 const GEOTECH_LAYERS: LithoLayerResponse[] = BANDED.flatMap((inv) => [
-  layer(`g-${inv}-0`, inv, 'nad-zand-5', 0, 6, 'gb-0'),
-  layer(`g-${inv}-1`, inv, 'nad-zand-7', 6, 10, 'gb-1'),
-  layer(`g-${inv}-2`, inv, 'nad-klei-23', 10, 15, 'gb-2'),
+  layer({ id: `g-${inv}-0`, investigationId: inv, formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 6, bodyId: 'gb-0' }),
+  layer({ id: `g-${inv}-1`, investigationId: inv, formationId: 'nad-zand-7', depthTopM: 6, depthBaseM: 10, bodyId: 'gb-1' }),
+  layer({ id: `g-${inv}-2`, investigationId: inv, formationId: 'nad-klei-23', depthTopM: 10, depthBaseM: 15, bodyId: 'gb-2' }),
 ])
 // The ties the engineer drew, INCLUDING the jump tie M..R that bridges the
 // undivided borehole — the tie exists, but the ground it crosses is not
@@ -195,7 +155,7 @@ const geotechProps: Props = {
   lithoFrame: LITHO_FRAME,
   axisMode: 'geotechnical',
   bodies: [],
-  placedColumns: COLUMNS.map((inv, i) => column(inv, i * 100, 10)),
+  placedColumns: COLUMNS.map((inv, i) => column({ investigationId: inv, along: i * 100, elevationM: 10 })),
   formationColorById: NAD_COLOURS,
   showBands: true,
   levelToScreen: (l: number) => 200 - l * 10,
@@ -338,10 +298,10 @@ describe('PartitionFillOverlay — geotech axis with an undivided borehole', () 
   const terminatingProps: Props = {
     ...geotechProps,
     lithoLayers: [
-      layer('g-L-0', 'L', 'nad-zand-5', 0, 10, 'gb-0'),
-      layer('g-L-2', 'L', 'nad-klei-23', 10, 12, 'gb-2'),
-      layer('g-M-0', 'M', 'nad-zand-5', 0, 10, 'gb-0'),
-      layer('g-R-0', 'R', 'nad-zand-5', 0, 10, 'gb-0'),
+      layer({ id: 'g-L-0', investigationId: 'L', formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 10, bodyId: 'gb-0' }),
+      layer({ id: 'g-L-2', investigationId: 'L', formationId: 'nad-klei-23', depthTopM: 10, depthBaseM: 12, bodyId: 'gb-2' }),
+      layer({ id: 'g-M-0', investigationId: 'M', formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 10, bodyId: 'gb-0' }),
+      layer({ id: 'g-R-0', investigationId: 'R', formationId: 'nad-zand-5', depthTopM: 0, depthBaseM: 10, bodyId: 'gb-0' }),
     ],
     contactEdges: [edge('g-L-0', 'g-M-0'), edge('g-L-0', 'g-M-0', 'base')],
   }
