@@ -9771,10 +9771,16 @@ the body menu (Dissolve / Name / colour) or the unit-statistics menu, and gives
 both `cursor: context-menu`:
 
 ```
-interactive     = Boolean(onBodyContextMenu && bodyById.get(region.bodyId)) && !viewOnly
+interactive      = Boolean(onBodyContextMenu && body) && bodyMenuEnabled && bodiesLoaded
 statsInteractive = unitStatsHandlerForAxis !== undefined && !interactive
-style            = interactive || statsInteractive ? { cursor: 'context-menu' } : …
+menuTarget       = interactive ? 'body' : statsInteractive ? 'stats' : undefined
+<path data-menu-target={menuTarget} style={{ cursor: 'context-menu' }} ...>
 ```
+
+(The two booleans were ALWAYS mutually exclusive — ``!interactive`` — so the cursor
+and the click could never disagree. A 2026-09-21 attempt that claimed they could
+"drift" was tested against the full truth table, found byte-identical, and closed
+unmerged. What was missing was only that the decision never reached the screen.)
 
 So which menu a region gives depends on whether the BODY LIST (`bodies={lenses}`,
 `SectionPanel.tsx:3543`) has arrived, and nothing on screen distinguishes the two
@@ -9814,9 +9820,40 @@ rewrites), but it is NOT what caused this.
    defect, since the owner uses Dissolve daily — but that is an inference, not a
    measurement. Verify before trusting it.
 
-**When to revisit.** Item 1 with the body-identity slice (#278), which may change
-when the list is available anyway. Item 2 the next time anyone touches
-`ContextMenu`'s SVG portal.
+**Status 2026-09-21.** The shared-cursor half of item 1 is CLOSED: the overlay now
+stamps ``data-menu-target="body"`` / ``"stats"`` on every region hit path (omitted
+when neither menu is wired), so the screen carries the decision and
+``flow_body_actions_ui`` selects ``[data-menu-target="body"]`` instead of retrying a
+right-click for 30 s until the body menu happened to open. No behaviour changed;
+a signal was added. A distinct CURSOR per target was deliberately NOT added
+(e2e goldens key on the cursor; a non-standard cursor over a fill band reads
+poorly) — owner's call if a human-visible cue is wanted; a ``title`` tooltip is the
+low-risk option. The pre-existing false comment "on the geotech axis ``bodies`` is
+empty" is corrected: the geotech axis is handed its OWN roster
+(``SectionsCanvas`` ``bodyMenuRoster = isGeotech ? geotechBodyList : lensList``) and
+what it lacks is contact EDITING, not bodies.
+
+**Item 2 now has a concrete, testable hypothesis** (static read of
+``ContextMenu.tsx`` ``portal="svg"`` + ``BodyContextMenu.tsx``, not yet run): the
+menu lives in a ``<foreignObject>`` holding a ``position:absolute; z 9999`` panel
+AND a full-viewport ``position:fixed; inset:0; z 9998`` backdrop that inherits
+``pointer-events:auto``. ``fixed`` inside a foreignObject does not reliably stack
+under the panel (the same unreliability ``ContextMenu.tsx`` ~137 already notes), so
+Playwright's receives-pointer-events pre-check hit-tests the backdrop or the
+container instead of the button and ``.click()`` times out, while
+``dispatchEvent`` (no hit-test) and a real mouse (native routing) both work —
+which is why the owner never sees it. Not a transform issue: the section SVG's
+viewBox is 1:1 with its pixel size. One-line experiment at the point the click
+would fire: read ``document.elementFromPoint`` at the ``body-ctx-dissolve-body``
+button's centre and log its tag / testid / computed ``position`` / ``zIndex``. If it
+is the button, the theory is refuted; a ``DIV fixed 9998`` is the backdrop; an
+``svg``/``foreignObject`` is the container. The likely fix after measuring is
+``pointer-events:none`` on that backdrop (its left-click dismiss is already
+redundant with the document listener at ``ContextMenu.tsx`` ~142).
+
+**When to revisit.** Item 2: run the experiment above under Playwright the next time
+anyone touches ``ContextMenu``'s SVG portal, then fix from the measurement. The
+entry stays open only for that.
 
 ## 280. Archive the v1 partition engine — RESOLVED 2026-08-31 (M)
 
