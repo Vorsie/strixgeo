@@ -69,10 +69,7 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     GeotechBandEditError,
     plan_merge_run,
 )
-
-# Depths are rounded to the millimetre before they are written — the no-overlap
-# exclusion constraint compares ``round(depth, 3)``.
-_DEPTH_DECIMALS = 3
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 
 
 class MergeGeotechBands(GeotechBoreholeMaterialiser):
@@ -209,7 +206,7 @@ class MergeGeotechBands(GeotechBoreholeMaterialiser):
                 context, merged.depth_top_m, merged.depth_base_m
             ),
         )
-        survivor.depth_base_m = round(absorbed_rows[-1].depth_base_m, _DEPTH_DECIMALS)
+        survivor.depth_base_m = round(absorbed_rows[-1].depth_base_m, LITHO_LAYER_DEPTH_DECIMALS)
         survivor.formation_id = formation.id
         # The merged band's extent is the engineer's decision now, not the
         # segmenter's — provenance must say so.
