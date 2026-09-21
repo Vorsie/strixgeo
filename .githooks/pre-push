@@ -86,7 +86,27 @@ ps_exit=$?
 set -e
 echo "$output"
 
-# Primary gate — non-zero PowerShell exit code (pytest returned non-zero).
+# Primary gate - DID THE SUITE RUN AT ALL?  Checked BEFORE the exit code,
+# because several paths exit non-zero WITHOUT running a single test: the
+# wrapper's lock ABORT (another run holds ``.integration-test.lock`` - it
+# refuses rather than waits, because two runs TRUNCATE each other's rows
+# mid-test), an alembic upgrade failure, a collection error, a PowerShell
+# crash.  None of those say anything about the code being pushed, and
+# reporting them as "tests FAILED" sends the author hunting a bug that does
+# not exist - it cost exactly that on 2026-09-21, the same misleading-verdict
+# shape the native gate had.  A missing pytest summary line is the signal:
+# pytest always prints one when it ran.
+if ! echo "$output" | grep -qE '[[:space:]][0-9]+ (passed|failed|error|errors)'; then
+  echo ""
+  echo "[pre-push] The integration suite did NOT run, so this says NOTHING about your code."
+  echo "[pre-push] Most likely another run holds .integration-test.lock (the wrapper refuses"
+  echo "[pre-push] rather than waits - two concurrent runs would truncate each other)."
+  echo "[pre-push] Other causes: alembic upgrade failure, collection error, PowerShell crash."
+  echo "[pre-push] Read the output above for which. Push blocked; re-run when it is free."
+  exit 1
+fi
+
+# Secondary gate - the suite RAN and pytest returned non-zero.  A real failure.
 if [ "$ps_exit" -ne 0 ]; then
   echo ""
   echo "[pre-push] Integration tests FAILED (exit ${ps_exit}) — push blocked."
@@ -94,7 +114,7 @@ if [ "$ps_exit" -ne 0 ]; then
   exit 1
 fi
 
-# Secondary gate — parse pytest's summary line as a belt-and-suspenders
+# Tertiary gate — parse pytest's summary line as a belt-and-suspenders
 # check.  Pytest's own exit code is the authority, but a shell-level
 # subprocess issue on Windows can swallow a non-zero exit.  The summary
 # line ``N failed`` is unambiguous.
@@ -105,19 +125,6 @@ if echo "$output" | grep -qE '[[:space:]][0-9]+ (failed|error|errors)'; then
   exit 1
 fi
 
-# Tertiary gate — the suite must actually have RUN. Several paths exit before
-# pytest ever starts and print no summary at all: the wrapper's lock ABORT
-# (another run holds ``.integration-test.lock``), an alembic upgrade failure,
-# a collection error, or a PowerShell crash. Reporting "passed" for a suite
-# that never executed is worse than reporting nothing, because the pre-commit
-# batch mode deliberately shifts trust onto this gate.
-if ! echo "$output" | grep -qE '[[:space:]][0-9]+ (passed|failed|error|errors)'; then
-  echo ""
-  echo "[pre-push] No pytest summary in the output — the integration suite did NOT run."
-  echo "[pre-push] Push blocked. Check above: lock held by another run? alembic failure?"
-  echo "[pre-push] collection error? Fix the cause; --no-verify only with a documented reason."
-  exit 1
-fi
 
 echo "[pre-push] Integration tests passed — push continuing."
 exit 0
