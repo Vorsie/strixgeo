@@ -82,9 +82,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from groundmodel.shared.constants.db_constraints import MIN_LAYER_THICKNESS_M
+
 # Bands thinner than this are dropped rather than written: `litho_layer` stores
-# intervals at mm grain, so a sub-mm band is noise, not geology.
-_MIN_BAND_THICKNESS_M = 0.001
+# intervals at mm grain, so a sub-mm band is noise, not geology. Value +
+# rationale: ``MIN_LAYER_THICKNESS_M``.
+_MIN_BAND_THICKNESS_M = MIN_LAYER_THICKNESS_M
 
 # Selection modes, in the order of decreasing evidence.
 MODE_FLANK_INTERPOLATED = "flank_interpolated"
