@@ -22,7 +22,8 @@
 //      debounced schedule for that axis's model. Nonces bumped while the gate is
 //      closed are NOT consumed — they fire when the gate opens.
 //   3. The debounced scheduler itself (``useBodyRecompute``) + the module-ref
-//      bridge to the toolbar's manual "Recompute bodies" verb.
+//      bridge to the "4 · Divide boreholes" verb (the "Recompute bodies" bridge
+//      was removed with that verb — owner ruling 6, 2026-09-12).
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
