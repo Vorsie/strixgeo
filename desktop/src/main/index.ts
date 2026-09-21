@@ -594,11 +594,15 @@ async function handleReadyBackendExit(): Promise<void> {
     return
   }
   if (action === 'give-up') {
-    writeMainLog('[main] backend died again within the guard window — not respawning (crash loop)')
+    writeMainLog('[main] backend died again within a minute of becoming ready — not respawning (crash loop)')
     mainWindow?.webContents.send('app:backend-failed')
     return
   }
-  lastBackendRespawnAtMs = Date.now()
+  // The guard stamp is deliberately NOT taken here at the spawn: it is taken
+  // when the respawned child becomes READY (awaitRespawnedBackendReady). A
+  // packaged respawn may spend most of its 3-minute readiness window binding,
+  // so a stamp at spawn would let a child that bound at +70 s and died at +75 s
+  // read as a recovery (75 s > the 60 s guard) and be respawned forever.
   writeMainLog('[main] backend exited after readiness — respawning once')
   mainWindow?.webContents.send('app:backend-restarting')
   setTimeout(() => {
@@ -634,6 +638,10 @@ async function awaitRespawnedBackendReady(): Promise<void> {
     sleep: ms => new Promise(r => setTimeout(r, ms)),
   })
   if (outcome === 'ready') {
+    // Start the crash-loop guard window NOW, at readiness: "died again within a
+    // minute" means a minute of serving, not a minute since a spawn that may
+    // have needed most of the readiness budget just to bind.
+    lastBackendRespawnAtMs = Date.now()
     markBackendReady?.()
     writeMainLog('[main] respawned backend is ready')
     mainWindow?.webContents.send('app:backend-ready')
