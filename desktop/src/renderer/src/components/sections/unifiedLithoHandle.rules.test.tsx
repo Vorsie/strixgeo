@@ -17,12 +17,12 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { BodyBoundaryResponse, LithoLayerResponse } from '../../api/client'
+import type { BodyBoundaryResponse } from '../../api/client'
 import type { SectionRegion } from '../../utils/sectionPartition'
 import * as engineSelect from '../../utils/partitionEngineSelect'
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => {
   cleanup()
@@ -32,46 +32,6 @@ afterEach(() => {
 // The ONE handle colour — teal (BOUNDARY_COLOR). No handle is amber (LENS_COLOR retired).
 const HANDLE_COLOR = '#38bdf8'
 const AMBER = '#f59e0b'
-
-function layer(
-  id: string,
-  inv: string,
-  bodyId: string,
-  formationId: string,
-  top: number,
-  base: number,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: 'x',
-    updated_at: 'x',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 const colors = new Map([
   ['fSand', '#fbbf24'],
@@ -87,12 +47,12 @@ const labels = new Map([
 // L: sand 0-4, silt-lens 4-5, sand 5-8, clay 8-10.  R: sand 0-7, clay 7-10.
 // → a silt LENS edge AND a sand/clay CONTACT edge in the same section.
 const mixedLayers = [
-  layer('m1', 'L', 'sand', 'fSand', 0, 4),
-  layer('m2', 'L', 'silt', 'fSilt', 4, 5),
-  layer('m3', 'L', 'sand', 'fSand', 5, 8),
-  layer('m4', 'L', 'clay', 'fClay', 8, 10),
-  layer('m5', 'R', 'sand', 'fSand', 0, 7),
-  layer('m6', 'R', 'clay', 'fClay', 7, 10),
+  layer({ id: 'm1', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 4 }),
+  layer({ id: 'm2', investigationId: 'L', bodyId: 'silt', formationId: 'fSilt', depthTopM: 4, depthBaseM: 5 }),
+  layer({ id: 'm3', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 5, depthBaseM: 8 }),
+  layer({ id: 'm4', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 8, depthBaseM: 10 }),
+  layer({ id: 'm5', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 7 }),
+  layer({ id: 'm6', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 7, depthBaseM: 10 }),
 ]
 
 const transforms = {
@@ -103,7 +63,7 @@ const transforms = {
 
 const base: Props = {
   lithoLayers: mixedLayers,
-  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
   formationColorById: colors,
   formationLabelById: labels,
   showBands: true,
