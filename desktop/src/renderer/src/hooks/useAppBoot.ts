@@ -18,7 +18,12 @@ import { log } from '../utils/log'
 export interface UseAppBootResult {
   /** True once the FastAPI backend has confirmed it is accepting connections. */
   ready: boolean
-  /** True when the API failed to start within its timeout budget. */
+  /**
+   * True when the backend could not be reached: the process exited (a startup
+   * crash), a foreign process holds the API port, or every readiness window was
+   * used without the port binding. NOT set for a slow-but-alive start still
+   * inside its budget — that path stays on ``takingLong`` and keeps waiting.
+   */
   apiError: boolean
   /** True after a live backend has exceeded its initial boot budget. */
   takingLong: boolean
@@ -44,8 +49,11 @@ export interface UseAppBootResult {
  * ready
  *     ``false`` while the API is starting; ``true`` once it responds.
  * apiError
- *     ``true`` when the startup timed out.  The App renders an error
- *     screen and does not proceed to the welcome flow.
+ *     ``true`` when the backend could not be reached — the process exited, a
+ *     foreign process holds the port, or the readiness budget was exhausted.
+ *     A timeout that is still WITHIN the budget does not set this (the wait
+ *     continues); the App renders an error screen only once it is set and does
+ *     not proceed to the welcome flow.
  */
 export function useAppBoot(gateOpen: boolean): UseAppBootResult {
   const [ready, setReady] = useState(false)
@@ -73,7 +81,16 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
           log.info('boot', 'API ready')
           setReady(true)
         } else {
-          log.error('boot', 'API process exited before it became ready')
+          // ``false`` is cause-agnostic: the main process returns it when the
+          // backend child exited (a startup crash), when a FOREIGN process holds
+          // port 8765 (wrong launch token, never a crash), or when the child was
+          // alive but used every readiness window without binding the port. Keep
+          // the message neutral so support does not hunt a crash traceback that
+          // the foreign-port case never produced.
+          log.error(
+            'boot',
+            'API did not become ready: the backend process exited, a foreign process holds port 8765, or it never bound the port within the readiness budget',
+          )
           setApiError(true)
         }
         return
