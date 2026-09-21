@@ -48,7 +48,6 @@ import {
 } from '../shared/useBody3DViewState'
 import { BodyViewModePills } from '../shared/BodyViewModePills'
 import type { CompareScene } from '../shared/splitViewport'
-import { exportFenceDxf } from '../shared/exportFenceDxf'
 import {
   makeVoxelRequestBuilder,
   type VoxelRequestBuilder,
@@ -96,19 +95,6 @@ export const resetGeotechSplitViewportCallback: React.MutableRefObject<
  * argument is the ordinary whole-model build.
  */
 export const geotechVoxelRequestCallback: React.MutableRefObject<VoxelRequestBuilder | null> = {
-  current: null,
-}
-
-/**
- * Export the geotech fence diagram as DXF.
- *
- * Populated by ``GeotechnicalCanvas`` while mounted; invoked by
- * ``GeotechnicalToolbar``'s "Export fence" button. Same module-ref bridge as
- * ``geotechVoxelRequestCallback`` — the fence walls are canvas-local state
- * that never reaches the shell bus, so the toolbar cannot assemble the export
- * itself. ``null`` when the canvas is not mounted.
- */
-export const geotechFenceExportCallback: React.MutableRefObject<(() => Promise<void>) | null> = {
   current: null,
 }
 
@@ -184,7 +170,6 @@ export default function GeotechnicalCanvas(): JSX.Element {
   // replacement canvas before it runs this one's cleanup (and both stages can
   // be alive at once in the split viewport), so an older instance must never
   // null a ref a newer instance has already claimed (debt #276).
-  const ownedFenceExport = useRef<(() => Promise<void>) | null>(null)
   const ownedVoxelRequest = useRef<VoxelRequestBuilder | null>(null)
   const ownedSplitViewport = useRef<(() => void) | null>(null)
 
@@ -258,28 +243,6 @@ export default function GeotechnicalCanvas(): JSX.Element {
     [geotechFormations],
   )
 
-  // Fence-DXF export bridge. Assigned every render while mounted, ABOVE the
-  // early returns, so the toolbar button never holds a stale closure over an
-  // earlier fence — and BELOW ``nadFormations``, which it reads (a const read
-  // above its declaration is a TDZ ReferenceError that neither tsc nor the
-  // unit suite would catch).  Nulled on unmount so a click after a stage
-  // switch is a no-op rather than an export of a destroyed view's geometry.
-  geotechFenceExportCallback.current =
-    projectId && geotechModelId && fencePanels
-      ? () =>
-          exportFenceDxf({
-            projectId,
-            modelId: geotechModelId,
-            modelName: activeGeotechModel?.name ?? 'geotechnical',
-            panels: fencePanels,
-            // The SAME array the viewer paints with, so the DXF layer colours
-            // are the NAD colours the user is looking at.
-            formations: nadFormations,
-            toast,
-          })
-      : null
-  ownedFenceExport.current = geotechFenceExportCallback.current
-
   // Null every toolbar-bridge ref this canvas owns when it unmounts, so a
   // toolbar click after a stage switch is a no-op instead of a call against a
   // destroyed view (debt #276). Each null is GUARDED — it fires only while the
@@ -289,8 +252,6 @@ export default function GeotechnicalCanvas(): JSX.Element {
   // renders.
   useEffect(
     () => () => {
-      if (geotechFenceExportCallback.current === ownedFenceExport.current)
-        geotechFenceExportCallback.current = null
       if (geotechVoxelRequestCallback.current === ownedVoxelRequest.current)
         geotechVoxelRequestCallback.current = null
       if (resetGeotechSplitViewportCallback.current === ownedSplitViewport.current)
