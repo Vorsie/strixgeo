@@ -888,6 +888,26 @@ async def _restore_project_bundle_impl(
                 f"Sample missing formation ids: {sample}."
             )
         await _wipe_project_scoped_rows(session, project_id, logger=logger)
+        # ---- Sync the ORM identity map to the wiped DB state (debt #193) ---
+        # ``_wipe_project_scoped_rows`` deletes via Core ``delete()``: the rows
+        # are gone at the DB level, but their ORM instances are NOT evicted
+        # from this session's identity map (a Core bulk delete never touches
+        # it). If the SAME session had already loaded any wiped row — every
+        # build→replace-restore round-trip on one session does, because
+        # ``build_project_bundle`` ``selectin``-loads ``litho_layers`` and
+        # ``contacts`` — the stale persistent instance lingers and collides
+        # with the identical id the restore re-inserts below. The FC↔LL mirror
+        # makes ``litho_layer.id`` equal its ``formation_contact.id``, so the
+        # payload-staged pending ``LithoLayerOrm`` shares its key with the
+        # stale one and SQLAlchemy warns "New instance ... conflicts with
+        # persistent instance" + "Identity map already had an identity ...".
+        # Evict every instance, then re-attach the project shell: the wipe
+        # preserves the project row, and the rest of the restore plus the
+        # endpoint's post-commit ``refresh(project)`` still need it in-session.
+        # A fresh per-request session (the production restore endpoint) has
+        # nothing loaded to evict, so this is a no-op there.
+        session.expunge_all()
+        session.add(project)
 
     # ---- Phase 1: CPTs ---------------------------------------------------
     new_cpts = await _restore_cpts(session, project_id, cpts_payload, logger=logger, drops=drops)
