@@ -78,7 +78,8 @@ import {
   nadCompactLabel,
   nadSoilFamilyName,
 } from '../../utils/nadClasses'
-import { MENU_ITEM_STYLE, UnitStatisticsItem } from './unitStatisticsMenuItem'
+import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
+import { MENU_HEADER_STYLE, MENU_ITEM_STYLE, UnitStatisticsItem } from './unitStatisticsMenuItem'
 import type { PlacedColumn } from './utils'
 import { useT } from '../../i18n/translate'
 import { resolveJoinPick, type JoinPick } from './joinPick'
@@ -676,15 +677,7 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
     if (verbs.length === 0) return null
     return (
       <>
-        <div
-          data-testid="geotech-menu-header"
-          style={{
-            padding: '6px 12px',
-            fontSize: 11,
-            color: 'var(--color-text-secondary, #94a3b8)',
-            borderBottom: '1px solid var(--color-border-default, #334155)',
-          }}
-        >
+        <div data-testid="geotech-menu-header" style={MENU_HEADER_STYLE}>
           {anchor?.name}
         </div>
         {verbs.map(v => (
@@ -867,32 +860,19 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
     geotechLayers,
   ])
 
-  // The menu closes the ways a menu is expected to close. Mirrored from
-  // ``ContactsLayer``'s litho band menu, wheel handler included: a menu is
-  // positioned in FIXED viewport coordinates, so scrolling or zooming the
-  // section slides the content out from under it and strands it over unrelated
-  // bands — the owner already reported that shape once ("sometimes i get this
-  // random add new suggestion here box when zooming or so"). Escape is the
-  // baseline every CAD tool trains.
-  useEffect(() => {
-    if (menu === null) return
-    // Also clear any un-join spotlight: Esc / wheel closes the menu while the
-    // pointer may still sit on an "Ontkoppelen" row (no mouseleave fires), so the
-    // highlight would otherwise stick after the menu is gone (D2, ux-reviewer).
-    const dismiss = (): void => {
-      onUnjoinHover?.(null)
-      setMenu(null)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') dismiss()
-    }
-    document.addEventListener('wheel', dismiss, { capture: true })
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('wheel', dismiss, { capture: true })
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [menu, onUnjoinHover])
+  // The menu closes the ways a menu is expected to close, via the shared
+  // ``useMenuDismissOnZoomOrEsc`` hook (debt #275 — this was an inline copy of
+  // ContactsLayer's litho band menu effect). A menu positioned in FIXED viewport
+  // coordinates is stranded over unrelated bands the moment the section scrolls
+  // or zooms ("sometimes i get this random add new suggestion here box when
+  // zooming or so"); Escape is the CAD baseline. The dismiss ALSO clears any
+  // un-join spotlight (D2, ux-reviewer): Esc / wheel closes the menu while the
+  // pointer may still sit on an "Ontkoppelen" row (no mouseleave fires), so the
+  // highlight would otherwise stick after the menu is gone.
+  useMenuDismissOnZoomOrEsc(menu !== null, () => {
+    onUnjoinHover?.(null)
+    setMenu(null)
+  })
 
   // The packing-class submenu belongs to ONE open setClass menu — collapse it
   // whenever the menu closes or a different band's menu opens, so it never
