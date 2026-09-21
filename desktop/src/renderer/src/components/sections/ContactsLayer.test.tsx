@@ -3126,7 +3126,7 @@ describe('ContactsLayer', () => {
   // via nearest-column proximity (dogfeed 2026-05-26)
   // ---------------------------------------------------------------------------
 
-  it('BA1 — right-click on backdrop contact polyline hit-path opens context menu; clicking "Edit in Geology stage" fires onEditInGeologyStage with nearest-column contact id', () => {
+  it('BA1 — right-click on backdrop contact polyline hit-path opens context menu; clicking "Edit in Stratigraphy stage" fires onEditInGeologyStage with nearest-column contact id', () => {
     // Setup: two reference contacts on two borehole columns.
     // Left column (bh-1, nudgedX=20): geological contact c-geo-left for formation geo-f.
     // Right column (bh-2, nudgedX=80): geological contact c-geo-right for formation geo-f.
@@ -3271,7 +3271,7 @@ describe('ContactsLayer', () => {
       const strip = screen.getByTestId('contact-drag-strip')
       fireEvent.contextMenu(strip)
 
-      // The "Unlink from geology" item must be present.
+      // The "Unlink from stratigraphy" item must be present.
       const unlinkItem = await screen.findByTestId('unlink-geo-menu-item')
       expect(unlinkItem).toBeTruthy()
 
@@ -3301,7 +3301,7 @@ describe('ContactsLayer', () => {
       const strip = screen.getByTestId('contact-drag-strip')
       fireEvent.contextMenu(strip)
 
-      // The "Unlink from geology" item must NOT appear.
+      // The "Unlink from stratigraphy" item must NOT appear.
       const unlinkItem = screen.queryByTestId('unlink-geo-menu-item')
       expect(unlinkItem).toBeNull()
     })
@@ -3414,7 +3414,7 @@ describe('ContactsLayer', () => {
       // A coupled litho contact whose parent_geo_contact_id == the reference
       // contact's id.  The reference strip must NOT render — the litho
       // contact's own drag-strip (contact-drag-strip) already handles drag
-      // AND its context menu offers "Unlink from geology", so the reference
+      // AND its context menu offers "Unlink from stratigraphy", so the reference
       // strip would only eat pointer events.
       const geoId = 'geo-ref-1'
       const lithoContact = makeContact({
@@ -3461,9 +3461,9 @@ describe('ContactsLayer', () => {
       expect(lithoStrip).not.toBeNull()
     })
 
-    it('RS1b — "Unlink from geology" menu item is reachable on the litho strip when reference strip is suppressed', async () => {
+    it('RS1b — "Unlink from stratigraphy" menu item is reachable on the litho strip when reference strip is suppressed', async () => {
       // Confirm that suppressing the reference strip does not lose the ability
-      // to right-click the coupled litho contact and pick "Unlink from geology".
+      // to right-click the coupled litho contact and pick "Unlink from stratigraphy".
       const geoId = 'geo-ref-2'
       const lithoContact = makeContact({
         id: 'c-coupled-2',
@@ -3503,7 +3503,7 @@ describe('ContactsLayer', () => {
       const lithoStrip = screen.getByTestId('contact-drag-strip')
       fireEvent.contextMenu(lithoStrip)
 
-      // "Unlink from geology" must be in the menu.
+      // "Unlink from stratigraphy" must be in the menu.
       const unlinkItem = await screen.findByTestId('unlink-geo-menu-item')
       expect(unlinkItem).toBeTruthy()
 
@@ -3514,7 +3514,7 @@ describe('ContactsLayer', () => {
     it('RS2 — reference hit-strip is still rendered for an UNCOUPLED reference contact', () => {
       // Control case: an uncoupled reference contact (not linked to any litho
       // contact) must still render its hit-strip so the user can right-click
-      // it for "Edit in Geology stage".
+      // it for "Edit in Stratigraphy stage".
       const geoId = 'geo-ref-3'
       const lithoContact = makeContact({
         id: 'c-uncoupled',
@@ -3562,7 +3562,7 @@ describe('ContactsLayer', () => {
       // eats the hover + mousedown — the two-ended drag cursor never shows
       // and the litho contact can no longer be grabbed. Suppressing the
       // coincident reference strip restores the drag (the litho contact's
-      // own menu still offers "Edit in Geology stage").
+      // own menu still offers "Edit in Stratigraphy stage").
       const geoId = 'geo-ref-4'
       const lithoContact = makeContact({
         id: 'c-coincident',
