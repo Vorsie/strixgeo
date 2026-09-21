@@ -441,272 +441,216 @@ describe('openProjectFile — the file is unreadable (damaged / truncated / newe
   })
 })
 
-describe('saveProject — the written .strix must be self-consistent', () => {
-  it('keeps a formation referenced only by a litho layer, even when the manifest never saw it', async () => {
-    // The engineer accepted litho suggestions (server-side formations the
-    // manifest never learned about) and hits Ctrl+S. Litho and geotech
-    // models serialise ``contacts: []`` — their formation references live
-    // in ``litho_layers`` only.
-    bundleOverrides = {
-      geological_formations: [{ id: 'f-litho', name: 'ZAND instance' }],
-      geological_models: [
-        {
-          id: 'm-litho',
-          kind: 'lithostratigraphic',
-          contacts: [],
-          litho_layers: [{ id: 'll-1', formation_id: 'f-litho' }],
-        },
-      ],
-    }
+describe('saveProject — the pre-write empty-bundle guard (debt #225)', () => {
+  // "Save must never silently write a 0-edge bundle when the model has edges."
+  // The observed shape (2026-06-25): a save fetched a bundle whose
+  // ``litho_contact_correlation_edges`` came back ``[]`` while the model held
+  // 481, and the file was silently overwritten with the empty data.
+  //
+  // Owner ruling, after the first version blocked a deliberate clear-then-save:
+  // RETRY ONCE, THEN ASK. A save is never hard-blocked, because clearing a
+  // model on purpose and then saving is a normal thing to do. What must not
+  // happen is the overwrite going through WITHOUT the engineer being asked.
+  const edgeRows = (n: number): Row[] =>
+    Array.from({ length: n }, (_, i) => ({ id: `edge-${i}` }))
 
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    asMock(window.electron.writeProjectFile).mockClear()
-    await act(async () => {
-      await result.current.saveProject()
-    })
-
-    // The invariant, stated as a property of the file itself: no layer and
-    // no contact in the file may reference a formation the file lacks.
-    const written = lastWrittenFile()
-    const presentFormationIds = new Set(
-      (written.geological_formations as Row[]).map(f => f.id as string),
+  /** Open a .strix that holds ``edges`` correlation edges. */
+  async function openWithEdges(edges: number) {
+    const toast = vi.fn()
+    diskContent = JSON.stringify(
+      fileShape({ litho_contact_correlation_edges: edgeRows(edges) }),
     )
-    const referenced: string[] = []
-    for (const m of written.geological_models as Row[]) {
-      for (const c of ((m.contacts ?? []) as Row[])) {
-        if (typeof c.formation_id === 'string') referenced.push(c.formation_id)
-      }
-      for (const l of ((m.litho_layers ?? []) as Row[])) {
-        if (typeof l.formation_id === 'string') referenced.push(l.formation_id)
-      }
-    }
-    expect(referenced).toContain('f-litho')
-    for (const id of referenced) expect(presentFormationIds.has(id)).toBe(true)
-  })
-
-  it('still drops a formation nothing references and the manifest never saw', async () => {
-    bundleOverrides = {
-      geological_formations: [{ id: 'f-orphan', name: 'Never saved' }],
-    }
-
-    const { result } = renderHook(() => useProject())
+    const hook = renderHook(() => useProject({ toast }))
     await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
+      await hook.result.current.openProjectFile('C:/path/edges.strix')
     })
-    asMock(window.electron.writeProjectFile).mockClear()
-    await act(async () => {
-      await result.current.saveProject()
-    })
+    return { ...hook, toast }
+  }
 
-    expect(lastWrittenFile().geological_formations as Row[]).toHaveLength(0)
-  })
-})
+  it('a bundle that comes back empty is re-fetched once, and a healed re-fetch saves normally', async () => {
+    const { api } = await import('../api/client')
+    const { result, toast } = await openWithEdges(481)
 
-describe('saveProject — a save whose file write failed is not a save', () => {
-  it('reports failure to the caller when writeProjectFile throws', async () => {
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    asMock(window.electron.writeProjectFile).mockRejectedValue(
-      new Error('EBUSY: file locked by another process'),
+    // The transient bad export state hits the FIRST fetch only; the retry, as
+    // on 2026-06-25, comes back populated.
+    bundleOverrides = { litho_contact_correlation_edges: edgeRows(481) }
+    asMock(api.project.bundle).mockImplementationOnce(async () =>
+      bundleShape({ project: dbProject(), litho_contact_correlation_edges: [] }),
     )
+    asMock(window.electron.writeProjectFile).mockClear()
+    asMock(api.project.bundle).mockClear()
 
     let ok: boolean | undefined
     await act(async () => {
       ok = await result.current.saveProject()
     })
 
-    // OneDrive / antivirus held the .strix. The DB is committed but the
-    // engineer's anchor file is stale — reporting "saved" here is what
-    // later lets a "Don't Save" replay the stale file over the database.
+    // The save succeeds, writes the HEALED bundle, and never bothers the
+    // engineer: a transient glitch that healed is not their problem.
+    expect(ok).toBe(true)
+    expect(api.project.bundle).toHaveBeenCalledTimes(2)
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    expect(
+      (lastWrittenFile().litho_contact_correlation_edges as Row[]).length,
+    ).toBe(481)
+    expect(toast.mock.calls.filter(([type]) => type === 'error')).toHaveLength(0)
+  })
+
+  it('when the re-fetch is still empty the engineer is asked, and cancelling leaves the file untouched', async () => {
+    const toast = vi.fn()
+    const confirmEmptyBundleOverwrite = vi.fn(async () => false)
+    diskContent = JSON.stringify(
+      fileShape({ litho_contact_correlation_edges: edgeRows(481) }),
+    )
+    const { result } = renderHook(() =>
+      useProject({ toast, confirmEmptyBundleOverwrite }),
+    )
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/edges.strix')
+    })
+    // Both the fetch and the re-fetch read empty.
+    bundleOverrides = { litho_contact_correlation_edges: [] }
+    asMock(window.electron.writeProjectFile).mockClear()
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.saveProject()
+    })
+
+    // Asked, not silently overwritten; Cancel keeps the last good file.
+    expect(confirmEmptyBundleOverwrite).toHaveBeenCalledTimes(1)
+    expect(confirmEmptyBundleOverwrite).toHaveBeenCalledWith([
+      { collection: 'litho_contact_correlation_edges', expected: 481, fetched: 0 },
+    ])
+    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
     expect(ok).toBe(false)
     expect(result.current.lastSaveWroteFile()).toBe(false)
   })
 
-  it('still reports success on the happy path', async () => {
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-
-    let ok: boolean | undefined
-    await act(async () => {
-      ok = await result.current.saveProject()
-    })
-
-    expect(ok).toBe(true)
-    expect(result.current.lastSaveWroteFile()).toBe(true)
-  })
-})
-
-describe('saveProject — the anchor that pairs a file with its project row', () => {
-  it('stamps one token on the project row and into the file written in the same save', async () => {
-    const { api } = await import('../api/client')
-
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    await act(async () => {
-      await result.current.saveProject()
-    })
-
-    const rowAnchor = (dbViewState as { save_anchor?: string }).save_anchor
-    const fileAnchor = (
-      (lastWrittenFile().project as Record<string, unknown>).view_state as {
-        save_anchor?: string
-      }
-    ).save_anchor
-    expect(typeof rowAnchor).toBe('string')
-    expect(fileAnchor).toBe(rowAnchor)
-    expect(api.project.patchViewState).toHaveBeenCalledWith(
-      PROJECT_ID,
-      expect.objectContaining({ save_anchor: rowAnchor }),
-    )
-  })
-
-  it('mints a different token on every save', async () => {
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    await act(async () => {
-      await result.current.saveProject()
-    })
-    const first = (dbViewState as { save_anchor?: string }).save_anchor
-    await act(async () => {
-      await result.current.saveProject()
-    })
-    const second = (dbViewState as { save_anchor?: string }).save_anchor
-
-    expect(first).toBeTruthy()
-    expect(second).not.toBe(first)
-  })
-
-  it('does not fail the save when the anchor PATCH itself fails', async () => {
-    const { api } = await import('../api/client')
-    // The anchor is bookkeeping. Losing it costs the revert guard its
-    // newest data point — it falls back to the previous anchor — but the
-    // engineer's save must still reach the disk.
-    asMock(api.project.patchViewState).mockRejectedValue(new Error('backend blip'))
-
-    const { result } = renderHook(() => useProject())
-    await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-
-    let ok: boolean | undefined
-    await act(async () => {
-      ok = await result.current.saveProject()
-    })
-
-    expect(ok).toBe(true)
-    expect(result.current.lastSaveWroteFile()).toBe(true)
-  })
-})
-
-describe('revertToLastSaved — only the project\u2019s own latest save may replace the DB', () => {
-  it('refuses to replace-restore from a file that is not this project\u2019s latest save', async () => {
-    const { api } = await import('../api/client')
-    // A hand-copied backup: same project id (a byte copy always is), but it
-    // carries the anchor of an older save while the live row has moved on.
+  it('when the re-fetch is still empty and the engineer says save anyway, the file is written', async () => {
+    const toast = vi.fn()
+    const confirmEmptyBundleOverwrite = vi.fn(async () => true)
     diskContent = JSON.stringify(
-      fileShape({
-        project: {
-          id: PROJECT_ID,
-          name: 'Save Restore Site',
-          status: 'active',
-          tags: [],
-          view_state: { save_anchor: 'anchor-from-01-august' },
-        },
-      }),
+      fileShape({ litho_contact_correlation_edges: edgeRows(481) }),
     )
-    dbViewState = { save_anchor: 'anchor-from-08-august' }
-
-    const { result } = renderHook(() => useProject())
+    const { result } = renderHook(() =>
+      useProject({ toast, confirmEmptyBundleOverwrite }),
+    )
     await act(async () => {
-      await result.current.openProjectFile('C:/path/site-backup-0801.strix')
+      await result.current.openProjectFile('C:/path/edges.strix')
+    })
+    // A deliberate clear-then-save looks exactly like this from here, which is
+    // why the guard must not refuse it.
+    bundleOverrides = { litho_contact_correlation_edges: [] }
+    asMock(window.electron.writeProjectFile).mockClear()
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.saveProject()
     })
 
-    let reverted: string | undefined
-    await act(async () => {
-      reverted = await result.current.revertToLastSaved()
-    })
-
-    // The REFUSAL is its own outcome. A bare false made the close-flow read
-    // it as "never-saved project" and DB-delete the session's creates.
-    expect(reverted).toBe('refused-not-latest-save')
-    // Nothing was wiped: the replace-restore never ran.
-    expect(api.project.restore).not.toHaveBeenCalled()
+    expect(confirmEmptyBundleOverwrite).toHaveBeenCalledTimes(1)
+    expect(ok).toBe(true)
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    expect(
+      (lastWrittenFile().litho_contact_correlation_edges as Row[]).length,
+    ).toBe(0)
   })
 
-  it('reverts normally when the file IS the project\u2019s latest save', async () => {
-    const { api } = await import('../api/client')
-    asMock(api.project.restore).mockResolvedValue(baseProject)
+  it('without a question wired the guard refuses rather than overwrite', async () => {
+    const { result } = await openWithEdges(481)
+    bundleOverrides = { litho_contact_correlation_edges: [] }
+    asMock(window.electron.writeProjectFile).mockClear()
 
-    const { result } = renderHook(() => useProject())
+    let ok: boolean | undefined
     await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    await act(async () => {
-      await result.current.saveProject()
+      ok = await result.current.saveProject()
     })
 
-    let reverted: string | undefined
-    await act(async () => {
-      reverted = await result.current.revertToLastSaved()
-    })
-
-    expect(reverted).toBe('reverted')
-    expect(api.project.restore).toHaveBeenCalledTimes(1)
+    // A bare-hook render has no dialog to ask through. Refusing is the safe
+    // side: the data is still in the app and the file keeps its last good bytes.
+    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
+    expect(ok).toBe(false)
   })
 
-  it('reverts for a legacy project that has no anchor on either side', async () => {
-    const { api } = await import('../api/client')
-    asMock(api.project.restore).mockResolvedValue(baseProject)
-
-    const { result } = renderHook(() => useProject())
+  it('a genuinely empty project still saves', async () => {
+    const toast = vi.fn()
+    // Opened empty, fetched empty — nothing to guard.
+    const { result } = renderHook(() => useProject({ toast }))
     await act(async () => {
-      await result.current.openProjectFile('C:/path/legacy.strix')
+      await result.current.openProjectFile('C:/path/empty.strix')
+    })
+    asMock(window.electron.writeProjectFile).mockClear()
+
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.saveProject()
     })
 
-    let reverted: string | undefined
-    await act(async () => {
-      reverted = await result.current.revertToLastSaved()
-    })
-
-    expect(reverted).toBe('reverted')
+    expect(ok).toBe(true)
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    expect(toast.mock.calls.filter(([type]) => type === 'error')).toHaveLength(0)
   })
 
-  it('refuses after a save whose file write failed — the file on disk is a save behind', async () => {
+  it('a bundle whose counts match writes as before, with no second fetch', async () => {
     const { api } = await import('../api/client')
-    asMock(api.project.restore).mockResolvedValue(baseProject)
+    const { result, toast } = await openWithEdges(481)
+    // The fresh fetch returns the same 481 edges — a healthy save.
+    bundleOverrides = { litho_contact_correlation_edges: edgeRows(481) }
+    asMock(window.electron.writeProjectFile).mockClear()
+    asMock(api.project.bundle).mockClear()
 
-    const { result } = renderHook(() => useProject())
+    let ok: boolean | undefined
     await act(async () => {
-      await result.current.openProjectFile('C:/path/site.strix')
-    })
-    // First save lands: file and row now share an anchor.
-    await act(async () => {
-      await result.current.saveProject()
-    })
-    // Second save: the write fails, so the row's anchor advances while the
-    // file on disk keeps the previous one.
-    asMock(window.electron.writeProjectFile).mockRejectedValue(new Error('EBUSY'))
-    await act(async () => {
-      await result.current.saveProject()
+      ok = await result.current.saveProject()
     })
 
-    let reverted: string | undefined
+    expect(ok).toBe(true)
+    expect(api.project.bundle).toHaveBeenCalledTimes(1)
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    expect(
+      (lastWrittenFile().litho_contact_correlation_edges as Row[]).length,
+    ).toBe(481)
+    expect(toast.mock.calls.filter(([type]) => type === 'error')).toHaveLength(0)
+  })
+
+  it('Save As asks before writing a duplicate whose bundle comes back empty', async () => {
+    const { api } = await import('../api/client')
+    const toast = vi.fn()
+    const confirmEmptyBundleOverwrite = vi.fn(async () => false)
+    // The source project holds 481 edges (its opened file).
+    diskContent = JSON.stringify(
+      fileShape({ litho_contact_correlation_edges: edgeRows(481) }),
+    )
+    const { result } = renderHook(() =>
+      useProject({ toast, confirmEmptyBundleOverwrite }),
+    )
     await act(async () => {
-      reverted = await result.current.revertToLastSaved()
+      await result.current.openProjectFile('C:/path/source.strix')
+    })
+    // Save As duplicates server-side, then fetches the duplicate's bundle —
+    // which comes back with the transient empty edge state, twice.
+    asMock(api.project.duplicate).mockResolvedValue({
+      ...baseProject,
+      id: 'dup-1',
+      name: 'Copy',
+    })
+    asMock(window.electron.showProjectSaveDialog).mockResolvedValue('C:/path/copy.strix')
+    bundleOverrides = {
+      project: { ...baseProject, id: 'dup-1' },
+      litho_contact_correlation_edges: [],
+    }
+    asMock(window.electron.writeProjectFile).mockClear()
+
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.saveAsProject()
     })
 
-    expect(reverted).toBe('refused-not-latest-save')
-    expect(api.project.restore).not.toHaveBeenCalled()
+    expect(confirmEmptyBundleOverwrite).toHaveBeenCalledTimes(1)
+    expect(returned).toBeNull()
+    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
+    // The freshly-minted duplicate row is rolled back so no orphan is left.
+    expect(api.project.archive).toHaveBeenCalledWith('dup-1')
   })
 })
