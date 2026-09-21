@@ -21,7 +21,7 @@ Why ``dict[str, Any]`` instead of a typed nested schema:
   own Pydantic class is a lot of code with weak payoff — the source of
   truth for column shapes is the ORM, not the API. Tracking those
   schemas in two places drifts.
-* The serialiser (``infrastructure/db/repositories/project_bundle.py``)
+* The serialiser (``infrastructure/db/repositories/project_bundle/bundle_serialization.py``)
   uses ``__mapper__.column_attrs`` to enumerate columns, so adding a
   column anywhere in the tree rides along automatically. A typed
   Pydantic mirror would force a manual update each time.
