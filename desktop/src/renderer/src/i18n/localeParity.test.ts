@@ -22,6 +22,16 @@ import { describe, expect, it } from 'vitest'
 import { EN, EN_MODULES, type MessageKey } from './locales/en'
 import { NL, NL_MODULES } from './locales/nl'
 
+// The native menu labels are the source of truth LP0 checks the boot copy
+// against. They live in the MAIN TypeScript project, which tsc's composite
+// renderer project cannot statically list (a static cross-project import is a
+// TS6307 error), so the specifier is held in a variable and imported at runtime,
+// where vitest resolves it. Typed to just the shape LP0 reads.
+const MENU_LABELS_MODULE_PATH = '../../../main/menuLabels'
+interface MenuLabelsModule {
+  MENU_LABELS: { saveLogsForSupport: { en: string; nl: string } }
+}
+
 /** Strings that are deliberately identical in EN and NL: product names, file
  *  formats, standards bodies, axis symbols, and abbreviations that BE/NL
  *  geotechnical practice leaves in English. Each entry is a decision, not an
@@ -142,11 +152,22 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
 ])
 
 describe('locale catalogues', () => {
-  it('LP0 — startup support copy names the packaged Help command and project examples are neutral', () => {
-    expect(EN['app.bootFailedBody']).toContain('Help → Save logs for support…')
-    expect(NL['app.bootFailedBody']).toContain('Help → Logs opslaan voor support…')
+  it('LP0 — startup support copy names the packaged Help command and project examples are neutral', async () => {
+    // Derive the expected menu label from the menu-label table (its source of
+    // truth) rather than hard-coding it, so a menu rename that leaves the boot
+    // copy stale turns THIS gate red instead of passing silently (owner finding 8).
+    const { MENU_LABELS } = (await import(
+      /* @vite-ignore */ MENU_LABELS_MODULE_PATH
+    )) as MenuLabelsModule
+    expect(EN['app.bootFailedBody']).toContain(`Help → ${MENU_LABELS.saveLogsForSupport.en}`)
+    expect(NL['app.bootFailedBody']).toContain(`Help → ${MENU_LABELS.saveLogsForSupport.nl}`)
     expect(EN['app.startingLong']).toBeTruthy()
     expect(NL['app.startingLong']).toBeTruthy()
+    // The "taking longer than usual" copy is reachable on ANY launch (a slow
+    // second start, a mid-session backend respawn), not only the first, so it
+    // must not claim this is the first start (owner finding 3).
+    expect((EN['app.startingLong'] ?? '').toLowerCase()).not.toContain('first')
+    expect((NL['app.startingLong'] ?? '').toLowerCase()).not.toContain('eerste')
 
     const projectExamples = [
       EN['project.namePlaceholder'],
