@@ -142,7 +142,7 @@ interface Props {
    * contact's hit-strip falls back to its drag-only behaviour. */
   onDeleteContact?: (contactId: string) => Promise<void>
   /**
-   * Right-click → "Unlink from geology" menu item — fires only when the
+   * Right-click → "Unlink from stratigraphy" menu item — fires only when the
    * contact's ``parent_geo_contact_id`` is non-null.  Nulls the coupling
    * without moving / deleting either contact.  When absent the item is
    * hidden.
@@ -860,7 +860,7 @@ export default function ContactsLayer({
     anchorId: string
     /** True when the right-clicked contact is a REFERENCE (geological
      * backdrop) contact on the litho axis.  Gates which menu items
-     * appear: reference contacts show only "Edit in Geology stage"
+     * appear: reference contacts show only "Edit in Stratigraphy stage"
      * and suppress Delete / Pinch-out (those actions belong on the
      * geological axis, not the litho view). */
     isReferenceContact?: boolean
@@ -868,14 +868,14 @@ export default function ContactsLayer({
      * litho contact.  Present when the right-clicked litho contact's
      * formation has a ``parent_formation_id`` AND a matching geological
      * contact exists at the same anchor in ``referenceContacts``.  Used
-     * to offer "Edit in Geology stage" on the litho axis even for
+     * to offer "Edit in Stratigraphy stage" on the litho axis even for
      * non-topmost formation boundaries (which don't have a dedicated
      * reference hit-strip because they are litho-litho boundaries, not
      * geological boundaries — see Bug 1 dogfeed 2026-05-26). */
     parentGeoContactId?: string | null
     /** True when the contact carries a ``parent_geo_contact_id`` — i.e. it is
      * directly coupled to a geological contact via the litho↔geo coupling
-     * (#162).  Gates the "Unlink from geology" menu item. */
+     * (#162).  Gates the "Unlink from stratigraphy" menu item. */
     isCoupledToGeo?: boolean
   } | null>(null)
 
@@ -2531,7 +2531,7 @@ export default function ContactsLayer({
   // Reference-contact hit-strips — invisible rects placed at each
   // geological (reference) contact's depth position when
   // ``onEditInGeologyStage`` is wired (litho axis only).  Right-clicking
-  // one opens a minimal context menu with a single "Edit in Geology stage"
+  // one opens a minimal context menu with a single "Edit in Stratigraphy stage"
   // item so the user can navigate directly to the relevant geological
   // contact for editing.
   //
@@ -2556,9 +2556,9 @@ export default function ContactsLayer({
     // (the accept flow snaps them together) so the reference strip would sit
     // exactly on top of the litho drag-strip — it would eat the mousedown
     // (no drag) and the right-click (shows the geo menu instead of the litho
-    // menu with "Unlink from geology").  Suppressing the strip loses nothing:
+    // menu with "Unlink from stratigraphy").  Suppressing the strip loses nothing:
     // the litho contact's own strip already handles drag AND its context menu
-    // already offers both "Edit in Geology stage" and "Unlink from geology".
+    // already offers both "Edit in Stratigraphy stage" and "Unlink from stratigraphy".
     const coupledGeoIds = new Set<string>()
     // Litho contact depths grouped by anchor — used to detect a reference
     // contact that is COINCIDENT with a litho contact (same anchor + depth)
@@ -3447,7 +3447,7 @@ export default function ContactsLayer({
                       ? e => {
                           e.preventDefault()
                           // Resolve the parent geological contact id so the
-                          // menu can offer "Edit in Geology stage" for any
+                          // menu can offer "Edit in Stratigraphy stage" for any
                           // litho contact whose formation has a parent
                           // geological formation (Bug 1 dogfeed 2026-05-26).
                           const lithoFormation = lithoFormationById.get(layer.formationId)
@@ -3462,7 +3462,7 @@ export default function ContactsLayer({
                           // viewport clientX/Y so no container-rect math.
                           // Coupling check: look up the contact to see if it
                           // has a parent_geo_contact_id (litho↔geo coupling
-                          // #162) so the "Unlink from geology" item can be
+                          // #162) so the "Unlink from stratigraphy" item can be
                           // conditional without adding the field to LayerSlabData.
                           const isCoupledToGeo =
                             (contacts.find(c => c.id === layer.contactId)
@@ -3515,7 +3515,7 @@ export default function ContactsLayer({
 
       {/* Reference-contact hit-strips (litho axis, deep-link enabled).
           Invisible rects placed at each geological (reference) contact's
-          depth position; right-click → "Edit in Geology stage" menu item.
+          depth position; right-click → "Edit in Stratigraphy stage" menu item.
           WHY rendered AFTER the active-litho layers block: SVG paint order
           determines pointer-event priority — later elements sit on top.
           Moving these strips here ensures right-click on a geological
@@ -4049,7 +4049,7 @@ export default function ContactsLayer({
           clientY={contactMenu.clientY}
           formationName={contactMenu.formationName}
           // Reference contacts (geological backdrop on the litho axis)
-          // only show "Edit in Geology stage".  Delete belongs on the
+          // only show "Edit in Stratigraphy stage".  Delete belongs on the
           // geological axis, not the litho view.
           onEditInGeologyStage={
             onEditInGeologyStage &&
