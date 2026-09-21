@@ -15,8 +15,10 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from groundmodel.application.borehole_observation_layers_options import (
+    borehole_observation_layers_options,
+)
 from groundmodel.application.formal_code_count import FormalCodeCount
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
@@ -91,7 +93,7 @@ async def build_formal_informal_bridge(
     bh_stmt = (
         select(BoreholeOrm)
         .where(BoreholeOrm.app_project_id == project_id)
-        .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+        .options(*borehole_observation_layers_options())
     )
     boreholes = list((await session.execute(bh_stmt)).scalars().all())
 
