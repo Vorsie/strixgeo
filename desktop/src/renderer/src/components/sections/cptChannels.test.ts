@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  BOREHOLE_CHANNEL_OBSERVATION_TYPES,
   DEFAULT_BOREHOLE_CHANNELS,
   DEFAULT_CPT_CHANNELS,
   cptBandFullWidth,
@@ -116,6 +117,7 @@ describe('readBoreholeChannels — parse + default fallback', () => {
   it('parses a full toggle bag verbatim', () => {
     const persisted = {
       borehole_channels: {
+        lithology: true,
         geotech: false,
         formal_strat: true,
         informal_strat: false,
@@ -127,6 +129,7 @@ describe('readBoreholeChannels — parse + default fallback', () => {
   it('falls back to the per-key default when a key is missing or non-boolean', () => {
     const partial = { borehole_channels: { geotech: 'oops' } }
     expect(readBoreholeChannels(partial)).toEqual({
+      lithology: DEFAULT_BOREHOLE_CHANNELS.lithology,
       geotech: DEFAULT_BOREHOLE_CHANNELS.geotech, // string ignored, default
       formal_strat: DEFAULT_BOREHOLE_CHANNELS.formal_strat,
       informal_strat: DEFAULT_BOREHOLE_CHANNELS.informal_strat,
@@ -138,6 +141,7 @@ describe('enabledBoreholeChannelCount', () => {
   it('returns 0 when no channel is enabled', () => {
     expect(
       enabledBoreholeChannelCount({
+        lithology: false,
         geotech: false,
         formal_strat: false,
         informal_strat: false,
@@ -148,6 +152,7 @@ describe('enabledBoreholeChannelCount', () => {
   it('counts each enabled channel', () => {
     expect(
       enabledBoreholeChannelCount({
+        lithology: false,
         geotech: true,
         formal_strat: false,
         informal_strat: true,
@@ -330,5 +335,32 @@ describe('readCptChannels — parse persisted toggles from view_state', () => {
       u2: DEFAULT_CPT_CHANNELS.u2,
       qTotal: DEFAULT_CPT_CHANNELS.qTotal,
     })
+  })
+})
+
+// Issue #17: a borehole whose only DOV stream is gecodeerde lithologie
+// (``coded_lithology``) drew nothing in a cross-section, because the channel
+// map that BoreholeColumn iterates listed only geotech / formal / informal.
+// The owner's ruling: make it selectable, default OFF.
+describe('borehole channels - gecodeerde lithologie (issue #17)', () => {
+  it('coded lithology is a selectable stream', () => {
+    const types = BOREHOLE_CHANNEL_OBSERVATION_TYPES.map(([, obsType]) => obsType)
+    expect(types).toContain('coded_lithology')
+  })
+
+  it('coded lithology is off by default, so existing sections look unchanged', () => {
+    expect(DEFAULT_BOREHOLE_CHANNELS.lithology).toBe(false)
+  })
+
+  it('a stored preference for it is honoured', () => {
+    const read = readBoreholeChannels({ borehole_channels: { lithology: true } })
+    expect(read.lithology).toBe(true)
+  })
+
+  it('a project saved before the stream existed still opens, with it off', () => {
+    const legacy = {
+      borehole_channels: { geotech: true, formal_strat: false, informal_strat: false },
+    }
+    expect(readBoreholeChannels(legacy).lithology).toBe(false)
   })
 })
