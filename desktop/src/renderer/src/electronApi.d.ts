@@ -16,7 +16,7 @@ import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
 // The ``api:ready`` result shape, from its single source of truth. It is a
 // dependency-free declaration module, so this type-only cross-project import
 // pulls in no runtime and is accepted by the composite renderer project (item 2).
-import type { BackendReadyResult } from '../main/backendReadyResult'
+import type { BackendReadyResult } from '../../main/backendReadyResult'
 
 interface RecentProject {
   path: string
