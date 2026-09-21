@@ -159,20 +159,25 @@ export function useCopyGhostContact(
         }
       })
 
-      // The segmenter leaves a ghost RECORD on every column it ran on, also
-      // when it suggested nothing (owner, installer #44: "this test already
-      // has suggestions when it clearly does not"). A target is taken only
-      // when it holds a PENDING suggestion: one neither accepted nor rejected.
+      // Hand the target's own suggestion flags to the planner and let it decide
+      // whether the target is occupied — the "a segmenter record is not a
+      // pending suggestion" rule lives in the tested planner, not here (owner,
+      // installer #44: "this test already has suggestions when it clearly does
+      // not"). This adapts the ghost workspace's Set-based flags into the flat
+      // shape the pure planner reads.
       const target = ghostsByAnchor.get(targetInvestigationId)
-      const targetHasPending =
-        target !== undefined &&
-        target.suggestions.some((_, idx) => !target.accepted.has(idx) && !target.rejected.has(idx))
+      const targetSuggestions = target
+        ? target.suggestions.map((_, idx) => ({
+            accepted: target.accepted.has(idx),
+            rejected: target.rejected.has(idx),
+          }))
+        : []
 
       const plan = planGhostContactCopy({
         sourceInvestigationId,
         targetInvestigationId,
         sourceSuggestions,
-        targetHasGhost: targetHasPending,
+        targetSuggestions,
         targetTerminalDepthM: terminalDepthM(targetInvestigationId, targetKind),
       })
 
