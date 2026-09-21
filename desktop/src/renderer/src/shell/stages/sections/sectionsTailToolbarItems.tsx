@@ -1,8 +1,8 @@
 // Builder for the axis-independent tail verbs of the Sections toolbar.
 //
 // Extracted verbatim from ``SectionsToolbar`` (debt #201): New cross-section,
-// Suggest tie-sections, Delete, the Export dropdown and the manual Recompute
-// bodies verb — every verb that is shown regardless of which model axis is
+// Suggest tie-sections, Delete, the Export dropdown — every verb that is
+// shown regardless of which model axis is
 // active. Pure builder — no hooks, bodies byte-identical to the inline
 // original. The two menus (tie-sections caret, Export items) are declared as
 // locals because each is consumed only by ``tailItems``.
@@ -63,7 +63,7 @@ export interface TailToolbarItemsDeps {
  * Returns
  * -------
  * ToolbarItemSpec[]
- *     The tail verb specs (New / Tie-sections / Delete / Export / Recompute).
+ *     The tail verb specs (New / Tie-sections / Delete / Export).
  */
 export function buildTailToolbarItems(deps: TailToolbarItemsDeps): ToolbarItemSpec[] {
   const {
