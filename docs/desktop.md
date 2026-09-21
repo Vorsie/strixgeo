@@ -202,7 +202,7 @@ desktop/src/
     │   ├── lithoConstants.ts  LITHOLOGY_COLORS, LITHOLOGY_LABELS — must stay byte-identical
     │   │                      to the backend mirror in ``shared/constants/litho_constants.py``.
     │   ├── lithoSegmenterPrefs.ts  read/write helpers for ``view_state.litho_segmenter.*``.
-    │   ├── partitionFill.ts   computeSectionFill — derives band/onlap/lens geometry
+    │   ├── partitionFillV2/   computeSectionFillV2 — derives band/onlap/lens geometry
     │   │                      from contact-correlation counts (body shape source of truth).
     │   ├── verticalDatum.ts   EPSG → datum-label lookup (5710→mTAW, 5709→NAP)
     │   └── useWgs84.ts        Lambert72 → WGS84 projection cache (moved to hooks/ in practice)
