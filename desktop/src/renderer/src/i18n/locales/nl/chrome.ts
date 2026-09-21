@@ -58,7 +58,7 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   'app.name': 'StrixGeo',
   'app.starting': 'StrixGeo API wordt gestart…',
-  'app.startingLong': 'Deze eerste start duurt langer dan gewoonlijk. StrixGeo bereidt de dataservice nog voor…',
+  'app.startingLong': 'Het starten van StrixGeo duurt langer dan gewoonlijk. De dataservice wordt nog voorbereid…',
   'app.bootFailedTitle': 'Kon de StrixGeo API niet starten',
   'app.bootFailedBody': 'Help → Logs opslaan voor support… slaat een diagnostisch bestand op voor support.',
   'app.backendFailedTitle': 'StrixGeo kon niet starten',
