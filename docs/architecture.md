@@ -105,7 +105,7 @@ Strix/
 
 ## API routers
 
-22 router modules, 140 routes. Top-level routers are mounted in `api/main.py`; the 13 `geology/` sub-routers are aggregated under one `/projects/{project_id}/geology` prefix (debt #40). Full per-route catalogue: [api.md](api.md).
+23 router modules, 144 routes. Top-level routers are mounted in `api/main.py`; the 13 `geology/` sub-routers are aggregated under one `/projects/{project_id}/geology` prefix (debt #40). Full per-route catalogue: [api.md](api.md).
 
 **Top-level — `api/routers/`**
 
@@ -119,6 +119,7 @@ investigation_review.py     5 routes  Per-investigation review decisions + proje
 codelists.py                2 routes  G3Dv3 + DOV formal-stratigraphy lookup lists
 stratigraphy_lumping.py     2 routes  Staged/promote lumping snapshot slots
 virtuele_boring.py          2 routes  DOV Virtuele Boring lagenmodel catalogue + per-project overlay predictions
+bed_override.py             4 routes  Manual bed-level polygon CRUD
 ```
 
 **Geology package — `api/routers/geology/` (parent prefix `/projects/{project_id}/geology`)**
