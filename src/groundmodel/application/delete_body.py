@@ -1,6 +1,7 @@
 """Use case — delete the BodyOrm metadata row for a body.
 
-Position 4 architecture (#101 R3).  Unlike the Approach C ``DeleteLithoLens``,
+Position 4 architecture (#101 R3).  Unlike the earlier lens-metadata delete
+(the removed ``DeleteLithoLens`` use case),
 there are no synthetic contacts or absence rows owned by the metadata row:
 
 * ``formation_absence`` rows are scoped to a formation, not to a body metadata
