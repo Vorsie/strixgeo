@@ -36,8 +36,8 @@ The idempotency guard in step 2 enforces this without a DB unique constraint
 business rule, not a DB structural invariant — the same lens can logically
 have multiple user-drawn sections but only one AUTO-companion).
 
-Primary section choice: explicit ``primary_section_id`` on ``litho_lens``
-(stored by ``CreateLithoLens`` at mark-time).  Design rationale: implicit
+Primary section choice: explicit ``primary_section_id`` on the ``body`` row
+(set by ``NameBody`` when the body is named/anchored).  Design rationale: implicit
 derivation from contact membership breaks when (a) the lens has zero present
 contacts, (b) present contacts are re-seeded to a different section later,
 or (c) the lens spans two sections after a workflow change.  Explicit FK
