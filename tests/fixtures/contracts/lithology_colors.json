@@ -1,0 +1,11 @@
+{
+  "_comment": "Cross-language TWIN fixture (debt #284/#275). The single arbiter read by BOTH tests/unit/shared/constants/test_twin_lithology_colors.py and desktop/src/renderer/src/utils/lithologyColors.twin.test.ts. It pins the base-lithology -> display-hex table that MUST stay byte-identical between shared/constants/litho_constants.py (LITHOLOGY_COLORS + LITHOLOGY_FALLBACK_COLOR) and desktop/src/renderer/src/utils/lithoConstants.ts (LITHOLOGY_COLORS + LITHOLOGY_FALLBACK_COLOR). The ghost-suggestion overlay renders a layer with the TS colour BEFORE any formation row exists; on accept the backend stamps geological_formation.color from the Python colour (debt #145), so a hex drift on either side would let a preview disagree with the accepted band. Both suites assert exact-dict equality against `colors` and exact equality against `fallback_color`: change a value, add a key, or drop a key on either side and BOTH suites go red.",
+  "colors": {
+    "GRIND": "#d97706",
+    "ZAND": "#fbbf24",
+    "SILT": "#84cc16",
+    "KLEI": "#6b7280",
+    "VEEN": "#92400e"
+  },
+  "fallback_color": "#9ca3af"
+}
