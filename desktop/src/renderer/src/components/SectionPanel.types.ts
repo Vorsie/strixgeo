@@ -513,7 +513,7 @@ export interface SectionPanelProps {
    * Forwarded straight to ``ContactsLayer`` which wires it onto the
    * reference-contact hit-strips.  When present and the section is
    * displayed on the litho axis, a right-click on any geological
-   * (reference) contact strip shows an "Edit in Geology stage" menu
+   * (reference) contact strip shows an "Edit in Stratigraphy stage" menu
    * item that fires this callback with the contact id + formation id.
    * Absent on the geological axis (zero regression).
    */
