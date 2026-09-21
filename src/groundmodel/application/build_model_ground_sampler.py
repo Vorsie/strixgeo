@@ -29,6 +29,7 @@ from groundmodel.infrastructure.dem.dem_provider_factory import (
     build_dem_provider,
 )
 from groundmodel.shared.config import settings
+from groundmodel.shared.constants.crs import DEFAULT_HORIZONTAL_EPSG
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
@@ -64,7 +65,7 @@ async def build_model_ground_sampler(
         epsg: int = (
             project_row.default_horizontal_epsg
             if project_row is not None and project_row.default_horizontal_epsg is not None
-            else 31370  # default to Belgian Lambert when not set
+            else DEFAULT_HORIZONTAL_EPSG
         )
         try:
             provider = build_dem_provider(
