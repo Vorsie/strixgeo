@@ -1787,7 +1787,7 @@ export default function PartitionFillOverlay({
     lensDrag,
     // Live contact-bend preview: re-partition while dragging a matched contact.
     boundaryDrag,
-    // A "Separate" / "Rejoin" changes which masses weld — recompute the fill so the
+    // An Un-join / Join changes which masses weld — recompute the fill so the
     // seam appears / heals (debt #278 R5). Also folded into ``engineKey`` so the
     // ref-cache misses on the same change.
     separatedPairs,
@@ -3519,7 +3519,10 @@ export default function PartitionFillOverlay({
                       // owner: the fill overlay "eats my click"): forward the
                       // right-click to the ContactsLayer band beneath and stop —
                       // the body menu is for the fill BETWEEN columns only. Litho
-                      // axis only (the geotech axis has no per-column band menu).
+                      // axis only — on the geotech axis GeotechBandEditOverlay is
+                      // mounted ABOVE this fill (SectionPanel renders it after
+                      // PartitionFillOverlay) and intercepts the right-click first,
+                      // so the fill never receives it there.
                       if (
                         axisMode === 'lithostratigraphic' &&
                         forwardContextMenuToColumn(e.clientX, e.clientY)
