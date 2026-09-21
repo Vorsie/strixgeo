@@ -70,41 +70,35 @@ async function enableFillBands(page: Page): Promise<void> {
   }
 }
 
-/** Enable fill bands, right-click the first partition region, and wait for its context menu. */
+/** Enable fill bands, right-click the resolved BODY region, and wait for its context menu. */
 async function openBodyMenu(page: Page): Promise<void> {
   // PartitionFillOverlay renders ``partition-region-*`` paths when showBands is
-  // ON; each fires onBodyContextMenu on right-click when the body has a bodyId.
+  // ON. Each path now STAMPS ``data-menu-target`` with the menu its right-click
+  // opens: "body" when the body menu is wired here, "stats" for the pooled
+  // unit-statistics fallback (#279). The body menu arms only once the model's
+  // BODY LIST has landed (``bodiesLoaded`` withholds it at cold start and across
+  // a recompute), so a region carries ``data-menu-target="body"`` EXACTLY when
+  // the list is in and a body resolves.
+  //
+  // Waiting for that attribute is the honest wait: no DOM-blind retry, no
+  // "cursor: context-menu" heuristic (the stats regions set that cursor too, so
+  // the old guard matched an un-armed region and waited out its timeout for a
+  // body menu that was never coming). Selecting ``[data-menu-target="body"]``
+  // asks the one question that matters — is this the body menu? — on the screen.
   await enableFillBands(page)
-  // The context menu is wired only once the model's BODY LIST has loaded
-  // (``interactive = onBodyContextMenu && bodyById.get(region.bodyId)``, and
-  // the list arrives as ``bodies={lenses}``). Dispatching before it lands means
-  // the event hits a region the overlay has not armed, and the menu can never
-  // open — the historic "body-detection" flake was THIS race.
-  //
-  // WAITING ON ``cursor: context-menu`` NO LONGER PROVES THE LIST ARRIVED.
-  // Since the unit-statistics jump landed (R2/S7b, 2026-08-27),
-  // ``PartitionFillOverlay`` gives that cursor to statistics regions too —
-  // ``interactive || statsInteractive`` — while wiring the BODY menu only for
-  // the first. So the old guard passed on an un-armed region, the statistics
-  // menu answered instead, and the spec waited out its timeout for a body menu
-  // that was never coming.
-  //
-  // There is no DOM signal that separates the two, so ask the only question
-  // that actually matters: retry the right-click until the BODY menu opens.
-  // ``toPass`` bounds it, and the body list landing is what makes it succeed.
-  const partitionRegion = page
-    .locator('[data-testid^="partition-region-"][style*="context-menu"]')
-    .first()
-  await expect(partitionRegion).toBeVisible({ timeout: 30_000 })
-  await expect(async () => {
-    await partitionRegion.dispatchEvent('contextmenu', {
-      button: 2,
-      clientX: 360,
-      clientY: 360,
-      bubbles: true,
-    })
-    await expect(page.getByTestId('body-context-menu')).toBeVisible({ timeout: 1_000 })
-  }).toPass({ timeout: 30_000 })
+  const bodyRegion = page.locator('[data-menu-target="body"]').first()
+  await expect(bodyRegion).toBeVisible({ timeout: 30_000 })
+  // DISPATCHED, not a real right-click: the SVG-portalled path fails Playwright's
+  // actionability hit-test (see the Dissolve ``.click()`` note below). One
+  // dispatch suffices now that the region is the resolved body target — the retry
+  // loop existed only to wait out the roster load, which the visible-wait covers.
+  await bodyRegion.dispatchEvent('contextmenu', {
+    button: 2,
+    clientX: 360,
+    clientY: 360,
+    bubbles: true,
+  })
+  await expect(page.getByTestId('body-context-menu')).toBeVisible({ timeout: 5_000 })
 }
 
 test.describe('flow_body_actions_ui', () => {
