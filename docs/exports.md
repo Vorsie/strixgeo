@@ -79,7 +79,7 @@ contract, alongside `GroundModelSnapshot` (project-wide) and
   split).
 
 **Why the partition is POSTed, not derived.** The fill is computed in
-the renderer (`computeSectionFill`), and the section is the editing
+the renderer (`computeSectionFillActive`), and the section is the editing
 surface — what the engineer sees filled IS the model. Re-deriving
 polygons on the backend from formation contacts would be a second,
 simpler, DIFFERENT partition: a plausible geometry that disagrees with
