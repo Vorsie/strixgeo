@@ -55,6 +55,7 @@ const BOREHOLE_CHANNEL_BUTTONS: readonly {
   label: string
   titleKey: MessageKey
 }[] = [
+  { key: 'lithology', label: 'Litho', titleKey: 'sections.header.codedLithology' },
   { key: 'geotech', label: 'Geo', titleKey: 'sections.header.geotechnicalCoding' },
   { key: 'formal_strat', label: 'F-Strat', titleKey: 'sections.header.formalStratigraphy' },
   { key: 'informal_strat', label: 'I-Strat', titleKey: 'sections.header.informalStratigraphy' },
