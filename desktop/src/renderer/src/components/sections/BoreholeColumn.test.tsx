@@ -505,3 +505,33 @@ describe('BoreholeColumn — the log yields to the interpretation fill', () => {
     }
   })
 })
+
+describe('BoreholeColumn - gecodeerde lithologie (issue #17)', () => {
+  // The BORDVV boreholes in the owner's test2.strix carry ONE observation each,
+  // of type ``coded_lithology``, with 18 to 26 layers. They drew a bare column.
+  const codedOnly = () =>
+    makeDetail([
+      makeObservation('coded_lithology', [
+        makeLayer({ id: 'c1', top_m: 0, base_m: 0.5 }),
+        makeLayer({ id: 'c2', top_m: 0.5, base_m: 1 }),
+      ]),
+    ])
+
+  it('draws the strip for a borehole whose only stream is coded lithology', () => {
+    // Only this stream on, so the count is the two coded layers and nothing
+    // else: an enabled stream with no observation still contributes a strip.
+    const { container } = renderColumn(codedOnly(), {
+      lithology: true,
+      geotech: false,
+    })
+    expect(container.querySelectorAll('rect').length).toBe(2)
+  })
+
+  it('draws nothing for it while the stream is off', () => {
+    const { container } = renderColumn(codedOnly(), {
+      lithology: false,
+      geotech: false,
+    })
+    expect(container.querySelectorAll('rect').length).toBe(0)
+  })
+})
