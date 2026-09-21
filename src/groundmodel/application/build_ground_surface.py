@@ -1,7 +1,7 @@
 """Build the ground-surface TIN for a geological model's investigation hull.
 
 Orchestrates provider selection → DEM tile fetch → grid sampling →
-``build_ground_surface_tin`` → ``clip_tin_to_dem`` (if requested).
+``build_ground_surface_tin``. The formation clip is not done here (see below).
 
 The result is a pure-Python value object: a ``TinSurface`` (vertices +
 triangles) plus ``ValidationIssue``-shaped ``GapIssue`` records for any
@@ -142,7 +142,7 @@ class BuildGroundSurface(GroundModelLogger):
            within the hull bbox.
         5. Return the TIN vertices, triangles, and any validation issues.
 
-        The formation TIN clip (``clip_tin_to_dem``) is intentionally NOT
+        The formation TIN clip (``clip_tin_by_ground_surface``) is intentionally NOT
         applied here — that step lives inside ``recompute_formation_surface.py``
         (called by ``RebuildModelSurfaces``) so the clip is applied at every
         surfaces/rebuild call, not only on ground-surface-build.  This use case
