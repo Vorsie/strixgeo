@@ -2,7 +2,7 @@
 
 Lithology is hard truth: qc never promotes or demotes a unit across soil types.
 The band table carries the production thresholds (Task T0 done), verified against
-the printed NBN EN 1997-1 ANB Tabel 2.1 and the NBN EN 1997-1 ANB Tabel 2.1
+the printed NBN EN 1997-1 ANB Tabel 2.1 and its
 transcription on 2026-08-11 —
 see ``docs/reference/nad_reference_manifest.json`` and the WB1/WB2 pins.
 """
