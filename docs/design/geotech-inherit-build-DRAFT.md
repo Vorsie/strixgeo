@@ -1,6 +1,7 @@
 # Geotech 3-D build — INHERIT the litho geometry (DRAFT)
 
 > **STATUS: DRAFT — owner approval pending. Nothing here is built.**
+> **STALE BASELINE (2026-09-21): this draft cites `refineLithoPartition`, which was DELETED (debt #270 RESOLVED); the shipped geotech render is the constructive hierarchical fill (geotech-stage.md §2). Re-base on the current engine before any approval decision.**
 > Written 2026-08-04 against the Q1 ruling recorded in
 > [geotech-stage.md](geotech-stage.md) §7:
 >
