@@ -33,6 +33,7 @@ import type {
 import PartitionFillOverlay from './PartitionFillOverlay'
 import type { Props } from './PartitionFillOverlay'
 import type { PlacedColumn } from './utils'
+import { layer } from './__fixtures__/partitionFillScene'
 
 afterEach(() => cleanup())
 
@@ -81,35 +82,6 @@ function fwdWarp(along: number): number {
 }
 // Spot-check: fwdWarp(25) = 300 + (25/50)*40 = 320  →  inside gap L-M [310,330] ✓
 
-function layer(
-  id: string,
-  inv: string,
-  bodyId: string,
-  formationId: string,
-  top: number,
-  base: number,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'm1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
 function edge(
   id: string,
   layerAId: string,
@@ -137,12 +109,12 @@ const colors = new Map([
 // Minimal matched stack: sand(0-5m) + clay(5-10m) on all three columns.
 // layer ids are used as layer_a_id / layer_b_id in the edges.
 const warpLayers: LithoLayerResponse[] = [
-  layer('L-sa', 'L', 'sand', 'fSand', 0, 5),
-  layer('L-cl', 'L', 'clay', 'fClay', 5, 10),
-  layer('M-sa', 'M', 'sand', 'fSand', 0, 5),
-  layer('M-cl', 'M', 'clay', 'fClay', 5, 10),
-  layer('R-sa', 'R', 'sand', 'fSand', 0, 5),
-  layer('R-cl', 'R', 'clay', 'fClay', 5, 10),
+  layer({ id: 'L-sa', investigationId: 'L', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+  layer({ id: 'L-cl', investigationId: 'L', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+  layer({ id: 'M-sa', investigationId: 'M', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+  layer({ id: 'M-cl', investigationId: 'M', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
+  layer({ id: 'R-sa', investigationId: 'R', bodyId: 'sand', formationId: 'fSand', depthTopM: 0, depthBaseM: 5 }),
+  layer({ id: 'R-cl', investigationId: 'R', bodyId: 'clay', formationId: 'fClay', depthTopM: 5, depthBaseM: 10 }),
 ]
 
 // Both bounding contacts correlated → BAND in each gap.
