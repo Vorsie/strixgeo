@@ -935,6 +935,18 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
     [project, clearLithoSuggestions, toast, lithoContacts],
   )
 
+  // Refresh the litho contacts + formations and reschedule the body recompute
+  // after an accept-undo step (revert or reapply) moved body geometry (slice 5).
+  // ONE settle so the two directions can never drift in order or contents
+  // (FE-HOOKS-04 recorded four such copies drifting before). Call ORDER is
+  // load-bearing: contacts, then formations, then the recompute — the
+  // find-or-create outline resolves against the freshly-refetched rows.
+  const settleAfterAcceptUndo = useCallback(() => {
+    refetchLithoContacts()
+    refetchFormations()
+    requestBodyRecompute?.('litho')
+  }, [refetchLithoContacts, refetchFormations, requestBodyRecompute])
+
   // ---- Undo support for the accept-litho-suggestions paths ----------
   // Accept commits contacts (and possibly formations) immediately, like
   // an import. Until 2026-05-22 it was the one mutation NOT on the undo
@@ -1016,10 +1028,7 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
             }
           }
           setAccepted(false)
-          refetchLithoContacts()
-          refetchFormations()
-          // Deleting the accepted rows moves body geometry back — reschedule (slice 5).
-          requestBodyRecompute?.('litho')
+          settleAfterAcceptUndo()
         },
         reapply: async () => {
           // Re-POST each body; the server mints fresh ids, so capture
@@ -1039,14 +1048,11 @@ export function useLithoSuggestions(params: UseLithoSuggestionsParams): UseLitho
             }
           }
           setAccepted(true)
-          refetchLithoContacts()
-          refetchFormations()
-          // The re-created rows moved body geometry again — reschedule (slice 5).
-          requestBodyRecompute?.('litho')
+          settleAfterAcceptUndo()
         },
       })
     },
-    [project, pushUndo, refetchLithoContacts, refetchFormations, requestBodyRecompute],
+    [project, pushUndo, requestBodyRecompute, settleAfterAcceptUndo],
   )
 
   // ---- Shared post-accept tail (audit 2026-07-12 FE-HOOKS-04, debt #232) ----
