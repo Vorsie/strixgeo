@@ -9,9 +9,9 @@
 The 3D voxel build LABELS space from it (`buildVoxelRequest` threads the same
 inputs); every render and export derives from the same engine.
 
-Code: `desktop/.../utils/partitionFill.ts` (pure engine) +
-`PartitionFillOverlay.tsx` (render). Entry point: `computeSectionFill(columns,
-edges, …)`; `computePartitionFill` is a 2-column delegate.
+Code: `desktop/.../utils/partitionFillV2/computeSectionFillV2.ts` (pure engine)
++ `PartitionFillOverlay.tsx` (render). Entry point: `computeSectionFillActive(columns,
+edges, …)` in `utils/partitionEngineSelect.ts` (v1 archived 2026-08-31).
 
 ## The contact-correlation model (shipped 2026-06-09, owner directive)
 
@@ -55,7 +55,7 @@ lower-band + upper-lens, no wriggly).
 Below a shallow test's TD the deep stratigraphy runs as straight deep-to-deep
 bands via a dedicated `computeBracketSubstrate` pass:
 
-* `computeSectionFill` caps each gap's `emitGap` output at the gap's shallow
+* `computeSectionFillV2` caps each gap's `emitGap` output at the gap's shallow
   TD = `max(leftFloorElev, rightFloorElev)` (output-clip via
   `clipPolyAboveElev`; fully-above regions pass through verbatim so above-TD
   output is byte-identical).
