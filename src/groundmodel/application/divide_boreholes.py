@@ -239,6 +239,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 
 # Public surface of this module: the DivideBoreholes use case + its value
 # objects (defined here), plus the pure band-planning functions re-exported from
@@ -2905,14 +2906,22 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 )
             ).all()
             body_by_key: dict[tuple[str, float, float], UUID | None] = {
-                (str(r.borehole_id), round(r.depth_top_m, 3), round(r.depth_base_m, 3)): r.body_id
+                (
+                    str(r.borehole_id),
+                    round(r.depth_top_m, LITHO_LAYER_DEPTH_DECIMALS),
+                    round(r.depth_base_m, LITHO_LAYER_DEPTH_DECIMALS),
+                ): r.body_id
                 for r in bh_layer_rows
             }
             reconciled = 0
             for inv_id, bands in borehole_fill_bands.items():
                 new_bands: list[Band] = []
                 for b in bands:
-                    key = (inv_id, round(b.top, 3), round(b.base, 3))
+                    key = (
+                        inv_id,
+                        round(b.top, LITHO_LAYER_DEPTH_DECIMALS),
+                        round(b.base, LITHO_LAYER_DEPTH_DECIMALS),
+                    )
                     resolved = body_by_key.get(key)
                     new_body = str(resolved) if resolved is not None else b.body_id
                     if new_body != b.body_id:
