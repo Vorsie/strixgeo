@@ -10,17 +10,38 @@
 
 import { useT } from '../../i18n/translate'
 
-/** Shared inline style for hand-rolled section context-menu items. */
-export const MENU_ITEM_STYLE: React.CSSProperties = {
+/** Colour-less base for a hand-rolled section context-menu item. Every menu
+ *  item shares these; only the text ``color`` varies — the litho band menu
+ *  (``ContactsLayer``) sets it per row so a danger verb can render red, which is
+ *  why the base omits ``color`` rather than defaulting it. */
+export const MENU_ITEM_BASE_STYLE: React.CSSProperties = {
   display: 'block',
   width: '100%',
   padding: '6px 12px',
   textAlign: 'left',
   fontSize: 12,
-  color: 'var(--color-text-primary, #e2e8f0)',
   background: 'none',
   border: 'none',
   cursor: 'pointer',
+}
+
+/** Shared inline style for hand-rolled section context-menu items — the base
+ *  plus the default primary text colour. */
+export const MENU_ITEM_STYLE: React.CSSProperties = {
+  ...MENU_ITEM_BASE_STYLE,
+  color: 'var(--color-text-primary, #e2e8f0)',
+}
+
+/** Shared inline style for a section context-menu HEADER row (the anchor name
+ *  above the verbs) — muted text with a rule beneath it. Shared by the litho
+ *  band menu (``ContactsLayer``) and the geotech band menu
+ *  (``GeotechBandEditOverlay``); the ``ui/ContextMenu`` header keeps its own
+ *  copy (a lower layer must not import from ``sections/``). */
+export const MENU_HEADER_STYLE: React.CSSProperties = {
+  padding: '6px 12px',
+  fontSize: 11,
+  color: 'var(--color-text-secondary, #94a3b8)',
+  borderBottom: '1px solid var(--color-border-default, #334155)',
 }
 
 /**
