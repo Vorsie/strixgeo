@@ -520,6 +520,7 @@ export const SECTIONS = {
   'sections.header.formalStratigraphyShort': 'F-Strat',
   'sections.header.informalStratigraphy': 'Informal stratigraphy',
   'sections.header.informalStratigraphyShort': 'I-Strat',
+  'sections.header.codedLithology': 'Coded lithology',
   'sections.header.geotechnicalCoding': 'Geotechnical coding',
   'sections.header.geotechnicalCodingShort': 'Geo',
 
