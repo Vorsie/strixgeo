@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+// The ``api:ready`` result shape, from its single source of truth. A type-only
+// import is erased at build, so the preload bundle stays self-contained at
+// runtime (unlike RecentProject / RecoveryDescriptor below, which are duplicated
+// because they were carrying no shared definition to point at).
+import type { BackendReadyResult } from '../main/backendReadyResult'
+
 // Snapshot of a recent-project entry returned from the main process. Kept
 // inline (not imported from a shared module) so the preload stays
 // self-contained — preload bundles run before the renderer module graph
@@ -9,8 +15,6 @@ interface RecentProject {
   name: string
   lastOpened: string
 }
-
-type ApiReadyResult = boolean | 'still-starting'
 
 // Descriptor of one crash-recovery file, as returned by ``recovery:list``.
 // Mirrors ``RecoveryDescriptor`` in src/main/recoveryStore.ts — duplicated
@@ -61,7 +65,7 @@ contextBridge.exposeInMainWorld('electron', {
   getApiBaseUrl: (): Promise<string> =>
     ipcRenderer.invoke('api:base-url'),
 
-  waitForApi: (): Promise<ApiReadyResult> =>
+  waitForApi: (): Promise<BackendReadyResult> =>
     ipcRenderer.invoke('api:ready'),
 
   openFile: (filters: Electron.FileFilter[]): Promise<string | null> =>
