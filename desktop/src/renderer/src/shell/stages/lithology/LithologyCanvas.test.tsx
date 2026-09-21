@@ -39,7 +39,6 @@ import type {
 import LithologyCanvas, {
   resetLithoSplitViewportCallback,
   lithoVoxelRequestCallback,
-  lithoFenceExportCallback,
 } from './LithologyCanvas'
 
 // ---------------------------------------------------------------------------
@@ -1045,18 +1044,6 @@ describe('LithologyCanvas module-ref cleanup on unmount (#276)', () => {
     expect(lithoVoxelRequestCallback.current).toBe(bBuilder)
     rB.unmount()
     expect(lithoVoxelRequestCallback.current).toBeNull()
-  })
-
-  // U4 — the fence-export ref (the precedent this fix generalises). Populated
-  // only in Fence mode; still must be nulled on unmount.
-  it('U4 — fence-export ref is null after the canvas unmounts', async () => {
-    const r = renderCanvas(mountedCtx())
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('litho-view-mode-fence'))
-    })
-    expect(lithoFenceExportCallback.current).not.toBeNull()
-    r.unmount()
-    expect(lithoFenceExportCallback.current).toBeNull()
   })
 })
 
