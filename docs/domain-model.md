@@ -70,7 +70,7 @@ Geophysical: MASW, Seismic CPT
   correlation edges, with ``body_id`` stamped on every member
   ``litho_layer``. A body's lateral SHAPE (bands / onlaps / lenses) is NOT
   stored: it is derived geometrically client-side by the partition fill
-  (``utils/partitionFill.ts`` ``computeSectionFill`` + ``PartitionFillOverlay``)
+  (``utils/partitionFillV2/computeSectionFillV2.ts`` + ``PartitionFillOverlay``)
   from how many of each unit's two bounding contacts are correlated to the
   neighbour (2 → band, 1 → onlap, 0 → lens), per-gap / per-side.
   **⚠ The per-side lateral-extent system is RETIRED (2026-06-06, Option 1 —
