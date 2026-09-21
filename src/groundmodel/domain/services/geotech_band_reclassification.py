@@ -54,6 +54,7 @@ from groundmodel.domain.services.representative_statistic import (
     representative_qc,
 )
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 from groundmodel.shared.constants.litho_constants import BaseLithology
 
 # Two bands are "contiguous" when their shared boundary agrees to within 1 cm —
@@ -745,7 +746,7 @@ def plan_split(
     # previews a split the disk never gets — and a raw depth strictly inside the
     # band can round ONTO its edge, which used to reach the database as a
     # zero-width row and a constraint error mid-transaction (audit F15).
-    split_depth_m = round(split_depth_m, 3)
+    split_depth_m = round(split_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
     if not (parent_top + _DEPTH_EPS_M < split_depth_m < parent_base - _DEPTH_EPS_M):
         raise GeotechBandEditError(
             f"Split rejected: {split_depth_m:.2f} m falls outside the band's own litho "
@@ -998,7 +999,7 @@ def plan_move(
             f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
         )
     _assert_same_litho_body(upper, lower, verb="Move")
-    rounded = round(new_depth_m, 3)
+    rounded = round(new_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
     # Strictly inside the pair, with both survivors at least the millimetre
     # grain the no-overlap exclusion stores. Not the min-thickness pref — that
     # is advisory (ruling 5); this is the structural floor below which a row
@@ -1123,7 +1124,7 @@ def plan_restated_contact_move(
             "drag it with the packing verb, which re-derives the classes without "
             "touching the litho model."
         )
-    rounded = round(new_depth_m, 3)
+    rounded = round(new_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
     # LANDING ON THE LOWER BAND'S BASE IS A MERGE, not a refusal.
     #
     # The owner named this gesture himself — *"can't skip a boundary right, drag
