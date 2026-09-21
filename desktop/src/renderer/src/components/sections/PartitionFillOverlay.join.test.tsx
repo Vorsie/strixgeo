@@ -18,49 +18,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import PartitionFillOverlay, { type Props } from './PartitionFillOverlay'
 import type { BodyListItem, LithoContactCorrelationEdge, LithoLayerResponse } from '../../api/client'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(() => cleanup())
-
-function layer(
-  id: string,
-  inv: string,
-  formationId: string,
-  top: number,
-  base: number,
-  bodyId: string,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'model-1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactCorrelationEdge {
   return {
@@ -82,10 +42,10 @@ function edge(a: string, b: string, side: 'top' | 'base' = 'top'): LithoContactC
 // independent of formation, so the same fixture drives the commit and the
 // cross-class pins.
 const LITHO_LAYERS: LithoLayerResponse[] = [
-  layer('a1', 'L', 'formation-up', 0, 10, 'body-up'),
-  layer('b1', 'R', 'formation-up', 0, 10, 'body-up'),
-  layer('a2', 'L', 'formation-lo', 10, 15, 'body-lo'),
-  layer('b2', 'R', 'formation-lo', 10, 15, 'body-lo'),
+  layer({ id: 'a1', investigationId: 'L', formationId: 'formation-up', depthTopM: 0, depthBaseM: 10, bodyId: 'body-up' }),
+  layer({ id: 'b1', investigationId: 'R', formationId: 'formation-up', depthTopM: 0, depthBaseM: 10, bodyId: 'body-up' }),
+  layer({ id: 'a2', investigationId: 'L', formationId: 'formation-lo', depthTopM: 10, depthBaseM: 15, bodyId: 'body-lo' }),
+  layer({ id: 'b2', investigationId: 'R', formationId: 'formation-lo', depthTopM: 10, depthBaseM: 15, bodyId: 'body-lo' }),
 ]
 const LITHO_EDGES: LithoContactCorrelationEdge[] = [
   edge('a1', 'b1'),
@@ -107,7 +67,7 @@ function baseProps(): Props {
     contactEdges: LITHO_EDGES,
     axisMode: 'geotechnical',
     bodies: BODIES,
-    placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+    placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
     formationColorById: COLOURS,
     showBands: true,
     levelToScreen: (l: number) => 200 - l * 10,
