@@ -22,6 +22,12 @@
  */
 
 import { LOCAL_CLIENT_TOKEN_HEADER } from './localClientToken'
+import type { BackendReadyResult } from './backendReadyResult'
+
+// Re-export the shared IPC-result type so ``BackendReadyResult`` stays importable
+// from this module, while its single definition lives in the dependency-free
+// declaration module the preload and renderer can also reference (item 2).
+export type { BackendReadyResult } from './backendReadyResult'
 
 /** The one origin value ``LocalClientTokenMiddleware`` requires the token with. */
 const NULL_ORIGIN = 'null'
@@ -76,9 +82,6 @@ export function classifyBackendProbe(packaged: boolean, status: number): ProbeVe
 /** Poll interval of the readiness loop in ``api:ready`` (ms). */
 export const BACKEND_READY_POLL_MS = 500
 
-/** A readiness wait either succeeds, fails, or needs another long-start window. */
-export type BackendReadyResult = true | false | 'still-starting'
-
 /**
  * How long the app waits for the engine to answer its readiness probe.
  *
@@ -127,4 +130,53 @@ export function readinessDeadlineResult(
 ): BackendReadyResult {
   if (!processIsAlive) return false
   return windowsUsed < BACKEND_READY_MAX_WINDOWS ? 'still-starting' : false
+}
+
+/** Outcome of polling a just-respawned backend to readiness. */
+export type BackendReadyPollOutcome = 'ready' | 'failed'
+
+/**
+ * Poll a backend to readiness across one deadline window.
+ *
+ * Pure and Electron-free (its I/O — the probe, the alive check, the sleep — is
+ * injected) so the wait duration is unit-testable, mirroring the rest of this
+ * module. It is used by the mid-session RESPAWN path (``awaitRespawnedBackendReady``
+ * in index.ts), which must wait the same packaged-aware window as a first start
+ * (``attempts = backendReadyAttempts(app.isPackaged)`` at ``BACKEND_READY_POLL_MS``)
+ * instead of a hard-coded 60 × 500 ms = 30 s cap that declared a slow packaged
+ * respawn dead.
+ *
+ * A respawn gets exactly ONE window, not the cold start's ``BACKEND_READY_MAX_WINDOWS``
+ * budget: the second first-start window pays a Defender-scan tax on a freshly
+ * installed compiled tree that a warm mid-session restart does not pay (the tree
+ * was already read and scanned when the session first came up). Hence this
+ * returns a plain ready/failed, not the windowed ``BackendReadyResult`` the
+ * first-start ``api:ready`` handler produces.
+ *
+ * @param deps.attempts - How many probes the window allows (one deadline's worth).
+ * @param deps.pollMs - Wait between probes.
+ * @param deps.probe - Probe the port once; ``'reachable'`` means ready.
+ * @param deps.processIsAlive - Whether the respawned child is still running; a
+ *   process that vanished before binding the port is a failure, checked before
+ *   each probe after the first so a crashed respawn ends at once.
+ * @param deps.sleep - Wait ``pollMs`` between probes (a seam for tests).
+ * @returns ``'ready'`` once the probe reports reachable; ``'failed'`` if the
+ *   window is spent or the child died before it was ready.
+ */
+export async function pollBackendUntilReady(deps: {
+  attempts: number
+  pollMs: number
+  probe: () => Promise<ProbeVerdict>
+  processIsAlive: () => boolean
+  sleep: (ms: number) => Promise<void>
+}): Promise<BackendReadyPollOutcome> {
+  const { attempts, pollMs, probe, processIsAlive, sleep } = deps
+  for (let i = 0; i < attempts; i++) {
+    // A vanished process after the first probe means the respawn crashed before
+    // binding its port — a failure, not something to keep polling the window for.
+    if (i > 0 && !processIsAlive()) return 'failed'
+    if ((await probe()) === 'reachable') return 'ready'
+    await sleep(pollMs)
+  }
+  return 'failed'
 }
