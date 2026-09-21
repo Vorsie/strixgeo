@@ -85,6 +85,8 @@ function refusalMessage(reason: Extract<GhostContactCopyPlan, { kind: 'refused' 
   switch (reason) {
     case 'target_has_ghost':
       return t('sections.canvasToast.ghostCopyTargetHasGhost')
+    case 'target_has_accepted':
+      return t('sections.canvasToast.ghostCopyTargetHasAccepted')
     case 'mixed_accepted_ghost':
       return t('sections.canvasToast.ghostCopyMixedSelection')
     case 'below_terminal':
