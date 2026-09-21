@@ -3390,10 +3390,15 @@ export default function PartitionFillOverlay({
           )
         })}
 
-      {/* Per-region hit path + seam stroke. Rendered on EVERY axis: on the
-          geotech axis ``bodies`` is empty, so ``interactive`` is false and only
-          the stroke paints — the fill's hairline closure the packing bands
-          need, with none of the body gestures the axis does not have. */}
+      {/* Per-region hit path + seam stroke. The overlay mounts on the litho AND
+          geotech axes only (SectionPanel gates on ``litho || geotech`` — never the
+          geological axis). The geotech axis is handed its OWN body roster
+          (``SectionsCanvas`` ``bodyMenuRoster = isGeotech ? geotechBodyList : lensList``)
+          and ``SubdivideAllBodies`` stamps geotech layers with geotech body ids, so
+          the body menu is LIVE on the geotech axis too (owner ruling 2026-08-31,
+          pinned by ``PartitionFillOverlay.geotechBodyMenu.test.tsx`` GBM1-3). What
+          the geotech axis lacks is contact EDITING (``viewOnly``), not bodies — the
+          drag handles / boundary strips below stay gated on ``!viewOnly``. */}
       {screenRegions.map((sr, i) => {
         const color = formationColorById.get(sr.region.formationId) ?? FALLBACK_COLOR
         const d = `${sr.points.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')} Z`
@@ -3434,6 +3439,18 @@ export default function PartitionFillOverlay({
         // carries its statistics item). Gated on the axis's handler so an unwired
         // axis is byte-identical.
         const statsInteractive = unitStatsHandlerForAxis !== undefined && !interactive
+        // #279 item-1: surface the resolved menu decision to the DOM. Both menus
+        // stamp the same ``cursor: context-menu``, so nothing on screen told the
+        // engineer (or the e2e guard) WHICH menu a right-click would open — the
+        // decision was computed and thrown away. Stamp it as ``data-menu-target``:
+        // ``interactive`` and ``statsInteractive`` are mutually exclusive by
+        // construction (``statsInteractive`` already excludes ``interactive``), and
+        // the attribute is omitted entirely when neither menu is wired.
+        const menuTarget: 'body' | 'stats' | undefined = interactive
+          ? 'body'
+          : statsInteractive
+            ? 'stats'
+            : undefined
         // S1: soft-coupling fade — demote non-matching bodies to 0.25 opacity
         // when a body is selected; the selected body renders at natural opacity
         // ("demote, never remove" precedent — the fill stays visible, just dimmed).
@@ -3463,6 +3480,7 @@ export default function PartitionFillOverlay({
                 gone. */}
             <path
               data-testid={`partition-region-${sr.region.bodyId ?? 'nobody'}`}
+              data-menu-target={menuTarget}
               d={d}
               fill={color}
               fillOpacity={0}
