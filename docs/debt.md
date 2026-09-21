@@ -6,6 +6,8 @@ context without rediscovering it from grep. **Order is strict
 priority — top is highest, bottom is lowest. Tiers are grouped, but
 within each tier the order also matters.**
 
+**Status marker — one per numbered `## N.` heading, the single source of truth:** `— STATUS: OPEN` · `— STATUS: PARTIAL (<what remains>)` · `— RESOLVED <YYYY-MM-DD>` · `— SUPERSEDED <YYYY-MM-DD> by #M` · `— WONTFIX <YYYY-MM-DD>`. The body keeps the detail; `scripts/gen_debt_index.py` reads these headings to regenerate the CLAUDE.md open-items index (do not hand-edit that block).
+
 Priority is **milestone-gated**. The next build milestone is the
 **Geotechnical-subdivision stage** (Phase 4 MVP step 4 —
 lithostratigraphic unit → NAD packing class + CPT-derived indicators).
@@ -166,7 +168,7 @@ the five-tier list above for true priority.
 
 ---
 
-## 2. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
+## 2. Bundled Postgres distribution path not prototyped (medium → blocking before beta, Tier B) — STATUS: OPEN
 
 **What.** CLAUDE.md "Distribution model" plans an installer that
 bundles Postgres + PostGIS (the Plaxis pattern). No prototype
@@ -236,7 +238,7 @@ user profile, and an antivirus that has never seen these binaries. The
 port-conflict and read-only-install failure modes are covered by unit
 tests; the AV and locale ones can only be settled on real hardware.
 
-## 3. Subscription activation system (medium → blocking before paid release) — re-scoped 2026-06-25 from "license keys"
+## 3. Subscription activation system (medium → blocking before paid release) — re-scoped 2026-06-25 from "license keys" (Tier B) — STATUS: OPEN
 
 **Re-scope 2026-06-25.** The commercial model pivoted from perpetual
 license to annual subscription + 30-day trial (owner directive; see
@@ -359,7 +361,7 @@ exist is the wrong order of operations.
 work: token format + signing CLI + verifier in the Electron main
 process + a thin "Activate license" UI.
 
-## 4. Project-by-id endpoints rely on "only caller is local user" (medium → day-1 of #3)
+## 4. Project-by-id endpoints rely on "only caller is local user" (medium → day-1 of #3, Tier B) — STATUS: OPEN
 
 **What.** ``POST /projects/{id}/duplicate`` (project.py) and
 ``PATCH /projects/{id}/view-state`` operate on the resolved row
@@ -390,7 +392,7 @@ on project-level endpoints) still waits on debt #3.
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
-## 5. Tamper / reverse-engineering hardening (low — pragmatic posture, residual)
+## 5. Tamper / reverse-engineering hardening (low — pragmatic posture, residual, Tier B) — STATUS: OPEN
 
 **Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
 check, not perpetual license keys — see #3's re-scope note.
@@ -481,7 +483,7 @@ way leaking a movie pre-release is.
 
 **When.** Folds into debt #3's license-key work before paid release.
 
-## 6. Installer + code signing + auto-update (medium → blocking before paid release)
+## 6. Installer + code signing + auto-update (medium → blocking before paid release, Tier B) — STATUS: OPEN
 
 **What.** electron-builder produces .exe / .dmg / .deb / .AppImage,
 electron-updater handles deltas. Windows requires EV code signing
@@ -561,7 +563,7 @@ Auto-update is especially important because future .gmproj format
 upgrades depend on every user reaching the build that introduced
 the upgrade path.
 
-## 7. Marketing site + market-facing name (medium → blocking before paid release)
+## 7. Marketing site + market-facing name (medium → blocking before paid release, Tier B) — STATUS: OPEN
 
 **What.**
 
@@ -593,7 +595,7 @@ a hard constraint when picking the market-facing name — neither
 domain search needs to clear against both word marks AND the
 common-knowledge association with D-Stability files.
 
-## 11. Pluggable regional stratigraphy catalog for NL / international (medium — Flanders covered, NL open)
+## 11. Pluggable regional stratigraphy catalog for NL / international (medium — Flanders covered, NL open, Tier D) — STATUS: OPEN
 
 **What.** G3Dv3 (shipped 2026-05-14) closes the Flanders side of
 the canonical-stratigraphy question: ``infrastructure/codelists/
@@ -642,7 +644,7 @@ must be CORRECT AT CREATE TIME, not via a repair button.** Today
 G3Dv3 makes this true for Flanders projects; the NL extension
 must follow the same rule.
 
-## 13. Geotechnical units invisible to the section editor — SUPERSEDED 2026-08-05
+## 13. Geotechnical units invisible to the section editor — RESOLVED 2026-08-05
 
 **What (historical).** Filed when ``geotechnical_unit`` rows only surfaced in
 ``InterpretationPane`` and the section editor had no way to show or anchor
@@ -663,7 +665,7 @@ their modern forms:
 Nothing of the original framing ("no hook point for unit assignment")
 remains actionable — the hook points exist and are populated.
 
-## 16. Telemetry / crash reporting (low)
+## 16. Telemetry / crash reporting (low, Tier E) — STATUS: OPEN
 
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
 devtools console; user-side crashes are invisible to us.
@@ -693,7 +695,7 @@ attaching it reverses the "no device id" capture invariant.
 owner's activation ruling decides where reports go and whether identity
 travels.
 
-## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low)
+## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low, Tier E) — STATUS: OPEN
 
 **What.** Refresh-on-duplicate keys per-row dedup on `dov_permkey`
 (partial UNIQUE `(parent_id, dov_permkey) WHERE dov_permkey IS NOT
@@ -776,7 +778,7 @@ props); ``CptChart.test.tsx`` updated — the old "renders Ic SBT strip"
 pin is now the inverse "does NOT render Ic / SBT" pin. 1548 vitest +
 tsc clean. 1549 total (1 pre-existing skip).
 
-## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E)
+## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E) — STATUS: OPEN
 
 **What.** The DEM clip rule (§11.3) flags any vertex that lands on a
 NoData cell as ``dem_cell_low_confidence``, which covers the known
@@ -806,7 +808,7 @@ water-body mask that routes cells to a null sampler vs a bed sampler,
 ``BHVlaBathymetry`` data, or (c) accept the limitation and expose it
 in the UI as "DEM accuracy may be reduced near water bodies."
 
-## 28. Surface confidence signal — RESOLVED 2026-05-21 (true per-vertex gradient follow-up shipped same day)
+## 28. Surface confidence signal — RESOLVED 2026-05-21
 
 **Follow-up ship 2026-05-21 (late evening — owner directive "geen half
 werk").**  The original implementation rendered the continuous distance-
@@ -928,7 +930,7 @@ variance-based metric replaces it.
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
 
-## 41. ~~`Geology3DViewer.tsx` component-level smoke still absent~~ — RESOLVED 2026-06-23
+## 41. `Geology3DViewer.tsx` component-level smoke still absent — RESOLVED 2026-06-23
 
 Part (a) (pure coordinate math → `cesiumGeometry.ts` + 13 vitest cases)
 shipped 2026-05-17 (6c5389a). Part (b) (the component-shell mount smoke)
@@ -946,7 +948,7 @@ inert mock — whose `setInputAction` is a no-op — cannot drive it; it would
 need a callback-capturing harness asserting against stub geometry, which
 proves nothing real. Documented in the test file's header.
 
-## 44. Cross-stage selection — per-stage visualisation of the carried scope (Tier D — follow-on from 2026-05-21 ship)
+## 44. Cross-stage selection — per-stage visualisation of the carried scope (Tier D — follow-on from 2026-05-21 ship) — STATUS: OPEN
 
 **What.** Owner decision 2026-05-21: selection carries across stages
 (the "scope" semantic). The state-level work is **done** — the
@@ -984,7 +986,7 @@ THAT stage with the concrete workflow in front of you.
 ## 47. `project_bundle` column auto-enumeration → silent `.gmproj` format drift — RESOLVED 2026-09-02
 
 The per-array column set is now pinned by `tests/unit/infrastructure/db/test_bundle_column_pins.py` against the frozen sets in `bundle_columns_expected.py`, so adding a column to any bundled ORM model turns the unit suite RED until someone updates the set on purpose — the moment to decide portability (`_SKIP_COLUMNS`) and a `format_version` bump; the audit promoted `generation_id` (the `LithoBodySolid` FK into the un-bundled `litho_build_generation`) to `_SKIP_COLUMNS` while the deliberately-carried TIN/mesh caches stay, and the rule is recorded in `docs/gmproj-format.md` (`test_bundle_skip_columns.py` pins the drop).
-## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 SUPERSEDED 2026-09-02)
+## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 SUPERSEDED 2026-09-02) — STATUS: PARTIAL (report slices B/C/D still to build)
 
 **Slice 1 SUPERSEDED 2026-09-02 by the client-rendered cross-section PDF
 sheet.** The owner ruled the matplotlib exporter could not be made faithful
@@ -1107,7 +1109,7 @@ testable; a renderer-side print-to-PDF reuses the live Cesium/recharts
 views but couples the report to Electron. Lean Python-side unless the
 3D figure fidelity forces the renderer path.
 
-## 60. SeedLithoFromGeologicalModel use case orphaned — RESOLVED 2026-06-01 (Branch B)
+## 60. SeedLithoFromGeologicalModel use case orphaned — RESOLVED 2026-06-01
 
 **Resolution (2026-06-01).** Discovery confirmed Branch B: the full
 4-layer chain (use case, API endpoint on two URLs, `client.ts`
@@ -1124,7 +1126,7 @@ feature concern, not debt.
 
 ---
 
-## 56. Manual-lump cross-project reuse + standalone group editor (Tier D — deferred)
+## 56. Manual-lump cross-project reuse + standalone group editor (Tier D — deferred) — STATUS: OPEN
 
 **What.** The manual stratigraphy lumping map (`stratigraphy_lumping.map` in
 the `.gmproj` bundle, scope step 7) is per-project and entirely in the user's
@@ -1153,7 +1155,7 @@ real dogfooding).  Not before.
 
 ---
 
-## 62. Pinch-out ghost-UX follow-ups (Tier E — post-slice review residue)
+## 62. Pinch-out ghost-UX follow-ups (Tier E — post-slice review residue) — STATUS: OPEN
 
 The pinch-out ghost-UX slice shipped 2026-05-18; senior + ux review
 blockers were all fixed (stale-ghost-on-section-switch, 409 local-state
@@ -1268,7 +1270,7 @@ so they don't get re-filed as new items):
 
 ---
 
-## 64. 3-D split viewport — RESOLVED 2026-06-01 (cut) + 2026-08-26 (compare)
+## 64. 3-D split viewport — RESOLVED 2026-06-01
 
 Two different things are called "split" in the 3-D viewer, and the
 entry covers both.
@@ -1435,7 +1437,7 @@ module constants. The next dogfeed report of "wrong dominant
 admixture in this particular borehole" is the natural trigger to
 adjust — ship a real case alongside any further change.
 
-## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
+## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness) — RESOLVED 2026-09-03
 
 **RESOLVED 2026-09-03.** The overlay's `BodyContextMenu` / `EdgeContextMenu`
 `<foreignObject>`s were lifted OUT of the root `<g style="pointer-events:none">`
@@ -1468,7 +1470,7 @@ worth the churn/risk pre-ship (review S6).
 an Electron/Chromium bump, OR when the section context-menu surfaces
 are next consolidated (fold the lift into that pass).
 
-## 70. Decision-log table for ML training — schema scaffold + per-decision wiring (Tier D — post-MVP ML, owner-audited)
+## 70. Decision-log table for ML training — schema scaffold + per-decision wiring (Tier D — post-MVP ML, owner-audited) — STATUS: OPEN
 
 **What.** Ship a `user_decision_log` table that captures every manual
 user decision in the app (litho suggestion accept, suggestion reject,
@@ -1536,7 +1538,7 @@ see #71 / #72.
 in one pass — risks coupling unrelated paths. The log starts useful
 the moment ONE use case is wired; broader coverage compounds.
 
-## 71. ML training pipeline that consumes the decision log (Tier D — post-MVP, owner-audited)
+## 71. ML training pipeline that consumes the decision log (Tier D — post-MVP, owner-audited) — STATUS: OPEN
 
 **What.** Read `user_decision_log` rows and train **one model per
 suggestion surface** (see the inventory in #70). Each surface gets
@@ -1572,7 +1574,7 @@ deterministic, reviewable outputs first.
 audited a representative sample. Don't fit a model on toy data.
 
 
-## 82. Drag-from-ghost-edge → correlation (Tier E — Phase 2.5 gesture follow-on)
+## 82. Drag-from-ghost-edge → correlation (Tier E — Phase 2.5 gesture follow-on) — STATUS: OPEN
 
 **What.** When a ghost-layer boundary is being dragged, allow the
 drag to leave the source column horizontally and land on a
@@ -1603,7 +1605,7 @@ then. Variant B is the cleaner first slice — straddle handling on C
 is non-trivial.
 
 
-## 79. DOV Phase-2 parse-offload diagnostic + re-baseline (Tier E — performance investigation)
+## 79. DOV Phase-2 parse-offload diagnostic + re-baseline (Tier E — performance investigation) — STATUS: OPEN
 
 > **Note (2026-09-03, wt-bounds slice — resilience, NOT throughput):** the DOV import
 > now has scope + resilience guards independent of this throughput work — bbox
@@ -1710,7 +1712,7 @@ opens the boundary menu; Insert action opens picker and Save fires
 onInsertLayer with afterIdx + composition. 1036/1036 vitest + tsc
 clean.
 
-## 83 cascade + 84 merge prompt — RESOLVED 2026-05-21
+## 83. cascade + #84 merge prompt — RESOLVED 2026-05-21
 
 Owner directives chosen:
 * Cascade behaviour: **Multi-collapse with prompt** — drag clamps walk
@@ -1835,7 +1837,7 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
-## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding)
+## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding) — STATUS: OPEN
 
 **First-launch overlay landed as a reviewable PROTOTYPE 2026-09-01,
 senior-review remediation 2026-09-02 (branch `onboarding-proto`, NOT
@@ -2135,7 +2137,7 @@ auto-inserted after `parent_formation_name`.
 > two focused passes, not scattered micro-patches.
 
 
-## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier G — before the Geotech stage)
+## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier G — before the Geotech stage) — STATUS: OPEN
 
 **What.** Adding a litho layer during ghost review has no discoverable
 home. The only path today is the #85 boundary insert-strip — a 6 px
@@ -2167,7 +2169,7 @@ a long session; deserves its own focused implementation.
 **When to revisit.** Immediately — owner explicitly green-lit it. The
 first task of the next litho-workflow pass.
 
-## 99. ~~Litho drag-resize clamp does not pass through rejected layers~~ — CLOSED-STALE 2026-06-23 (no longer reproducing; re-open if seen in a live project)
+## 99. Litho drag-resize clamp does not pass through rejected layers — RESOLVED 2026-06-23
 
 **Closed stale.** Awaited an owner repro since 2026-05-22; never
 reproduced across the large post-May litho rework (A2 decoupling,
@@ -2209,7 +2211,7 @@ formations) so the scenario can be re-modelled. If (a) is the real
 answer, the followup is a UX nudge (e.g. a visible boundary glyph at
 the clamp) rather than a logic change.
 
-## 100b. Inspector-select sticky reveal of correlation edges (Tier D — follow-on to #100)
+## 100b. Inspector-select sticky reveal of correlation edges (Tier D — follow-on to #100) — STATUS: OPEN
 
 **What.** #100 shipped the hover-to-reveal half of the design (chip
 hover → that body's edges + same-body chip halo appear). The other
@@ -2238,7 +2240,7 @@ its own commit.
 session has the user wanting to "pin" a body's edges to study them
 without holding the cursor.
 
-## 101. Litho lens / pinch-out body representation — Position 4: correlation-implies-absence + inference (Tier G — session 2026-05-24 blocker)
+## 101. Litho lens / pinch-out body representation — Position 4: correlation-implies-absence + inference (Tier G — session 2026-05-24 blocker) — STATUS: OPEN
 
 **⚠ ARCHITECTURAL PIVOT (owner directive 2026-05-24, late session).**
 The Slices 1-7 build that landed earlier today (46 commits on
@@ -2405,7 +2407,7 @@ refactor is additive + subtractive on top.
 
 ---
 
-## 101 (historical — superseded by Position 4 above). Litho lens / pinch-out body representation — Approach C scoped (was Tier G blocker, now historical)
+## 101a. Litho lens / pinch-out body representation — Approach C scoped (was Tier G blocker, now historical) — SUPERSEDED 2026-05-24 by #101
 
 **What.** The litho (and geological) model currently assumes
 layers / surfaces are laterally continuous across the investigation
@@ -2583,7 +2585,7 @@ know about lens identity).
 blocker. Sequence: #118 (pinch-out for Litho — half day) → this
 (~5–7 days) → #119 / #120 / #121 / #122 in any order.
 
-## 102. Merge button for a same-lithology boundary (Tier G — before the Geotech stage)
+## 102. Merge button for a same-lithology boundary (Tier G — before the Geotech stage) — STATUS: OPEN
 
 **What.** Dogfeed 2026-05-22: after "Suggest litho", the segmenter
 sometimes produces adjacent layers with the *same* lithology stacked on
@@ -2621,7 +2623,7 @@ drag-resize one layer to absorb the other.
 > backlog. All sit BELOW the Geotech-stage gate — they are tech debt,
 > hardening and polish, not litho-stage-finishing work.
 
-## 104. Three-level export gap — snapshots carry geological-level data only (Tier D — Phase-4 MVP export step)
+## 104. Three-level export gap — snapshots carry geological-level data only (Tier D — Phase-4 MVP export step) — RESOLVED 2026-09-02
 
 **VERIFIED RESOLVED (audit + guard-pin 2026-09-02).** The ruled v1.0-gate
 scope of #104 — *"export unit identifiers (NAD class + soil) in DXF/Plaxis"*
@@ -2779,7 +2781,7 @@ well-defined without an owner ruling on two points:
 step is dogfed on a real report.~~ Answered by the 2026-08-26 ruling
 above; this entry is closed.
 
-## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
+## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak) — STATUS: PARTIAL (~17 geology use cases still welded to the ORM)
 
 **Partially resolved 2026-06-01.** The cheap first step (named in the
 original debt entry) landed: `FormationContactResult` dataclass added at
@@ -2809,7 +2811,7 @@ the queries testable in isolation.
 **When to revisit.** Before Phase-5 statistics work (which adds bulk
 queries that must be testable in isolation).
 
-## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D)
+## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D) — STATUS: PARTIAL (later constraint / index waves still owed)
 
 **Partially resolved 2026-06-01 (waves 1 + 2).** All landed migrations:
 `a1c2d3e4f5a6` (domain-invariant CHECKs: `geological_model.kind`,
@@ -2898,7 +2900,7 @@ reversed, OR land the inverse (parentless-litho) CHECK after a real-DB audit of
 legacy litho `parent_formation_id`. FK + NOT NULL: the backwards-compat re-arm
 (#3 / #47), once project-less import is retired or the backfill lands.
 
-## 108. RESOLVED 2026-06-01. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4.
+## 108. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4. — RESOLVED 2026-06-01
 Surgical pass on all four debt-entry targets:
 - `docs/desktop.md`: directory tree rewritten to reflect the staged-screen shell
   (AppShell / StageSpine / stages/*, hooks/*, shell/); Sidebar.tsx deletion noted;
@@ -2930,7 +2932,7 @@ Partial / residual still open:
   scope of `InterpretationPane` removal cleanup is outside the three orientation docs
   this entry targeted.
 
-## 109. BaseExporter ABC split — RESOLVED 2026-06-01 (re-verified 2026-09-02)
+## 109. BaseExporter ABC split — RESOLVED 2026-06-01
 
 Replaced the single `BaseExporter` ABC with two shape-correct ABCs:
 `ProjectExporter(GroundModelLogger, ABC)` for project-wide exporters
@@ -2955,7 +2957,7 @@ not a snapshot, and one exporter of that shape does not justify a fourth ABC
 `section_snapshot.py`) were repointed to the correct current ABC. The three
 ABCs are now catalogued in [exports.md](exports.md).
 
-## 110. Export-path duplication — RESOLVED 2026-06-01 (re-deduped 2026-09-02)
+## 110. Export-path duplication — RESOLVED 2026-06-01
 
 Backend duplication fully addressed (frontend `App.tsx` handlers out of scope
 for this backend-only debt item):
@@ -3060,7 +3062,7 @@ All five items closed:
 Unit tests in `test_security_hardening.py` pin items 1–3; items 4–5 are
 comment / truncation changes verified by code review.
 
-## 114. Large-file readability — bundle restore fn + ContactsLayer (Tier E)
+## 114. Large-file readability — bundle restore fn + ContactsLayer (Tier E) — RESOLVED 2026-06-01
 
 RESOLVED 2026-06-01. `_restore_project_bundle_impl` decomposed into 11
 named async phase helpers (`_restore_cpts`, `_restore_boreholes`,
@@ -3075,11 +3077,11 @@ phase-sequence. 16 bundle integration tests + 1133 unit tests green.
 `computeSlabsAndPolylines()` pure function (unit-testable without
 mounting). 1539 Vitest tests green, tsc clean.
 
-## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D)
+## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D) — RESOLVED 2026-06-01
 
 RESOLVED 2026-06-01. `tests/integration/application/test_rebuild_model_surfaces.py` (RS1–RS7: happy path, empty model, stale-flag clear, orphan stale surface, age-reorder direction, litho kind-scope guard, idempotent rebuild) and `tests/integration/exporters/test_section_pdf_report_exporter.py` (PE1–PE6: valid PDF magic, Info-dict metadata, multi-investigation, empty section, notes block, no-contacts) added. RS5 is `xfail(strict=True)` — it exposed a direction bug in `_reorder_by_age` (see #175); the xfail becomes the regression guard once #175 is fixed.
 
-## 118. Wire pinch-out gesture for the Litho axis (Tier G — session 2026-05-24 blocker)
+## 118. Wire pinch-out gesture for the Litho axis (Tier G — session 2026-05-24 blocker) — STATUS: OPEN
 
 **What.** `SectionsCanvas.tsx:984` gates `pinchOutGhostState` behind
 `if (isLitho || !activeGeologicalModel) return undefined`, so the
@@ -3126,7 +3128,7 @@ litho contacts.
 **When to revisit.** First step of the session-2026-05-24 sequence.
 Prerequisite for #101. Half-day with tests.
 
-## 119. Litho segmenter: same-lithology auto-merge (Tier G — design work, before Geotech stage)
+## 119. Litho segmenter: same-lithology auto-merge (Tier G — design work, before Geotech stage) — STATUS: OPEN
 
 **What.** `segment_cpt` in `litho_segmentation.py` currently splits
 on every Robertson SBT zone integer change. Zones 5/6/7/8 all map to
@@ -3174,7 +3176,7 @@ CLAUDE.md MVP scope edit (density indicators move from litho to
 geotech).
 
 
-## 123. Correlation suggestion bug: clay → silt cross-lithology pair (Tier G — needs reproduction)
+## 123. Correlation suggestion bug: clay → silt cross-lithology pair (Tier G — needs reproduction) — STATUS: OPEN
 
 **What.** Dogfeed 2026-05-24 user-reported: at least one committed
 correlation edge connects a KLEI unit on one column to a SILT unit
@@ -3225,7 +3227,7 @@ but the result is ambiguous without knowing which project + section
 **When to revisit.** Owner provides the evidence above. Until then
 no code change is possible without risk of fixing the wrong layer.
 
-## 127. RESOLVED — Auto-correlate litho bodies on accept / import
+## 127. Auto-correlate litho bodies on accept / import — RESOLVED 2026-05-24
 
 **What.** When the user accepts litho suggestions per CPT / borehole
 or imports new tests, the system should **automatically propose
@@ -3460,7 +3462,7 @@ Regression anchors: revert ``2d4d7913`` → single_accept red; revert ``2ad9bb6e
 exactly the class of bug it was built for. See commits on ``develop`` from
 2026-05-25.)*
 
-## 130. Playwright e2e coverage expansion — ongoing convention + backfill plan (Tier B)
+## 130. Playwright e2e coverage expansion — ongoing convention + backfill plan (Tier B) — STATUS: OPEN
 
 **What.** #128 shipped the harness foundation (6 flows). #130
 tracks the **ongoing convention** + **prioritized backfill** of the
@@ -3749,7 +3751,7 @@ requirement. Tier-1 backfill happens immediately after #127.
 Pre-distribution sweep closes residuals before any external
 user sees the build.
 
-## 131. ~~Ribbon: lens-aware variant + pinch-out terminus~~ — CLOSED-MOOT 2026-07-12 (unshipped halves structurally superseded)
+## 131. Ribbon: lens-aware variant + pinch-out terminus — RESOLVED 2026-07-12
 
 **Closure 2026-07-12.** Verified nothing of #131 remains actionable:
 * **#131-c** (lithology-coloured gradient seam ribbon) SHIPPED 2026-05-28
@@ -3849,7 +3851,7 @@ blocked on the ``lens_id`` FK) and #131-b (pinch-out terminus taper —
 blocked on threading ``formation_absence`` into the section components).
 Both gated as before.
 
-## 132. Correlation-graph-aware inference on uncorrelate (Tier G — Phase 5 design issue)
+## 132. Correlation-graph-aware inference on uncorrelate (Tier G — Phase 5 design issue) — STATUS: OPEN
 
 **What.** ``test_r7_uncorrelate_reruns_inference_without_error`` asserts
 that uncorrelating FA ↔ FB causes the recompute hook to RETRACT the
@@ -3924,7 +3926,7 @@ stage).
 
 ---
 
-## 133 (filing). Boundary-to-boundary correlation (contact-level edges — replaces formation-level model)
+## 133a. Boundary-to-boundary correlation (contact-level edges — replaces formation-level model) — RESOLVED 2026-05-26
 
 **What.** The current correlation model connects two FORMATIONS
 (``litho_correlation_edge.formation_a_id`` / ``formation_b_id``). The
@@ -4023,7 +4025,7 @@ when the prop is absent (geological axis or pre-Sync litho axis).
 (same source as the existing drag-path post-release wrapper, so the
 in-flight indicator and the dialog stay in sync after tolerance edits).
 
-## 134-C. Litho-geo snap on the accept-litho-suggestions paths (Tier G) — PARTIALLY RESOLVED 2026-05-27
+## 134-C. Litho-geo snap on the accept-litho-suggestions paths (Tier G) — STATUS: PARTIAL (bulk accept path, filed as #134-C-bulk)
 
 **What.** Extend the snap-prompt to fire when a litho suggestion is
 accepted, not only when an already-committed litho contact is
@@ -4051,7 +4053,7 @@ to prompt them one at a time without flooding the user.  Owner
 directive: ship single-path first, revisit if bulk-path slivers
 become a dogfeed pain point.
 
-## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration)
+## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration) — STATUS: OPEN
 
 **SHELVED 2026-06-22 (owner directive).** Do NOT build this. While
 scoping the bulk-snap UX, the owner raised the deeper question: should
@@ -4158,7 +4160,7 @@ source-test re-arm, third-test re-arm, stacked-lens).
 
 ---
 
-## 135 (filing). Two correlation edges from one contact for lens topology (Tier G — gesture extension)
+## 135a. Two correlation edges from one contact for lens topology (Tier G — gesture extension) — RESOLVED 2026-05-26
 
 **What.** Extend the boundary-to-boundary correlate gesture (debt #133)
 so the user can draw both a TOP edge and a BOTTOM edge originating from
@@ -4266,7 +4268,7 @@ noticeable at extreme spacing, or bundle with any future `warpAnchors`
 density/interpolation change. No root cause confirmed — needs a measured
 repro (cursor X vs landed-feature X at spacing < 0.5 with collisions).
 
-## 138. ~~Drag-lock after litho merge — handle becomes immovable~~ — CLOSED-STALE 2026-06-23 (intermittent, never captured; re-open if seen in a live project)
+## 138. Drag-lock after litho merge — handle becomes immovable — RESOLVED 2026-06-23
 
 **Closed stale.** Intermittent since 2026-05-26; a deterministic repro
 was never captured, and it did not resurface across the large post-May
@@ -4343,7 +4345,7 @@ candidates:
   past it instead of locking the handle.
 Filed from dogfeed session 2026-05-26, refined 2026-05-27.
 
-## 140. Accept-all-bulk silently auto-correlates → surprises user with amber edges (Tier G)
+## 140. Accept-all-bulk silently auto-correlates → surprises user with amber edges (Tier G) — STATUS: OPEN
 
 **What.** ``useGeologicalModel.handleAcceptAllBulkLitho`` (line 4457-
 4469) fires ``api.geology.autoCorrelateContacts`` automatically after
@@ -4441,7 +4443,7 @@ Two vitest pins: litho contact line is ``#0f172a`` + halo present;
 geological contact line stays ``formation.color`` + no halo.
 Constants ``LITHO_CONTACT_LINE_COLOR`` / ``LITHO_CONTACT_HALO_COLOR``.
 
-## 144. Accept-all (litho) writes directly to DB — wire it through the dirty/manual-save model (Tier G)
+## 144. Accept-all (litho) writes directly to DB — wire it through the dirty/manual-save model (Tier G) — STATUS: OPEN
 
 **What.** Owner dogfeed 2026-05-27: "accept all - auto saves - we
 need to wire it through a dirty/manual save flow".  Today the bulk
@@ -4560,7 +4562,7 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Double SAND / SILT units after Accept-litho (Tier G — OPEN, A2-narrowed)
+## 149. Double SAND / SILT units after Accept-litho (Tier G — OPEN, A2-narrowed) — STATUS: OPEN
 
 **A2 update 2026-06-04.** A2 removes straddle-split entirely (a crossing layer
 stays one layer; see #157 RESOLVED + the A2 spec), so the
@@ -4695,7 +4697,7 @@ the fix likely lives in the segmenter aggregation (stabilise
 the admixture signature) or in the find-or-create key (relax
 admixture matching).
 
-## 153. Accept-all-bulk wall-clock is 5–10 s on oudenaarde-shape projects (Tier G)
+## 153. Accept-all-bulk wall-clock is 5–10 s on oudenaarde-shape projects (Tier G) — STATUS: OPEN
 
 **What.** Owner dogfeed 2026-05-27: clicking Accept-all-bulk on
 the oudenaarde project takes 5–10 seconds before the section
@@ -4738,7 +4740,7 @@ whether the cost is HTTP round-trip, SELECT, or commit.
 
 Filed from dogfeed session 2026-05-27.
 
-## 150. Correlation suggestions render in mixed grey + orange (Tier E) — REFRAMED 2026-05-28 → #131
+## 150. Correlation suggestions render in mixed grey + orange (Tier E) — SUPERSEDED 2026-05-28 by #131
 
 **What (original).** Owner dogfeed 2026-05-27: "correlation
 suggestions are grey or orange (weird)".  ``CorrelationEdgesOverlay``
@@ -4761,6 +4763,26 @@ ribbon-rendering feature, not a colour-token swap. It supersedes the
 "sharpen vs unify the edge colour" question (the cheap interim fix is
 NOT being done). The spec now lives on **#131** (the lens-aware ribbon
 work), which this folds into.
+
+## 155. Litho bulk Suggest-all → Accept-all latency on real projects (Tier E) — STATUS: OPEN
+
+**What.** The full litho bulk "Suggest all → Accept all" flow feels ~4 s on a real
+project. Root cause identified 2026-05-28 (DB-direct per-phase profile of the
+oudenaarde flow): `RecomputeAllAbsencesForModel` re-processes the ENTIRE litho model
+on every bulk accept, so it scales with total model size, not the size of the accept
+— recompute went 0.36 s (clean, 553 contacts) → 3.09 s (accumulated, 1331 contacts,
+8.5× superlinear), driving the backend total 1.42 s → 4.15 s.
+
+**Why deferred.** Owner directive 2026-05-28 — Tier-G correctness items come first;
+this is perf polish, not a blocker.
+
+**When to revisit.** Profile a real large project per-phase first (do not guess — the
+#153 lesson); the likely lever is scoping the absence recompute to the accepted
+subset rather than the whole model. Owner call.
+
+_(Promoted to a numbered section so #155 appears in the generated open-items index;
+the original per-phase profiling detail is the 2026-05-28 audit bullet earlier in
+this file.)_
 
 ## 156. "Edit in Geology stage" deep-link lands on the 3D viewer + "contact not found" — RESOLVED 2026-09-02
 
@@ -4796,7 +4818,7 @@ slice-2 A1/A2/A3 axis-gate defaults preserved. Files: `AppShell.tsx`,
 `SectionsCanvas.onEditInGeologyStage` (the writer of `geoDeepLinkTarget`) was
 left unchanged.
 
-## 157. Accepted litho slivers from straddle-split — RESOLVED 2026-06-04 (A2)
+## 157. Accepted litho slivers from straddle-split — RESOLVED 2026-06-04
 
 Straddle-split is removed entirely by the A2 litho/geo decoupling (owner
 directive 2026-06-04): a layer crossing a geological boundary stays ONE layer,
@@ -4865,7 +4887,7 @@ the 1 cm epsilon targets the snap-produced exact coincidence. Widen if
 dogfeed reports it.
 Filed from dogfeed session 2026-05-28.
 
-## 160. Two-stage save — revert-to-last-save on close (Tier D) — SHIPPED 2026-05-29
+## 160. Two-stage save — revert-to-last-save on close (Tier D) — RESOLVED 2026-05-29
 
 **SHIPPED 2026-05-29 ("B", owner directive 2026-05-29 — promoted above the litho
 gate).** Approach: instead of a per-mutation staged-commit layer (the heavy option
@@ -4900,7 +4922,7 @@ model.
 
 ---
 
-## 160 (filing). Two-stage save for litho accepts + pending discard-on-close
+## 160a. Two-stage save for litho accepts + pending discard-on-close — RESOLVED 2026-05-29
 
 **What.** Owner dogfeed 2026-05-28 (re-raised, with a wink): "if i close,
 non-accepted lithos [should be discarded] and accepted lithos should also
@@ -4927,7 +4949,7 @@ notes. Not a v1.0 gate (the data is safe in the DB today; the gap is
 "accepts aren't undoable by closing without saving").
 Filed from dogfeed session 2026-05-28.
 
-## 161. Manual correlation can create a self-loop contact edge (Tier E — minor)
+## 161. Manual correlation can create a self-loop contact edge (Tier E — minor) — STATUS: OPEN
 
 **What.** Owner dogfeed 2026-05-28: after a manual "Correlate" the resolver
 logged ``_run_resolver: skipped 0 orphan + 1 self-loop contact edge(s)``.
@@ -4944,7 +4966,7 @@ correlate use case + the gesture. Fold into the next correlation-gesture
 pass.
 Filed from dogfeed session 2026-05-28.
 
-## 162. Couple coincident litho ↔ geological contacts (Tier D — structural; the deeper #157 fix) — SHIPPED 2026-05-28 (Slice 1)
+## 162. Couple coincident litho ↔ geological contacts (Tier D — structural; the deeper #157 fix) — RESOLVED 2026-05-28
 
 **SHIPPED 2026-05-28 (Slice 1 — the full coupling behaviour).** Spec +
 plan: `docs/superpowers/specs/2026-05-28-litho-geo-contact-coupling-design.md`
@@ -5079,7 +5101,7 @@ natural moment to add the stored link. Design alongside #134 (snap) and
 relationship.
 Filed from owner question, dogfeed session 2026-05-28.
 
-## 163. Auto-correlate refinements — adjacent-only, depth band, refresh, deletion, split (Tier G)
+## 163. Auto-correlate refinements — adjacent-only, depth band, refresh, deletion, split (Tier G) — STATUS: OPEN
 
 Owner dogfeed 2026-05-28 (multiple). All pre-existing auto-correlate
 (#127/#133) behaviour — NOT introduced by the coupling work. Grouped here;
@@ -5226,7 +5248,7 @@ so forcing `Button` there would be a visual change for no real dedup. 5 new
 ConfirmDialog tests (CD1–CD5) + Button FR5; full suite 1442 green. Per-file
 commits on develop 2026-05-29.
 
-## 165b. `.gitignore` e2e artifacts — SHIPPED 2026-05-28
+## 165b. `.gitignore` e2e artifacts — RESOLVED 2026-05-28
 
 `desktop/tests/e2e/_results/` + root `.e2e-backend.err` (run artifacts) were
 untracked and at risk of accidental commit; added to `.gitignore`.
@@ -5273,7 +5295,7 @@ site). Resolves the payload half of #111 (the bypassed-`_updateGhostEntry` half
 stays under #111). Full suite 1446 green; tsc clean. Per-file commits on develop
 2026-05-29.
 
-## 168. Section SVG geometry — RESOLVED 2026-05-29 (shared depth axis; rest declined after investigation)
+## 168. Section SVG geometry — RESOLVED 2026-05-29
 
 Shipped the one genuine dedup: `depthAxisAtSurface(levelToScreen, surfaceElevationM)`
 in `sections/utils.ts` → `{surfaceY, pxPerMetreDown, depthAtY, yAtDepth}`, sampling
@@ -5307,7 +5329,7 @@ mixin was needed — module-level functions behind a `_HasNameAndOrder` Protocol
 are simpler and sufficient (the two formation types differ structurally, not
 behaviourally).
 
-## 170. Litho-geo coupling helper extractions — kill the #162/#134 drift risk (Tier E — backend, S each)
+## 170. Litho-geo coupling helper extractions — kill the #162/#134 drift risk (Tier E — backend, S each) — STATUS: OPEN
 
 **What.** Several small but load-bearing blocks exist as verbatim twins, each a
 behaviour-drift risk in the coupling logic: (a) `_load_geo_contacts_at_inv`
@@ -5328,14 +5350,14 @@ is-stale flip silently breaks the on-click-build UX contract. **Fix.**
 a `litho_constants.py`; `GeologyRepository.mark_surface_stale(model_id,
 formation_id)` for all mutators. **Effort.** S each.
 
-## 171. Router-layer inline `HTTPException(404)` vs `get_in_project_or_404` inconsistency (Tier E — backend, S)
+## 171. Router-layer inline `HTTPException(404)` vs `get_in_project_or_404` inconsistency (Tier E — backend, S) — STATUS: OPEN
 
 **What.** `api/routers/geology/formations.py:346,524` + `lenses.py:263,334,403`
 raise `HTTPException(404)` inline while the sibling `contacts.py` uses
 `get_in_project_or_404` 22×. **Why.** Inconsistent guard surface; a scope-rule
 change misses the inline copies. **Fix.** Route through the helper. **Effort.** S.
 
-## 172. Shared `<AdmixtureRowsEditor>` for the two litho composition editors (Tier E — frontend, M)
+## 172. Shared `<AdmixtureRowsEditor>` for the two litho composition editors (Tier E — frontend, M) — STATUS: OPEN
 
 **What.** `LithoCompositionPickerDialog.tsx` (595 ln) + `LithoGhostCompositionEditor.tsx`
 (350 ln) both render a main-soil + admixture-row editor; the ghost editor's header
@@ -5344,7 +5366,7 @@ add/remove/edit is duplicated. **Fix.** Extract `<AdmixtureRowsEditor>` (the sha
 list widget); the picker keeps its two-tab "existing units" chrome on top.
 **Effort.** M.
 
-## 173. Promote `NumberRow`/`CheckboxRow` out of SettingsDialog (Tier E — frontend, S)
+## 173. Promote `NumberRow`/`CheckboxRow` out of SettingsDialog (Tier E — frontend, S) — STATUS: OPEN
 
 **What.** `SettingsDialog.tsx:550` (`NumberRow`) + `:627` (`CheckboxRow`) are file-local
 labelled-row wrappers (label+hint+control+bounds). `ui/NumericInput` exists but not
@@ -5352,7 +5374,7 @@ the labelled rows. **Why.** Next settings/inspector form re-hand-rolls them.
 **Fix.** Move to `components/ui/` on second use (low urgency — one consumer today).
 **Effort.** S.
 
-## 174. Backend test gaps — mutation use cases + 3 exporters (Tier D — backend, M; extends #116)
+## 174. Backend test gaps — mutation use cases + 3 exporters (Tier D — backend, M; extends #116) — STATUS: OPEN
 
 **What.** C1 (`RebuildModelSurfaces`) and C2 (`SectionPdfReportExporter`) covered by #116 (2026-06-01). Zero-coverage remaining: **C3** `GeoStudioExporter` +
 `DSheetExporter` (no tests, while Plaxis exporters are tested — exports are the
@@ -5391,7 +5413,7 @@ unit level; the ON CONFLICT resolution itself stays DB-enforced), and
 the true skip-and-count at the re-located :478/:633). `delete_lens_metadata` no
 longer exists — retired in the lens→body naming sweep (#216-#218), so nothing to pin.
 
-## 175. Frontend test gaps — the state-machine + geometry hot spots (Tier D — frontend, M/L)
+## 175. Frontend test gaps — the state-machine + geometry hot spots (Tier D — frontend, M/L) — STATUS: OPEN
 
 **What.** **C7** `useGeologicalModel.ts` (5084 ln) has only narrow-slice tests; the
 four accept handlers + drag-commit + the #134 litho-geo snap cascade are not
@@ -5422,7 +5444,7 @@ on an unplaced formation survives Build" property. RS5 in
 `tests/integration/application/test_rebuild_model_surfaces.py` is no longer
 `xfail` — it's a passing regression guard.
 
-## 176. Logging cleanups — exporter instrumentation + renderer `log` wrapper (Tier E, S)
+## 176a. Logging cleanups — exporter instrumentation + renderer `log` wrapper (Tier E, S) — RESOLVED 2026-06-01
 
 **What.** **L1** `SectionPdfReportExporter` has ~2 log calls in a multi-phase render
 pipeline — add INFO entry (section id, investigation count) + per-phase DEBUG +
@@ -5438,7 +5460,7 @@ backend use-case/parser logging is DoD-compliant (DOV importers log HTTP status 
 per-row `[i/total]`; no silent `except: pass` anywhere in `application/`); no empty
 `catch {}` in the renderer. **Effort.** S.
 
-## 177. Playwright e2e is NOT wired for code review (Tier D — testing, M)
+## 177a. Playwright e2e is NOT wired for code review (Tier D — testing, M) — STATUS: OPEN
 
 **Verdict from the audit:** Playwright IS installed (`@playwright/test ^1.60.0`),
 configured to drive **Electron** via `_electron.launch` (`desktop/playwright.config.ts`,
@@ -5462,7 +5484,7 @@ boots to the welcome screen; wire an "open project" path and un-stub. **Why.** D
 #128/#130 claim a regression net that, in the only automated context, doesn't run.
 **Effort.** M (bootstrap script + un-skip) — the rest is reclassification.
 
-## 178. God-component / large-file splits (Tier D — both, L; extends #111/#114)
+## 178. God-component / large-file splits (Tier D — both, L; extends #111/#114) — STATUS: OPEN
 
 **What.** Files past readable size, confirmed by the audit: `useGeologicalModel.ts`
 5084 ln (~50 handlers — split into `useGeologicalContacts` / `useLithoModelLifecycle`
@@ -5480,7 +5502,7 @@ bug cluster lives. **Fix.** Incremental extraction along the marked seams; do NO
 big-bang. **When to revisit.** Take one split per quiet period; #164 (ContextMenu)
 + #167 (accept body) are the cheap first cuts that shrink two of them. **Effort.** L.
 
-## 179. No "Clear suggestions" — stale auto-correlation edges can't be removed/overwritten from the UI (Tier G — dogfeed 2026-05-29) — SHIPPED 2026-05-29
+## 179. No "Clear suggestions" — stale auto-correlation edges can't be removed/overwritten from the UI (Tier G — dogfeed 2026-05-29) — RESOLVED 2026-05-29
 
 **SHIPPED.** Root cause was deeper than a missing button: the contact-level
 bulk-delete endpoint never existed (the formation-level one was removed in #133
@@ -5521,12 +5543,12 @@ this pass were shipped immediately (C1 blocker fix, R2/R3 refactor, S1 scope
 guard). Items below are the deferred findings — each one is real but not
 blocking the geotech stage.
 
-## 180. R1 — RESOLVED 2026-06-01. `pinch_out_halfway` and `extrapolated` switch arms
+## 180. R1 — `pinch_out_halfway` and `extrapolated` switch arms — RESOLVED 2026-06-01
 collapsed into a shared fall-through (`case 'pinch_out_halfway': case 'extrapolated':`)
 in switch #1 (towardAlong derivation). Module-scope `halfwayFarPoint` helper extracted
 (exported); three inline midpoint copies replaced. HFP1-HFP3 pin the helper contract.
 
-## 181. C2 — RESOLVED 2026-06-01. `_doClaimExtent` helper extracted in `SectionsCanvas.tsx`.
+## 181. C2 — `_doClaimExtent` helper extracted in `SectionsCanvas.tsx`. — RESOLVED 2026-06-01
 `_doClaimExtent(bodyId, side, kind)` calls `api.geology.claimBodyExtent` directly
 with no 409→dialog branch — it updates local state on success and rethrows all errors.
 `handleClaimBodyExtent` delegates to `_doClaimExtent` and wraps with the
@@ -5536,9 +5558,9 @@ still hits 409 (concurrent DetectBodies sweep between clear and re-claim) it sho
 `"Couldn't claim extent — try again."` toast without reopening the dialog.
 BPR-1/BPR-2/BPR-3 in `SectionsCanvas.provenance.test.tsx` pin the three paths.
 
-## 182. C3 — RESOLVED 2026-06-01. Bundle JSON keys renamed `litho_lens_shapes` → `body_boundary_shapes` and `litho_lens_boundary_nodes` → `body_boundary_nodes` in lockstep across Pydantic schema (`ProjectBundleRequest` / `ProjectBundleResponse`), repository build/restore paths, router kwarg forwarding, frontend `ProjectBundleResponse` type (`client.ts`), `ProjectFileV3` type + `buildProjectFile` / `parseProjectFile` / `isProjectFileV3` (`projectFile.ts`), `useProject.ts` revert path, and three integration test files. `rg` confirms zero stale occurrences across `src/`, `desktop/src/`, `tests/`. 1133 unit + 38 integration tests green.
+## 182. C3 — Bundle JSON keys renamed `litho_lens_shapes` → `body_boundary_shapes` and `litho_lens_boundary_nodes` → `body_boundary_nodes` in lockstep across Pydantic schema (`ProjectBundleRequest` / `ProjectBundleResponse`), repository build/restore paths, router kwarg forwarding, frontend `ProjectBundleResponse` type (`client.ts`), `ProjectFileV3` type + `buildProjectFile` / `parseProjectFile` / `isProjectFileV3` (`projectFile.ts`), `useProject.ts` revert path, and three integration test files. `rg` confirms zero stale occurrences across `src/`, `desktop/src/`, `tests/`. 1133 unit + 38 integration tests green. — RESOLVED 2026-06-01
 
-## 184. E2 — RESOLVED 2026-06-01. Map builds (`bodyById`, `contactById`, `colByInv`,
+## 184. E2 — Map builds (`bodyById`, `contactById`, `colByInv`, — RESOLVED 2026-06-01
 `invByContact`, `depthByContact`, `edgePairs`, `neighboursByContact`) and the full
 `resolved` array construction wrapped in a single `useMemo` with deps
 `[bodies, contacts, placedColumns, contactEdges, boundariesByBodyId, screenXToAlong,
@@ -5547,7 +5569,7 @@ sectionStartScreenX, sectionEndScreenX]`. Drag-mousemove renders (which only cha
 from the memo return for the ghost-candidate section. E2-RERENDER pins correctness
 across re-renders.
 
-## 185. E3 — `refetchLensData` fires N boundary GETs per body list update (Tier D — backend/frontend, M)
+## 185. E3 — `refetchLensData` fires N boundary GETs per body list update (Tier D — backend/frontend, M) — STATUS: OPEN
 
 **What.** Every accept/correlate/detect triggers `refetchLensData`, which
 calls `GET /bodies/{bid}/boundary` once per body in `lensList` — so N bodies
@@ -5561,7 +5583,7 @@ endpoint (bodies + their boundary nodes in one response).
 **When to revisit.** When a section commonly has > 15 bodies and the
 post-detect refetch latency is felt by the user.
 
-## 186. E4 — `SuggestBodyPinchOuts` neighbour search is O(I²×C) (Tier D — backend, S)
+## 186. E4 — `SuggestBodyPinchOuts` neighbour search is O(I²×C) (Tier D — backend, S) — STATUS: OPEN
 
 **What.** `SuggestBodyPinchOuts._find_neighbours` iterates `all_invs` twice
 per source pair (inner loop + corridor filter) without any spatial index or
@@ -5574,7 +5596,7 @@ candidates within the depth-window band.
 **When to revisit.** When typical projects exceed 100 investigations in a
 corridor OR when the `suggest-pinch-outs` verb wall-clock crosses 200 ms.
 
-## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded — RESOLVED 2026-06-01 (folded into #112)
+## 188. S3 — `BodyBoundaryWriteRequest` nodes lists unbounded — RESOLVED 2026-06-01
 
 `upper_nodes` and `lower_nodes` now carry `Annotated[list[…], Field(max_length=10_000)]`.
 See #112 resolution above.
@@ -5659,7 +5681,7 @@ envelope-size middleware. Added `_validate_bounded_dict_list` helper (256-char k
 closed-set enum values from Python constants that are never user-supplied. Not injectable;
 stylistic only. Filed as a "watch: don't extend this pattern" note, not a blocking fix.
 
-## 193. FC→LL trigger identity collision in v4 bundle restore (Tier E — backend, M)
+## 193. FC→LL trigger identity collision in v4 bundle restore (Tier E — backend, M) — STATUS: OPEN
 
 **What.** `test_bundle_v4_litho_layers.py` triggers ~16 `SAWarning` lines during the
 restore path: "New instance <LithoLayerOrm> with identity key ... conflicts with
@@ -5686,7 +5708,7 @@ shape variant), OR when an actual restore bug surfaces that the warnings make ha
 to diagnose. Until then the warning noise stays.
 
 
-## 194. Cross-section / 3D-consistent lens naming algorithm (Tier D — lands with the 2D→3D step)
+## 194. Cross-section / 3D-consistent lens naming algorithm (Tier D — lands with the 2D→3D step) — STATUS: OPEN
 
 **What.** Lens auto-labels are currently computed **per 2D section**:
 `{parent geological formation} {depth rank}` where the depth rank
@@ -5716,7 +5738,7 @@ global body-identity key (likely the resolver's connected-component /
 `body_ordinal` lineage across sections), rank once globally, and feed the
 same label map into every section overlay + the inspector + exports.
 
-## 195. User-claimed body extents lost when a model-wide accept renumbers the instance (Tier G — backend, M)
+## 195. User-claimed body extents lost when a model-wide accept renumbers the instance (Tier G — backend, M) — STATUS: OPEN
 
 **What.** The litho instance resolver (`ResolveLithoInstances._run_resolver`)
 reconciles bodies keyed `(formation_id, body_ordinal)`. When a model-wide
@@ -5767,7 +5789,7 @@ pins it (RED confirmed the exact FK violation pre-fix). Commits 0a4afe13 /
 `src/groundmodel/infrastructure/db/repositories/project_bundle.py`.
 
 
-## 200. Electron pre-distribution hardening — file:// nav (Tier B — frontend, S)
+## 200. Electron pre-distribution hardening — file:// nav (Tier B — frontend, S) — STATUS: PARTIAL (file:// nav wildcard + support-window verification)
 
 **What.** The Electron security-audit findings (2026-06-04) are now closed.
 F5 (DevTools backend-log leak) resolved — packaged builds route uvicorn
@@ -5838,7 +5860,7 @@ single-machine dogfeed. Pre-distribution concern.
 B #5 tamper hardening). Fix F6: narrow the `file://` check to the renderer's
 actual base URL (`win.webContents.getURL()` after `loadFile`).
 
-## 201. God-component file-size split (Tier E — readability, L)
+## 201. God-component file-size split (Tier E — readability, L) — STATUS: OPEN
 
 **Round 2026-09-03 — `GeologyInspector.tsx` 1,203 → 388 lines (−68 %).** Same round as
 the `LithologyInspector` split below, applied to the geology inspector. The presentational
@@ -6049,7 +6071,7 @@ batch clean, then green-lit the remainder; `206dd6e82..0d1059989`):**
   composer (2,410) are cohesive single concerns — no further split planned
   under the concern-based bar.
 
-## 204. ~~Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle~~ — CLOSED 2026-06-23, MISFILED (not dead)
+## 204. Vestigial `is_lens_companion` / `companion_lens_id` fields still serialize in the bundle — RESOLVED 2026-06-23
 
 **CLOSED — the fields are LIVE, do NOT remove them.** Verified
 2026-06-23: `cross_section.companion_lens_id` / `is_lens_companion` are
@@ -6066,7 +6088,7 @@ companion — not dead fields. The original filing mistook the historical
 lens→body rename of these exact persisted columns — is already tracked
 as **#222** (migration-gated). Nothing to drop here.
 
-## 205. Advanced litho-3D uncertainty visualisation (Tier D — Phase 5, frontend, M)
+## 205. Advanced litho-3D uncertainty visualisation (Tier D — Phase 5, frontend, M) — STATUS: OPEN
 
 **What.** The litho 3D model (part b, spec `2026-06-09-litho-3d-model-design.md`
 §11.2) ships with **distance-to-data shading reused from the geological model**
@@ -6091,7 +6113,7 @@ owner's hands and there's a concrete need to communicate model confidence to
 coworkers/clients — pair with the design-ready-parameter work, which has its own
 statistical uncertainty story.
 
-## 206. Customisable single-hole body markers — SUPERSEDED by the watertight loft (2026-06-13)
+## 206. Customisable single-hole body markers — RESOLVED 2026-06-13
 
 **Superseded.** The watertight loft builder (branch `feat-litho-3d-watertight-loft`,
 spec `2026-06-12-watertight-loft-body-builder-design.md`) RETIRED disk-marker
@@ -6116,7 +6138,7 @@ item, and those declined, are listed at the end of the batch.
 
 Numbering continues from #206. New items: **#207–#219**.
 
-## 207. Dead body-extent gestures 404 against a deleted endpoint (Tier G — frontend, S)
+## 207. Dead body-extent gestures 404 against a deleted endpoint (Tier G — frontend, S) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** Rewired "Name this body" to `nameBody` → PATCH `/bodies/{bodyId}` (with a null-body guard); deleted `handleOpenEndLayer` / `handlePinchOutLayer` / `claimBodyExtent` / `ProvenanceViolationError` + their prop chain (SectionPanel / ContactsLayer / ContactContextMenu) and the stale test mock. tsc clean, 1733 vitest pass, zero dangling references.
 
@@ -6145,7 +6167,7 @@ name-body save to `nameBody(projectId, modelId, bodyId, request)`
 (`existingLensId` is already in scope) + fix the test mock. (Bundle with the #216
 dead-code sweep if not done sooner.)
 
-## 208. `seeded_formation_contact_ids` lost-update race on concurrent accept (Tier G — backend, M)
+## 208. `seeded_formation_contact_ids` lost-update race on concurrent accept (Tier G — backend, M) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** `CrossSectionRepository.union_seeded_contact_ids` now takes `pg_advisory_xact_lock(hashtext(str(section_id)))` before the read-union-write, serialising concurrent writers on the same section (releases at COMMIT/ROLLBACK; different sections never block; read paths untouched). Mirrors `SaveBodyBoundary`. New integration test (`test_seeded_contact_ids_race.py`) `asyncio.gather`s two accepts and asserts no ids lost — red→green confirmed against the live Docker DB.
 
@@ -6169,7 +6191,7 @@ array-union `UPDATE`, or hold `pg_advisory_xact_lock(section_id)` across the
 read-modify-write. Gate with a concurrent-accept integration test (the COR-02 /
 TEST-05 pattern: two `asyncio.gather`'d accepts, assert no ids lost).
 
-## 209. Section-fill geometry recomputes on every pan/zoom frame (Tier G — frontend, M)
+## 209. Section-fill geometry recomputes on every pan/zoom frame (Tier G — frontend, M) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** Split `PartitionFillOverlay.screenRegions` into a data-keyed `sectionFillData` memo (calls `computeSectionFill`, depends on partition data only — not the screen transform) + a cheap transform-keyed `screenRegions` memo that projects the cached geometry to pixels. A pan/zoom that changes only `levelToScreen`/`plotTop`/`plotBottom` no longer re-runs the LCS engine. Rendered geometry unchanged and still warp-aware (geometry-check exit 0). TEST-04 call-count regression test written first (red→green).
 
@@ -6192,7 +6214,7 @@ memo (`computeSectionFill(columns, edges, …)` — depends on data only) + a ch
 transform-keyed memo (project the cached geometry to pixels). **TDD note:** write
 the call-count regression test (TEST-04) first, watch it fail, then split.
 
-## 210. SSE progress sentinel can hang the import dialog forever (Tier E — backend, S)
+## 210. SSE progress sentinel can hang the import dialog forever (Tier E — backend, S) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** `JobRegistry.start` attaches a done-callback that logs the exception and enqueues the `None` sentinel when the background task raises, so `stream()` always terminates instead of blocking on `queue.get()`. `import_cpt_dov._fire_pins`'s silent `except Exception: pass` replaced with a logged warning; `import_borehole_dov` verified clean. Remaining sibling swallow `shared/progress.py:83` (module-level `fire_progress`, needs a logger param) left for a follow-up. Unit test pins no-hang-on-raise.
 
@@ -6216,7 +6238,7 @@ sentinel on exception (or unconditional try/finally sentinel); replace the
 `_fire_pins` `pass` with `self.warning(...)`; grep `application/` for sibling
 `except Exception: pass` / `# noqa: BLE001` swallows.
 
-## 211. Cross-project id acceptance + missing scope guards (Tier E — backend, S) — MOSTLY RESOLVED
+## 211. Cross-project id acceptance + missing scope guards (Tier E — backend, S) — STATUS: PARTIAL (remaining by-id scope guards)
 
 **RESOLVED 2026-06-16 (a, c, silent-return).** (a) `BulkCreateLithoLayers` validates every `formation_id` against the project via `load_scoped_or_raise`, and the litho-layers router passes `project_id` so the guard is LIVE (not dormant). (c) `UpdateFormationContact._propagate_coupled_depth` gained the defence-in-depth `app_project_id` subquery filter. (silent-return) `MaterializeWedgeTipsForFormation` now raises on a found-but-foreign row; genuine not-found stays a warning+no-op for the test-mock path.
 
@@ -6248,7 +6270,7 @@ deployment. Add the formation-ownership check (+ audit sibling bulk endpoints),
 scope-guard the jobs DELETE, add the propagation scope filter, migrate the hand-rolled
 checks to `load_scoped_or_raise`, and decide/document the silent-return site.
 
-## 212. Per-item exception swallows commit partially-staged session state (Tier E — backend, M)
+## 212. Per-item exception swallows commit partially-staged session state (Tier E — backend, M) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** `RecomputeAllAbsencesForModel` runs each formation inside an `async with session.begin_nested()` savepoint, so a per-formation `(ValueError, LookupError)` rolls back only that formation's staged writes while successful formations accumulate for the final commit. `MaterialiseBodyCompanions` — whose inner `CreatePerpendicularCompanion` commits per body, making a savepoint conflict with its `refresh()` — instead `await session.rollback()`s on a per-body exception to discard pre-commit staged rows (already-committed companions are durable). Skip-counter logging preserved. Integration tests RA5/MC5 pin the rollback. *(Minor known nit: in recompute the summary counters increment inside the savepoint, so a formation that succeeds at inference but fails at wedge-tip materialisation over-counts in the log — logging accuracy only, not the data invariant.)*
 
@@ -6267,7 +6289,7 @@ to maintain; the partial state is invisible (only a counter is logged).
 **When to revisit.** When either use case is next touched, or before distribution.
 Fix: `async with session.begin_nested()` (savepoint) per item, rollback on exception.
 
-## 213. `react-leaflet` Hippocratic-2.1 license risk (Tier B — commercial, M)
+## 213. `react-leaflet` Hippocratic-2.1 license risk (Tier B — commercial, M) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** Replaced `react-leaflet@4.2.1` + `@react-leaflet/core@2.1.0` (Hippocratic-2.1) with **streaflet**, a first-party MIT React binding over bare `leaflet` (BSD-2), living at `desktop/src/renderer/src/lib/streaflet/`. Both Hippocratic packages are removed from `package.json` + the lockfile (`leaflet` BSD-2 is the only map dep left); a renderer-wide grep for `react-leaflet`/`@react-leaflet` is clean. Architecture: a tiny `core/` (a `MapContext` carrying `{map, layerContainer, parentLayer}`, five `create*Component` factories, and lifecycle/diff-bind-event hooks) solves the React↔Leaflet create-once / mutate-in-place / event-diff / ref-forward problem once; every component is a thin `createInstance`/`updateInstance` pair. Full general-purpose surface (22 components + 3 hooks: MapContainer; Pane/LayerGroup/FeatureGroup; TileLayer/WMSTileLayer/ImageOverlay; Polyline/Polygon/Rectangle/Circle/CircleMarker; Marker/Popup/Tooltip; GeoJSON; ZoomControl/ScaleControl/AttributionControl/LayersControl; useMap/useMapEvent/useMapEvents) with precise per-event handler props (`onClick`/`onContextMenu` typed to their Leaflet event), an `on={{}}` escape hatch, a `style` (PathOptions) prop replacing `pathOptions`, and a top-level `pane` prop. The 5 consumers (MapView, BboxDrawer, SectionLineDrawer, SectionOverlays, TieSuggestionOverlay) migrated as a pure behaviour-identical swap; map e2e flows (data/geology-stage map render, both DOV bbox imports via BboxDrawer, the TieSuggestionOverlay auto-tie) are green. 38 streaflet vitest + full 1787-test desktop suite + tsc clean. (Build note: the `@/` import alias is configured in tsc + vitest but NOT electron-vite, so consumers import streaflet via a relative path — the e2e production-build gate caught the alias gap. TDD also caught a `undefined`-option clobber class in Leaflet — `subdomains`/`icon`/`pane`/control `position` — fixed with conditional-spread.) The Cesium-vs-Leaflet question raised in "When to revisit" is moot: the owner chose to keep Leaflet; streaflet is the permanent binding.
 
@@ -6288,7 +6310,7 @@ Replace with a thin MIT wrapper over bare `leaflet` (consumers: `MapView.tsx`,
 `BboxDrawer`, the section/section-line drawers), or evaluate whether the Cesium 3D
 pane can absorb the map role and drop Leaflet entirely.
 
-## 214. Distribution robustness — crash visibility + log hygiene (Tier B — both, M)
+## 214. Distribution robustness — crash visibility + log hygiene (Tier B — both, M) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16.** (a) Top-level React `ErrorBoundary` wraps `<App/>` (fallback shows the error + log path + Reload) plus `window.onerror` / `unhandledrejection` handlers in `main.tsx` that log and forward to the main log via IPC. (b) `process.on('uncaughtException')` (logs + `dialog.showErrorBox` + exit 1) and `unhandledRejection` (logs, non-fatal) in `main/index.ts`. (c) Size-based `backend.log` rotation (5 MB × 3) via a pure, unit-tested `logRotation.ts` helper — checked at startup before opening the stream (bounds across-session growth; a single long session can still exceed 5 MB until next launch). (d) New `app:backend-failed` IPC (sent from the `apiProcess` exit handler when the backend exits before `api:ready` succeeds) → `BackendFailedModal`; plus a Help → "Show log file…" menu item (`shell.openPath`). Defence-in-depth: the existing `apiError`→`AppBootError` path also renders the modal. tsc clean; 16 new vitest + full desktop suite green. **Follow-up (e2e-caught):** the exit-handler initially false-positived when an external backend owns :8765 (dev session / e2e harness) — the app's spawned child losing the port race tripped the modal and blocked the welcome screen. Fixed to fetch `/openapi.json` before signalling and suppress if the API answers; e2e `flow_new_project` + `flow_lithology_stage_ui` back to green, 0 modal occurrences.
 
@@ -6314,7 +6336,7 @@ ErrorBoundary + global rejection handler + a render-error test; the two main-pro
 handlers; a rotating `backend.log` (5 MB × 3); an `app:backend-failed` IPC → modal;
 and a Help → "Show log file" item so users can find/attach it.
 
-## 215. Postgres bound to 0.0.0.0 with default credentials (Tier B — pre-distribution, S)
+## 215. Postgres bound to 0.0.0.0 with default credentials (Tier B — pre-distribution, S) — RESOLVED 2026-06-16
 
 **RESOLVED 2026-06-16 (loopback bind).** `docker-compose.yml` now binds `127.0.0.1:5433:5432` so a shared office/lab machine no longer exposes Postgres to the LAN. The default-credentials half (random per-install password) intentionally folds into the bundled-Postgres plan (#2) and stays open there. Takes effect on the next `docker compose up -d`.
 
@@ -6346,7 +6368,7 @@ keys; old `.strix` files keep restoring via the read-side alias map
 key wins on collision), pinned by unit tests in
 `tests/unit/api/test_bundle_json_helpers.py`.
 
-## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S) — MOSTLY RESOLVED
+## 219. Dependency + supply-chain hygiene for distribution (Tier B — both, S) — STATUS: PARTIAL (residual supply-chain items)
 
 **RESOLVED 2026-06-16 (most items).** GitHub Actions SHA-pinned (checkout/setup-uv/setup-python/setup-node → full commit SHAs with `# vN` comments); `postgis/postgis:16-3.4` digest-pinned in `docker-compose.yml`; wide upper bounds added on polars/scipy/sqlalchemy (`<2`/`<2`/`<3`) so `uv lock --upgrade` can't pull a breaking major; a non-blocking `npm audit --audit-level=high` CI step added. **Verify-items closed:** `python-multipart>=0.0.27` is the CVE-fixed floor (fine); the flagged `lodash@4.18.1` is **legitimate** — verified against the npm registry it's a real new release by `jdalton` (the lodash author) with `dist-tags.latest`, not a typosquat (lodash's first publish since 4.17.21 in 2021, which is why the audit flagged it as "not in known history").
 
@@ -6460,7 +6482,7 @@ starts to matter.
   decision (wire a visible verb vs delete 481 lines), not a code fix; raise with the
   owner before acting.
 
-## 220. Smooth (non-blocky) litho 3D model from the voxel model (Tier D — Phase 5 visual quality)
+## 220. Smooth (non-blocky) litho 3D model from the voxel model (Tier D — Phase 5 visual quality) — STATUS: OPEN
 
 **What.** The voxel litho builder is faithful + watertight by construction but
 **blocky**: body boundaries are axis-aligned voxel cell faces, so on a section the
@@ -6490,7 +6512,7 @@ visual-quality polish, not a correctness gate, and the marching-cubes-style
 midpoint-surface extraction + watertight shared-surface weld is non-trivial
 geometry work. Out of scope for the Phase-4 MVP.
 
-## 221. Automatic deepest-first lithology fill — correlation-free fill mode (Tier D — Phase 5, optional)
+## 221. Automatic deepest-first lithology fill — correlation-free fill mode (Tier D — Phase 5, optional) — STATUS: OPEN
 
 **What.** An alternative litho-fill model that needs **only lithos, no
 correlations**: anchor on the deepest test, extrapolate each unit **flat outward**
@@ -6597,7 +6619,7 @@ save-guard and the format-version work, not piecemeal.
 header + gzip + checksum; keep the plaintext-JSON reader for old files. Relates to
 [[project_strix_file_format_version_decoupled]], #47.
 
-## 227. Geotech-stage manual edits inside a litho body — merge/split/drag/delete sub-bands + small-lens merge suggestion (Tier G-geotech — owner directive 2026-07-06)
+## 227. Geotech-stage manual edits inside a litho body — merge/split/drag/delete sub-bands + small-lens merge suggestion (Tier G-geotech — owner directive 2026-07-06) — STATUS: PARTIAL (dogfeed + 2 owner questions pending)
 
 **OWNER RULINGS 2026-08-01 — the spec for this entry.** Given while working through the
 geotech stage; recorded here because they are what "the same gesture surface" actually
@@ -6904,7 +6926,7 @@ in `PartitionFillOverlay.underColumnFills` (the recipe already prototyped in the
 geotech-brainstorm `carvePanel` substrate render). Deferred here to avoid editing
 the shared overlay component while the parallel geotech session renders through it.
 
-## 229. ~~Execute the 2026-07-12 audit delete table~~ — EXECUTED 2026-07-12 (all 58 rows)
+## 229. Execute the 2026-07-12 audit delete table — RESOLVED 2026-07-12
 
 **Execution record (same day, batches A–D + Stage-2).** All 58 delete rows
 landed or were deliberately routed to #237:
@@ -6965,7 +6987,7 @@ opportunistically: whenever a session touches a file on the table, delete the
 dead code in the same commit. Work the table top-down; strike rows in DEBT.md is
 NOT allowed (append-only) — track completion here instead.
 
-## 230. ~~Vitest fill-gate inversion~~ — RESOLVED 2026-07-12
+## 230. Vitest fill-gate inversion — RESOLVED 2026-07-12
 
 **Resolution.** rewriteB now defaults ON everywhere including vitest
 (`partitionFill.ts` + both test mirrors flipped in one commit, `ce76e885`); the
@@ -6992,7 +7014,7 @@ rewriteB path.
 full-band pivot brainstorm — this is the first artifact of that work, not an
 afterthought. Pairs with #237's rewriteB Stage-2 decision.
 
-## 231. ~~Wedge-tip stale-delete is not section-scoped~~ — RESOLVED 2026-07-13
+## 231. Wedge-tip stale-delete is not section-scoped — RESOLVED 2026-07-13
 
 **Resolution (`d59aa3098`).** Stale-delete + seeded-array prune hoisted above
 the per-section loop: delete once for the (model, formation), prune EVERY
@@ -7016,7 +7038,7 @@ synthetic contacts) needs a 2-section integration fixture to pin RED first.
 **When to revisit.** Next litho backend touch, or before dogfeeding wedge tips
 on any project with 2+ sections.
 
-## 232. ~~Post-accept pipeline ×4 in useLithoSuggestions — extract the shared tail~~ — RESOLVED 2026-07-13
+## 232. Post-accept pipeline ×4 in useLithoSuggestions — extract the shared tail — RESOLVED 2026-07-13
 
 **Was.** Prior-audit DRY-07 grown: four accept handlers repeated the same
 post-accept tail, already drifted; `contactIdsByAcceptedIdx` doc claimed three
@@ -7035,7 +7057,7 @@ steps had already been removed by `b77be9871` — the live tail is 5 steps.
 Same batch (`22e114f31`, FE-HOOKS-06): the focused reject/unreject/edit
 handlers folded into thin wrappers over their bulk siblings.
 
-## 233. ~~Geotech/Litho/Geology canvas triplication — extract the shared 3D-view plumbing~~ — RESOLVED 2026-07-13
+## 233. Geotech/Litho/Geology canvas triplication — extract the shared 3D-view plumbing — RESOLVED 2026-07-13
 
 **Was.** `GeotechnicalCanvas` was a ~350-line admitted-verbatim copy of
 `LithologyCanvas`; `GeologyCanvas` carried a third copy of the split-state +
@@ -7052,7 +7074,7 @@ empty-fence hint, testid-prefix parameterised), `makeVoxelRequestBuilder`
 4-copy fan-out). All three canvases wired; testids, hint copy, module refs
 and effect semantics unchanged (behaviour-preserving; full vitest green).
 
-## 234. ~~DHMVII dual WCS client — route the section line-profile through the provider stack~~ — RESOLVED 2026-07-13
+## 234. DHMVII dual WCS client — route the section line-profile through the provider stack — RESOLVED 2026-07-13
 
 **Was.** Two parallel httpx/WCS stacks hit the same DHMVII endpoint:
 `DhmviiSampler` (line profile, `api/routers/dem.py`) vs
@@ -7073,7 +7095,7 @@ line profiles work for free and profiles ride the disk tile cache.
 `dhmvii_sampler.py` keeps only the pure helpers + `parse_wcs_multipart`.
 The live benchmark (`DEM_LIVE_BENCH=1`) drives `DhmviiDemProvider`.
 
-## 235. ~~Extraction backsliding — orphaned extracted utils~~ — RESOLVED 2026-07-13
+## 235. Extraction backsliding — orphaned extracted utils — RESOLVED 2026-07-13
 
 **Resolution (quick-wins batch + B3 + B6).** isTypingTarget 4th copy deleted;
 newTestFilter wired (inspector drop-in; toolbar export reshaped to pre-built
@@ -7101,7 +7123,7 @@ non-2xx error block across API clients (FE-SHELL-CLIENTS-08).
 
 **When to revisit.** Fold into #229's cleanup campaign, or per-file on touch.
 
-## 236. ~~Decouple the live voxel path from the dormant strat_field package~~ — RESOLVED 2026-07-12
+## 236. Decouple the live voxel path from the dormant strat_field package — RESOLVED 2026-07-12
 
 **Was.** The LIVE voxel builder imported the PRIVATE `_digest_surfaces` from
 `assemble_strat_inputs` and `SurfaceBound` from `strat_field/strat_types`
@@ -7114,7 +7136,7 @@ byte-identical; unit suite green). The router's dead `litho_snap_tolerance_m`
 read died with the rebuild endpoint itself in #237.1 (`4523edb18`) rather
 than as a separate step.
 
-## 237. 2026-07-12 owner-decision batch — DECIDED 2026-07-12, ALL FIVE EXECUTED 2026-07-13
+## 237. 2026-07-12 owner-decision batch — RESOLVED 2026-07-12
 
 **Owner decisions (2026-07-12, all five):**
 1. ~~strat_field → DELETE after #236~~ → **DONE 2026-07-12** (`788a789a3` +
@@ -7184,7 +7206,7 @@ only instance of a capability.
 **When to revisit.** Closed — all five executed (items 1/5 on 2026-07-12,
 items 2/3/4 on 2026-07-13). Kept for the decision record.
 
-## 238. ~~Four pre-existing RED integration tests~~ — RESOLVED 2026-07-13 (all four were stale tests, not bugs)
+## 238. Four pre-existing RED integration tests — RESOLVED 2026-07-13
 
 **Resolution.** Diagnosed same-session; the full integration suite is now
 fully green:
@@ -7230,7 +7252,7 @@ wrong?). #4 first.
 dogfeed; #1/#3 at the next geotech backend touch; #2 never — dies with
 #237.1.
 
-## 239. ~~Two deterministic RED e2e specs, pre-existing~~ — RESOLVED 2026-07-13
+## 239. Two deterministic RED e2e specs, pre-existing — RESOLVED 2026-07-13
 
 **RESOLVED** (`4cda3ce53`): both were pure spec drift, no app change.
 `flow_bottom_tie_correlate` asserted the base tie via
@@ -7244,7 +7266,7 @@ dead section resolution removed. Full Playwright verification run:
 both formerly-flaky specs (`flow_auto_tie` ×2, `flow_body_actions_ui`)
 green that run. Original description in git history.
 
-## 240. buildProjectFence ignores real alongM — 3D fence panels use uniform spacing (owner decision, S)
+## 240. buildProjectFence ignores real alongM — 3D fence panels use uniform spacing (owner decision, S, Tier E) — STATUS: OPEN
 
 **What.** B6 (FE-UTILS-09) unified the Pass-1 assembly of `buildProjectFence`
 and `buildVoxelRequest` and found they diverge on the `computeSectionFill`
@@ -7396,7 +7418,7 @@ log.
 `uv run python scripts/diag_voxel_newly_covered.py` and the A/B with
 `scripts/diag_voxel_fidelity_delta.py`.
 
-## 242. The 3-D model floor is shallower than the deepest investigations — RESOLVED 2026-08-31 (S)
+## 242. The 3-D model floor is shallower than the deepest investigations — RESOLVED 2026-08-31
 
 **What.** `label_voxels` frames the grid's vertical range from the 2-D section
 partition polygons alone (`zmin` = the lowest region-polygon elevation). On the
@@ -7471,7 +7493,7 @@ project appears whose deepest tests sit well below its section partitions.
 Reproduce by comparing the partition elevation range against the deepest
 `load_body_picks` base; the numbers above came from a six-line check.
 
-## 243. The enclosed-lens body merge has no caller — WIRING REVERTED 2026-07-28 (M)
+## 243. The enclosed-lens body merge has no caller (Tier E) — STATUS: OPEN
 
 **Status 2026-07-28 — the Build-time wiring is REVERTED, and the approach is
 rejected.** It ran once on the dev model and created **62 correlation edges**.
@@ -7560,7 +7582,7 @@ handoff. Reproduce with the S4/B4 pair: run `plan_enclosed_lens_merges` on their
 stacks and confirm 2 edges, then check `litho_contact_correlation_edge` for the
 lower-host tie (absent today).
 
-## 244. The 3-D blend pinches same-lithology bodies apart — ROOT CAUSE FOUND + FIXED 2026-07-28 (L)
+## 244. The 3-D blend pinches same-lithology bodies apart — RESOLVED 2026-07-28
 
 **Root cause (measured, not inferred).** `label_voxels._blend_stacks` matches the
 two nearest sections' stacks by `body_id`; an unmatched body is treated as a
@@ -7617,7 +7639,7 @@ asymmetry remains, recorded in body-model.md: the build's alias pass still
 unions through fallback-painted regions for blending; the persisted identity
 never does (owner: "there should be no fallbacks in a properly built model").
 
-## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28, partially addressed)
+## 245. Litho 3-D build is too slow (M — owner-raised 2026-07-28, partially addressed, Tier E) — STATUS: OPEN
 
 **What.** A full "Build model" takes ~62 s of pure compute on the dev model
 (58 investigations, 16 sections) at 2.0 m horizontal / 0.25 m vertical, plus DB
@@ -7688,7 +7710,7 @@ behaviour.
 **When to revisit.** Once the observed-column fidelity gate is green — then take
 (1) and (2), which are contained and do not change output.
 
-## 246. Opening a cross-section on the litho axis is slow (S — owner-raised 2026-07-28)
+## 246. Opening a cross-section on the litho axis is slow (S — owner-raised 2026-07-28, Tier E) — STATUS: OPEN
 
 **What.** Owner: *"clicking open a CS on litho view is kinda slow."* Not yet
 measured — no profile exists for this path.
@@ -7708,7 +7730,7 @@ guessing which has already been wrong once on this subsystem.
 **When to revisit.** With #245. Instrument first (`performance.mark` around the
 four stages), then optimise what the numbers name.
 
-## 247. The 3-D blend ranked sections in PROJECTED-FOOT space — FIXED 2026-07-29 (L)
+## 247. The 3-D blend ranked sections in PROJECTED-FOOT space — RESOLVED 2026-07-29
 
 **What.** `label_voxels._project_to_section_fence` ranks sections by perpendicular
 distance to a polyline through each section's column `world_x/world_y`, and its
@@ -7804,7 +7826,7 @@ downstream of it is building on sand. Reproduce with
 `scripts/diag_blend_mechanism_at_point.py --between GEO-23/125-S12 GEO-23/125-S13
 --fraction 0.0204`.
 
-## 248. `_blend_stacks` pairs re-entrant body occurrences by array RANK (M)
+## 248. `_blend_stacks` pairs re-entrant body occurrences by array RANK (M, Tier E) — STATUS: OPEN
 
 **What.** When a body appears more than once in a section's stack (a clay that
 occurs twice in the column), `label_voxels._blend_stacks` pairs the two sections'
@@ -7832,7 +7854,7 @@ treat the occurrence as a lens that pinches? Each gives different geology.
 **When to revisit.** With #247 — they show up at the same points and the fix for
 one changes the evidence for the other.
 
-## 249. Honor paints one voxel column — WIDENED to a radius 2026-07-29 (S)
+## 249. Honor paints one voxel column — RESOLVED 2026-07-29
 
 **What.** Owner: *"shouldn't we paint the whole width of a column with one voxel?
 what if a test falls right on the bound of 2 voxels"*.
@@ -7881,7 +7903,7 @@ same cell, so widening cannot separate them — `honor_rank` still picks one. Th
 remains the only drilled-ground gate failure and needs finer spacing or a stacked
 paired-station column.
 
-## 250. The fidelity gate now decides on drilled ground — and names 3 paired-station failures (S)
+## 250. The fidelity gate now decides on drilled ground — and names 3 paired-station failures (S) — RESOLVED 2026-07-29
 
 **Done 2026-07-29.** `scripts/eval_strat_fidelity.py` gained a second sequence
 block restricted to `[base, top]` of each investigation's own log, plus a
@@ -7917,7 +7939,7 @@ that also extend outside the range.
 **When to revisit.** Wire `--gate` into the pre-push hook once the paired-station
 question (#249) is settled, so it can be green.
 
-## 251. The 3-D model reproduces Fill bands at 97.8 % — 2 % genuine divergence left (M)
+## 251. The 3-D model reproduces Fill bands at 97.8 % — 2 % genuine divergence left (M, Tier E) — STATUS: OPEN
 
 **Owner, 2026-07-29:** *"the voxel should almost be the same as the zones in the
 fill bands tool no? Can't you check that (only a bit more blocky)"*. It should —
@@ -7948,7 +7970,7 @@ localises the remainder.
 cluster them, and see whether they share a cause. Do NOT chase the percentage —
 find the mechanism, as with #244 and #247.
 
-## 252. Build provenance — a 3-D build is reproducible from the database, VERIFIED (M)
+## 252. Build provenance — a 3-D build is reproducible from the database, VERIFIED (M) — RESOLVED 2026-07-29
 
 **Done 2026-07-29**, owner-approved. A `litho_body_solid` row said WHAT was
 built; nothing said HOW or from what. The payload lived only in the frontend, the
@@ -8024,7 +8046,7 @@ drift is left for a deliberate, separate migration and is still open.
 model, and adding them to the bundle needs a format-version decision. Revisit
 when the backwards-compat contract is re-armed (#47).
 
-## 253. Snap-before-fill — SUPERSEDED, never shipped (S)
+## 253. Snap-before-fill — RESOLVED 2026-07-30
 
 **What.** `_stack_at_band` back-filled a geological band's voids BEFORE snapping the
 band's outermost contacts to the surfaces, so a few-centimetre sliver between a
@@ -8047,7 +8069,7 @@ own provenance record (`--reproduce` reported DIVERGED, 790,910 recorded against
 are recoverable from the session scratchpad; the mechanism they describe no longer
 exists.
 
-## 254. The geological model no longer bounds the litho 3-D build — SHIPPED 2026-07-30 (L)
+## 254. The geological model no longer bounds the litho 3-D build — RESOLVED 2026-07-30
 
 **What.** The voxel builder loaded the parent geological model's surfaces and used
 them as hard bands: an interval crossing a surface was cut at it
@@ -8136,7 +8158,7 @@ reproduce differently by design, and `--reproduce` does not yet say so (it compa
 grid, bodies and triangles but not the builder version — a cheap improvement worth
 making).
 
-## 255. The build threw away which contact a correlation edge joins — FIXED 2026-07-30 (L)
+## 255. The build threw away which contact a correlation edge joins — RESOLVED 2026-07-30
 
 **What.** A `LithoContactCorrelationEdge` records `layer_a_side` / `layer_b_side` —
 whether each end joins that layer's TOP or its BASE. The section overlay threads
@@ -8212,7 +8234,7 @@ touched.
 
 ## (end)
 
-## 256. The build throws away the band / onlap / lens classification the 2-D engine computed (L)
+## 256. The build throws away the band / onlap / lens classification the 2-D engine computed (L, Tier E) — STATUS: OPEN
 
 **What.** `computeSectionFillActive` classifies every region it emits — that is the
 2/1/0 gesture semantics the whole litho stage is built on. `buildVoxelRequest.ts`
@@ -8483,7 +8505,7 @@ Necessary but not assumed sufficient — `_stack_at` also consults only the two 
 sections, and whether that still costs anything once the kinds arrive is a
 measurement, not an assumption.
 
-## 257. The blend deletes material BOTH sections carry — FIXED 2026-07-30
+## 257. The blend deletes material BOTH sections carry — RESOLVED 2026-07-30
 
 **What.** `_section_stack_at` emits one `_Entry` per sliced REGION and never merges
 contiguous slices of the same body. `_pair_occurrences` then matches occurrences
@@ -8555,7 +8577,7 @@ touch exactly are one interval. It will not fix the cases where a 3-6 mm sliver 
 another body sits between two slices of the same one — that is #228 itself, and it needs
 the sliver gone rather than papered over.
 
-## 258. Paired stations named — RESOLVED 2026-07-31, and the 2 failures were the gate's own
+## 258. Paired stations named — RESOLVED 2026-07-31
 
 **What.** The fidelity gate scored a paired station's loser against its own log, which
 no build can satisfy: a borehole and its CPT 0.28 m / 0.40 m apart cannot both own a
@@ -8590,7 +8612,7 @@ So all three of this campaign's "drilled gate failures" turned out to be faults 
 gate: the footprint hull, the paired stations, and this. Worth remembering the next time
 the gate reports a model defect.
 
-## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31 (ghost recurred 2026-08-26, re-refuted)
+## 259. `_section_stack_at` returns nothing at the edges of half the gaps — RESOLVED 2026-07-31
 
 **2026-08-26 note.** The same ruler error (fraction shortfall × SECTION length
 instead of × GAP width) resurfaced in the gapless-map sweep as "H14: 2/69
@@ -8636,7 +8658,7 @@ mid-gap — a lens pinching out — all the way to the column. That is inventing
 fix a rounding artefact. `test_a_region_that_genuinely_stops_short_is_not_dragged_to_the_edge`
 pins the distinction: a region ending at fraction 0.45 must still read empty at 1.0.
 
-## 260. The between/beyond switch steps the ground — CORRECTED 2026-08-01, the 12 m was my own measurement error (M)
+## 260. The between/beyond switch steps the ground — RESOLVED 2026-08-01
 
 **What.** Reproduced independently 2026-07-31, and the wall is more than twice as tall
 as reported.
@@ -8779,7 +8801,7 @@ through untouched.
 **When to revisit.** With #261, which is the same shape of question: both are about what
 the builder should do where the sections stop agreeing. Not a patch.
 
-## 261. The blend carries one section's fragmentation — RESOLVED 2026-08-01, never a model defect
+## 261. The blend carries one section's fragmentation — RESOLVED 2026-08-01
 
 **What.** Reproduced independently 2026-07-31, and the mechanism is NOT the reported
 one. Matched bodies cannot invert under interpolation — if A is above B on both sections
@@ -8909,7 +8931,7 @@ is a domain ruling, not a defect to patch.
 matched body whose span contains it. Same family as #257 (surplus handling) — that one
 was deletion, this is fragmentation.
 
-## 262. The safe-default repair loop doubles the engine cost on 4 of 14 sections (S)
+## 262. The safe-default repair loop doubles the engine cost on 4 of 14 sections (S, Tier E) — STATUS: OPEN
 
 **What.** `classifyOverrideOutcome`'s repair loop re-runs the whole fill when
 `detectFloodedUnits` finds a drilled unit flooded by a foreign litho. On 4 of the
@@ -8940,7 +8962,7 @@ for: the 2.7-3.9 s baseline that started this was measured in vitest too.
 the five fixes that landed (splitSegments sweep, base-pass memo, ghostBase key,
 sectionFillData engine key, deadline-driven slice).
 
-## 263. `node_modules/vite` is bit-corrupted on this machine (S)
+## 263. `node_modules/vite` is bit-corrupted on this machine (S, Tier E) — STATUS: OPEN
 
 **What.** A specialist could not start vitest at all until it repaired the install. This
 is the same disk that corrupted a git pack on 2026-07-12 (`memory/project_git_gc_disabled_after_corruption.md`).
@@ -8960,7 +8982,7 @@ Until that comes back clean, treat any single inexplicable local failure — a t
 fails once and passes on re-run, a package that will not load — as possible disk error
 before spending time on it as a code bug.
 
-## 264. v2 renders a contact-freedraw handle that does nothing (M)
+## 264. v2 renders a contact-freedraw handle that does nothing (M, Tier E) — STATUS: OPEN
 
 **What.** With the v2 engine now the default, a multi-node contact freedraw only bends the
 polygon at **node 0**. Node 1's handle still renders and is still draggable, and dragging
@@ -8987,7 +9009,7 @@ wire node 1 (and any further node) so every handle bends the polygon it belongs 
 render only the handle that works so nothing invites a drag that cannot land. The second
 is a smaller change and honest; the first is what the gesture implies.
 
-## 265. The always-on CS1 frozen gate fails intermittently (S)
+## 265. The always-on CS1 frozen gate fails intermittently (S, Tier E) — STATUS: OPEN
 
 **What.** `desktop/src/renderer/src/utils/partitionFill.cs1frozen.test.ts` — "has no
 cross-formation overlap in any gap (one lithology per point)" — failed once in three
@@ -9039,7 +9061,7 @@ rather than an assertion, that is a different bug and the margin is large — th
 in ~209 ms against a 5,000 ms default. Independently, #263's `chkdsk` is now doubly
 warranted.
 
-## 266. A geotech model does not notice when the litho model under it moves (M) — RESOLVED 2026-08-26 (integration verification still owed)
+## 266. A geotech model does not notice when the litho model under it moves (M) — RESOLVED 2026-08-26
 
 **Resolution.** The dependency link is a **per-column digest of the litho stack**, stamped
 at press time and compared on read.
@@ -9213,7 +9235,7 @@ user's view toggles is the same class of surprise).
 **When to revisit.** In the same change that wires the renderer to seed lumping from
 `ProjectResponse` — that is the moment the divergence becomes user-visible.
 
-## 268. Blending two section stacks cannot represent "unknown" — a void between them is closed up (RE-MEASURED 2026-08-26: mm-scale, reported on every build; the metre-scale numbers below were a broken ruler)
+## 268. Blending two section stacks cannot represent "unknown" — a void between them is closed up (Tier E) — STATUS: OPEN
 
 **Correction (2026-08-26, two independent re-measurements + a labeller-side
 census).** The "4 interior voids, worst 2.420 m" this entry reports came from
@@ -9277,7 +9299,7 @@ all along.
 question — but the ASK is unchanged: the four candidate rulings still need the owner. Ask
 them one at a time, with a section screenshot of section 2 gap 3, before writing any code.
 
-## 269. The borehole packing preview covers the first divide, not the re-divide (S)
+## 269. The borehole packing preview covers the first divide, not the re-divide (S) — RESOLVED 2026-09-03
 
 **RESOLVED 2026-09-03.** The re-divide diff shipped, using this entry's leading
 option (outline-only over the committed bands). A column that already carries
@@ -9324,7 +9346,7 @@ know what will change — most likely as soon as accepted packing ties start bei
 after a Subdivide. Design the diff render first (one owner question: outline-only over the
 committed bands, or side-by-side), then wire it; no backend work is needed.
 
-## 270. Delete the retired fraction-space refinement modules (S)
+## 270. Delete the retired fraction-space refinement modules (S) — RESOLVED 2026-08-14
 
 **RESOLVED 2026-08-14** (owner un-gated the deletion pre-dogfeed: "fix that
 before i dogfeed"). The deletion campaign removed the four refinement modules
@@ -9342,7 +9364,7 @@ history). The handoff doc was already gone. Git history is the fallback if
 the dogfeed misbehaves. tsc clean; full desktop suite green minus the 2
 pre-existing partitionFillV2 reds.
 
-## 271. The v2 arrangement loses long shallow-angle proper crossings (M)
+## 271. The v2 arrangement loses long shallow-angle proper crossings (M) — RESOLVED 2026-08-14
 
 **RESOLVED 2026-08-14** (owner: "fix that before i dogfeed"). The tolerant
 crossing-cut registration landed KIND-SCOPED: `intersect.ts` accepts a proper
@@ -9361,7 +9383,7 @@ holes/overlaps 0/0 on all 14 sections, and the consistency baseline moved by
 exactly +0.01 pp on one section (Tie-section 14, re-frozen). Pinned by the
 exact repro + the closing-scope negative in `arrangement.test.ts`.
 
-## 272. The litho-consistency ratchet is inert — baseline frozen on stale model ids (S)
+## 272. The litho-consistency ratchet is inert — baseline frozen on stale model ids (S) — RESOLVED 2026-08-18
 
 **RESOLVED 2026-08-18 late night** — baseline re-frozen on the live model
 (96.67–100 % per section, CS1 98.77) right after the corner-sampler fix; the
@@ -9405,7 +9427,7 @@ law-oracle 0 ×14, own-edge 0/1120). The same fix dissolved 8 mid-gap
 vertical seams splitting same-class masses on CS1 (his "bug with vertical
 lines" report) and un-split every body tied across a geological boundary.
 
-## 274. Seam strokes double on same-class edges — the pale helper lines (S)
+## 274. Seam strokes double on same-class edges — the pale helper lines (S, Tier E) — STATUS: PARTIAL (one narrow remainder: null soil code + same class; owner render call)
 
 **RESOLVED 2026-09-03 (reported residual) — one narrow remainder documented.**
 The reported residual (doubled self-colour stroke on an edge shared by two
@@ -9456,7 +9478,7 @@ out-and-back detours and whole sliver regions thinner than the snap grid
 fill leaves ZERO unpainted ground, so any pale line that survives is a
 stroke question and belongs to the remainder of this item.
 
-## 275. Codebase-wide simplification / deletion campaign (L)
+## 275. Codebase-wide simplification / deletion campaign (L, Tier E) — STATUS: OPEN
 
 **What.** Owner directive 2026-08-21, during the constructive-fill round:
 *"you are making a huge mess of the codebase by just adding code on top and
@@ -9529,7 +9551,7 @@ Red-first pins: `LithologyCanvas.test.tsx` U1/U3, `GeotechnicalCanvas.test.tsx`
 GU1/GU3, `useProjectBodyRecompute.test.ts` R1/R2 (split-never-nulled and the
 mount-order wipe, both watched RED on the old code); U2/U4/GU2 are guards.
 
-## 277. The litho and geotech engines snap-round independently (M)
+## 277. The litho and geotech engines snap-round independently (M, Tier E) — STATUS: OPEN
 
 **What.** The two engines each perform their own snap-rounding pass onto a
 1 mm grid — the litho partition in `partitionFillV2` (`snap.ts`: one pass,
@@ -9612,7 +9634,7 @@ decomposes every clause-1 difference into its pieces and reports each one's
 size, shape, side and true width. It is what produced the table above and is
 the acceptance instrument for B or C.
 
-## 278. Body identity is decided by the machine, from the wrong picture (L)
+## 278. Body identity is decided by the machine, from the wrong picture (L) — RESOLVED 2026-09-01
 
 **STATUS 2026-09-01 — LARGELY LANDED (overnight slice, ~115 commits on
 develop).** Built and gated green: R6 (geotech recompute identity from the
@@ -9764,7 +9786,7 @@ verb + its UI) and because the seven rulings would otherwise live only in
 start it piecemeal: the migration in 3 is only safe once 4 and 6 have settled
 what a body is, or it will merge rows the new rules would have kept apart.
 
-## 279. Two menus share one cursor, so you cannot tell which you will get (S)
+## 279. Two menus share one cursor, so you cannot tell which you will get (S, Tier E) — STATUS: OPEN
 
 **What.** `PartitionFillOverlay` answers right-click on a fill region with EITHER
 the body menu (Dissolve / Name / colour) or the unit-statistics menu, and gives
@@ -9855,7 +9877,7 @@ redundant with the document listener at ``ContextMenu.tsx`` ~142).
 anyone touches ``ContextMenu``'s SVG portal, then fix from the measurement. The
 entry stays open only for that.
 
-## 280. Archive the v1 partition engine — RESOLVED 2026-08-31 (M)
+## 280. Archive the v1 partition engine — RESOLVED 2026-08-31
 
 **Owner ruling 2026-08-31:** *"archive the first faulty engine. the new one is
 de standard."* Four sub-rulings taken the same day: full separation (move the
@@ -9931,7 +9953,7 @@ design); owner call if multi-node contact freedraw is ever wanted. The
 ``overlay_tier`` wire field is now written by nothing (v1's vocabulary) —
 drop it from the payload/backend at the next voxel-contract touch.
 
-## 281. Faulting + overturned folds (post-MVP geological modelling) (L)
+## 281. Faulting + overturned folds (post-MVP geological modelling) (L, Tier E) — STATUS: OPEN
 
 Owner asked 2026-09-01 to record the scope of adding structural discontinuities.
 They are TWO problems of very different difficulty, and the target geology sets
@@ -10021,7 +10043,7 @@ per its own guard rather than half-building it.
 cancel/progress is a dogfeed complaint, or alongside the next job-system pass —
 whichever comes first. Effort: ~days across API + domain + frontend.
 
-## 283. Fill-engine emission layer rewritten from the 2/1/0 oracle (L — Tier D, post-beta)
+## 283. Fill-engine emission layer rewritten from the 2/1/0 oracle (L — Tier D, post-beta) — STATUS: OPEN
 
 **What.** `desktop/src/renderer/src/utils/partitionFillV2/` is 17,000 lines in
 66 files: the owner's rule (2 ties = band, 1 = onlap onto the same unit, 0 =
