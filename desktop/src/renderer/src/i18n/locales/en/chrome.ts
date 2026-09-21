@@ -113,6 +113,23 @@ export const CHROME = {
   'project.defaultHorizontalCrs': 'Default horizontal CRS',
   'project.defaultVerticalCrs': 'Default vertical CRS',
   'project.close': 'Close project',
+  // Empty-bundle overwrite question (debt #225). A save re-read the project
+  // twice and an item the last save held still came back empty. Ask before
+  // replacing the file: the engineer clears a model on purpose often enough
+  // that a refusal would be wrong, but a silent overwrite would lose work.
+  'project.saveEmptyBundleAskTitle': 'Some data came back empty',
+  'project.saveEmptyBundleAskBody':
+    'The project was read twice and the items below came back empty, although your last save held them. Saving now replaces that file. Your work is still open in the app, so you can cancel and try again.',
+  'project.saveEmptyBundleAskConfirm': 'Save anyway',
+  'project.saveEmptyBundleRow': '{label}: last save {expected}, now {now}',
+  'project.emptyBundleCollection.correlations': 'Correlations',
+  'project.emptyBundleCollection.lithoLayers': 'Lithological layers',
+  'project.emptyBundleCollection.formationContacts': 'Formation contacts',
+  'project.emptyBundleCollection.bodies': 'Bodies',
+  'project.emptyBundleCollection.cpts': 'CPTs',
+  'project.emptyBundleCollection.boreholes': 'Boreholes',
+  'project.emptyBundleCollection.formations': 'Formations',
+  'project.emptyBundleCollection.crossSections': 'Cross-sections',
   'project.closeConfirmTitle': 'Close this project?',
   'project.closeConfirmBody':
     'The .strix file and your saved data are kept. You can reopen it any time.',
