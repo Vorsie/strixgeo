@@ -63,6 +63,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.repositories.litho_layer_repository import LithoLayerRepository
+from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 from groundmodel.shared.constants.litho_constants import BASE_LITHOLOGIES, BaseLithology
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -424,15 +425,9 @@ def edge_review_actions(
     return EdgeActions(tuple(to_delete), tuple(to_flag), tuple(to_clear))
 
 
-DEPTH_DECIMALS = 3
-"""Millimetre precision for every persisted packing-band depth.
-
-The ``litho_layer`` no-overlap exclusion constraint compares ``round(depth, 3)``,
-so a write at finer precision can slip past the check that is supposed to keep a
-column gap-free. Every band-edit use case rounds through this one value — split,
-merge, run-merge and move — because three copies of the same 3 is three chances
-for one of them to drift.
-"""
+DEPTH_DECIMALS = LITHO_LAYER_DEPTH_DECIMALS
+"""Public alias — the canonical grain and its rationale live on
+:data:`groundmodel.shared.constants.db_constraints.LITHO_LAYER_DEPTH_DECIMALS`."""
 
 
 def tie_key(
