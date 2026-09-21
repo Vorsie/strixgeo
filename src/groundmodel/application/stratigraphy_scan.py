@@ -13,8 +13,10 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from groundmodel.application.borehole_observation_layers_options import (
+    borehole_observation_layers_options,
+)
 from groundmodel.application.lumping_collision import LumpingCollision
 from groundmodel.application.stratigraphy_bridge import (
     _best_overlap,
@@ -26,7 +28,6 @@ from groundmodel.application.stratigraphy_bridge import (
 from groundmodel.application.stratigraphy_candidate import StratigraphyCandidate
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -100,7 +101,7 @@ async def scan_stratigraphy_candidates(
             BoreholeOrm.id.in_(borehole_id_list),
             BoreholeOrm.app_project_id == project_id,
         )
-        .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+        .options(*borehole_observation_layers_options())
     )
     boreholes = list((await session.execute(bh_stmt)).scalars().all())
 
