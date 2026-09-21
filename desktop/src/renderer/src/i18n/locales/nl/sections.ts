@@ -983,6 +983,7 @@ export const SECTIONS_NL = {
   // krijgt een ghost-kolom met dezelfde eenheden, nog te accepteren.
   'sections.canvasToast.ghostColumnCopiedOne': 'Suggestie gekopieerd: 1 eenheid.',
   'sections.canvasToast.ghostColumnCopiedMany': 'Suggesties gekopieerd: {units} eenheden.',
+  'sections.canvasToast.ghostCopyTargetHasAccepted': 'Deze test heeft al aanvaarde lagen. Een kopie zou eroverheen tekenen.',
   'sections.canvasToast.ghostCopyTargetHasGhost': 'Deze test heeft al suggesties. Wis ze eerst en kopieer daarna.',
   'sections.canvasToast.ghostCopyMixedSelection': 'Die kolom mengt geaccepteerde en voorgestelde grenzen. Kopieer één soort tegelijk.',
   'sections.canvasToast.ghostCopyNoPending': 'Er zijn geen openstaande suggesties op die test om te kopiëren.',
