@@ -67,7 +67,7 @@ if [ -z "$py_integration_changed" ]; then
 fi
 
 echo "[pre-push] Gate triggered by $local_ref ($local_sha) — running integration tests…"
-echo "[pre-push] Budget: ~30–120 s.  Skip urgently with: git push --no-verify (flag reason)"
+echo "[pre-push] Budget: ~20–35 min (full integration suite + alembic). Skip urgently with: git push --no-verify (flag reason)"
 
 # Invoke the PowerShell wrapper so DATABASE_URL + alembic upgrade run
 # exactly as the manual integration suite does.  Capture output so we
