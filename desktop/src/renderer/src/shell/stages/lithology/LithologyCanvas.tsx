@@ -48,7 +48,6 @@ import { EmptyState } from '../../EmptyState'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import type { CompareScene } from '../shared/splitViewport'
-import { exportFenceDxf } from '../shared/exportFenceDxf'
 import {
   useBody3DViewState,
   EMPTY_SURFACES_MAP,
@@ -102,19 +101,6 @@ export const resetLithoSplitViewportCallback: React.MutableRefObject<
  * toast.
  */
 export const lithoVoxelRequestCallback: React.MutableRefObject<VoxelRequestBuilder | null> = {
-  current: null,
-}
-
-/**
- * Export the litho fence diagram as DXF.
- *
- * Populated by ``LithologyCanvas`` while mounted; invoked by
- * ``LithologyStage``'s "Export fence" toolbar button. Same module-ref bridge
- * as ``lithoVoxelRequestCallback`` — the fence walls are canvas-local state
- * that never reaches the shell bus, so the toolbar cannot assemble the export
- * itself. ``null`` when the canvas is not mounted.
- */
-export const lithoFenceExportCallback: React.MutableRefObject<(() => Promise<void>) | null> = {
   current: null,
 }
 
@@ -195,7 +181,6 @@ export default function LithologyCanvas(): JSX.Element {
   // replacement canvas before it runs this one's cleanup (and both stages can
   // be alive at once in the split viewport), so an older instance must never
   // null a ref a newer instance has already claimed (debt #276).
-  const ownedFenceExport = useRef<(() => Promise<void>) | null>(null)
   const ownedVoxelRequest = useRef<VoxelRequestBuilder | null>(null)
   const ownedSplitViewport = useRef<(() => void) | null>(null)
 
@@ -244,26 +229,6 @@ export default function LithologyCanvas(): JSX.Element {
     [geotechFormations, geotechSolids],
   )
 
-  // Fence-DXF export bridge. Assigned every render while mounted, ABOVE the
-  // early return, so the toolbar button never holds a stale closure over an
-  // earlier fence; nulled on unmount so a click after a stage switch is a
-  // no-op rather than an export of a destroyed view's geometry.
-  lithoFenceExportCallback.current =
-    projectId && lithoModelId && fencePanels
-      ? () =>
-          exportFenceDxf({
-            projectId,
-            modelId: lithoModelId,
-            modelName: activeLithoModel?.name ?? 'lithology',
-            panels: fencePanels,
-            // The SAME array the viewer paints with, so the DXF layer names
-            // and colours are what the user is looking at.
-            formations: lithoFormations,
-            toast,
-          })
-      : null
-  ownedFenceExport.current = lithoFenceExportCallback.current
-
   // ---------------------------------------------------------------------------
   // Voxel build payload — assembled on demand for the "Build model" toolbar
   // button (module-ref bridge, same pattern as resetLithoCameraCallback).
@@ -293,8 +258,6 @@ export default function LithologyCanvas(): JSX.Element {
   // ABOVE the early return so the hook order never depends on hasLithoSolids.
   useEffect(
     () => () => {
-      if (lithoFenceExportCallback.current === ownedFenceExport.current)
-        lithoFenceExportCallback.current = null
       if (lithoVoxelRequestCallback.current === ownedVoxelRequest.current)
         lithoVoxelRequestCallback.current = null
       if (resetLithoSplitViewportCallback.current === ownedSplitViewport.current)
