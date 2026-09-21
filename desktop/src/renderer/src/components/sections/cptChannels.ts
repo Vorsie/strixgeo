@@ -240,17 +240,28 @@ export function readColumnSpacing(
 // BoreholeColumn for the strip layout pass.
 
 export interface BoreholeChannels {
+  /**
+   * ``coded_lithology`` observation — DOV's gecodeerde lithologie, the raw
+   * coded log (soil codes + admixtures + colour per layer).
+   *
+   * Re-added 2026-09-21 (issue #17). It had been dropped as "not worth
+   * cross-referencing", but that only holds for a borehole which HAS a
+   * ``geotechnical_coding`` stream to cross-reference against. A borehole whose
+   * only stream is gecodeerde lithologie drew a bare column, with no way to
+   * reach its log at all. Default OFF, so existing sections are unchanged.
+   */
+  lithology: boolean
   /** ``geotechnical_coding`` observation — what most engineers cite. */
   geotech: boolean
   /** ``formal_stratigraphy`` observation. */
   formal_strat: boolean
   /** ``informal_stratigraphy`` observation. */
   informal_strat: boolean
-  // NOTE: ``coded_lithology``, ``lithological_description`` and
-  // ``quaternary_stratigraphy`` were toggles in an earlier turn but
-  // the user dropped them — geotech + formal + informal are the
-  // streams worth cross-referencing in a section view. The detail
-  // panel still surfaces the dropped streams when needed.
+  // NOTE: ``lithological_description`` and ``quaternary_stratigraphy`` were
+  // toggles in an earlier turn but the user dropped them — neither carries
+  // ``main_soil_codes``, so the detail panel is the better home for them.
+  // ``coded_lithology`` was dropped with them and came back (issue #17): see
+  // the field doc above.
   //
   // ``drill_method`` (a borehole-header field, not an observation)
   // and ``field_log`` (separate intervals array with its own kinds)
@@ -259,6 +270,9 @@ export interface BoreholeChannels {
 }
 
 export const DEFAULT_BOREHOLE_CHANNELS: BoreholeChannels = {
+  // OFF by default (owner, 2026-09-21): turning it on would change how every
+  // existing project's sections look on open. The engineer clicks it on.
+  lithology: false,
   geotech: true,
   formal_strat: false,
   informal_strat: false,
@@ -266,10 +280,13 @@ export const DEFAULT_BOREHOLE_CHANNELS: BoreholeChannels = {
 
 /** Mapping from channel key to the DOV ``observation_type`` value the
  * backend ships. Iteration order = display order in the band:
- * geotech → formal → informal. */
+ * lithology → geotech → formal → informal, which is the DOV
+ * "lengteprofiel" reading order (raw coded log first, then the
+ * derived engineering streams). */
 export const BOREHOLE_CHANNEL_OBSERVATION_TYPES: ReadonlyArray<
   [keyof BoreholeChannels, string]
 > = [
+  ['lithology', 'coded_lithology'],
   ['geotech', 'geotechnical_coding'],
   ['formal_strat', 'formal_stratigraphy'],
   ['informal_strat', 'informal_stratigraphy'],
@@ -287,6 +304,7 @@ export function readBoreholeChannels(
     return typeof v === 'boolean' ? v : DEFAULT_BOREHOLE_CHANNELS[key]
   }
   return {
+    lithology: readBool('lithology'),
     geotech: readBool('geotech'),
     formal_strat: readBool('formal_strat'),
     informal_strat: readBool('informal_strat'),
