@@ -21,49 +21,9 @@ import type {
   LithoContactCorrelationEdge,
   LithoLayerResponse,
 } from '../../api/client'
-import type { PlacedColumn } from './utils'
+import { layer, column } from './__fixtures__/partitionFillScene'
 
 afterEach(cleanup)
-
-function layer(
-  id: string,
-  inv: string,
-  formationId: string,
-  top: number,
-  base: number,
-  bodyId: string,
-): LithoLayerResponse {
-  return {
-    id,
-    model_id: 'litho-model-1',
-    formation_id: formationId,
-    borehole_id: inv,
-    cpt_id: null,
-    depth_top_m: top,
-    depth_base_m: base,
-    status: 'accepted',
-    source: 'manual',
-    confidence: 'high',
-    observation_id: null,
-    observation_layer_id: null,
-    parent_geo_contact_id: null,
-    body_id: bodyId,
-    notes: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-  } as LithoLayerResponse
-}
-
-function column(inv: string, along: number, elev: number): PlacedColumn {
-  return {
-    kind: 'borehole',
-    nudgedX: along,
-    trueX: along,
-    width: 40,
-    displaced: false,
-    proj: { along, offset: 0, item: { id: inv, elevation_m: elev } },
-  } as unknown as PlacedColumn
-}
 
 function edge(a: string, b: string): LithoContactCorrelationEdge {
   return {
@@ -82,10 +42,10 @@ function edge(a: string, b: string): LithoContactCorrelationEdge {
 // SILT over KLEI on both columns; both contacts tied → the KLEI top is a
 // correlated BAND seam at elevation 5 (screen y = 150).
 const LITHO_LAYERS: LithoLayerResponse[] = [
-  layer('a-silt', 'L', 'formation-silt', 0, 5, 'body-silt'),
-  layer('a-klei', 'L', 'formation-klei', 5, 10, 'body-klei'),
-  layer('b-silt', 'R', 'formation-silt', 0, 5, 'body-silt'),
-  layer('b-klei', 'R', 'formation-klei', 5, 10, 'body-klei'),
+  layer({ id: 'a-silt', investigationId: 'L', formationId: 'formation-silt', depthTopM: 0, depthBaseM: 5, bodyId: 'body-silt' }),
+  layer({ id: 'a-klei', investigationId: 'L', formationId: 'formation-klei', depthTopM: 5, depthBaseM: 10, bodyId: 'body-klei' }),
+  layer({ id: 'b-silt', investigationId: 'R', formationId: 'formation-silt', depthTopM: 0, depthBaseM: 5, bodyId: 'body-silt' }),
+  layer({ id: 'b-klei', investigationId: 'R', formationId: 'formation-klei', depthTopM: 5, depthBaseM: 10, bodyId: 'body-klei' }),
 ]
 const EDGES = [edge('a-silt', 'b-silt'), edge('a-klei', 'b-klei')]
 
@@ -115,7 +75,7 @@ const BOUNDARIES = new Map<string, BodyBoundaryResponse>([
 const baseProps: Props = {
   lithoLayers: LITHO_LAYERS,
   contactEdges: EDGES,
-  placedColumns: [column('L', 0, 10), column('R', 100, 10)],
+  placedColumns: [column({ investigationId: 'L', along: 0, elevationM: 10 }), column({ investigationId: 'R', along: 100, elevationM: 10 })],
   formationColorById: new Map([
     ['formation-silt', SILT_COLOR],
     ['formation-klei', KLEI_COLOR],
