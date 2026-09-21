@@ -182,24 +182,42 @@ describe('useCopyGhostContact', () => {
     expect(createGhostColumn).toHaveBeenCalledTimes(1)
   })
 
-  it('a test whose suggestions were all accepted or all rejected is a free target', () => {
-    const allAccepted = sourceGhost({ accepted: new Set([0, 1]) })
+  it('a test whose suggestions were all rejected is a free target', () => {
     const allRejected = sourceGhost({ rejected: new Set([0, 1]) })
-    for (const target of [allAccepted, allRejected]) {
-      const ghosts = new Map([
-        ['cpt-a', sourceGhost()],
-        ['cpt-b', target],
-      ])
-      const { result, createGhostColumn } = renderHost(ghosts)
-      act(() => {
-        result.current.copyGhostContact({
-          sourceInvestigationId: 'cpt-a',
-          targetInvestigationId: 'cpt-b',
-          targetKind: 'cpt',
-        })
+    const ghosts = new Map([
+      ['cpt-a', sourceGhost()],
+      ['cpt-b', allRejected],
+    ])
+    const { result, createGhostColumn } = renderHost(ghosts)
+    act(() => {
+      result.current.copyGhostContact({
+        sourceInvestigationId: 'cpt-a',
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
       })
-      expect(createGhostColumn).toHaveBeenCalledTimes(1)
-    }
+    })
+    expect(createGhostColumn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a test whose suggestions were all accepted is occupied: the copy is refused and says why', () => {
+    // Owner ruling 2026-09-21: accepted layers are real work and a copy must
+    // not draw over them. Only a column with no suggestions, or only rejected
+    // ones, is free. The refusal is a warning toast, never a silent no-op.
+    const allAccepted = sourceGhost({ accepted: new Set([0, 1]) })
+    const ghosts = new Map([
+      ['cpt-a', sourceGhost()],
+      ['cpt-b', allAccepted],
+    ])
+    const { result, createGhostColumn, toast } = renderHost(ghosts)
+    act(() => {
+      result.current.copyGhostContact({
+        sourceInvestigationId: 'cpt-a',
+        targetInvestigationId: 'cpt-b',
+        targetKind: 'cpt',
+      })
+    })
+    expect(createGhostColumn).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('warning', expect.any(String), expect.any(String))
   })
 
   it('a drop on the source column is a silent no-op', () => {
