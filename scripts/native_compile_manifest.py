@@ -290,10 +290,14 @@ _PARSERS = [
 # ---------------------------------------------------------------------------
 _ENGINE_APPLICATION = [
     # Geotech subdivision / borehole division + packing-edge derivation — the
-    # owner-named core. Band merge/coarsen/clip/donor + tie-pair math
-    # (divide_boreholes), mm-clamped sub-interval computation (subdivide_all_
-    # bodies), packing-stack alignment + bandless-column bridging
-    # (geotech_edge_derivation) — all inline.
+    # owner-named core. Band merge/coarsen/clip/donor + tie-pair math split
+    # between divide_boreholes (the DB orchestration + the DivideBoreholes class)
+    # and band_planning (the PURE band-math it re-exports, KonMari DB-S1);
+    # mm-clamped sub-interval computation (subdivide_all_bodies), packing-stack
+    # alignment + bandless-column bridging (geotech_edge_derivation) — all inline.
+    # band_planning_constants stays SOURCE like its sibling geotech_band_edit_
+    # constants: data-token declarations with no algorithmic IP.
+    "groundmodel.application.band_planning",
     "groundmodel.application.divide_boreholes",
     "groundmodel.application.geotech_edge_derivation",
     "groundmodel.application.subdivide_all_bodies",
