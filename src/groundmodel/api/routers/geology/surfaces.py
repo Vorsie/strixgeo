@@ -46,6 +46,7 @@ from groundmodel.infrastructure.dem.dem_provider_factory import (
     build_dem_provider,
 )
 from groundmodel.shared.config import settings
+from groundmodel.shared.constants.crs import DEFAULT_HORIZONTAL_EPSG
 from groundmodel.shared.exceptions import (
     DemExtentRefusedError,
     DemUpstreamRecentlyFailedError,
@@ -389,7 +390,7 @@ async def build_ground_surface(
     epsg: int = (
         project_row.default_horizontal_epsg
         if project_row is not None and project_row.default_horizontal_epsg is not None
-        else 31370  # default to Belgian Lambert when not set
+        else DEFAULT_HORIZONTAL_EPSG
     )
 
     try:
