@@ -92,7 +92,7 @@ if [ -n "$ts_changed" ]; then
   (cd desktop && npx tsc --noEmit -p tsconfig.web.json)
 
   # Vitest — run only tests affected by the staged TS files. The full
-  # suite is ~80 s for 109 files / 1239 tests; ``vitest related`` walks
+  # suite is several minutes for ~780 files / ~6,200 tests; ``vitest related`` walks
   # the import graph from each given source file to find the test files
   # that exercise it, typically 3-20 tests for a focused commit (~5-15 s).
   # When a test file itself is staged, vitest runs it directly.
