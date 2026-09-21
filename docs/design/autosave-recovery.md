@@ -302,6 +302,39 @@ failure never fails the save**; it is logged and the save proceeds (at worst one
 is missing, never the save itself). Only the `.strix` project-save IPC uses it; the recents
 list, exports and the recovery snapshot keep the plain `writeFileAtomic`.
 
+### Pre-write empty-bundle guard (H2a2, debt #225)
+
+Generations recover a save the user *meant* differently. A different failure needs stopping
+BEFORE it reaches disk: a `File → Save` fetches `GET /bundle` and the export comes back
+**empty for a collection the model actually holds** — a transient bad state (observed
+2026-06-25: a bundle returned `litho_contact_correlation_edges: []` while the database held
+481). Writing that would overwrite the `.strix` with hollow data; the generations would still
+hold the last good copy, but the user's live file would silently go empty.
+
+`useProject` keeps a per-collection count of the last opened / saved file
+(`lastKnownBundleCountsRef`), seeded on every open / restore / new / Save-As adopt and
+refreshed after each successful save — "what the app knows it holds". Before `writeProjectFile`,
+both `saveProject` and `saveAsProject` run `guardEmptyBundle`: it counts the freshly fetched
+bundle (`utils/saveBundleGuard.ts` `countBundleCollections`) and calls `assessEmptyBundleGuard`.
+A collection that came back `0` while the app expects rows does NOT abort the save.
+The rule is **retry once, then ask** (owner ruling, 2026-09-21): `guardEmptyBundle`
+re-fetches the bundle once, because the observed cause is a transient bad export
+state, and writes the healed bundle when the retry comes back populated (WARNING
+log, no toast, the save simply succeeds). Only when the re-fetch STILL reads `0`
+does it ask, through a `ConfirmDialog` with Cancel default-focused and a danger
+button reading "Save anyway" / "Toch opslaan", listing each collection as
+"{label}: last save {expected}, now {now}". Confirm writes the still-empty bundle;
+Cancel writes nothing, so `saveProject` returns `false`, the project stays dirty,
+`fileWriteSucceeded` stays `false` (the recovery file is kept) and Save-As rolls
+its freshly-minted duplicate row back. The imported collections' expected counts
+are the live session manifest; the interpretation collections'
+(`litho_contact_correlation_edges`, per-model `litho_layers` / `contacts`,
+`bodies`) the last file. A collection with an unknown expected count (null ref
+before the first open) is unguarded, so a save is never blocked on a count the app
+cannot trust. **Why a question and not a refusal:** a first version hard-blocked
+the write, which broke the ordinary case of deliberately clearing a model and
+saving; asking keeps the data-loss protection without ever trapping the engineer.
+
 ### Pre-migration `pg_dump` checkpoint (H2b)
 
 The packaged app runs `alembic upgrade head` on every launch (`DatabaseMigrator`,
