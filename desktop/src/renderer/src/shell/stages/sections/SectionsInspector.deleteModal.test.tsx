@@ -1,13 +1,13 @@
 // Behavioural regression net for SectionsInspector.SectionRow confirm modal
-// (debt #105 fix 1 â€” replaces window.confirm with a Modal dialog).
+// (debt #105 fix 1 — replaces window.confirm with a Modal dialog).
 //
-// DM1 â€” delete button renders; clicking it opens the confirm modal (does NOT
+// DM1 — delete button renders; clicking it opens the confirm modal (does NOT
 //        immediately call onDelete).
-// DM2 â€” Esc dismisses the modal without calling onDelete.
-// DM3 â€” clicking "Delete cross-section" calls onDelete.
-// DM4 â€” Cancel button has default focus (autoFocus) â€” accidental Enter must
+// DM2 — Esc dismisses the modal without calling onDelete.
+// DM3 — clicking "Delete cross-section" calls onDelete.
+// DM4 — Cancel button has default focus (autoFocus) — accidental Enter must
 //        NOT fire the destructive action (docs/ux.md irreversible rule).
-// DM5 â€” backdrop click (via Esc / onCancel) dismisses without calling onDelete.
+// DM5 — backdrop click (via Esc / onCancel) dismisses without calling onDelete.
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +18,7 @@ import type { CrossSectionResponse } from '../../../api/client'
 import SectionsInspector from './SectionsInspector'
 
 // ---------------------------------------------------------------------------
-// Module mocks â€” mirrors SectionsInspector.modelActions.test shape
+// Module mocks — mirrors SectionsInspector.modelActions.test shape
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../api/client', async () => {
@@ -431,8 +431,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)', () => {
-  it('DM1 â€” delete button opens modal without calling onDelete', () => {
+describe('SectionsInspector — SectionRow delete confirm modal (debt #105)', () => {
+  it('DM1 — delete button opens modal without calling onDelete', () => {
     const onDelete = vi.fn()
     const ctx = makeCtx({ handleDeleteSection: onDelete })
     renderInspector(ctx)
@@ -442,7 +442,7 @@ describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)
     const deleteBtn = screen.getByTestId('section-row-delete-sec-1')
     fireEvent.click(deleteBtn)
 
-    // Modal should now be open â€” the h2 title is present.
+    // Modal should now be open — the h2 title is present.
     expect(screen.getByText(/Delete cross-section\?/)).toBeInTheDocument()
     // The section name appears inside the modal body description span.
     const modalBody = screen.getByRole('dialog')
@@ -451,7 +451,7 @@ describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)
     expect(onDelete).not.toHaveBeenCalled()
   })
 
-  it('DM2 â€” Esc dismisses the modal without calling onDelete', () => {
+  it('DM2 — Esc dismisses the modal without calling onDelete', () => {
     const onDelete = vi.fn()
     renderInspector(makeCtx({ handleDeleteSection: onDelete }))
 
@@ -463,7 +463,7 @@ describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)
     expect(onDelete).not.toHaveBeenCalled()
   })
 
-  it('DM3 â€” clicking "Delete cross-section" button calls onDelete', async () => {
+  it('DM3 — clicking "Delete cross-section" button calls onDelete', async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined)
     renderInspector(makeCtx({ handleDeleteSection: onDelete }))
 
@@ -474,7 +474,7 @@ describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
   })
 
-  it('DM4 â€” Cancel button receives default focus when modal opens', () => {
+  it('DM4 — Cancel button receives default focus when modal opens', () => {
     renderInspector(makeCtx())
     fireEvent.click(screen.getByTestId('section-row-delete-sec-1'))
 
@@ -483,7 +483,7 @@ describe('SectionsInspector â€” SectionRow delete confirm modal (debt #105)
     expect(document.activeElement).toBe(cancel)
   })
 
-  it('DM5 â€” Cancel button dismisses without calling onDelete', () => {
+  it('DM5 — Cancel button dismisses without calling onDelete', () => {
     const onDelete = vi.fn()
     renderInspector(makeCtx({ handleDeleteSection: onDelete }))
 
