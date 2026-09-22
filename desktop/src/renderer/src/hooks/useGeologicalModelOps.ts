@@ -298,7 +298,7 @@ export function useGeologicalModelOps({
         // Seed never creates formations (explicit-content invariant), so
         // a layer whose formation the user didn't curate is skipped, not
         // minted. Surface that count so the dropped borehole data isn't
-        // silent — the engineer adds the formation in the Geology stage
+        // silent — the engineer adds the formation in the Stratigraphy stage
         // ("Fill from boreholes") if they want it on the section.
         const skippedFragment =
           notInModel > 0
