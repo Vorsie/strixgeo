@@ -317,6 +317,7 @@ function makeCtx(): ShellContextValue {
       setSelectedBoreholeId: vi.fn(),
       view: 'map',
       setView: vi.fn(),
+      detailOpenSeq: 0,
       handleSelect: noopAsync,
       handleSelectWithoutView: noopAsync,
       handleSelectBorehole: noopAsync,
