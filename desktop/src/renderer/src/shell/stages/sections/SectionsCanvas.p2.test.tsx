@@ -40,7 +40,7 @@ import { useSectionScope } from '../../../components/sections/SectionScopeContex
 
 let capturedContacts: readonly FormationContactResponse[] | undefined = undefined
 // Capture the section-aware callbacks so tests can invoke them (the real
-// user gestures: manual draw â†’ onCreateContact, drag-copy â†’ onBatchCreateContacts).
+// user gestures: manual draw → onCreateContact, drag-copy → onBatchCreateContacts).
 let capturedOnCreateContact:
   | ((
       anchorKind: 'cpt' | 'borehole',
@@ -101,7 +101,7 @@ vi.mock('../../../components/MapView', () => ({
 }))
 
 // api.section.list is used by useSections' auto-load effect (T4b).
-// Default resolves to [] so T1â€“T3/T5 are unaffected by pending fetches.
+// Default resolves to [] so T1–T3/T5 are unaffected by pending fetches.
 const mockSectionList = vi.fn().mockResolvedValue([])
 // api.geology.acceptLithoSuggestions is exercised by M1/M2.
 const mockAcceptLithoSuggestions = vi.fn()
@@ -158,7 +158,7 @@ beforeEach(() => {
   capturedOnManualLithoUnitCreate = undefined
   capturedAxisMode = undefined
   capturedCorrelateGestureState = undefined
-  // Reset to [] so T1â€“T3/T5 (render-based, no section list needed) are clean.
+  // Reset to [] so T1–T3/T5 (render-based, no section list needed) are clean.
   mockSectionList.mockResolvedValue([])
   mockAcceptLithoSuggestions.mockReset()
   mockCorrelate.mockReset()
@@ -172,10 +172,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('Section contact filtering â€” classification follows the test', () => {
+describe('Section contact filtering — classification follows the test', () => {
   it('C1: in-corridor contacts render even with an EMPTY seeded set', () => {
     // The reversal: both contacts are anchored to bh-1, which projects into
-    // the section corridor. The seeded set is empty, yet both render â€” a test
+    // the section corridor. The seeded set is empty, yet both render — a test
     // is classified once and appears on every section through it.
     const c1 = makeContact('contact-aaa') // anchor bh-1
     const c2 = makeContact('contact-bbb') // anchor bh-1
@@ -247,7 +247,7 @@ describe('Section contact filtering â€” classification follows the test', (
     const { result } = renderHook(() =>
       useSections({
         project: { id: 'proj-1', name: 'Test', default_horizontal_epsg: 31370 },
-        ready: false, // don't auto-fetch â€” sections stays []
+        ready: false, // don't auto-fetch — sections stays []
         toast: vi.fn(),
         pushUndo: vi.fn(),
         manifestSectionIds: new Set<string>(),
@@ -268,7 +268,7 @@ describe('Section contact filtering â€” classification follows the test', (
     act(() => {
       result.current.applyUpdatedSection(updatedSection)
     })
-    // No match â†’ no-op; sections remains empty.
+    // No match → no-op; sections remains empty.
     expect(result.current.sections).toHaveLength(0)
   })
 
@@ -276,7 +276,7 @@ describe('Section contact filtering â€” classification follows the test', (
     // The REPLACE-BY-ID path: `setSections(prev => prev.map(s => s.id === updated.id ? updated : s))`.
     // Drive the auto-load path (ready=true + manifestSectionIds contains both ids)
     // so `sections` is populated before calling applyUpdatedSection.
-    // Then assert result.current.sections (real hook state) reflects the update â€”
+    // Then assert result.current.sections (real hook state) reflects the update —
     // this assertion fails if the map regresses to a no-op or replaces the wrong row.
     const { useSections } = await import('../../../hooks/useSections')
 
@@ -318,17 +318,17 @@ describe('Section contact filtering â€” classification follows the test', (
     expect(result.current.sections.find(s => s.id === 'sec-1')!.seeded_formation_contact_ids).toEqual([])
     expect(result.current.sections.find(s => s.id === 'sec-2')!.seeded_formation_contact_ids).toEqual([])
 
-    // Apply the updated section â€” only sec-1's seeded set changes.
+    // Apply the updated section — only sec-1's seeded set changes.
     const sec1Updated = makeSection({ id: 'sec-1', seeded_formation_contact_ids: ['contact-aaa'] })
     act(() => {
       result.current.applyUpdatedSection(sec1Updated)
     })
 
-    // Assert real hook state â€” reads result.current.sections, NOT a hardcoded constant.
+    // Assert real hook state — reads result.current.sections, NOT a hardcoded constant.
     // Fails if the replace-by-id map regressed to a no-op (sec-1 stays empty)
     // or replaced every row (sec-2 would also carry ['contact-aaa']).
     expect(result.current.sections.find(s => s.id === 'sec-1')!.seeded_formation_contact_ids).toEqual(['contact-aaa'])
-    // sec-2 is left untouched â€” map only replaces the matching id.
+    // sec-2 is left untouched — map only replaces the matching id.
     expect(result.current.sections.find(s => s.id === 'sec-2')!.seeded_formation_contact_ids).toEqual([])
   })
 
@@ -360,7 +360,7 @@ describe('Section contact filtering â€” classification follows the test', (
       </ShellContext.Provider>,
     )
 
-    // Not fired at mount â€” only on the user gesture.
+    // Not fired at mount — only on the user gesture.
     expect(sectionGetMock).not.toHaveBeenCalled()
 
     // Invoke the captured onCreateContact (the real manual-draw gesture).
@@ -429,7 +429,7 @@ describe('Section contact filtering â€” classification follows the test', (
       await capturedOnBatchCreateContacts!(creates)
     })
 
-    // section id passed as the 2nd arg â†’ backend seeds every copied id.
+    // section id passed as the 2nd arg → backend seeds every copied id.
     expect(handleBatchCreateContacts).toHaveBeenCalledWith(creates, 'sec-1')
     // one section refresh after the batch so P2-F shows the copies.
     expect(sectionGetMock).toHaveBeenCalledWith('proj-1', 'sec-1')
@@ -439,10 +439,10 @@ describe('Section contact filtering â€” classification follows the test', (
 })
 
 // ---------------------------------------------------------------------------
-// S3 â€” geological axis must NOT wire the litho picker (regression guard)
+// S3 — geological axis must NOT wire the litho picker (regression guard)
 // ---------------------------------------------------------------------------
 
-describe('Axis mode â€” geology axis keeps FormationPickerDialog', () => {
+describe('Axis mode — geology axis keeps FormationPickerDialog', () => {
   it('S3: geological axis passes axisMode=geological and no onManualLithoUnitCreate', () => {
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
@@ -464,7 +464,7 @@ describe('Axis mode â€” geology axis keeps FormationPickerDialog', () => {
 })
 
 // ---------------------------------------------------------------------------
-// M1 / M2 â€” manual litho unit DIRECT INSERT (debt #151 dogfeed refinement
+// M1 / M2 — manual litho unit DIRECT INSERT (debt #151 dogfeed refinement
 // 2026-05-27 owner directive: "how about we don't wire it through the
 // suggestion and it immediately becomes an accepted litho layer").
 //
@@ -475,8 +475,8 @@ describe('Axis mode â€” geology axis keeps FormationPickerDialog', () => {
 // call fires to restore the original band below the inserted layer.
 // ---------------------------------------------------------------------------
 
-describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direct insert)', () => {
-  it('M1: new unit â†’ acceptLithoSuggestions seeds the section AND calls applyUpdatedSection', async () => {
+describe('Manual litho unit creation — handleManualLithoUnitCreate (direct insert)', () => {
+  it('M1: new unit → acceptLithoSuggestions seeds the section AND calls applyUpdatedSection', async () => {
     const updatedSection = makeSection({
       seeded_formation_contact_ids: ['contact-new-1'],
     })
@@ -522,7 +522,7 @@ describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direc
     // depth_base = depth_top + 0.20 (20 cm band).
     expect(payload.suggestions[0].depth_base_m).toBeCloseTo(5.7)
 
-    // (b) applyUpdatedSection IS called now â€” the new contact seeded
+    // (b) applyUpdatedSection IS called now — the new contact seeded
     //     the section's seeded_formation_contact_ids.
     expect(applyUpdatedSection).toHaveBeenCalledTimes(1)
     expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
@@ -532,7 +532,7 @@ describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direc
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('M2: idempotent re-create (formation already exists) â†’ returns found formationId, seeds section', async () => {
+  it('M2: idempotent re-create (formation already exists) → returns found formationId, seeds section', async () => {
     const updatedSection = makeSection({
       seeded_formation_contact_ids: ['contact-existing-1', 'contact-new-2'],
     })
@@ -572,19 +572,19 @@ describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direc
 })
 
 // ---------------------------------------------------------------------------
-// S5 â€” a failed correlate keeps the armed source + surfaces the error
+// S5 — a failed correlate keeps the armed source + surfaces the error
 // TODO Task 19: handleCorrelate is stubbed (formation-level API removed).
 // Re-enable this test when Task 19 wires createContactCorrelation.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// LX â€” litho-axis left-click must NOT open the picker dialog (Bug B fix,
+// LX — litho-axis left-click must NOT open the picker dialog (Bug B fix,
 // dogfeed 2026-05-26 + 2nd-pass fix 2026-05-26)
 //
 // Root cause: the picker (useContactPicker) opens in handlePickCpt /
 // handlePickBorehole which are wired to ContactPickBar's onCommitDepth and
 // BoreholeColumn's onCommitDepth.  Those callbacks fire BEFORE
-// sectionAwareCreateContact runs â€” so the previous internal `if (isLitho) return`
+// sectionAwareCreateContact runs — so the previous internal `if (isLitho) return`
 // guard was too late in the chain.
 //
 // The correct fix: pass onCreateContact={undefined} on the litho axis.
@@ -593,14 +593,14 @@ describe('Manual litho unit creation â€” handleManualLithoUnitCreate (direc
 // So passing undefined disarms the pick-bar and BoreholeColumn overlays
 // entirely, preventing the picker from opening.
 //
-// LX1 â€” the original test: callback is a no-op (still passes; the no-op is
+// LX1 — the original test: callback is a no-op (still passes; the no-op is
 //        now enforced at the prop boundary rather than inside the callback).
-// LX2 â€” the real guard: onCreateContact is undefined on the litho axis so
+// LX2 — the real guard: onCreateContact is undefined on the litho axis so
 //        the picker cannot open (ContactPickBar / BoreholeColumn are disarmed).
 // ---------------------------------------------------------------------------
 
-describe('Litho axis left-click is a no-op (Bug B â€” dogfeed 2026-05-26)', () => {
-  it('LX2 â€” onCreateContact is undefined on the litho axis so the picker never opens', () => {
+describe('Litho axis left-click is a no-op (Bug B — dogfeed 2026-05-26)', () => {
+  it('LX2 — onCreateContact is undefined on the litho axis so the picker never opens', () => {
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
       lithoModel: makeLithoModel(),
@@ -613,16 +613,16 @@ describe('Litho axis left-click is a no-op (Bug B â€” dogfeed 2026-05-26)',
       </ShellContext.Provider>,
     )
 
-    // The prop must be undefined â€” ContactPickBar/BoreholeColumn's onCommitDepth
+    // The prop must be undefined — ContactPickBar/BoreholeColumn's onCommitDepth
     // are gated on onCreateContact, so undefined fully disarms the pick-bar and
     // prevents handlePickCpt/handlePickBorehole (and therefore the picker) from
     // firing on left-click.  This is the correct fix for the "picker still opens
     // on litho axis" dogfeed (previous guard was inside sectionAwareCreateContact
-    // which is too late â€” the picker opens before that callback runs).
+    // which is too late — the picker opens before that callback runs).
     expect(capturedOnCreateContact).toBeUndefined()
   })
 
-  it('LX1 â€” geological axis still wires onCreateContact (regression guard)', () => {
+  it('LX1 — geological axis still wires onCreateContact (regression guard)', () => {
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
       sectionModelAxis: 'geological',
@@ -639,8 +639,8 @@ describe('Litho axis left-click is a no-op (Bug B â€” dogfeed 2026-05-26)',
   })
 })
 
-describe('handleCorrelate â€” armed source persists on failure (review S5)', () => {
-  it.skip('S5 â€” failed POST does NOT clear the armed source and toasts an error [Task 19]', async () => {
+describe('handleCorrelate — armed source persists on failure (review S5)', () => {
+  it.skip('S5 — failed POST does NOT clear the armed source and toasts an error [Task 19]', async () => {
     mockCorrelate.mockRejectedValue(new Error('422 cross-group race'))
     const ctx = makeStubContext({
       lithoModel: makeLithoModel(),
