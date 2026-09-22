@@ -72,6 +72,20 @@ describe('messageForDetail — FastAPI validation list shape', () => {
     )
   })
 
+  it('names the whole dotted path of a nested key, not only its last segment', () => {
+    // 2026-09-22: "lithology: Extra inputs are not permitted" sent the reader
+    // to the CPT schema; the key sat under view_state.borehole_channels.
+    const detail = [
+      {
+        type: 'extra_forbidden',
+        loc: ['body', 'view_state', 'borehole_channels', 'lithology'],
+        msg: 'Extra inputs are not permitted',
+      },
+    ]
+    expect(messageForDetail(detail, 'HTTP 422')).toBe(
+      'view_state.borehole_channels.lithology: Extra inputs are not permitted',
+    )
+  })
   it('falls back for an empty or malformed list', () => {
     expect(messageForDetail([], 'HTTP 422')).toBe('HTTP 422')
     expect(messageForDetail([{ loc: ['body'] }], 'HTTP 422')).toBe('HTTP 422')
