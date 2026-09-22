@@ -160,6 +160,26 @@ describe('enabledBoreholeChannelCount', () => {
     ).toBe(2)
   })
 
+  // Owner's dogfeed 2026-09-22: "when I put the column spacing really small, the
+  // new borehole channel overlaps". BoreholeColumn draws one strip per enabled
+  // stream, centred on the column axis; the nudge layout reserves this count
+  // times a strip. The coded-lithology stream (PR #18) was drawn but not
+  // counted, so the band was one strip wider than its footprint.
+  it('the coded-lithology stream widens the footprint like every other stream', () => {
+    expect(
+      enabledBoreholeChannelCount({
+        lithology: true,
+        geotech: true,
+        formal_strat: false,
+        informal_strat: false,
+      }),
+    ).toBe(2)
+  })
+
+  it('all four streams on reserve four strips, the number the renderer draws', () => {
+    const all = { lithology: true, geotech: true, formal_strat: true, informal_strat: true }
+    expect(enabledBoreholeChannelCount(all)).toBe(BOREHOLE_CHANNEL_OBSERVATION_TYPES.length)
+  })
   it('the default channel bag has count 1 (geotech on)', () => {
     expect(enabledBoreholeChannelCount(DEFAULT_BOREHOLE_CHANNELS)).toBe(1)
   })
