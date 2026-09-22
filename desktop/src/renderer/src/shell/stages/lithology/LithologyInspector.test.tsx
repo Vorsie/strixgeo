@@ -61,7 +61,7 @@ vi.mock('../../../utils/log', () => ({
 // Mock api.geology so updateFormation and listLenses don't make real fetch
 // calls in jsdom.
 const mockUpdateFormation = vi.fn<() => Promise<GeologicalFormationResponse>>()
-// listLenses: returns an empty lens list by default â€” keeps existing tests
+// listLenses: returns an empty lens list by default — keeps existing tests
 // isolated; individual tests can override via mockListLenses.mockResolvedValue.
 const mockListLenses = vi.fn<() => Promise<[]>>()
 
@@ -133,7 +133,7 @@ function makeFormation(
     regional_ref: null,
     description: null,
     pinned_order: false,
-    // Phase 1 litho-builder fields â€” null on geological-model rows.
+    // Phase 1 litho-builder fields — null on geological-model rows.
     parent_formation_id: null,
     litho_main_soil_code: null,
     litho_admixtures: null,
@@ -535,7 +535,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   mockUpdateFormation.mockResolvedValue(makeFormation('f-a', 'Zand'))
-  // Default: no lenses â€” keeps existing tests isolated.
+  // Default: no lenses — keeps existing tests isolated.
   mockListLenses.mockResolvedValue([])
 })
 
@@ -546,22 +546,22 @@ afterEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Slice C / #55 tests (I1â€“I4)
+// Slice C / #55 tests (I1–I4)
 // ---------------------------------------------------------------------------
 
 describe('LithologyInspector (Slice C, #55)', () => {
-  // I1: no geological model â†’ guidance to create one; no ModelKindPicker.
-  it('I1 â€” no geological model: shows "create a stratigraphic model first" guidance', () => {
+  // I1: no geological model → guidance to create one; no ModelKindPicker.
+  it('I1 — no geological model: shows "create a stratigraphic model first" guidance', () => {
     const ctx = makeCtx({ activeGeologicalModel: null })
     renderInspector(ctx)
 
     expect(screen.getByText(/create a stratigraphic model first/i)).toBeInTheDocument()
-    // ModelKindPicker should NOT render â€” the geological model gate fires first.
+    // ModelKindPicker should NOT render — the geological model gate fires first.
     expect(screen.queryByTestId('model-kind-picker')).not.toBeInTheDocument()
   })
 
-  // I2: litho model active + formations + contacts â†’ roster with correct counts.
-  it('I2 â€” litho model + 2 formations + 3 contacts â†’ roster with per-formation counts', () => {
+  // I2: litho model active + formations + contacts → roster with correct counts.
+  it('I2 — litho model + 2 formations + 3 contacts → roster with per-formation counts', () => {
     const formA = makeFormation('f-a', 'Zand')
     const formB = makeFormation('f-b', 'Klei')
     const contacts = [
@@ -637,7 +637,7 @@ describe('LithologyInspector (Resolve action)', () => {
   // S3: the Resolve button refetches formations (roster refresh). Instance
   // ordinals are resolved server-side per-body on accept; this button no
   // longer triggers re-numbering or fetches correlation edges.
-  it('S3 â€” Resolve instances button calls refetchFormations', async () => {
+  it('S3 — Resolve instances button calls refetchFormations', async () => {
     const refetchFormations = vi.fn()
 
     const ctx = makeCtx({
@@ -658,10 +658,10 @@ describe('LithologyInspector (Resolve action)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Debt #87 â€” parent-review badge + ConfirmParentDialog flow
+// Debt #87 — parent-review badge + ConfirmParentDialog flow
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (debt #87 â€” parent review)', () => {
+describe('LithologyInspector (debt #87 — parent review)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
@@ -671,7 +671,7 @@ describe('LithologyInspector (debt #87 â€” parent review)', () => {
   })
 
   // P1: rows without parent_extrapolated AND with a parent are NOT badged.
-  it('P1 â€” clean rows do not render the parent-review dot', async () => {
+  it('P1 — clean rows do not render the parent-review dot', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -692,7 +692,7 @@ describe('LithologyInspector (debt #87 â€” parent review)', () => {
   })
 
   // P2: parent_extrapolated rows render the dot AND open the dialog.
-  it('P2 â€” extrapolated rows render the dot and open the confirm dialog', async () => {
+  it('P2 — extrapolated rows render the dot and open the confirm dialog', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -714,7 +714,7 @@ describe('LithologyInspector (debt #87 â€” parent review)', () => {
   })
 
   // P3: submitting the dialog PATCHes parent_extrapolated=false + parent_formation_id.
-  it('P3 â€” Confirm submits parent_extrapolated=false + the chosen parent id', async () => {
+  it('P3 — Confirm submits parent_extrapolated=false + the chosen parent id', async () => {
     const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
     const litho = makeFormation('lit-a', 'Zand', {
       parent_formation_id: 'geo-a',
@@ -742,10 +742,10 @@ describe('LithologyInspector (debt #87 â€” parent review)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Debt #94 â€” committed-contacts pill + wipe confirm flow
+// Debt #94 — committed-contacts pill + wipe confirm flow
 // ---------------------------------------------------------------------------
 
-describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () => {
+describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
@@ -755,7 +755,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W1: pill is absent when BOTH contacts AND formations are empty.
-  it('W1 â€” clear-model pill is absent when lithoContacts and lithoFormations are both empty', () => {
+  it('W1 — clear-model pill is absent when lithoContacts and lithoFormations are both empty', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
@@ -767,7 +767,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
 
   // W1b: pill IS visible when contacts are empty but litho formations remain
   // (the "orphan units" broken state the old contact-only wipe left behind).
-  it('W1b â€” clear-model pill is visible when lithoFormations.length > 0 even if contacts are empty', async () => {
+  it('W1b — clear-model pill is visible when lithoFormations.length > 0 even if contacts are empty', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
@@ -779,7 +779,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W2: pill renders and shows contact + unit counts when contacts exist.
-  it('W2 â€” clear-model pill renders with correct counts when lithoContacts.length > 0', async () => {
+  it('W2 — clear-model pill renders with correct counts when lithoContacts.length > 0', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-a'), makeContact('c3', 'f-b')],
@@ -793,7 +793,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W3: singular wording for both when exactly one contact + one formation.
-  it('W3 â€” pill uses singular wording when lithoContacts.length is 1 and lithoFormations.length is 1', async () => {
+  it('W3 — pill uses singular wording when lithoContacts.length is 1 and lithoFormations.length is 1', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a')],
@@ -806,7 +806,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W4: clicking the Wipe button opens the confirm dialog.
-  it('W4 â€” clicking the Wipe button opens the confirm dialog', async () => {
+  it('W4 — clicking the Wipe button opens the confirm dialog', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-b')],
@@ -822,7 +822,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W5: clicking Cancel in the confirm dialog closes it without calling the handler.
-  it('W5 â€” Cancel closes the dialog without invoking handleClearLithoModel', async () => {
+  it('W5 — Cancel closes the dialog without invoking handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -853,7 +853,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   // vocabulary still carries formation rows from a sibling/old
   // model.  The Clear-pill stays visible (orphan-recovery affordance)
   // but the roster honours the "0 contacts, 0 units" pill exactly.
-  it('CM1 â€” roster is empty when active model has 0 contacts even if lithoFormations is populated', () => {
+  it('CM1 — roster is empty when active model has 0 contacts even if lithoFormations is populated', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [
@@ -875,7 +875,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
 
   // CM2: roster shows ONLY formations with at least one contact in
   // the active model, even if other formations exist in the project.
-  it('CM2 â€” roster filters lithoFormations down to those referenced by contacts', () => {
+  it('CM2 — roster filters lithoFormations down to those referenced by contacts', () => {
     const used = makeFormation('used', 'Used Zand')
     const orphan = makeFormation('orphan', 'Orphan Klei')
     const ctx = makeCtx({
@@ -890,7 +890,7 @@ describe('LithologyInspector (debt #94 â€” wipe committed contacts)', () =>
   })
 
   // W6: confirming the dialog calls handleClearLithoModel.
-  it('W6 â€” confirming the dialog calls handleClearLithoModel', async () => {
+  it('W6 — confirming the dialog calls handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
