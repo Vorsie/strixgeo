@@ -101,7 +101,7 @@ export default function SectionsToolbarDialogs({
   const t = useT()
   return (
     <>
-      {/* Model-management verbs (Build / Sync geology / Seed / Dedupe)
+      {/* Model-management verbs (Build / Sync stratigraphy / Seed / Dedupe)
           moved to ``SectionsInspector`` (debt #97) — they act on the
           model, not on a section, and now live next to the model rows
           in the right-hand inspector. The toolbar stops being the
