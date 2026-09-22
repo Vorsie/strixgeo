@@ -15,12 +15,14 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Minus, Plus, RotateCcw, X } from 'lucide-react'
+import { Minus, Pencil, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
 import { useT } from '../../i18n/translate'
 import type { MessageKey } from '../../i18n/locales/en'
 import { sectionDisplayName } from '../../utils/sectionDisplayName'
+import SectionNameInput from './SectionNameInput'
+import { useSectionNameEditor } from './useSectionNameEditor'
 import {
   COLUMN_SPACING_MAX,
   COLUMN_SPACING_MIN,
@@ -69,6 +71,7 @@ const BUFFER_MAX = 500
 
 export default function SectionHeader({
   section,
+  onRename,
   lengthM,
   onClose,
   onZoomIn,
@@ -91,6 +94,8 @@ export default function SectionHeader({
   onReset,
 }: {
   section: CrossSectionResponse
+  /** Rename from the header strip; absent = the name is plain text (owner 2026-09-22). */
+  onRename?: (name: string) => void
   lengthM: number
   onClose: (() => void) | undefined
   onZoomIn: () => void
@@ -140,6 +145,8 @@ export default function SectionHeader({
   onReset: () => void
 }): JSX.Element {
   const t = useT()
+  const displayName = sectionDisplayName(section, t)
+  const nameEditor = useSectionNameEditor(section, displayName, onRename)
   const sliderValue = Math.round(
     ((Math.log10(vex) - Math.log10(VEX_MIN)) /
       (Math.log10(VEX_MAX) - Math.log10(VEX_MIN))) *
@@ -168,12 +175,33 @@ export default function SectionHeader({
     // purple-600) are fixed domain colour — see docs/ux.md Tier-5.
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-b border-border-subtle bg-surface-card text-xs">
       <div className="flex flex-col min-w-0">
-        <span
-          className="font-medium text-text-primary truncate"
-          title={sectionDisplayName(section, t)}
-        >
-          {sectionDisplayName(section, t)}
-        </span>
+        {nameEditor.editing ? (
+          <SectionNameInput
+            editor={nameEditor}
+            className="text-xs font-medium text-text-primary bg-surface-card border border-accent rounded px-1.5 py-0.5 focus:outline-none min-w-[12rem]"
+            ariaLabel={t('sections.name')}
+            testId="section-header-name-input"
+          />
+        ) : nameEditor.canEdit ? (
+          <button
+            type="button"
+            onClick={nameEditor.start}
+            title={t('sections.rename')}
+            className="group flex items-center gap-1 min-w-0 text-left"
+            data-testid="section-header-name"
+          >
+            <span className="font-medium text-text-primary truncate">{displayName}</span>
+            <Pencil
+              size={10}
+              className="flex-shrink-0 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-hidden="true"
+            />
+          </button>
+        ) : (
+          <span className="font-medium text-text-primary truncate" title={displayName}>
+            {displayName}
+          </span>
+        )}
         <span className="text-[10px] text-text-muted">
           {t('sections.header.lengthBuffer', {
             length: lengthM.toFixed(0),
