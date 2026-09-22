@@ -12,14 +12,14 @@ import { type PartitionColumn, type PartitionUnit } from './types'
  * The accepted litho layers feeding a column can carry a depth GAP (a
  * rejected/collapsed segment whose ``depth_base`` no longer meets the next
  * unit's ``depth_top``). The litho bands hide this by rendering
- * contactâ†’next-contact; the partition fill must do the same or it shows a HOLE
+ * contact→next-contact; the partition fill must do the same or it shows a HOLE
  * (dogfeed 2026-06-08). Units must already be sorted by ``topDepthM``.
  *
  * Parameters
  * ----------
  * units : PartitionUnit[]
- *     The column's units, sorted shallowâ†’deep. Mutated in place (the deepest
- *     unit keeps its own base â€” the column floor).
+ *     The column's units, sorted shallow→deep. Mutated in place (the deepest
+ *     unit keeps its own base — the column floor).
  */
 export function closeColumnGaps(units: PartitionUnit[]): void {
   for (let i = 0; i < units.length - 1; i++) {
