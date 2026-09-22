@@ -1,4 +1,4 @@
-// Geology stage toolbar — formation-definition and model-maintenance verbs.
+// Stratigraphy stage toolbar — formation-definition and model-maintenance verbs.
 //
 // Verb order (left to right):
 //   1. Fill from boreholes (primary accent) — opens FormationSelectionDialog
@@ -54,7 +54,7 @@ import {
 import { useT } from '../../../i18n/translate'
 
 /**
- * Geology-stage toolbar verbs wired from the ShellContext bus.
+ * Stratigraphy-stage toolbar verbs wired from the ShellContext bus.
  *
  * Renders the Fill-from-boreholes, Build, Dedupe, Reset, and Delete model
  * actions.  All handlers are sourced from ``useShell()``; no props accepted
@@ -291,7 +291,7 @@ export default function GeologyToolbar(): JSX.Element {
       // No duplicate write here.
     } catch (err) {
       // applyBoreholeFormationSelection logs + throws; toast the failure here
-      // so the Geology stage surfaces it even when the error originates deep
+      // so the Stratigraphy stage surfaces it even when the error originates deep
       // in the hook (previously this path was silently swallowed).
       toast('error', t('geology.applyFailed'))
     } finally {
