@@ -62,7 +62,7 @@ import type { GeologicalFormationResponse } from '../api/client'
  * is kept for backwards compatibility with legacy bundle fixtures that
  * may omit ``source_litho_formation_id``.
  *
- * Used by the Geology stage Layers panel + the Sections inspector
+ * Used by the Stratigraphy stage Layers panel + the Sections inspector
  * formation list to keep their vocabulary geological-only.
  *
  * Parameters
