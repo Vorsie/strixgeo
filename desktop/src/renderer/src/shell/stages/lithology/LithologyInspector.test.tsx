@@ -551,7 +551,7 @@ afterEach(() => {
 
 describe('LithologyInspector (Slice C, #55)', () => {
   // I1: no geological model â†’ guidance to create one; no ModelKindPicker.
-  it('I1 â€” no geological model: shows "create a geological model first" guidance', () => {
+  it('I1 â€” no geological model: shows "create a stratigraphic model first" guidance', () => {
     const ctx = makeCtx({ activeGeologicalModel: null })
     renderInspector(ctx)
 
