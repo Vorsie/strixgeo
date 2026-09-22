@@ -121,7 +121,7 @@ describe('CS1 invariant gates — V2 engine', () => {
     // eslint-disable-next-line no-console
     console.error(
       `[V2-CS1] gates NOT RUN — ${CS1_INPUT} is missing. Regenerate it (read-only, ` +
-        'needs the dev DB up): uv run python scripts/throwaway_cs1_partition_extract.py',
+        'needs the dev DB up): uv run python scripts/extract_cs1_partition_input.py',
     )
     it.skip(`CS1 input absent (${CS1_INPUT})`, () => {})
     return
