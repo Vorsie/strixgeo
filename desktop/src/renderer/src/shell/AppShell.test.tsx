@@ -48,6 +48,7 @@ function makeCtx(
     bboxImportType?: string | null
     drawingSection?: boolean
     view?: 'map' | 'chart'
+    detailOpenSeq?: number
     sectionsDeepLinkTarget?: unknown
     geoDeepLinkTarget?: { sectionId: string; contactId: string } | null
   } = {},
@@ -72,6 +73,7 @@ function makeCtx(
       selectedId: over.selectedId ?? null,
       selectedBoreholeId: over.selectedBoreholeId ?? null,
       view: over.view ?? 'map',
+      detailOpenSeq: over.detailOpenSeq ?? 0,
       setSelectedId,
       setSelectedBoreholeId,
       setView,
@@ -265,6 +267,22 @@ describe('AppShell open-detail → Data stage (#3)', () => {
     expect(mockSetActiveStage).toHaveBeenCalledWith('data')
   })
 
+  // Owner's dogfeed 2026-09-22: "click Open details on a drilling, go from the
+  // data screen back to the cross-section and click Open details again: it
+  // doesn't redirect to Data" — the selection was unchanged, so the effect
+  // keyed on it never re-ran. The open-detail ACTION bumps a counter.
+  it('opening the SAME test\'s details again after leaving Data returns to Data', () => {
+    mockStage = 'sections'
+    const { ctx } = makeCtx({ selectedBoreholeId: 'bh-1', view: 'chart', detailOpenSeq: 1 })
+    const { rerender } = render(<AppShell context={ctx} />)
+    vi.clearAllMocks()
+
+    // Back on the section, same borehole still selected, Open details clicked again.
+    const { ctx: again } = makeCtx({ selectedBoreholeId: 'bh-1', view: 'chart', detailOpenSeq: 2 })
+    rerender(<AppShell context={again} />)
+
+    expect(mockSetActiveStage).toHaveBeenCalledWith('data')
+  })
   it('does not route to Data when the selection is shown on the map', () => {
     mockStage = 'sections'
     const { ctx } = makeCtx({ selectedId: null, view: 'map' })
