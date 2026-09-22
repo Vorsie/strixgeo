@@ -1,6 +1,6 @@
 // Behavioural net for the SectionsInspector ModelActions row (debt #97).
 //
-// Build / Sync geology / Seed / Seed-for-new-tests / Dedupe â€” moved here
+// Build / Sync stratigraphy / Seed / Seed-for-new-tests / Dedupe â€” moved here
 // from the Sections toolbar per the owner directive 2026-05-22 ("model-
 // management verbs leave the toolbar for the inspector").
 //
@@ -9,7 +9,7 @@
 //   M2  Geology axis: Seed button calls handleAutoPopulateFromStratigraphy
 //       with the visible-borehole ids + the section's applyUpdatedSection
 //       callback (regression for the #57 explicit-content callback drop).
-//   M3  Litho axis: Sync geology calls handleLoadBackdropSurfaces with the
+//   M3  Litho axis: Sync stratigraphy calls handleLoadBackdropSurfaces with the
 //       active litho model's parent geological model id; the autoPopulate
 //       handler is NOT called (B6-litho moved from the old toolbar test).
 //   M4  Seed-for-new-tests is hidden on the litho axis; visible + disabled
@@ -544,7 +544,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(autoPopulate.mock.calls[0][2]).toBe(applyUpdatedSection)
   })
 
-  it('M3 â€” Litho axis: Sync geology calls handleLoadBackdropSurfaces (not autoPopulate) with the parent geological model id', async () => {
+  it('M3 â€” Litho axis: Sync stratigraphy calls handleLoadBackdropSurfaces (not autoPopulate) with the parent geological model id', async () => {
     const loadBackdrop = vi.fn().mockResolvedValue(undefined)
     const autoPopulate = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
