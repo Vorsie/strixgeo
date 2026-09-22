@@ -4053,7 +4053,12 @@ to prompt them one at a time without flooding the user.  Owner
 directive: ship single-path first, revisit if bulk-path slivers
 become a dogfeed pain point.
 
-## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration) — STATUS: OPEN
+## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration) — WONTFIX 2026-09-22
+
+**WONTFIX 2026-09-22 (owner): "it'll become a mess on accept-all."** Not built and
+not planned: the prompt would fire N times per Accept-all and the response carries no
+suggestion-to-contact mapping; the build-time bounding (``divide_picks_by_geology``)
+covers the structural need. Closed by ruling, not by code.
 
 **SHELVED 2026-06-22 (owner directive).** Do NOT build this. While
 scoping the bulk-snap UX, the owner raised the deeper question: should
