@@ -209,7 +209,7 @@ describe('useSections axis routing (slice 2, #55)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// #156 — "Edit in Geology stage" deep-link axis override.
+// #156 — "Edit in Stratigraphy stage" deep-link axis override.
 //
 // The deep-link fires from the LITHO axis (the user right-clicked a geological
 // backdrop contact there) but hands handleFocusContacts a GEOLOGICAL contact
@@ -329,7 +329,7 @@ describe('useSections handleFocusContacts axis override (#156)', () => {
 
     const { result } = renderHook(() => useSections(args))
 
-    // The user is on the litho axis (the axis "Edit in Geology stage" fires from).
+    // The user is on the litho axis (the axis "Edit in Stratigraphy stage" fires from).
     act(() => {
       result.current.setSectionModelAxis('lithostratigraphic')
     })
