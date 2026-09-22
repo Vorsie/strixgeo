@@ -6,6 +6,7 @@
  * colour appearance, ``rebuildSurfacePrimitives``, fly-to helpers, and the
  * split-plane math. No React.
  */
+import { log } from '../../../utils/log'
 import * as Cesium from 'cesium'
 
 import type {
@@ -1490,6 +1491,13 @@ export function rebuildSurfacePrimitives(
     const isStale = surface.is_stale === true
     const alpha = isStale ? ALPHA_STALE : ALPHA_FRESH
     const zOffset = formation.display_order * Z_OFFSET_PER_ORDER
+    // What the sheet was built with — the first thing to read when the 3-D
+    // stacking looks wrong (owner 2026-09-22: the wrong sheet on top).
+    log.debug(
+      'geology3d',
+      `sheet ${formation.name}: order=${formation.display_order} zOffset=${zOffset.toFixed(1)} m ` +
+        `alpha=${alpha} verts=${surface.vertices.length} clipped=${clip !== undefined} depthWrite=true`,
+    )
 
     // The formation's pre-resolved hex colour (grey fallback when malformed).
     const baseColor = formationColorById.get(formation.id) ?? Cesium.Color.GRAY
