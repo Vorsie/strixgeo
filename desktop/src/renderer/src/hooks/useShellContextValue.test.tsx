@@ -2,16 +2,16 @@
 //
 // This memo's failure modes are invisible to every other check:
 // smoke catches mount crashes/TDZ, tsc catches missing names, the
-// unit suite mocks the context. A dropped dep â†’ silently stale
-// context app-wide; an unstable/extra dep â†’ recompute-every-render
+// unit suite mocks the context. A dropped dep → silently stale
+// context app-wide; an unstable/extra dep → recompute-every-render
 // (the S7 render-loop class). This renderHook contract pins all
 // three risks BEFORE the extraction wires into App.tsx:
 //
-//   T1 assembly  â€” every slice is nested correctly (a relocation slip
+//   T1 assembly  — every slice is nested correctly (a relocation slip
 //                  mis-wiring a field fails here).
-//   T2 no-stale  â€” changing one field in each slice across rerenders
+//   T2 no-stale  — changing one field in each slice across rerenders
 //                  is reflected in the output (a dropped dep fails).
-//   T3 stability â€” identical input refs â†’ identical output ref (an
+//   T3 stability — identical input refs → identical output ref (an
 //                  over-eager / unstable dep fails).
 //
 // Lightweight: renderHook only, no DOM / Cesium / Leaflet.
@@ -27,7 +27,7 @@ import {
 
 const noopAsync = (): Promise<void> => Promise.resolve()
 
-// A full, typed ShellContextValue stub â€” tsc enforces completeness, so
+// A full, typed ShellContextValue stub — tsc enforces completeness, so
 // if a slice gains a field the build breaks here too (intentional).
 function makeCtx(): ShellContextValue {
   return {
@@ -442,12 +442,12 @@ describe('useShellContextValue (debt #12 net / #53)', () => {
       { initialProps: args },
     )
     const first = result.current
-    // Same arg object, same refs â†’ memo must NOT recompute.
+    // Same arg object, same refs → memo must NOT recompute.
     rerender(args)
     expect(result.current).toBe(first)
   })
 
-  // T4 â€” debt #53 structural fix (auto-derived dep array).
+  // T4 — debt #53 structural fix (auto-derived dep array).
   //
   // For EVERY key on the args object (and EVERY key on the geo sub-
   // object), changing that key's value MUST cause the memo to
@@ -457,7 +457,7 @@ describe('useShellContextValue (debt #12 net / #53)', () => {
   // this is structurally impossible, but the test proves the
   // structural claim and would loudly fail if anyone refactors the
   // dep array back to a hand-listed shape with a hole.
-  it('T4 â€” every args field is wired as a dep (no silent staleness)', () => {
+  it('T4 — every args field is wired as a dep (no silent staleness)', () => {
     const baseArgs = toArgs(makeCtx())
     // Compose the full enumerable key set: flat args minus `geo`,
     // plus every key on `geo`.
