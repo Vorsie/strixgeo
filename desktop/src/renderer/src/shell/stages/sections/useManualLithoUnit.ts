@@ -84,7 +84,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
     lithoFormations,
   } = deps
 
-  // Phase-1.5 manual litho composition picker â€” new-unit path.
+  // Phase-1.5 manual litho composition picker — new-unit path.
   //
   // WHY a dedicated callback at this boundary:
   //   The "new unit" tab in LithoCompositionPickerDialog produces a main soil
@@ -96,7 +96,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
   //   instead of working with a committed 0.01 m contact.
   //
   // The "existing unit" path goes through sectionAwareCreateContact (already
-  // #57-correct via GET) â€” DO NOT change it.
+  // #57-correct via GET) — DO NOT change it.
   const handleManualLithoUnitCreate = useCallback(
     async (
       mainCode: string,
@@ -111,7 +111,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
       // delete anyway".
       //
       // Direct-insert flow.  Replaces the previous
-      // create-formation-only â†’ ghost â†’ user-accepts chain.  Two
+      // create-formation-only → ghost → user-accepts chain.  Two
       // accept-litho-suggestions calls fire in sequence:
       //
       //   1. Top contact at ``depthM`` with the user's chosen
@@ -123,7 +123,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
       //
       // Result: 3 visible bands instead of 2 (original split into
       // top + bottom pieces, new layer in between).  No pending-ghost
-      // state; the user can right-click â†’ Remove to undo, and the
+      // state; the user can right-click → Remove to undo, and the
       // existing same-litho merge popup re-merges the surrounding
       // pieces if the user removes the new one.
       if (!activeLithoModel || !selectedSection) {
@@ -211,7 +211,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
         // 2. Restoration contact at depthM + 0.20 carrying the
         //    surrounding band's lithology + admixtures.  Skip if no
         //    surrounding (e.g. inserting at the top of a column with
-        //    no prior litho contacts above) â€” the new band simply
+        //    no prior litho contacts above) — the new band simply
         //    extends downward to the next existing contact (or the
         //    test bottom), which is the right behaviour when there's
         //    nothing to restore.  Skip if the surrounding is the
@@ -223,7 +223,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
         ) {
           const restorationSuggestion: ManualSuggestion = {
             depth_top_m: depthM + 0.2,
-            depth_base_m: depthM + 0.21, // sentinel â€” only depth_top_m matters for the new contact
+            depth_base_m: depthM + 0.21, // sentinel — only depth_top_m matters for the new contact
             suggested_lithology: surroundingFormation.litho_main_soil_code,
             suggested_nad_class: null,
             mean_qc_mpa: null,
@@ -259,14 +259,14 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
           } catch (err) {
             log.warn(
               'section',
-              'handleManualLithoUnitCreate: restoration acceptLithoSuggestions failed â€” the new layer\'s bottom boundary is missing',
+              'handleManualLithoUnitCreate: restoration acceptLithoSuggestions failed — the new layer\'s bottom boundary is missing',
               err,
             )
           }
         }
 
         // Refresh formations + litho contacts so the new contacts
-        // land in local state â€” without this the in-corridor
+        // land in local state — without this the in-corridor
         // ``sectionContacts`` filter in SectionsCanvas still has the OLD
         // ``lithoContacts`` and renders nothing for the new contact
         // (owner dogfeed 2026-05-27: "dialog box, select a unit but
@@ -297,7 +297,7 @@ export function useManualLithoUnit(deps: UseManualLithoUnitDeps): UseManualLitho
     ],
   )
 
-  // Debt #151 dogfeed refinement 2026-05-27 â€” Existing Units tab of
+  // Debt #151 dogfeed refinement 2026-05-27 — Existing Units tab of
   // ``LithoCompositionPickerDialog`` on the litho axis.  Looks up the
   // picked formation by id and reuses ``handleManualLithoUnitCreate``
   // with its litho code + admixtures; the backend's find-or-create
