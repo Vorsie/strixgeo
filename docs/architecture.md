@@ -15,8 +15,7 @@ Strix/
 │   │   │   │                  observation.py, observation_layer.py,
 │   │   │   │                  drill_segment.py, field_log_interval.py
 │   │   │   ├── lab/           lab_test.py, grain_size.py, atterberg_limits.py,
-│   │   │   │                  caco3_content.py, organic_content.py, water_content.py,
-│   │   │   │                  scalar_lab_test.py    ← catch-all family
+│   │   │   │                  caco3_content.py, organic_content.py, water_content.py
 │   │   │   └── job.py         Job + JobStatus (job_status.py)
 │   │   ├── services/          cpt_interpretation.py, cpt_corrections.py,
 │   │   │                      voxel_litho/ (Numba greedy-mesh) + the litho /
