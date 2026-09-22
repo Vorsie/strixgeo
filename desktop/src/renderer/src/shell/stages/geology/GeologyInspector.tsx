@@ -22,7 +22,7 @@
  * ``.gmproj`` bundle (``sessionImportFormationIds`` from the coordinator bus).
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 
 import type { CrossSectionResponse, GapIssueResponse } from '../../../api/client'
@@ -32,6 +32,8 @@ import Modal from '../../../components/ui/Modal'
 import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
 import FormationDialog from '../../../components/interpretation/FormationDialog'
 import { resolveCandidateCrossingSections } from '../../../utils/crossingFocus'
+import { crossingIssueTests, describeCrossingIssue } from '../../../utils/crossingIssueText'
+import { sectionLineThroughPoint } from '../../../utils/sectionLineThroughPoint'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
@@ -80,7 +82,7 @@ export default function GeologyInspector(): JSX.Element {
       // so the issue's contact ids resolve to anchor coordinates.
       contacts: geoContacts,
     },
-    sections: { sections, sectionModelAxis },
+    sections: { sections, sectionModelAxis, handleSectionLineDrawn, effectiveHorizontalEpsg },
     investigations: { cpts, boreholes },
     toasts: { toast },
     // manifestFormationIds is still needed by reorderFormations' inline
@@ -160,6 +162,20 @@ export default function GeologyInspector(): JSX.Element {
     contactIds: readonly string[]
     candidates: CrossSectionResponse[]
   } | null>(null)
+  // Always the latest section list, for the draw-through flow above that
+  // waits for its new row across renders.
+  const sectionsRef = useRef(sections)
+  sectionsRef.current = sections
+  const describeIssue = useCallback(
+    (issue: GapIssueResponse) =>
+      describeCrossingIssue(
+        issue,
+        busFormations,
+        crossingIssueTests(issue, geoContacts, boreholes, cpts),
+        t,
+      ),
+    [busFormations, geoContacts, boreholes, cpts, t],
+  )
   const handleClickCrossingIssue = useCallback(
     (issue: GapIssueResponse) => {
       const candidates = resolveCandidateCrossingSections(
@@ -170,7 +186,36 @@ export default function GeologyInspector(): JSX.Element {
         cpts,
       )
       if (candidates.length === 0) {
-        toast('error', t('geology.noSectionForContact'))
+        // No section holds the offending contact. The old answer was a toast
+        // telling the engineer to draw one, without saying where (dogfeed
+        // 2026-09-22). Draw it for him: an east-west line through the first
+        // offending test, then open it on those contacts. Creating a section
+        // is undoable, so this fires without a dialog (docs/ux.md).
+        const anchor = crossingIssueTests(issue, geoContacts, boreholes, cpts)[0]
+        if (!anchor || effectiveHorizontalEpsg == null) {
+          toast('error', t('geology.noSectionForContact'))
+          return
+        }
+        const line = sectionLineThroughPoint(anchor.x, anchor.y, effectiveHorizontalEpsg)
+        void (async () => {
+          await handleSectionLineDrawn(line.start, line.end)
+          toast('success', t('geology.sectionDrawnThrough', { test: anchor.name }))
+          // The new row reaches ``sections`` on a later render; look for it briefly.
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 25))
+            const created = resolveCandidateCrossingSections(
+              issue.contact_ids,
+              geoContacts,
+              sectionsRef.current,
+              boreholes,
+              cpts,
+            )
+            if (created.length > 0) {
+              setSectionsDeepLinkTarget({ sectionId: created[0].id, contactIds: issue.contact_ids })
+              return
+            }
+          }
+        })()
         return
       }
       if (candidates.length === 1) {
@@ -182,7 +227,17 @@ export default function GeologyInspector(): JSX.Element {
       }
       setCrossingPicker({ contactIds: issue.contact_ids, candidates })
     },
-    [geoContacts, sections, boreholes, cpts, setSectionsDeepLinkTarget, toast, t],
+    [
+      geoContacts,
+      sections,
+      boreholes,
+      cpts,
+      setSectionsDeepLinkTarget,
+      toast,
+      t,
+      handleSectionLineDrawn,
+      effectiveHorizontalEpsg,
+    ],
   )
 
   // ---------------------------------------------------------------------------
@@ -272,6 +327,7 @@ export default function GeologyInspector(): JSX.Element {
         validationFailed={crossingsValidationFailed}
         crossingIssues={crossingIssues}
         onClickIssue={handleClickCrossingIssue}
+        describeIssue={describeIssue}
         t={t}
       />
 
