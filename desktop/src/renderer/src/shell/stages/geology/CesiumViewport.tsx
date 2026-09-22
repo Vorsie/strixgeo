@@ -4,6 +4,7 @@
  * basemap layer swap, primitive (re)build, camera sync, and the split-line
  * draw interaction.
  */
+import { log } from '../../../utils/log'
 import * as Cesium from 'cesium'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -163,6 +164,23 @@ export interface CesiumViewportProps {
  * JSX.Element
  *     The Cesium viewport container.
  */
+/**
+ * Read the diagnostics switch for order-independent translucency.
+ *
+ * OIT is off by design (the 2026-05-18 shimmer fix); this lets the owner A/B it
+ * on the real model without a rebuild. Off unless ``localStorage['strix.3d.oit']``
+ * is exactly ``'1'``; any storage error reads as off.
+ *
+ * @returns Whether the next viewer is created with OIT on.
+ */
+function oitDiagnosticsSwitch(): boolean {
+  try {
+    return window.localStorage.getItem('strix.3d.oit') === '1'
+  } catch {
+    return false
+  }
+}
+
 export function CesiumViewport({
   viewportKey,
   formations,
@@ -257,7 +275,10 @@ export function CesiumViewport({
       // (geology3DPrimitives.translucentDepthWritingRenderState, 2026-09-22).
       // (Both are construct-time-only: scene.msaaSamples /
       // .orderIndependentTranslucency are read-only after creation.)
-      orderIndependentTranslucency: false,
+      // Diagnostics switch (owner 2026-09-22, the wrong sheet on top): set
+      // ``localStorage['strix.3d.oit'] = '1'`` in DevTools and reload to try
+      // order-independent translucency on the real model; remove to go back.
+      orderIndependentTranslucency: oitDiagnosticsSwitch(),
     })
 
     // FXAA on top of MSAA — cheap extra smoothing of the shader-aliased
@@ -270,6 +291,10 @@ export function CesiumViewport({
     if (creditContainer) creditContainer.style.display = 'none'
 
     widgetRef.current = widget
+    log.info(
+      'geology3d',
+      `viewer created: OIT=${widget.scene.orderIndependentTranslucency} msaa=${widget.scene.msaaSamples}`,
+    )
     // A freshly created widget has the default whole-Earth camera —
     // it must be re-framed. Clearing the fit guard here is what makes
     // the StrictMode-recreated (and secondary) viewport actually fly
