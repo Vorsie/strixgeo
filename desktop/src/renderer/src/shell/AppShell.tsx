@@ -279,6 +279,11 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   // re-run and the user is NOT bounced back. setActiveStage('data') is
   // idempotent (same-id set is a no-op) so no activeStageId guard is
   // needed — which is also why exhaustive-deps stays satisfied.
+  //
+  // ALSO keyed on detailOpenSeq (owner 2026-09-22): the engineer opened a
+  // borehole's details, walked back to the section, and asked for the SAME
+  // details again — selection and view were unchanged, so nothing re-ran and
+  // he stayed on the section. The counter changes on the ACTION, not the value.
   useEffect(() => {
     const hasSelection =
       context.coordinator.selectedId !== null ||
@@ -290,6 +295,7 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     context.coordinator.selectedId,
     context.coordinator.selectedBoreholeId,
     context.coordinator.view,
+    context.coordinator.detailOpenSeq,
     setActiveStage,
   ])
 
