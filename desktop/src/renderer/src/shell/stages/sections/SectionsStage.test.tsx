@@ -1,7 +1,7 @@
 // Smoke test for the Sections stage components (SectionsCanvas,
 // SectionsToolbar, SectionsInspector).
 //
-// The App.smoke.test.tsx only mounts App with project=null â€” it never reaches
+// The App.smoke.test.tsx only mounts App with project=null — it never reaches
 // the loaded-project Sections render (WelcomeScreen appears before AppShell
 // mounts).  This test exercises the three Sections zone components with a
 // stub ShellContext to catch TDZ crashes, missing imports, and render-time
@@ -20,7 +20,7 @@ import SectionsToolbar from './SectionsToolbar'
 import SectionsInspector from './SectionsInspector'
 
 // ---------------------------------------------------------------------------
-// Module-level mocks â€” keep the component tree from touching the network or
+// Module-level mocks — keep the component tree from touching the network or
 // Leaflet (Leaflet needs a real DOM; jsdom is incomplete for map rendering).
 // ---------------------------------------------------------------------------
 
@@ -52,13 +52,13 @@ vi.mock('../../../components/SectionPanel', () => ({
   default: () => null,
 }))
 
-// VirtueleBoringStrip fetches the catalog on mount â€” stub it.
+// VirtueleBoringStrip fetches the catalog on mount — stub it.
 vi.mock('../../../components/sections/VirtueleBoringStrip', () => ({
   default: () => null,
 }))
 
 // ---------------------------------------------------------------------------
-// Minimal ShellContext stub â€” all leaf values needed to render the three
+// Minimal ShellContext stub — all leaf values needed to render the three
 // Sections stage components without throwing.  Optional / unused slices
 // default to stable empty values so any future useShell() read in a
 // newly-added component doesn't need a stub update.
@@ -410,7 +410,7 @@ afterEach(() => {
 describe('Sections stage (smoke)', () => {
   it('SectionsCanvas renders without throwing when no section is selected', () => {
     const ctx = makeStubContext()
-    // selectedSectionId = null â†’ map fallback branch (MapView is mocked)
+    // selectedSectionId = null → map fallback branch (MapView is mocked)
     render(
       <ShellContext.Provider value={ctx}>
         <SectionsCanvas />
@@ -445,7 +445,7 @@ describe('Sections stage (smoke)', () => {
     }
     ctx.sections.sections = [section]
     ctx.sections.selectedSectionId = 'sec-1'
-    // SectionPanel is mocked â€” the render path just confirms the
+    // SectionPanel is mocked — the render path just confirms the
     // selectedSection branch reaches SectionPanel without throwing.
     render(
       <ShellContext.Provider value={ctx}>
@@ -475,7 +475,7 @@ describe('Sections stage (smoke)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('SectionsInspector count matches badge â€” both read visibleSections.length', () => {
+  it('SectionsInspector count matches badge — both read visibleSections.length', () => {
     // Pins the Fix 1 convergence: badge (SectionsStage.ts) and inspector
     // (SectionsInspector.tsx) must both compute their count from
     // sections.visibleSections, not the unfiltered sections list.
@@ -517,7 +517,7 @@ describe('Sections stage (smoke)', () => {
       </ShellContext.Provider>,
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
-    // Inspector header shows "(1)" â€” the visible count, not "(2)" from the raw list.
+    // Inspector header shows "(1)" — the visible count, not "(2)" from the raw list.
     expect(screen.getByText('(1)')).toBeTruthy()
     // The invisible section must not appear in the list.
     expect(screen.queryByText('Section B-B')).toBeNull()
@@ -525,7 +525,7 @@ describe('Sections stage (smoke)', () => {
     expect(screen.getByText('Section A-A')).toBeTruthy()
   })
 
-  // Delete confirm modal â€” replaced window.confirm() with Modal pattern.
+  // Delete confirm modal — replaced window.confirm() with Modal pattern.
   // Three paths: open, confirm (deletes), cancel (no delete).
   describe('SectionsToolbar delete confirm modal', () => {
     function renderWithSection() {
@@ -569,7 +569,7 @@ describe('Sections stage (smoke)', () => {
       // Click the Delete toolbar button
       const deleteBtn = screen.getByTitle('Delete "Section B-B"')
       fireEvent.click(deleteBtn)
-      // Modal should now be open â€” confirm by dialog role and the heading text.
+      // Modal should now be open — confirm by dialog role and the heading text.
       expect(screen.getByRole('dialog')).toBeTruthy()
       expect(screen.getByRole('heading', { name: /delete cross-section/i })).toBeTruthy()
     })
