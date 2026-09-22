@@ -118,6 +118,14 @@ export interface Coordinator {
   view: 'map' | 'chart'
   /** Switch the main canvas mode. */
   setView: (v: 'map' | 'chart') => void
+  /**
+   * Bumps on every open-detail ACTION (``handleSelect`` / ``handleSelectBorehole``),
+   * even when the selection is unchanged: the shell's open-detail → Data-stage
+   * jump keys on it, so "Open details" on the SAME test after leaving Data still
+   * returns there (owner 2026-09-22). Optional only so the many hand-built test
+   * contexts need not name it; the real value always does.
+   */
+  detailOpenSeq?: number
   /** Select a CPT: sets selectedId, clears borehole + section, loads detail, switches to chart. */
   handleSelect: (id: string) => Promise<void>
   /**
