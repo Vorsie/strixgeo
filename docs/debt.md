@@ -17,7 +17,7 @@ sections that follow.
 
 ### ═══ Full-repo audit — 2026-06-13 (read + triage) ═══
 
-* **Audit report:** [`DEBT.md`](../DEBT.md) (repo root) — a point-in-time
+* **Audit report:** `DEBT.md` (repo root; deleted 2026-09-22, in git history at 8d54f6f78) — a point-in-time
   13-reviewer read-only audit of `develop` tip `1f52db38`. 121 findings
   (0 Critical, 14 High, 42 Medium, 36 Low, 29 Info) across architecture,
   security, correctness, dead code, testing, performance, dependencies,
@@ -6107,7 +6107,7 @@ in the 3D viewer, that is a NEW item, not this one.)
 
 ## Audit follow-up batch (2026-06-13)
 
-Triage of the 13-reviewer full-repo audit ([`DEBT.md`](../DEBT.md), snapshot of
+Triage of the 13-reviewer full-repo audit (`DEBT.md`, deleted 2026-09-22 and kept in git history; snapshot of
 `develop` tip `1f52db38`; 121 findings). The audit is an unfiltered point-in-time
 snapshot — this batch is the curated promotion into the tracked backlog. Each new
 item below cites the originating reviewer IDs so the full detail (location, repro,
@@ -8115,7 +8115,7 @@ still present, with all ~40 of its tests green, so a revert is one command while
 change is dogfed. `geo_bands.py`, `load_geo_surfaces.py` and `surface_bound.py`
 have no production caller left. Deleting them, and `scripts/eval_voxel_geo_bands.py`
 — which asserts the OPPOSITE of the ruling ("sideways fill ≥ 1.5× un-bounded",
-"NEVER relax the assertion") — waits on owner acceptance.
+"NEVER relax the assertion") — waited on owner acceptance; the script was deleted 2026-09-22 on his word (the three modules stay until dogfed).
 
 **Open residual, not from this change.** `model void` rose 33 → 303 (0.2 % of
 samples) and 5 gaps still have a partly-missing deepest region (8 samples, 4 of them
