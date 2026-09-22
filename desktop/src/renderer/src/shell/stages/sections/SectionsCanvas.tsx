@@ -2224,7 +2224,7 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Auto-load geological backdrop surfaces when switching to the litho axis.
   //
-  // WHY: the "Sync geology" verb in SectionsToolbar loads backdrop surfaces
+  // WHY: the "Sync stratigraphy" verb in SectionsToolbar loads backdrop surfaces
   // on demand, but users expect to see the geological reference immediately
   // when they switch to the litho axis â€” they should not have to know to
   // press a separate button first.  Auto-loading on axis-switch is cheap
@@ -3094,7 +3094,7 @@ export default function SectionsCanvas(): JSX.Element {
             undoStack,
             // Geological surface backdrop (#60): litho axis only, and only when
             // at least one geological formation exists; surfaces come from the
-            // user-triggered handleLoadBackdropSurfaces ("Sync geology").
+            // user-triggered handleLoadBackdropSurfaces ("Sync stratigraphy").
             referenceFormations:
               isLitho && formations.length > 0 ? formations : undefined,
             referenceSurfacesByFormationId:
@@ -3443,10 +3443,10 @@ export default function SectionsCanvas(): JSX.Element {
                 ? (fid, ord) => void handleOpenInspectLensBody(fid, ord)
                 : undefined
             }
-            // Geology-stage deep-link (litho axis only, dogfeed 2026-05-25).
+            // Stratigraphy-stage deep-link (litho axis only, dogfeed 2026-05-25).
             // Right-click on a reference (geological backdrop) contact strip â†’
-            // "Edit in Geology stage" â†’ sets geoDeepLinkTarget on the coordinator.
-            // AppShell watches the target and switches to the geology stage on
+            // "Edit in Stratigraphy stage" â†’ sets geoDeepLinkTarget on the coordinator.
+            // AppShell watches the target and switches to the Stratigraphy stage on
             // the correct section; GeologyInspector consumes + clears the payload.
             onEditInGeologyStage={
               isLitho && contacts.length > 0
