@@ -555,7 +555,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
 })
 
 // B6-geo / B6-litho â€” moved to SectionsInspector.test.tsx (debt #97):
-// Seed and Sync geology are now Model-actions row buttons in the
+// Seed and Sync stratigraphy are now Model-actions row buttons in the
 // inspector, not toolbar widgets. The new tests assert the same
 // dispatch (autoPopulate on geology axis, loadBackdrop on litho axis)
 // against the inspector surface.
