@@ -343,7 +343,7 @@ export interface FormationContactCreatePayload {
    * Explicit-content invariant (owner directive 2026-05-17).
    * When drawing a contact on a section, pass the section's id so the
    * router appends the created contact to seeded_formation_contact_ids.
-   * Omit when creating contacts from the Geology stage (no section context).
+   * Omit when creating contacts from the Stratigraphy stage (no section context).
    */
   section_id?: string | null
 }
