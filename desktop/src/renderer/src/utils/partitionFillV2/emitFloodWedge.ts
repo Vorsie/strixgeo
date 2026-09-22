@@ -49,7 +49,7 @@ const SLOPE_EPS = 1e-3
  * risk — two point attempts measured +489 / +197 holes), so per ruling 7 (no partial fixes /
  * no new leaks) the ride stays GATED OFF: the plain straight wedge (parity) ships, the 20 CS2
  * g17 holes stay the documented wall. Flip to ``false`` + fix ``ridePolyline``'s simplicity to
- * revive. See REWRITE_STATE.md §19.
+ * revive. See REWRITE_STATE.md §19 (deleted 2026-09-22; in git history at 8d54f6f78).
  */
 const SLOPING_RIDE_ENABLED = false
 
