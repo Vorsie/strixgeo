@@ -251,8 +251,10 @@ export function CesiumViewport({
       // straight into the cut face (the split view). Under continuous render
       // the accumulation textures vary frame-to-frame → the bands SHIMMER.
       // Disabling OIT falls back to distance-sorted back-to-front alpha
-      // blending: stable per frame and correct here because the 0.2 m
-      // per-order z-offset keeps the layers well-separated for the sort.
+      // blending: stable per frame, and correct from ABOVE because the 0.2 m
+      // per-order z-offset separates the sheets' bounding spheres. From the
+      // side those spheres tie, so the formation sheets also WRITE depth
+      // (geology3DPrimitives.translucentDepthWritingRenderState, 2026-09-22).
       // (Both are construct-time-only: scene.msaaSamples /
       // .orderIndependentTranslucency are read-only after creation.)
       orderIndependentTranslucency: false,
