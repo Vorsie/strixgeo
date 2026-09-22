@@ -465,27 +465,27 @@ describe('NAD vocabulary axis — each soil family takes ONE axis of words (V)',
 
 // ---- soil <-> class family coupling ----------------------------------------
 
-describe('nadClassesForSoil â€” the picker asks the SOIL, never the current class', () => {
+describe('nadClassesForSoil — the picker asks the SOIL, never the current class', () => {
   // Owner ruling 2026-08-26: "no a zand body can never carry a silt packing
-  // class" â€” "the nad coupling is absolute". The menu is built from the band's
+  // class" — "the nad coupling is absolute". The menu is built from the band's
   // LITHO soil, so a band that wrongly carries a foreign class can still be
   // corrected back to its own family. Keying off the current class is what
   // made a stranger band uncorrectable.
 
   const SOILS = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN']
 
-  it('F1 â€” a sand unit offers the eight SAND classes and nothing else', () => {
+  it('F1 — a sand unit offers the eight SAND classes and nothing else', () => {
     expect(nadClassesForSoil('ZAND')).toEqual([5, 6, 7, 8, 9, 10, 11, 12])
   })
 
-  it('F2 â€” every base lithology offers its own family, by the norm table', () => {
+  it('F2 — every base lithology offers its own family, by the norm table', () => {
     expect(nadClassesForSoil('GRIND')).toEqual([1, 2, 3, 4])
     expect(nadClassesForSoil('SILT')).toEqual([13, 14, 15, 16, 17, 18, 19, 20])
     expect(nadClassesForSoil('KLEI')).toEqual([21, 22, 23, 24, 25, 26, 27, 28])
     expect(nadClassesForSoil('VEEN')).toEqual([29, 30, 31])
   })
 
-  it('F3 â€” the classes a soil offers all name that soil back', () => {
+  it('F3 — the classes a soil offers all name that soil back', () => {
     // Structural: the offer and the label are derived from the same table, so
     // this cannot pass while the menu offers a class of another family.
     for (const soil of SOILS) {
@@ -496,19 +496,19 @@ describe('nadClassesForSoil â€” the picker asks the SOIL, never the current
     }
   })
 
-  it('F4 â€” the five families together are exactly the 31 classes, no gaps, no overlap', () => {
+  it('F4 — the five families together are exactly the 31 classes, no gaps, no overlap', () => {
     const all = SOILS.flatMap(s => nadClassesForSoil(s))
     expect([...all].sort((a, b) => a - b)).toEqual(Array.from({ length: 31 }, (_, i) => i + 1))
   })
 
-  it('F5 â€” a soil the table does not know offers nothing, rather than guessing', () => {
+  it('F5 — a soil the table does not know offers nothing, rather than guessing', () => {
     expect(nadClassesForSoil('SCHIST')).toEqual([])
     expect(nadClassesForSoil(null)).toEqual([])
     expect(nadClassesForSoil(undefined)).toEqual([])
     expect(nadClassesForSoil('')).toEqual([])
   })
 
-  it('F6 â€” a sand band carrying a silt class is a stranger, and its own family still answers', () => {
+  it('F6 — a sand band carrying a silt class is a stranger, and its own family still answers', () => {
     // The owner's case. The band reads NAD 14 today; asking the SOIL still
     // returns the sand classes, which is what lets the engineer heal it.
     expect(nadClassIsForeignToSoil(14, 'ZAND')).toBe(true)
@@ -516,7 +516,7 @@ describe('nadClassesForSoil â€” the picker asks the SOIL, never the current
     expect(nadClassesForSoil('ZAND')).not.toContain(14)
   })
 
-  it('F8 â€” STRUCTURAL: the class-keyed family helper stays deleted', async () => {
+  it('F8 — STRUCTURAL: the class-keyed family helper stays deleted', async () => {
     // Mirrors the collision-law deletion pin: the mechanism is gone, and this
     // fails if anyone brings it back. `nadClassFamily(currentClass)` answered
     // "what else could this class have been", and building the hand-set menu
@@ -529,10 +529,10 @@ describe('nadClassesForSoil â€” the picker asks the SOIL, never the current
     }
   })
 
-  it('F7 â€” an own-family class is not a stranger, and neither is an unclassified band', () => {
+  it('F7 — an own-family class is not a stranger, and neither is an unclassified band', () => {
     expect(nadClassIsForeignToSoil(6, 'ZAND')).toBe(false)
     expect(nadClassIsForeignToSoil(null, 'ZAND')).toBe(false)
-    // No soil to judge against means no verdict â€” never a false accusation.
+    // No soil to judge against means no verdict — never a false accusation.
     expect(nadClassIsForeignToSoil(14, null)).toBe(false)
     expect(nadClassIsForeignToSoil(14, 'SCHIST')).toBe(false)
   })
