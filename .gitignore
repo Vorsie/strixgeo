@@ -171,7 +171,7 @@ desktop/scripts/voxel_oracle_inputs.json
 voxel_viewer/
 
 # Real-data geotech gate input — extracted from dev DB; regenerable.
-# Regenerate: scripts/rematerialise_dev_geotech.py + scripts/throwaway_cs1_geotech_gate_extract.py
+# Regenerate: scripts/rematerialise_dev_geotech.py + scripts/extract_cs1_geotech_gate.py
 scripts/cs1_geotech_gate.json
 
 # StrixGeo user manual — Sphinx build output (regenerable via scripts/build-manual.ps1)
