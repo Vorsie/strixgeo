@@ -49,6 +49,9 @@ export const MODELS = {
     'Open the cross-section containing the offending contacts and pan to them.',
   'geology.noSectionForContact':
     'No cross-section contains the offending contact. Draw one through the borehole or CPT to view it.',
+  'geology.crossing.text': 'Younger formation {younger} sits below older {older} by up to {delta} m',
+  'geology.crossing.at': ' at {tests}',
+  'geology.sectionDrawnThrough': 'Cross-section drawn through {test}. Ctrl+Z removes it.',
   'geology.loadFailed':
     'Could not load the stratigraphic model. Check the connection and reopen the project.',
   'geology.splitView': 'Split view',
