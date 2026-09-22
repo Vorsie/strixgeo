@@ -2,7 +2,7 @@
 //
 // Claims pinned here:
 //   B1  When activeLithoModel is null, the "Litho" radio button is disabled.
-//       (The tooltip contract â€” title on the span wrapper, not the button â€”
+//       (The tooltip contract — title on the span wrapper, not the button —
 //       is pinned separately in B5; B1 verifies disabled state only.)
 //   B2  When activeLithoModel is present, the "Litho" radio button is enabled
 //       and clicking it calls setSectionModelAxis('lithostratigraphic').
@@ -11,11 +11,11 @@
 //       When the axis is 'lithostratigraphic', clicking Geology switches back.
 //   B4  (P1-C) When activeLithoModel is null the inline hint paragraph renders;
 //       when a litho model exists the hint is absent.
-//   B5  (P1-C) The tooltip text "Create a lithostratigraphic modelâ€¦" is on the
+//   B5  (P1-C) The tooltip text "Create a lithostratigraphic model…" is on the
 //       span wrapper (not the disabled button) so Chromium/Electron can surface
-//       it on hover â€” verified by querying the span's title attribute.
+//       it on hover — verified by querying the span's title attribute.
 //
-// Rendering SectionsToolbar via ShellContext.Provider â€” same pattern as
+// Rendering SectionsToolbar via ShellContext.Provider — same pattern as
 // SectionsStage.test.tsx.  The non-interacting components (MapView, SectionPanel)
 // are mocked so jsdom doesn't need Leaflet or SectionPanel's fetch hooks.
 
@@ -28,7 +28,7 @@ import type { GeologicalModelResponse } from '../../../api/client'
 import SectionsToolbar from './SectionsToolbar'
 
 // ---------------------------------------------------------------------------
-// Module mocks â€” same set as SectionsStage.test.tsx
+// Module mocks — same set as SectionsStage.test.tsx
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../api/client', async () => {
@@ -91,7 +91,7 @@ function makeCtx(overrides: {
   // ``ghostsByAnchor`` is what consumers (SectionsToolbar) read for
   // "has suggestions" + bulk-anchor count. Tests that want a populated
   // ghost set can populate via ``ghostsByAnchor`` directly OR pass a
-  // ``lithoSuggestions`` array â€” the helper wraps the array into a
+  // ``lithoSuggestions`` array — the helper wraps the array into a
   // synthetic single-anchor entry under a hard-coded id so existing
   // call sites that pre-date Phase 2 keep working.
   ghostsByAnchor?: ReadonlyMap<string, import('../../../hooks/useGeologicalModel').BulkAnchorGhost>
@@ -487,7 +487,7 @@ afterEach(() => {
 })
 
 describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
-  it('B1 â€” Litho button is disabled when activeLithoModel is null', () => {
+  it('B1 — Litho button is disabled when activeLithoModel is null', () => {
     const ctx = makeCtx({ activeLithoModel: null })
     renderToolbar(ctx)
 
@@ -495,13 +495,13 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     expect(lithoBtn).toBeDisabled()
 
     // The tooltip text moves to the span wrapper (P1-C fix) so Chromium/Electron
-    // can surface it on hover â€” disabled buttons do not fire mouse events.
+    // can surface it on hover — disabled buttons do not fire mouse events.
     // The span-level assertion lives in B5; here we only verify disabled state.
   })
 
-  it('B1-enabled â€” when activeLithoModel exists the button carries its own title (no span wrapper needed)', () => {
+  it('B1-enabled — when activeLithoModel exists the button carries its own title (no span wrapper needed)', () => {
     // Symmetric counterpart to B5: when the button is enabled, Chromium CAN
-    // surface a title on the element itself â€” no presentation-span wrapper is
+    // surface a title on the element itself — no presentation-span wrapper is
     // needed.  We assert the button has the expected title and no ancestor span
     // holds an alternative tooltip, so the two code-paths (disabled/enabled)
     // cannot silently converge to the same DOM shape.
@@ -513,7 +513,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     expect(lithoBtn).toHaveAttribute('title', 'Edit the lithological model contacts on this section')
 
     // The span wrapper (role="presentation") should NOT carry a tooltip in the
-    // enabled case â€” its only job is to make the disabled-button tooltip reachable.
+    // enabled case — its only job is to make the disabled-button tooltip reachable.
     const ancestorWithTitle = lithoBtn.closest('[title]')
     // Either there is no titled ancestor, or the titled element IS the button itself.
     if (ancestorWithTitle !== null) {
@@ -521,7 +521,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     }
   })
 
-  it('B2 â€” Litho button is enabled and calls setSectionModelAxis when activeLithoModel exists', () => {
+  it('B2 — Litho button is enabled and calls setSectionModelAxis when activeLithoModel exists', () => {
     const setSectionModelAxis = vi.fn()
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -536,7 +536,7 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     expect(setSectionModelAxis).toHaveBeenCalledWith('lithostratigraphic')
   })
 
-  it('B3 â€” Geology button calls setSectionModelAxis when litho axis is active', () => {
+  it('B3 — Geology button calls setSectionModelAxis when litho axis is active', () => {
     const setSectionModelAxis = vi.fn()
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -554,15 +554,15 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
   })
 })
 
-// B6-geo / B6-litho â€” moved to SectionsInspector.test.tsx (debt #97):
+// B6-geo / B6-litho — moved to SectionsInspector.test.tsx (debt #97):
 // Seed and Sync stratigraphy are now Model-actions row buttons in the
 // inspector, not toolbar widgets. The new tests assert the same
 // dispatch (autoPopulate on geology axis, loadBackdrop on litho axis)
 // against the inspector surface.
 
 describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
-  it('B4 â€” inline hint renders when activeLithoModel is null; disappears when model exists', () => {
-    // No litho model â†’ hint paragraph visible.
+  it('B4 — inline hint renders when activeLithoModel is null; disappears when model exists', () => {
+    // No litho model → hint paragraph visible.
     const ctxNoModel = makeCtx({ activeLithoModel: null })
     const { unmount } = renderToolbar(ctxNoModel)
 
@@ -572,7 +572,7 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
 
     unmount()
 
-    // Litho model present â†’ hint absent.
+    // Litho model present → hint absent.
     const ctxWithModel = makeCtx({ activeLithoModel: makeLithoModel() })
     renderToolbar(ctxWithModel)
 
@@ -581,10 +581,10 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('B5 â€” tooltip text is on the span wrapper so Chromium can surface it on hover over a disabled button', () => {
+  it('B5 — tooltip text is on the span wrapper so Chromium can surface it on hover over a disabled button', () => {
     // WHY: Chromium/Electron does not fire mouse events on disabled elements,
     // so a `title` on the <button disabled> is never shown. The fix wraps it
-    // in a non-disabled <span role="presentation" title="â€¦"> so hover works.
+    // in a non-disabled <span role="presentation" title="…"> so hover works.
     // We verify the span carries the title (not the button) so this contract
     // cannot silently regress back to the button-only form.
     const ctx = makeCtx({ activeLithoModel: null })
@@ -599,7 +599,7 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
 
     // The span wrapper must carry the tooltip text.
     // The span has role="presentation" so it is not in the accessibility
-    // tree by role â€” query by its title attribute directly.
+    // tree by role — query by its title attribute directly.
     const tooltipSpan = lithoBtn.closest('[title]')
     expect(tooltipSpan).not.toBeNull()
     expect(tooltipSpan).toHaveAttribute(
@@ -613,10 +613,10 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
 // Part 1: litho-axis canSuggest + handleSuggest use sectionFocusedColumn
 // ---------------------------------------------------------------------------
 
-describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)', () => {
+describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', () => {
   // S1: "Suggest litho" is DISABLED when sectionFocusedColumn is null on the
   // litho axis, even when a CPT is globally selected in the coordinator.
-  it('S1 â€” Suggest is disabled when no column is focused in the section (litho axis)', () => {
+  it('S1 — Suggest is disabled when no column is focused in the section (litho axis)', () => {
     const ctx: ShellContextValue = {
       ...makeCtx({
         activeLithoModel: makeLithoModel(),
@@ -624,7 +624,7 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
         sectionFocusedColumn: null,
         selectedSectionId: 'sec-1',
       }),
-      // Global coordinator has a selected CPT â€” must NOT enable Suggest on litho axis.
+      // Global coordinator has a selected CPT — must NOT enable Suggest on litho axis.
       coordinator: {
         ...makeCtx().coordinator,
         selectedId: 'cpt-99',
@@ -634,8 +634,8 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
     renderToolbar(ctx)
     // After the 2026-05-23 SplitToolbarButton fall-through fix, the
     // "disabled" primary acts as a click target that opens the caret
-    // dropdown â€” the user can still reach the bulk variants without
-    // aiming for the small â–¾. So the button is NOT truly disabled,
+    // dropdown — the user can still reach the bulk variants without
+    // aiming for the small ▾. So the button is NOT truly disabled,
     // but its title carries the "click for options" hint and it
     // visually reads as muted-but-clickable.
     const suggestBtn = screen.getByTestId('litho-suggest')
@@ -646,7 +646,7 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
   // S2: "Suggest litho" is ENABLED when a column is focused in the section on
   // the litho axis (sectionFocusedColumn is set), even when nothing is globally
   // selected in the coordinator.
-  it('S2 â€” Suggest is enabled when a column is focused in the section (litho axis)', () => {
+  it('S2 — Suggest is enabled when a column is focused in the section (litho axis)', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -660,7 +660,7 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
 
   // S3: clicking "Suggest litho" calls handleSuggestLitho with the SECTION-
   // FOCUSED column's kind and id (not the global coordinator selection).
-  it('S3 â€” Suggest calls handleSuggestLitho with the focused column kind + id', async () => {
+  it('S3 — Suggest calls handleSuggestLitho with the focused column kind + id', async () => {
     const suggestLitho = vi.fn().mockResolvedValue(undefined)
     const ctx: ShellContextValue = {
       ...makeCtx({
@@ -683,8 +683,8 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
   })
 
   // S4: on the GEOLOGICAL axis, canSuggest still uses the global coordinator
-  // selection (selectedId / selectedBoreholeId) â€” zero regression.
-  it('S4 â€” geological axis: Suggest is disabled when coordinator has no selection', () => {
+  // selection (selectedId / selectedBoreholeId) — zero regression.
+  it('S4 — geological axis: Suggest is disabled when coordinator has no selection', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'geological',
@@ -702,14 +702,14 @@ describe('SectionsToolbar litho Suggest â€” section-focused column (Part 1)
 // Slice B: Accept all button + Build litho relocation (Phase 1 accept flow)
 // ---------------------------------------------------------------------------
 // Note: "Build litho" was REMOVED from SectionsToolbar in Phase 1 (it moved
-// to LithologyToolbar). BL1â€“BL4 now test the "Accept all" button that
+// to LithologyToolbar). BL1–BL4 now test the "Accept all" button that
 // replaced it on the litho axis when suggestions are present.
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => {
   // BL1: "Accept all" is visible and enabled on the litho axis when there
   // are pending litho suggestions.
-  it('BL1 â€” Accept all button is visible and enabled when suggestions present', () => {
+  it('BL1 — Accept all button is visible and enabled when suggestions present', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -736,7 +736,7 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
   })
 
   // BL2: "Accept all" is absent when there are no suggestions (hasSuggestions=false).
-  it('BL2 â€” Accept all button is absent when no suggestions', () => {
+  it('BL2 — Accept all button is absent when no suggestions', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -747,7 +747,7 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
   })
 
   // BL3: Clicking "Accept all" calls handleAcceptAllLithoSuggestions.
-  it('BL3 â€” clicking Accept all calls handleAcceptAllLithoSuggestions', async () => {
+  it('BL3 — clicking Accept all calls handleAcceptAllLithoSuggestions', async () => {
     const acceptAll = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -780,13 +780,13 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
     // Regression (#57 class): the section-update callback MUST be the
     // 2nd arg, or the server-echoed seeded_formation_contact_ids is
     // dropped and the explicit-content filter hides every accepted
-    // litho contact. This exact bug has recurred 3Ã— â€” pin it.
+    // litho contact. This exact bug has recurred 3× — pin it.
     expect(acceptAll.mock.calls[0][1]).toBe(ctx.sections.applyUpdatedSection)
   })
 
   // BL4: "Build litho" is absent from SectionsToolbar on the litho axis
   // (it moved to LithologyToolbar in Phase 1).
-  it('BL4 â€” Build litho button is NOT in SectionsToolbar (moved to LithologyToolbar)', () => {
+  it('BL4 — Build litho button is NOT in SectionsToolbar (moved to LithologyToolbar)', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -798,13 +798,13 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
 })
 
 describe('SectionsToolbar undo button (dogfeed 2026-05-22)', () => {
-  it('U1 â€” Undo button is disabled when the undo stack is empty', () => {
+  it('U1 — Undo button is disabled when the undo stack is empty', () => {
     // makeCtx() defaults the undo stack to canUndo:false.
     renderToolbar(makeCtx())
     expect(screen.getByRole('button', { name: /^undo$/i })).toBeDisabled()
   })
 
-  it('U2 â€” Undo button calls undo() when the stack has an entry', () => {
+  it('U2 — Undo button calls undo() when the stack has an entry', () => {
     const undo = vi.fn().mockResolvedValue(undefined)
     const ctx: ShellContextValue = {
       ...makeCtx(),
@@ -841,7 +841,7 @@ describe('SectionsToolbar Admixtures dropdown (dogfeed 2026-05-22)', () => {
     spans_boundary: false,
   }
 
-  it('A1 â€” Admixtures dropdown is disabled with no ghost suggestions', () => {
+  it('A1 — Admixtures dropdown is disabled with no ghost suggestions', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -850,7 +850,7 @@ describe('SectionsToolbar Admixtures dropdown (dogfeed 2026-05-22)', () => {
     expect(screen.getByRole('button', { name: /admixtures/i })).toBeDisabled()
   })
 
-  it('A2 â€” Admixtures dropdown is enabled when ghost suggestions exist', () => {
+  it('A2 — Admixtures dropdown is enabled when ghost suggestions exist', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
@@ -860,7 +860,7 @@ describe('SectionsToolbar Admixtures dropdown (dogfeed 2026-05-22)', () => {
     expect(screen.getByRole('button', { name: /admixtures/i })).not.toBeDisabled()
   })
 
-  it('A3 â€” "Strip all admixtures" calls handleStripLithoAdmixtures', () => {
+  it('A3 — "Strip all admixtures" calls handleStripLithoAdmixtures', () => {
     const strip = vi.fn()
     const ctx: ShellContextValue = {
       ...makeCtx({
