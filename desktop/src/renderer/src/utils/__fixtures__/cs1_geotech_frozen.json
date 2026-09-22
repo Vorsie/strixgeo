@@ -1,5 +1,5 @@
 {
- "provenance": "CS1 of test.strix (litho model + geotech model), extracted 2026-07-06, anonymised. Regenerate: scripts/throwaway_cs1_partition_extract.py + scripts/throwaway_geotech_brainstorm_extract.py against the dev DB, then node scripts/throwaway_freeze_geotech_fixture.mjs.",
+ "provenance": "CS1 of test.strix (litho model + geotech model), extracted 2026-07-06, anonymised. Regenerate: scripts/extract_cs1_partition_input.py + scripts/throwaway_geotech_brainstorm_extract.py against the dev DB, then node scripts/freeze_cs1_geotech_fixture.mjs.",
  "alongM": {
   "col-00": 0,
   "col-01": 73.506,
