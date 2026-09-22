@@ -11,7 +11,7 @@
 // All state is sourced from useShell() — no props accepted.
 
 import { geotechStatisticLabel } from '../../../utils/geotechStatistic'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ChevronDown,
@@ -55,6 +55,8 @@ import {
 } from '../../../utils/geotechSubdivideActionStore'
 import { useT, type Translator } from '../../../i18n/translate'
 import { sectionDisplayName } from '../../../utils/sectionDisplayName'
+import SectionNameInput from '../../../components/sections/SectionNameInput'
+import { useSectionNameEditor } from '../../../components/sections/useSectionNameEditor'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
 const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -247,6 +249,8 @@ export default function SectionsInspector(): JSX.Element {
           onSelect={handleSelectSection}
           onCreate={handleCreateSection}
           onDelete={handleDeleteSection}
+          onRenameStart={handleSelectSection}
+          onRename={name => handlePatchSelectedSection({ name })}
           canCreate={canCreate}
           sessionImportSectionIds={sessionImportSectionIds}
           t={t}
@@ -650,6 +654,9 @@ interface SectionListProps {
   onSelect: (id: string) => void
   onCreate: () => Promise<CrossSectionResponse | null>
   onDelete: (id: string) => Promise<void>
+  /** Select the row about to be renamed, so the save goes through the selected-section PATCH. */
+  onRenameStart: (id: string) => void
+  onRename: (name: string) => Promise<void>
   canCreate: boolean
   sessionImportSectionIds: ReadonlySet<string>
   t: Translator
@@ -691,6 +698,8 @@ function SectionList({
   onSelect,
   onCreate,
   onDelete,
+  onRenameStart,
+  onRename,
   canCreate,
   sessionImportSectionIds,
   t,
@@ -751,6 +760,8 @@ function SectionList({
               unsaved={sessionImportSectionIds.has(s.id)}
               onClick={() => onSelect(s.id)}
               onDelete={() => onDelete(s.id)}
+              onRenameStart={() => onRenameStart(s.id)}
+              onRename={onRename}
               t={t}
             />
           ))}
@@ -770,6 +781,8 @@ interface SectionRowProps {
   unsaved: boolean
   onClick: () => void
   onDelete: () => Promise<void>
+  onRenameStart: () => void
+  onRename: (name: string) => Promise<void>
   t: Translator
 }
 
@@ -800,6 +813,8 @@ function SectionRow({
   unsaved,
   onClick,
   onDelete,
+  onRenameStart,
+  onRename,
   t,
 }: SectionRowProps): JSX.Element {
   const [deleting, setDeleting] = useState(false)
@@ -811,6 +826,8 @@ function SectionRow({
   const dx = section.end_x - section.start_x
   const dy = section.end_y - section.start_y
   const lengthM = Math.sqrt(dx * dx + dy * dy)
+  const displayName = sectionDisplayName(section, t)
+  const nameEditor = useSectionNameEditor(section, displayName, name => void onRename(name))
 
   function handleDeleteClick(e: React.MouseEvent): void {
     e.stopPropagation()
@@ -840,13 +857,24 @@ function SectionRow({
             : 'hover:bg-surface-card text-text-secondary',
         ].join(' ')}
       >
+        {nameEditor.editing ? (
+          <div className="flex-1 py-1.5 pr-12 min-w-0 flex items-center gap-1.5">
+            <Slash size={11} className="flex-shrink-0 opacity-70" />
+            <SectionNameInput
+              editor={nameEditor}
+              className="w-full text-xs font-medium text-text-primary bg-surface-card border border-accent rounded px-1.5 py-0.5 focus:outline-none"
+              ariaLabel={t('sections.name')}
+              testId={`section-row-name-input-${section.id}`}
+            />
+          </div>
+        ) : (
         <button
           onClick={onClick}
-          className="flex-1 text-left py-1.5 pr-7 min-w-0"
+          className="flex-1 text-left py-1.5 pr-12 min-w-0"
         >
           <div className="flex items-center gap-1.5">
             <Slash size={11} className="flex-shrink-0 opacity-70" />
-            <span className="text-xs font-medium truncate">{sectionDisplayName(section, t)}</span>
+            <span className="text-xs font-medium truncate">{displayName}</span>
             {unsaved && <DirtyAsterisk title={t('sections.inspector.dirtyCreated')} />}
           </div>
           <div className="flex items-center gap-1.5 pl-4 text-[10px] text-text-muted">
@@ -856,6 +884,23 @@ function SectionRow({
               ±{section.projection_buffer_m.toFixed(0)} m
             </span>
           </div>
+        </button>
+        )}
+
+        {/* Rename pencil (owner 2026-09-22: rename from the list too). Selecting
+            the row first routes the save through the selected-section PATCH. */}
+        <button
+          type="button"
+          onClick={e => {
+            e.stopPropagation()
+            onRenameStart()
+            nameEditor.start()
+          }}
+          title={t('sections.rename')}
+          className="absolute right-6 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-accent transition-opacity"
+          data-testid={`section-row-rename-${section.id}`}
+        >
+          <Pencil size={12} />
         </button>
 
         <button
@@ -981,57 +1026,8 @@ function SectionProperties({
   // Inline name edit state — mirrors the ux.md inline-edit pattern:
   // click-to-edit, commit on blur/Enter, cancel on Esc, trim blanks,
   // fall back to prior name when the field is cleared.
-  const [editing, setEditing] = useState(false)
-  const [draftName, setDraftName] = useState(section.name)
-  const nameInputRef = useRef<HTMLInputElement>(null)
-
-  // Keep draft in sync when the server round-trip updates section.name
-  // (e.g. after a PATCH the parent replaces the section object). Reset
-  // only when the section identity changes — not on every server echo —
-  // for the same "avoid flickering" reason as the slider states above.
-  useEffect(() => {
-    setDraftName(section.name)
-    setEditing(false)
-    // reason: reset draft/editing ONLY when the section identity changes
-    // (switching sections), NOT when the server echoes the same id with a
-    // patched name — re-running on echo would clobber an in-progress edit.
-    // The draft is (re)snapshotted from section.name on entering edit mode
-    // in handleNameClick, so it never goes stale across a rename round-trip.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section.id])
-
-  function handleNameClick(): void {
-    setDraftName(section.name)
-    setEditing(true)
-  }
-
-  function commitName(): void {
-    const trimmed = draftName.trim()
-    setEditing(false)
-    // Fall back to prior name when the field is blank (ux.md: don't
-    // allow blank names).
-    if (trimmed === '' || trimmed === section.name) {
-      setDraftName(section.name)
-      return
-    }
-    setDraftName(trimmed)
-    void onPatch({ name: trimmed })
-  }
-
-  function handleNameKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Enter') {
-      e.currentTarget.blur()
-    } else if (e.key === 'Escape') {
-      // Cancel — restore prior name without patching.
-      setDraftName(section.name)
-      setEditing(false)
-    }
-  }
-
-  // Auto-focus the input when edit mode opens.
-  useEffect(() => {
-    if (editing) nameInputRef.current?.select()
-  }, [editing])
+  const displayName = sectionDisplayName(section, t)
+  const nameEditor = useSectionNameEditor(section, displayName, name => void onPatch({ name }))
 
   const dx = section.end_x - section.start_x
   const dy = section.end_y - section.start_y
@@ -1041,26 +1037,23 @@ function SectionProperties({
     <div className="flex flex-col gap-3">
       {/* Name — inline-edit on click (ux.md inline-edit pattern). */}
       <div>
-        {editing ? (
-          <input
-            ref={nameInputRef}
-            type="text"
-            value={draftName}
-            onChange={e => setDraftName(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={handleNameKeyDown}
+        {nameEditor.editing ? (
+          <SectionNameInput
+            editor={nameEditor}
             className="w-full text-xs font-medium text-text-primary bg-surface-card border border-accent rounded px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
-            aria-label={t('sections.name')}
+            ariaLabel={t('sections.name')}
+            testId="section-name-input"
           />
         ) : (
           <button
             type="button"
-            onClick={handleNameClick}
+            onClick={nameEditor.start}
+            data-testid="section-name-edit"
             title={t('sections.rename')}
             className="group flex items-center gap-1 w-full text-left"
           >
             <span className="text-xs font-medium text-text-primary truncate">
-              {sectionDisplayName(section, t)}
+              {displayName}
             </span>
             <Pencil
               size={10}
