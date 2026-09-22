@@ -8,7 +8,7 @@
  *   *"option 1, one smooth taper ofcourse, but look at alongM (because a test
  *    is a 1 cm point but on the section it has a width)"*
  *
- * Approved visual: ``blend_viewer/carried_band_choice.html``, panel OPTION 1 —
+ * Approved visual: ``blend_viewer/carried_band_choice.html`` (mockup, not kept in the repo), panel OPTION 1 —
  * ONE straight taper from the band's own home test to THE SAME apex as today
  * (*"pinches at the same place as today"*), the blind column passed through
  * mid-taper.
