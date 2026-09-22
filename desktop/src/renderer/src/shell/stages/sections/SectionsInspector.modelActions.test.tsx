@@ -1,6 +1,6 @@
 // Behavioural net for the SectionsInspector ModelActions row (debt #97).
 //
-// Build / Sync stratigraphy / Seed / Seed-for-new-tests / Dedupe â€” moved here
+// Build / Sync stratigraphy / Seed / Seed-for-new-tests / Dedupe — moved here
 // from the Sections toolbar per the owner directive 2026-05-22 ("model-
 // management verbs leave the toolbar for the inspector").
 //
@@ -32,7 +32,7 @@ import type {
 import SectionsInspector from './SectionsInspector'
 
 // ---------------------------------------------------------------------------
-// Module mocks â€” same shape as SectionsToolbar.axis.test
+// Module mocks — same shape as SectionsToolbar.axis.test
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../api/client', async () => {
@@ -513,8 +513,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('SectionsInspector â€” Model actions (debt #97)', () => {
-  it('M1 â€” Build button renders + calls handleRebuildSurfaces', async () => {
+describe('SectionsInspector — Model actions (debt #97)', () => {
+  it('M1 — Build button renders + calls handleRebuildSurfaces', async () => {
     const handleRebuild = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({ handleRebuildSurfaces: handleRebuild })
     renderInspector(ctx)
@@ -523,7 +523,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     await vi.waitFor(() => expect(handleRebuild).toHaveBeenCalledOnce())
   })
 
-  it('M2 â€” Geology axis: Seed calls handleAutoPopulateFromStratigraphy with visible-borehole ids + applyUpdatedSection', async () => {
+  it('M2 — Geology axis: Seed calls handleAutoPopulateFromStratigraphy with visible-borehole ids + applyUpdatedSection', async () => {
     const autoPopulate = vi.fn().mockResolvedValue(undefined)
     const applyUpdatedSection = vi.fn()
     const ctx = makeCtx({
@@ -544,7 +544,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(autoPopulate.mock.calls[0][2]).toBe(applyUpdatedSection)
   })
 
-  it('M3 â€” Litho axis: Sync stratigraphy calls handleLoadBackdropSurfaces (not autoPopulate) with the parent geological model id', async () => {
+  it('M3 — Litho axis: Sync stratigraphy calls handleLoadBackdropSurfaces (not autoPopulate) with the parent geological model id', async () => {
     const loadBackdrop = vi.fn().mockResolvedValue(undefined)
     const autoPopulate = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
@@ -562,7 +562,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     })
   })
 
-  it('M4a â€” Litho axis: Seed-for-new-tests is NOT rendered', () => {
+  it('M4a — Litho axis: Seed-for-new-tests is NOT rendered', () => {
     const ctx = makeCtx({
       axis: 'lithostratigraphic',
       activeLithoModel: makeLithoModel(),
@@ -572,8 +572,8 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(screen.queryByTestId('inspector-seed')).toBeNull()
   })
 
-  it('M4b â€” Geology axis: Seed-for-new-tests is disabled when no new boreholes', () => {
-    // Visible borehole bh-1 already has a contact â†’ newTestBoreholeIds empty.
+  it('M4b — Geology axis: Seed-for-new-tests is disabled when no new boreholes', () => {
+    // Visible borehole bh-1 already has a contact → newTestBoreholeIds empty.
     const ctx = makeCtx({
       axis: 'geological',
       visibleBoreholes: [makeBorehole('bh-1')],
@@ -584,7 +584,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(btn).toBeDisabled()
   })
 
-  it('M5 â€” Dedupe opens the confirmation and deletes nothing yet', () => {
+  it('M5 — Dedupe opens the confirmation and deletes nothing yet', () => {
     // Dedupe DB-deletes contacts and nothing restores them, so the verb has to
     // ask first here exactly as it does on the Geology toolbar. It used to call
     // the cleanup straight through on the first click.
@@ -630,7 +630,7 @@ describe('SectionsInspector â€” Model actions (debt #97)', () => {
     expect(count?.textContent).toContain('1 contact ')
   })
 
-  it('M6 â€” Whole Model-actions section is omitted when neither model is active', () => {
+  it('M6 — Whole Model-actions section is omitted when neither model is active', () => {
     const ctx = makeCtx({ activeGeologicalModel: null, activeLithoModel: null })
     renderInspector(ctx)
     expect(screen.queryByTestId('inspector-build')).toBeNull()
