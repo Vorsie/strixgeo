@@ -68,7 +68,9 @@ export const DEFAULT_BASEMAP_LID_ALPHA = 0.65
 /** Clearance (m) between the ground at the highest investigation and the
  *  basemap lid (owner 2026-09-13: the lid hugs the block's top, not a DEM
  *  spike at the hull edge). Half a metre keeps it off the ground TIN's
- *  translucent sheet without floating. */
+ *  translucent sheet without floating. Visual only: the lid is drawn
+ *  without a depth test (rebuildSurfacePrimitives), so a formation sheet
+ *  lifted above this by its z-offset cannot hide it. */
 export const BASEMAP_LID_ABOVE_GROUND_M = 0.5
 
 /** How far (m) the translucent formation/ground/lid surfaces are receded
@@ -1351,123 +1353,8 @@ export function rebuildSurfacePrimitives(
     }
   }
 
-  // Basemap "lid" — the georeferenced orthophoto, built as a textured
-  // triangle soup so it can be HALF-SPACE CLIPPED like the geology (so
-  // the aerial is sliced into the two halves, not a full rectangle over
-  // both). Slightly translucent (alpha 0.65) so the cut/geology reads
-  // through it.
-  //
-  // When a ground-surface TIN exists, the aerial DRAPES on it (owner
-  // 2026-09-16: "can't we make the basemap follow that slope?") — every
-  // ground vertex lifted BASEMAP_LID_ABOVE_GROUND_M and textured by its
-  // position in the WMS footprint, so on a sloped site the basemap follows
-  // the terrain instead of floating as a flat lid above the low end and
-  // cutting through the high end. With no DEM (no ground TIN) it falls back
-  // to the flat quad at the tests' ground level so nothing regresses.
-  if (lid) {
-    // The ground TIN carries bed overrides (dredged areas) in its z, so the
-    // drape follows them too — the aerial shows the water there, which is right.
-    const drape = buildBasemapDrape(
-      groundSurface ?? null,
-      lid.projBbox,
-      BASEMAP_LID_ABOVE_GROUND_M,
-    )
-    let tris: TexVert[][]
-    if (drape) {
-      // Project each lifted ground vertex to ECEF once, then assemble the
-      // textured triangle soup from the ground TIN's own index buffer.
-      const ecef = drape.positions.map(([x, y, z]) => {
-        const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-        return Cesium.Cartesian3.fromDegrees(lng, lat, z)
-      })
-      tris = drape.triangles.map(([a, b, c]) => [
-        { p: ecef[a], st: drape.sts[a] },
-        { p: ecef[b], st: drape.sts[b] },
-        { p: ecef[c], st: drape.sts[c] },
-      ])
-    } else {
-      const r = lid.rect
-      const corner = (lng: number, lat: number): Cesium.Cartesian3 =>
-        Cesium.Cartesian3.fromRadians(lng, lat, lid.elevation)
-      // st matches RectangleGeometry's convention: s = west→east,
-      // t = south→north (so the GetMap image stays upright + aligned).
-      tris = [
-        [
-          { p: corner(r.west, r.south), st: [0, 0] },
-          { p: corner(r.east, r.south), st: [1, 0] },
-          { p: corner(r.east, r.north), st: [1, 1] },
-        ],
-        [
-          { p: corner(r.west, r.south), st: [0, 0] },
-          { p: corner(r.east, r.north), st: [1, 1] },
-          { p: corner(r.west, r.north), st: [0, 1] },
-        ],
-      ]
-    }
-    if (clip) {
-      tris = clipTexTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
-    }
-    if (tris.length > 0) {
-      const positions = new Float64Array(tris.length * 9)
-      const sts = new Float32Array(tris.length * 6)
-      const indices = new Uint32Array(tris.length * 3)
-      let pi = 0
-      let si = 0
-      let ii = 0
-      for (const t of tris) {
-        for (const v of t) {
-          positions[pi++] = v.p.x
-          positions[pi++] = v.p.y
-          positions[pi++] = v.p.z
-          sts[si++] = v.st[0]
-          sts[si++] = v.st[1]
-          indices[ii] = ii
-          ii++
-        }
-      }
-      scene.primitives.add(
-        new Cesium.Primitive({
-          geometryInstances: new Cesium.GeometryInstance({
-            geometry: new Cesium.Geometry({
-              // See buildCutFaceBands for the partial-shape cast rationale.
-              attributes: {
-                position: new Cesium.GeometryAttribute({
-                  componentDatatype: Cesium.ComponentDatatype.DOUBLE,
-                  componentsPerAttribute: 3,
-                  values: positions,
-                }),
-                st: new Cesium.GeometryAttribute({
-                  componentDatatype: Cesium.ComponentDatatype.FLOAT,
-                  componentsPerAttribute: 2,
-                  values: sts,
-                }),
-              } as unknown as Cesium.GeometryAttributes,
-              indices,
-              primitiveType: Cesium.PrimitiveType.TRIANGLES,
-              boundingSphere: Cesium.BoundingSphere.fromVertices(
-                Array.from(positions),
-              ),
-            }),
-          }),
-          appearance: new Cesium.EllipsoidSurfaceAppearance({
-            aboveGround: true,
-            translucent: true,
-            material: Cesium.Material.fromType('Image', {
-              image: lid.url,
-              // alpha < 1 → see-through aerial (requested). The stages pass
-              // nothing and keep DEFAULT_BASEMAP_LID_ALPHA; the fence cutout
-              // dials its own (owner ruling B6b, 2026-08-27).
-              color: new Cesium.Color(1, 1, 1, basemapLidAlpha),
-            }),
-          }),
-          asynchronous: false,
-        }),
-      )
-    }
-  }
-
-  // Ground-surface TIN — rendered first (painter's algorithm: drawn below
-  // formation surfaces). Uses a warm-grey earth tone at 45 % alpha so
+  // Ground-surface TIN — added before the formation surfaces (painter's
+  // order on a tie). Uses a warm-grey earth tone at 45 % alpha so
   // formation bands remain legible above it. Gated by the "Ground surface"
   // legend toggle (the flat DEM plane read as a "basemap backdrop" the user
   // couldn't switch off — dogfeed 2026-06-10).
@@ -1774,6 +1661,135 @@ export function rebuildSurfacePrimitives(
     // The builder owns the too-few-points case — one guard, not two.
     const ringPrimitive = buildFootprintRingPrimitive(footprintRing, projectEpsg)
     if (ringPrimitive) scene.primitives.add(ringPrimitive)
+  }
+
+  // Basemap "lid" — the georeferenced orthophoto, built as a textured
+  // triangle soup so it can be HALF-SPACE CLIPPED like the geology (so
+  // the aerial is sliced into the two halves, not a full rectangle over
+  // both). Slightly translucent (alpha 0.65) so the cut/geology reads
+  // through it.
+  //
+  // The lid is an OVERLAY, excluded from the ordering (owner 2026-09-22:
+  // "basemap is excluded from ordering, always on top"): it is added LAST —
+  // Cesium's painter sort keeps the insertion order when the bounding
+  // spheres tie — and drawn WITHOUT a depth test. The formation sheets
+  // write depth (withDepthWrites), and display_order × Z_OFFSET_PER_ORDER
+  // outgrows BASEMAP_LID_ABOVE_GROUND_M from the third formation on, so a
+  // depth-tested lid vanished under the sheets lifted above it ("base map
+  // on bot now"). A camera below ground level sees the lid over things it
+  // is behind; that is not a view the lid is for.
+  //
+  // When a ground-surface TIN exists, the aerial DRAPES on it (owner
+  // 2026-09-16: "can't we make the basemap follow that slope?") — every
+  // ground vertex lifted BASEMAP_LID_ABOVE_GROUND_M and textured by its
+  // position in the WMS footprint, so on a sloped site the basemap follows
+  // the terrain instead of floating as a flat lid above the low end and
+  // cutting through the high end. With no DEM (no ground TIN) it falls back
+  // to the flat quad at the tests' ground level so nothing regresses.
+  if (lid) {
+    // The ground TIN carries bed overrides (dredged areas) in its z, so the
+    // drape follows them too — the aerial shows the water there, which is right.
+    const drape = buildBasemapDrape(
+      groundSurface ?? null,
+      lid.projBbox,
+      BASEMAP_LID_ABOVE_GROUND_M,
+    )
+    let tris: TexVert[][]
+    if (drape) {
+      // Project each lifted ground vertex to ECEF once, then assemble the
+      // textured triangle soup from the ground TIN's own index buffer.
+      const ecef = drape.positions.map(([x, y, z]) => {
+        const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+        return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+      })
+      tris = drape.triangles.map(([a, b, c]) => [
+        { p: ecef[a], st: drape.sts[a] },
+        { p: ecef[b], st: drape.sts[b] },
+        { p: ecef[c], st: drape.sts[c] },
+      ])
+    } else {
+      const r = lid.rect
+      const corner = (lng: number, lat: number): Cesium.Cartesian3 =>
+        Cesium.Cartesian3.fromRadians(lng, lat, lid.elevation)
+      // st matches RectangleGeometry's convention: s = west→east,
+      // t = south→north (so the GetMap image stays upright + aligned).
+      tris = [
+        [
+          { p: corner(r.west, r.south), st: [0, 0] },
+          { p: corner(r.east, r.south), st: [1, 0] },
+          { p: corner(r.east, r.north), st: [1, 1] },
+        ],
+        [
+          { p: corner(r.west, r.south), st: [0, 0] },
+          { p: corner(r.east, r.north), st: [1, 1] },
+          { p: corner(r.west, r.north), st: [0, 1] },
+        ],
+      ]
+    }
+    if (clip) {
+      tris = clipTexTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    }
+    if (tris.length > 0) {
+      const positions = new Float64Array(tris.length * 9)
+      const sts = new Float32Array(tris.length * 6)
+      const indices = new Uint32Array(tris.length * 3)
+      let pi = 0
+      let si = 0
+      let ii = 0
+      for (const t of tris) {
+        for (const v of t) {
+          positions[pi++] = v.p.x
+          positions[pi++] = v.p.y
+          positions[pi++] = v.p.z
+          sts[si++] = v.st[0]
+          sts[si++] = v.st[1]
+          indices[ii] = ii
+          ii++
+        }
+      }
+      scene.primitives.add(
+        new Cesium.Primitive({
+          geometryInstances: new Cesium.GeometryInstance({
+            geometry: new Cesium.Geometry({
+              // See buildCutFaceBands for the partial-shape cast rationale.
+              attributes: {
+                position: new Cesium.GeometryAttribute({
+                  componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+                  componentsPerAttribute: 3,
+                  values: positions,
+                }),
+                st: new Cesium.GeometryAttribute({
+                  componentDatatype: Cesium.ComponentDatatype.FLOAT,
+                  componentsPerAttribute: 2,
+                  values: sts,
+                }),
+              } as unknown as Cesium.GeometryAttributes,
+              indices,
+              primitiveType: Cesium.PrimitiveType.TRIANGLES,
+              boundingSphere: Cesium.BoundingSphere.fromVertices(
+                Array.from(positions),
+              ),
+            }),
+          }),
+          appearance: new Cesium.EllipsoidSurfaceAppearance({
+            aboveGround: true,
+            translucent: true,
+            // The overlay rule above. Cesium honours depthTest from this
+            // option (it only overrides the depth WRITE for a translucent
+            // appearance — see withDepthWrites), so no override is needed.
+            renderState: { depthTest: { enabled: false } },
+            material: Cesium.Material.fromType('Image', {
+              image: lid.url,
+              // alpha < 1 → see-through aerial (requested). The stages pass
+              // nothing and keep DEFAULT_BASEMAP_LID_ALPHA; the fence cutout
+              // dials its own (owner ruling B6b, 2026-08-27).
+              color: new Cesium.Color(1, 1, 1, basemapLidAlpha),
+            }),
+          }),
+          asynchronous: false,
+        }),
+      )
+    }
   }
 }
 
