@@ -1,4 +1,4 @@
-// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
+// Smoke test for the Stratigraphy stage components (GeologyToolbar, GeologyInspector).
 //
 // Mirrors SectionsStage.test.tsx.  Mounts the two Geology zone components with
 // a stub ShellContext to catch:
@@ -408,7 +408,7 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Geology stage (smoke)', () => {
+describe('Stratigraphy stage (smoke)', () => {
   it('GeologyToolbar renders without throwing', () => {
     const ctx = makeStubContext()
     render(
@@ -669,7 +669,7 @@ describe('Geology stage (smoke)', () => {
       expect(handleDeleteModel).not.toHaveBeenCalled()
     })
 
-    it('calls handleDeleteModel when "Delete geological model" is confirmed', () => {
+    it('calls handleDeleteModel when "Delete stratigraphic model" is confirmed', () => {
       const ctx = renderWithModel()
       const handleDeleteModel = vi.fn().mockResolvedValue(undefined)
       ctx.geoModel.handleDeleteModel = handleDeleteModel
