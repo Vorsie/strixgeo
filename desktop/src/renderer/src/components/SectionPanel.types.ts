@@ -40,6 +40,7 @@ export interface SectionPanelProps {
    * bundle. The handler is optional so the test-render path can
    * mount without a network seam. */
   onPatch?: (patch: {
+    name?: string;
     projection_buffer_m?: number;
     vertical_exaggeration?: number;
     view_state?: Record<string, unknown>;
