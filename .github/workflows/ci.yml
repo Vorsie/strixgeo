@@ -18,16 +18,16 @@
 # we don't yet need. Promote when the desktop side is ready for
 # end-to-end smoke runs.
 #
-# Trigger policy (revised 2026-08-27 — owner re-arm ruling: "yes rearm
-# push to develop ci we'll need it soon, also we're not pushing that
-# often"):
-#   * ``push: [main, develop]`` — develop is RE-ARMED. The local
-#     pre-commit hook gained a batch mode (STRIX_BATCH=1, see
-#     .githooks/pre-commit) that skips the per-commit test layers
-#     during scripted one-file-per-commit landing batches, so CI is
-#     the per-push backstop for develop again. Pushes are infrequent
-#     enough that the 2026-05-18 Actions-quota concern no longer
-#     dominates.
+# Trigger policy (revised 2026-09-22 — owner: "go ahead", at 90 % of the
+# month's Actions minutes after a day of ~30 runs):
+#   * ``push: [main]`` only. Since the branch model (2026-09-16) every
+#     landing on develop is a rebase-merged PR whose content the
+#     ``pull_request`` run already checked; the develop push re-ran the
+#     same gate on the same tree (~35 job-minutes per landing, ~40 % of
+#     the month). main still runs on push because a release is a
+#     fast-forward of develop, not a PR. The 2026-08-27 re-arm of the
+#     develop push predates the branch model; STRIX_BATCH landings are
+#     covered by the PR run of the very same commits.
 #   * ``pull_request`` — the unconditional review gate (no paths-ignore
 #     so a PR is always fully checked).
 #   * ``workflow_dispatch`` — manual on-demand full run on any branch
@@ -52,7 +52,7 @@ on:
     # Mondays 06:00 UTC. Jobs are unchanged — this only adds a cadence.
     - cron: "0 6 * * 1"
   push:
-    branches: [main, develop]
+    branches: [main]
     paths-ignore:
       - "**.md"
       - "docs/**"
