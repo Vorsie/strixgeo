@@ -3,7 +3,7 @@
 // "Dedupe" removes formation contacts from the database, so per docs/ux.md
 // ("Reversible vs irreversible") it has to confirm first — and a confirmation
 // that cannot say how much it will destroy is barely a confirmation at all. The
-// contact list the Geology stage already holds is the whole model's, which is
+// contact list the Stratigraphy stage already holds is the whole model's, which is
 // the same set the server groups, so the number is knowable before the call.
 //
 // The grouping mirrors DeduplicateFormationContacts.execute
