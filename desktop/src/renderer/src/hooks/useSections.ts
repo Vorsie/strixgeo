@@ -114,7 +114,7 @@ export interface UseSectionsResult {
    *
    * When ``axisOverride`` is provided, the contact set searched is chosen by
    * that axis rather than the axis the section currently shows. The
-   * "Edit in Geology stage" deep-link (#156) fires from the LITHO axis but
+   * "Edit in Stratigraphy stage" deep-link (#156) fires from the LITHO axis but
    * hands a GEOLOGICAL contact id, so without the override the axis-gate
    * (see the body) searches ``lithoContacts``, misses, and fires the
    * "couldn't find the contact" toast. Stating the contact's own axis lets
@@ -833,7 +833,7 @@ export function useSections({
       // crossings validator runs on the geological model; on the litho axis the
       // banner won't fire, but the handler is future-proof for litho crossings.
       //
-      // #156: the "Edit in Geology stage" deep-link overrides the axis because
+      // #156: the "Edit in Stratigraphy stage" deep-link overrides the axis because
       // it fires from the litho axis but focuses a geological contact — without
       // the override this lookup would miss and toast "couldn't find". The
       // override also sidesteps the stale-axis closure the deep-link would
