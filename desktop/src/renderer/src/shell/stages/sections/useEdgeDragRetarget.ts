@@ -56,7 +56,7 @@ export interface EdgeDragState {
   /** Investigation id of the anchor contact (used to reject same-investigation drops). */
   anchorInvestigationId: string | null
   /** True when Ctrl/Cmd was held at drag start: LEAVE the original edge and
-   *  CREATE a new one to the drop (the "create an extra boundary" gesture â€”
+   *  CREATE a new one to the drop (the "create an extra boundary" gesture —
    *  forms a lens when the drop is the layer's other boundary). False = plain
    *  drag = retarget the grabbed end (#31). */
   duplicate: boolean
@@ -113,7 +113,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
   //   3. Refetch contact edges so the section reflects the re-targeted edge.
   //
   // The new edge uses source='manual' which the server sets to user_approved=True
-  // by default â€” Option Y: re-targeting an auto suggestion is itself a form
+  // by default — Option Y: re-targeting an auto suggestion is itself a form
   // of user blessing, so the resulting edge is treated as approved.  This is
   // simpler than adding a user_approved field to the create API and avoids
   // threading an extra backend change through the path.
@@ -144,7 +144,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
       const anchorContactId = handle === 'a' ? edge.layer_b_id : edge.layer_a_id
       // Resolve anchor investigation id to block same-investigation-as-anchor
       // drops. Ctrl/Cmd at drag start selects "leave + create another"
-      // (duplicate â†’ lens) vs plain "retarget the grabbed end".
+      // (duplicate → lens) vs plain "retarget the grabbed end".
       const anchorContact = lithoContacts.find(c => c.id === anchorContactId)
       const anchorInvestigationId = anchorContact?.cpt_id ?? anchorContact?.borehole_id ?? null
       const duplicate = e.ctrlKey || e.metaKey
@@ -200,20 +200,20 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
 
       // Validate the drop target.
       if (dropContactId === null) {
-        // Dropped on empty space â€” cancel.
-        log.debug('section', 'edgeDrag: drop on empty space â€” cancelled')
+        // Dropped on empty space — cancel.
+        log.debug('section', 'edgeDrag: drop on empty space — cancelled')
         setEdgeDrag(null)
         return
       }
       if (dropContactId === edgeDrag.anchorContactId) {
-        // Dropped on the anchor endpoint â€” no-op.
-        log.debug('section', 'edgeDrag: drop on anchor â€” cancelled')
+        // Dropped on the anchor endpoint — no-op.
+        log.debug('section', 'edgeDrag: drop on anchor — cancelled')
         setEdgeDrag(null)
         return
       }
       if (dropContactId === edgeDrag.draggedContactId) {
-        // Dropped back on the same contact â€” no-op.
-        log.debug('section', 'edgeDrag: drop on same contact â€” cancelled')
+        // Dropped back on the same contact — no-op.
+        log.debug('section', 'edgeDrag: drop on same contact — cancelled')
         setEdgeDrag(null)
         return
       }
@@ -227,7 +227,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
       ) {
         log.debug(
           'section',
-          `edgeDrag: drop on same investigation as anchor (${edgeDrag.anchorInvestigationId}) â€” rejected`,
+          `edgeDrag: drop on same investigation as anchor (${edgeDrag.anchorInvestigationId}) — rejected`,
         )
         setEdgeDrag(null)
         return
@@ -243,16 +243,16 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
       setEdgeDrag(null)
 
       // Ctrl/Cmd-drag (#31): LEAVE the original edge and CREATE another from
-      // the same anchor to the drop â€” "create an extra boundary where I drag
+      // the same anchor to the drop — "create an extra boundary where I drag
       // to". When the drop is the layer's OTHER boundary (anchor now connects
-      // to both â†’ 1â†”2), DetectLithoLenses materialises a wedge.
+      // to both → 1↔2), DetectLithoLenses materialises a wedge.
       // ``createContactCorrelation`` is idempotent (re-creating an existing
       // unapproved edge would NOT approve it), so delete the original first
-      // then create both fresh â€” both auto-approve. Direction-agnostic.
+      // then create both fresh — both auto-approve. Direction-agnostic.
       if (capturedDrag.duplicate) {
         log.info(
           'section',
-          `edgeDrag: duplicate edge=${capturedDrag.edge.id} anchor=${capturedDrag.anchorContactId} â†” ` +
+          `edgeDrag: duplicate edge=${capturedDrag.edge.id} anchor=${capturedDrag.anchorContactId} ↔ ` +
             `{${capturedDrag.draggedContactId}, ${dropContactId}}`,
         )
         try {
@@ -266,7 +266,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
             capturedDrag.edge.layer_b_side,
           )
           // Re-create the original (now approved) + the twin to the dropped
-          // boundary. The second create completes the 1â†”2 and triggers the
+          // boundary. The second create completes the 1↔2 and triggers the
           // lens materialisation server-side.
           await api.geology.createContactCorrelation(
             projectId,
@@ -287,7 +287,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
           markMutated()
           // New edges band geometry — schedule the litho identity recompute (slice 5).
           requestBodyRecompute?.('litho')
-          log.success('section', 'edgeDrag: extra correlation created (anchor â†” both targets)')
+          log.success('section', 'edgeDrag: extra correlation created (anchor ↔ both targets)')
           toast('success', t('sections.toast.correlationAdded'))
         } catch (err) {
           log.warn('section', 'edgeDrag: duplicate-create failed', err)
@@ -301,7 +301,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
       log.info(
         'section',
         `edgeDrag: retarget edge=${capturedDrag.edge.id} ` +
-          `${capturedDrag.draggedContactId} â†’ ${dropContactId} (anchor=${capturedDrag.anchorContactId})`,
+          `${capturedDrag.draggedContactId} → ${dropContactId} (anchor=${capturedDrag.anchorContactId})`,
       )
 
       try {
@@ -316,7 +316,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
           capturedDrag.edge.layer_b_side,
         )
         // 2. Create the replacement edge (anchor + new target).
-        //    source='manual' â†’ server defaults user_approved=True (Option Y).
+        //    source='manual' → server defaults user_approved=True (Option Y).
         await api.geology.createContactCorrelation(
           projectId,
           capturedDrag.edge.model_id,
@@ -331,7 +331,7 @@ export function useEdgeDragRetarget(deps: UseEdgeDragRetargetDeps): UseEdgeDragR
         requestBodyRecompute?.('litho')
         log.success(
           'section',
-          `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} â†” ${dropContactId}`,
+          `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} ↔ ${dropContactId}`,
         )
         toast('success', t('sections.toast.edgeRetargeted'))
       } catch (err) {
