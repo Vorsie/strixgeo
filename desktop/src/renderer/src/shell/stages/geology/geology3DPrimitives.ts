@@ -623,8 +623,9 @@ export function makeMeshGeometry(
 export function makeColorPrimitive(
   geometry: Cesium.Geometry,
   color: Cesium.Color,
-  appearance: { translucent: boolean; flat: boolean; closed?: boolean },
+  appearance: { translucent: boolean; flat: boolean; closed?: boolean; writesDepth?: boolean },
 ): Cesium.Primitive {
+  const { writesDepth, ...appearanceOptions } = appearance
   return new Cesium.Primitive({
     geometryInstances: new Cesium.GeometryInstance({
       geometry,
@@ -632,9 +633,37 @@ export function makeColorPrimitive(
         color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
       },
     }),
-    appearance: new Cesium.PerInstanceColorAppearance(appearance),
+    appearance: new Cesium.PerInstanceColorAppearance(
+      writesDepth
+        ? { ...appearanceOptions, renderState: translucentDepthWritingRenderState() }
+        : appearanceOptions,
+    ),
     asynchronous: false,
   })
+}
+
+/**
+ * Render state for a TRANSLUCENT sheet that also writes depth.
+ *
+ * With order-independent translucency off (``CesiumViewport``, the shimmer
+ * fix) Cesium sorts translucent draws per frame by bounding-sphere distance,
+ * and the formation sheets of one model share a footprint, so from the side
+ * the sort ties and the deepest colour could composite on top ("a green sheen
+ * on top, while that should be all red"; owner 2026-09-22). Writing depth
+ * makes the nearer sheet win whatever the draw order, like the cut view's
+ * opaque caps; alpha blending is kept so the sheet stays translucent.
+ *
+ * Returns
+ * -------
+ * The render-state literal (alpha blend, depth test, depth write, no culling).
+ */
+export function translucentDepthWritingRenderState(): object {
+  return {
+    blending: Cesium.BlendingState.ALPHA_BLEND,
+    depthTest: { enabled: true },
+    depthMask: true,
+    cull: { enabled: false, face: Cesium.CullFace.BACK },
+  }
 }
 
 /**
@@ -664,6 +693,7 @@ export function buildTinPrimitive(
   color: Cesium.Color,
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
+  opts?: { writesDepth?: boolean },
 ): Cesium.Primitive | null {
   const buffers = buildMeshBuffers(vertices, triangles, projectEpsg, clip)
   if (!buffers) return null
@@ -680,7 +710,11 @@ export function buildTinPrimitive(
   // the "Appearance/Geometry mismatch … 'compressedAttributes'" crash for every
   // TIN primitive. flat: true uses FLAT_VERTEX_FORMAT (position-only), which
   // matches the geometry we supply.
-  return makeColorPrimitive(geometry, color, { translucent: true, flat: true })
+  return makeColorPrimitive(geometry, color, {
+    translucent: true,
+    flat: true,
+    writesDepth: opts?.writesDepth === true,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,7 +1055,7 @@ export const _vertexColorAppearanceFS = [
   '}',
 ].join('\n')
 
-export function makeVertexColorAppearance(): Cesium.Appearance {
+export function makeVertexColorAppearance(writesDepth = false): Cesium.Appearance {
   return new Cesium.Appearance({
     vertexShaderSource: _vertexColorAppearanceVS,
     fragmentShaderSource: _vertexColorAppearanceFS,
@@ -1030,7 +1064,8 @@ export function makeVertexColorAppearance(): Cesium.Appearance {
     renderState: {
       blending: Cesium.BlendingState.ALPHA_BLEND,
       depthTest: { enabled: true },
-      depthMask: false,
+      // Formation sheets write depth (see translucentDepthWritingRenderState).
+      depthMask: writesDepth,
       cull: { enabled: false, face: Cesium.CullFace.BACK },
     } as unknown as object,
   })
@@ -1060,6 +1095,7 @@ export function buildTinPrimitiveWithVertexColor(
   projectEpsg: number,
   clip?: { plane: Cesium.Plane; keepPositive: boolean },
   perTriangleColorsForClip?: Uint8Array,
+  opts?: { writesDepth?: boolean },
 ): Cesium.Primitive | null {
   if (triangles.length === 0) return null
   if (perVertexColors.length !== vertices.length * 4) {
@@ -1160,7 +1196,7 @@ export function buildTinPrimitiveWithVertexColor(
 
   return new Cesium.Primitive({
     geometryInstances: new Cesium.GeometryInstance({ geometry }),
-    appearance: makeVertexColorAppearance(),
+    appearance: makeVertexColorAppearance(opts?.writesDepth === true),
     asynchronous: false,
   })
 }
@@ -1515,6 +1551,8 @@ export function rebuildSurfacePrimitives(
         projectEpsg,
         clip,
         perTriangleColorsForClip,
+        // Formation sheets write depth so the nearer one is in front from any angle.
+        { writesDepth: true },
       )
       if (primitive) scene.primitives.add(primitive)
     } else {
@@ -1527,6 +1565,7 @@ export function rebuildSurfacePrimitives(
         uniformColor,
         projectEpsg,
         clip,
+        { writesDepth: true },
       )
       if (primitive) scene.primitives.add(primitive)
     }
