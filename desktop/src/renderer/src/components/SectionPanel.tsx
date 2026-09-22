@@ -2754,6 +2754,7 @@ export default function SectionPanel({
     <div className="flex flex-col h-full w-full bg-surface-page">
       <SectionHeader
         section={section}
+        onRename={onPatch ? (name) => void onPatch({ name }) : undefined}
         lengthM={lengthM}
         onClose={onClose}
         onZoomIn={zoomIn}
