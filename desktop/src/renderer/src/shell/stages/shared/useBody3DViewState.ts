@@ -22,7 +22,7 @@
 // writer of the value can compare identity, so the whole voxel-ref lifecycle
 // stays in the canvas.
 //
-// The Geology stage uses only the split-state + ground-surface blocks: it
+// The Stratigraphy stage uses only the split-state + ground-surface blocks: it
 // passes ``fenceActive: false`` and omits ``layers``, which leaves the fence
 // machinery inert (the fence effect early-returns and ``fencePanels`` stays
 // undefined).
