@@ -2,12 +2,12 @@
 //
 // Reproduces the ``selectedSection !== null ? <SectionPanel .../>`` branch
 // from App.tsx at commit 3322e04^ verbatim, now sourcing every prop from the
-// ShellContext bus via useShell() â€” exactly the pattern DataCanvas used for
+// ShellContext bus via useShell() — exactly the pattern DataCanvas used for
 // the map/chart/borelog branch.
 //
 // When no section is selected the canvas shows the project map so the user
 // can see where to draw a new cross-section (same affordance as the Data
-// stage â€” sections are spatial objects that start on the map).  The map
+// stage — sections are spatial objects that start on the map).  The map
 // renders in "section selection" mode: drawSectionMode wires the line-draw
 // interaction, and onSelectSection highlights an existing section.
 //
@@ -17,7 +17,7 @@
 // (pointer-events-none on the wrapper, pointer-events-auto on the card) so
 // the map's draw / click / pan / zoom interactions work through the overlay.
 //
-// The wrapped SectionPanel receives zero internal changes â€” all its props are
+// The wrapped SectionPanel receives zero internal changes — all its props are
 // wired from the bus.  The component never gains a direct prop; it reads from
 // useShell() and delegates.
 
@@ -104,7 +104,7 @@ import type {
  * ``MapView`` (section-draw mode) when nothing is selected so the user can
  * pick or draw a cross-section.
  *
- * All props are sourced from the ShellContext bus â€” no props are accepted
+ * All props are sourced from the ShellContext bus — no props are accepted
  * directly (matches the ``StageDescriptor.CanvasComponent`` contract).
  *
  * Returns
@@ -147,7 +147,7 @@ export default function SectionsCanvas(): JSX.Element {
       lithoCrossingPinchOuts,
       lithoFormations,
       lithoSurfacesByFormationId,
-      // F3 â€” geotech axis: layers, contacts + formations from the bus for
+      // F3 — geotech axis: layers, contacts + formations from the bus for
       // the third section render axis.  requestGeotechLayersRefetch is called
       // after a packing-correlation mutation so body_id stamps re-render.
       activeGeotechModel,
@@ -202,7 +202,7 @@ export default function SectionsCanvas(): JSX.Element {
       // count/CTA in SectionsCanvas must use the same manifest-gated set that
       // SectionsInspector reads.  Raw `sections` includes every DB row loaded
       // this session and would keep unsaved section polygons on the map after
-      // discard, while the inspector showed 0 â€” the desync the owner reported.
+      // discard, while the inspector showed 0 — the desync the owner reported.
       visibleSections,
       selectedSectionId,
       drawingSection,
@@ -287,13 +287,13 @@ export default function SectionsCanvas(): JSX.Element {
     undo: undoStack,
   } = useShell();
 
-  // CTA card dismiss state â€” the overlay disappears once the user has
+  // CTA card dismiss state — the overlay disappears once the user has
   // started drawing or explicitly clicked "New cross-section" on the
   // card itself. Resets when the canvas mounts (i.e. the user navigates
   // to the Sections stage) so new users always see the prompt.
   const [ctaDismissed, setCtaDismissed] = useState(false);
 
-  // Companion-offer dialog state â€” opened after a lens is created (Blocker 1,
+  // Companion-offer dialog state — opened after a lens is created (Blocker 1,
   // owner directive 2026-05-22: "pop up an offer to auto-create a perpendicular
   // cross-section").  Null when the dialog is not open.
   const [companionOffer, setCompanionOffer] = useState<{
@@ -302,7 +302,7 @@ export default function SectionsCanvas(): JSX.Element {
     modelId: string;
   } | null>(null);
 
-  // Name-body dialog state (dogfeed 2026-06-01) â€” replaces the dead-end
+  // Name-body dialog state (dogfeed 2026-06-01) — replaces the dead-end
   // window.prompt (Electron disables prompt()). Non-null while the dialog is
   // open; carries the body id + its current name for the rename pre-fill.
   const [namingBody, setNamingBody] = useState<{
@@ -310,15 +310,15 @@ export default function SectionsCanvas(): JSX.Element {
     currentName: string;
   } | null>(null);
 
-  // Inspect-lens-body panel state (#101 Blocker 1) â€” opened by right-clicking
-  // a body chip in CorrelationEdgesOverlay â†’ "Inspect lens bodyâ€¦".
+  // Inspect-lens-body panel state (#101 Blocker 1) — opened by right-clicking
+  // a body chip in CorrelationEdgesOverlay → "Inspect lens body…".
   // Carries the lens list fetched lazily on open so the panel can show the
   // existing name (if any) and enable the perpendicular-companion path.
   const [inspectTarget, setInspectTarget] =
     useState<InspectLensBodyTarget | null>(null);
   const [inspectLenses, setInspectLenses] = useState<BodyListItem[]>([]);
 
-  // Sections need a projected METRIC horizontal CRS â€” same gate as the
+  // Sections need a projected METRIC horizontal CRS — same gate as the
   // toolbar (debt #31). Degrees (EPSG:4326) would silently produce
   // garbage along-section geometry, so gate on the supported-CRS
   // allowlist, not merely "a CRS is set".
@@ -339,7 +339,7 @@ export default function SectionsCanvas(): JSX.Element {
   }
 
   // Resolve the currently-selected section object from the id + list.
-  // Uses visibleSections (manifest-gated) â€” if a section is not saved it is
+  // Uses visibleSections (manifest-gated) — if a section is not saved it is
   // not selectable, consistent with the CPT/borehole pattern.
   const selectedSection = useMemo(
     () =>
@@ -380,7 +380,7 @@ export default function SectionsCanvas(): JSX.Element {
     toast("warning", reason);
   }, [selectedSection, toast]);
 
-  // Axis flags â€” defined early so downstream blocks can use them.
+  // Axis flags — defined early so downstream blocks can use them.
   // isGeotech: the third, view-only axis showing NAD-coloured bands.
   const isLitho = sectionModelAxis === "lithostratigraphic";
   const isGeotech = sectionModelAxis === "geotechnical";
@@ -392,21 +392,21 @@ export default function SectionsCanvas(): JSX.Element {
 
   // The partition SHAPE always comes from the LITHO model (layers + edges).
   //
-  // On the geotech axis (owner-locked 2026-07-06 â€” the fraction-space
+  // On the geotech axis (owner-locked 2026-07-06 — the fraction-space
   // refinement) the LITHO partition is the base: `PartitionFillOverlay` builds
   // it here, then REFINES it by NAD packing class internally (each litho region
-  // subdivided by the geotech sub-bands â€” litho boundaries invariant). This
+  // subdivided by the geotech sub-bands — litho boundaries invariant). This
   // REPLACES the 2026-06-26 "Task-3 render swap" that ran `computeSectionFill`
-  // on the geotech layers + geotech packing edges directly â€” that approach
+  // on the geotech layers + geotech packing edges directly — that approach
   // could not express lens-in-pack, deformed litho boundaries, and dropped all
   // borehole-mediated connectivity (proven on the real CS1). The geotech
-  // packing OVERLAY edges (`geotechPackingEdges`) stay separate â€” see below.
+  // packing OVERLAY edges (`geotechPackingEdges`) stay separate — see below.
   const activeSectionModelId = lithoModelId;
   const sectionLayers = lithoLayers;
 
   // The contact-edge list FRAMES the partition fill (`computeSectionFill` builds
   // the connected bands from it) and the correlated-pair column spacing. It is
-  // ALWAYS the LITHO model's edges now (on both axes â€” the geotech partition is
+  // ALWAYS the LITHO model's edges now (on both axes — the geotech partition is
   // the litho partition refined). The geotech "Correlate packing" overlay reads
   // `geotechPackingEdges` (fetched separately from `geotechPackingModelId`);
   // nothing here feeds that overlay.
@@ -472,13 +472,13 @@ export default function SectionsCanvas(): JSX.Element {
   // correlate OVERLAY ribbons + gesture on the geotech axis. After the
   // fraction-space refinement, `correlationModelId` is ALWAYS the litho model
   // (both axes use litho edges for the partition shape), so the packing overlay
-  // fetches from a DIFFERENT model than the partition â€” kept separate on purpose
+  // fetches from a DIFFERENT model than the partition — kept separate on purpose
   // (reusing `contactCorrelationEdges` would pull litho edges into the geotech
   // overlay; it's not a redundant request). A string (or null) so the fetch
   // callback + effect depend on the stable id, not the object identity.
   const geotechPackingModelId = activeGeotechModel?.id ?? null;
 
-  // Transient pulse state â€” set on a successful contact correlate, cleared
+  // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
   // The pulse is the "your correlation succeeded" UX signal (dogfeed 2026-05-23).
   const PULSE_MS = 900;
@@ -547,7 +547,7 @@ export default function SectionsCanvas(): JSX.Element {
           }),
         );
       } catch (err) {
-        // Surface the failure â€” silence on a failed PATCH is worse than a toast.
+        // Surface the failure — silence on a failed PATCH is worse than a toast.
         log.warn("section", "handlePropagateAdmixtures: PATCH failed", err);
         toast("error", t("sections.canvasToast.admixturesFailed"));
       }
@@ -657,7 +657,7 @@ export default function SectionsCanvas(): JSX.Element {
       } catch (err) {
         log.warn(
           "section",
-          "inspectLensBody: listLenses failed â€” proceeding without names",
+          "inspectLensBody: listLenses failed — proceeding without names",
           err,
         );
         setInspectLenses([]);
@@ -681,7 +681,7 @@ export default function SectionsCanvas(): JSX.Element {
   //
   // SEPARATE state from contactCorrelationEdges ON PURPOSE. On the geotech axis
   // contactCorrelationEdges is the LITHO model's edge list (correlationModelId
-  // is always lithoModelId â€” see above) that FRAMES the partition fill and the
+  // is always lithoModelId — see above) that FRAMES the partition fill and the
   // correlated-pair column spacing. The geotech packing overlay needs the
   // GEOTECH model's edges; reusing one list for both pulled the litho
   // connectivity out of the fill and pinched every band to a lens (commit
@@ -768,7 +768,7 @@ export default function SectionsCanvas(): JSX.Element {
   } | null>(null);
   const [contactMoveBusy, setContactMoveBusy] = useState(false);
 
-  // Armed contact id â€” the source boundary the user clicked first.
+  // Armed contact id — the source boundary the user clicked first.
   // Null = nothing armed (idle).
   const [armedContactId, setArmedContactId] = useState<string | null>(null);
   // Which side of the armed contact is being correlated.  'top' = normal
@@ -781,11 +781,11 @@ export default function SectionsCanvas(): JSX.Element {
   // successful target while the same source is still armed.  Null when no
   // edge has committed yet in the current arm-cycle.  A subsequent click on
   // a different contact in this investigation fires another edge from the
-  // still-armed source â€” the lens-pinch-out gesture.  Cleared whenever the
+  // still-armed source — the lens-pinch-out gesture.  Cleared whenever the
   // source is disarmed or re-armed.
   const [lastTargetTestId, setLastTargetTestId] = useState<string | null>(null);
 
-  // Contact-correlate mode flag â€” mirrors the toolbar's correlate mode.
+  // Contact-correlate mode flag — mirrors the toolbar's correlate mode.
   // The boundary-to-boundary gesture is the sole correlate surface (#133
   // Phase 2+3); the formation-level body-click surface was removed in Task 21.
   const contactCorrelateMode = correlateMode;
@@ -828,14 +828,14 @@ export default function SectionsCanvas(): JSX.Element {
       if (currentSectionIdRef.current !== selectedSectionId) {
         log.info(
           "section",
-          `listContactCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} â€” ${currentSectionIdRef.current} is selected now`,
+          `listContactCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} — ${currentSectionIdRef.current} is selected now`,
         );
         return;
       }
       setContactCorrelationEdges(edges);
       contactEdgesSectionIdRef.current = selectedSectionId;
       // INFO (not DEBUG) on purpose: the correlation count the section actually
-      // received is the fastest signal for "why are no bands connecting" â€” keep
+      // received is the fastest signal for "why are no bands connecting" — keep
       // it visible in the default console (the 2026-06-25 wrong-DB incident).
       log.info(
         "section",
@@ -862,7 +862,7 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Fetch the GEOTECH model's packing edges for the correlate overlay (Phase 1,
   // 2026-06-25). Scoped to the active geotech model + section, mirroring
-  // refetchContactEdges but pointed at activeGeotechModel.id â€” never
+  // refetchContactEdges but pointed at activeGeotechModel.id — never
   // correlationModelId (which is the litho model). No-op off the geotech axis.
   const refetchGeotechPackingEdges = useCallback(async (): Promise<boolean> => {
     if (!isGeotech || geotechPackingModelId === null) {
@@ -886,7 +886,7 @@ export default function SectionsCanvas(): JSX.Element {
       if (currentSectionIdRef.current !== selectedSectionId) {
         log.info(
           "section",
-          `listGeotechPackingCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} â€” ${currentSectionIdRef.current} is selected now`,
+          `listGeotechPackingCorrelations: dropped ${edges.length} late edge(s) for section=${selectedSectionId} — ${currentSectionIdRef.current} is selected now`,
         );
         // The caller's section is no longer on screen, so nothing visible to
         // them is stale; the section they DID switch to loads on its own.
@@ -894,7 +894,7 @@ export default function SectionsCanvas(): JSX.Element {
       }
       setGeotechPackingEdges(edges);
       geotechEdgesSectionIdRef.current = selectedSectionId;
-      // INFO (not DEBUG) on purpose â€” mirrors refetchContactEdges: the geotech
+      // INFO (not DEBUG) on purpose — mirrors refetchContactEdges: the geotech
       // packing-edge count is the fastest "why aren't packing ribbons drawing"
       // signal in the default console.
       log.info(
@@ -936,7 +936,7 @@ export default function SectionsCanvas(): JSX.Element {
     // reason: the effect's deps (isGeotech + geotechPackingModelId +
     // selectedSectionId + correlationEdgesRefetchNonce) are the same axes that
     // make refetchGeotechPackingEdges stale, so the effect fires whenever the
-    // function would have changed â€” listing the function itself adds nothing but
+    // function would have changed — listing the function itself adds nothing but
     // churn. correlationEdgesRefetchNonce (#163c) is bumped after a successful
     // auto-correlate / subdivide so new edges render without a manual reselect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -976,7 +976,7 @@ export default function SectionsCanvas(): JSX.Element {
     correlationEdgesRefetchNonce,
   ]);
 
-  // #163f Slice 2 â€” detected lenses + their boundary shapes for LensWedge
+  // #163f Slice 2 — detected lenses + their boundary shapes for LensWedge
   // Overlay. Mirrors the contact-edge fetch (same nonce trigger: lenses are
   // derived from approved edges, so they refresh whenever edges do).
   const [lensList, setLensList] = useState<BodyListItem[]>([]);
@@ -1129,7 +1129,7 @@ export default function SectionsCanvas(): JSX.Element {
     : refetchLensData;
 
   // (Fill-bands sand-merge removed 2026-06-05.) It correlated host halves on
-  // every Fill-bands OFFâ†’ON to fuse a lens-split lithology into one body â€” but
+  // every Fill-bands OFF→ON to fuse a lens-split lithology into one body — but
   // the partition fill now extracts enclosed lenses in pure geometry, so the
   // DB-edge merge is redundant, and it re-created correlation edges the user had
   // just DELETED (dogfeed 2026-06-05). The matrix stays continuous from the
@@ -1197,7 +1197,7 @@ export default function SectionsCanvas(): JSX.Element {
       const sectionIdAtPush = selectedSectionId;
       log.info(
         "section",
-        `contact-correlate: linking ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on model ${modelId}`,
+        `contact-correlate: linking ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) on model ${modelId}`,
       );
       try {
         const created = await api.geology.createContactCorrelation(
@@ -1231,7 +1231,7 @@ export default function SectionsCanvas(): JSX.Element {
         // Deselect BOTH contacts after a successful two-click correlate (owner
         // directive 2026-06-08). This retires the #135 sticky lens-pinch-out
         // gesture (the source staying armed for a second target) in favour of a
-        // clean two-click correlate â€” re-arm the source to draw another edge.
+        // clean two-click correlate — re-arm the source to draw another edge.
         const contactA = lithoContacts.find((c) => c.id === layerAId);
         const targetContact = lithoContacts.find((c) => c.id === layerBId);
         const targetTestId =
@@ -1239,7 +1239,7 @@ export default function SectionsCanvas(): JSX.Element {
         setArmedContactId(null);
         setArmedContactSide("top");
         setLastTargetTestId(null);
-        // Amber pulse on both correlated bands â€” the immediate "your gesture
+        // Amber pulse on both correlated bands — the immediate "your gesture
         // worked" cue before formations refetch (dogfeed 2026-05-23 #100).
         if (contactA?.formation_id && targetContact?.formation_id) {
           triggerCorrelationPulse(
@@ -1252,7 +1252,7 @@ export default function SectionsCanvas(): JSX.Element {
         // Ctrl-Z. revert = DELETE the same edge; reapply = re-POST.
         // Both branches refetch + markMutated so the canvas + dirty
         // flag stay in sync. Captured ids/model survive the
-        // SectionsCanvas remount-cycle (Refs not needed â€” these are
+        // SectionsCanvas remount-cycle (Refs not needed — these are
         // primitives by value).
         undoStack.push({
           descriptionKey: "undo.correlateContacts",
@@ -1288,7 +1288,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast("success", t("sections.canvasToast.boundaryCorrAdded"));
         log.success(
           "section",
-          `contact-correlate: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) created` +
+          `contact-correlate: edge ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) created` +
             (targetTestId ? ` (sticky target=${targetTestId})` : ""),
         );
       } catch (err) {
@@ -1333,9 +1333,9 @@ export default function SectionsCanvas(): JSX.Element {
       layerAId: string,
       layerBId: string,
       // Sides are required to distinguish a base-tie from a top-tie on the
-      // same contact pair â€” the backend uniqueness is (a_id, b_id, a_side,
+      // same contact pair — the backend uniqueness is (a_id, b_id, a_side,
       // b_side), so deleting without sides silently matches nothing for a
-      // base tie (spec Â§6 bug 2).
+      // base tie (spec §6 bug 2).
       layerASide: "top" | "base" = "top",
       layerBSide: "top" | "base" = "top",
     ): Promise<void> => {
@@ -1344,9 +1344,9 @@ export default function SectionsCanvas(): JSX.Element {
       const sectionIdAtPush = selectedSectionId;
       log.info(
         "section",
-        `contact-uncorrelate: removing ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) on model ${modelId}`,
+        `contact-uncorrelate: removing ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) on model ${modelId}`,
       );
-      // Optimistic removal â€” filter on sides too so a top-tie on the same
+      // Optimistic removal — filter on sides too so a top-tie on the same
       // pair is not accidentally removed when deleting a base-tie.
       setContactCorrelationEdges((prev) =>
         prev.filter(
@@ -1378,7 +1378,7 @@ export default function SectionsCanvas(): JSX.Element {
         // A tie create/delete moves body geometry — schedule the litho identity
         // recompute (slice 5). Mirrored in the undo closures above/below.
         requestBodyRecompute("litho");
-        // Mirror of the create path â€” undo restores the edge,
+        // Mirror of the create path — undo restores the edge,
         // redo removes it again. Symmetric so a Ctrl-Z + Ctrl-Y
         // round-trip leaves no drift.
         undoStack.push({
@@ -1414,12 +1414,12 @@ export default function SectionsCanvas(): JSX.Element {
         });
         log.success(
           "section",
-          `contact-uncorrelate: edge ${layerAId}(${layerASide}) â†” ${layerBId}(${layerBSide}) removed`,
+          `contact-uncorrelate: edge ${layerAId}(${layerASide}) ↔ ${layerBId}(${layerBSide}) removed`,
         );
       } catch (err) {
         log.warn(
           "section",
-          "handleDeleteContactCorrelation: DELETE failed â€” rolling back optimistic removal",
+          "handleDeleteContactCorrelation: DELETE failed — rolling back optimistic removal",
           err,
         );
         await Promise.all([refetchContactEdges(), refetchLithoContacts()]);
@@ -1488,10 +1488,10 @@ export default function SectionsCanvas(): JSX.Element {
     onAcceptedTiesFlagged: flaggedTiePrompt.askAbout,
   });
 
-  // Right-click a pending correlation edge â†’ "Accept correlation" (dogfeed
+  // Right-click a pending correlation edge → "Accept correlation" (dogfeed
   // 2026-05-31).  Single-edge accept: flips user_approved=True on the server,
   // refetches edges + lens data so the seam ribbon, ordinal chips, and
-  // wedges all reflect the new approved state.  No undo entry â€” the symmetric
+  // wedges all reflect the new approved state.  No undo entry — the symmetric
   // reverse is "delete the edge", which the same menu offers as a separate
   // action.
   const handleAcceptContactCorrelation = useCallback(
@@ -1535,8 +1535,8 @@ export default function SectionsCanvas(): JSX.Element {
     ],
   );
 
-  // Right-click a lens wedge â†’ dissolve the lens (dogfeed 2026-05-29).
-  // A lens IS its two defining correlation edges (aboveâ†”pinch, belowâ†”pinch);
+  // Right-click a lens wedge → dissolve the lens (dogfeed 2026-05-29).
+  // A lens IS its two defining correlation edges (above↔pinch, below↔pinch);
   // the metadata-only DELETE endpoint would leave the body in the graph and
   // the detector would re-create it.  Deleting both edges removes the #135
   // topology, so DetectLithoLenses (fired by the uncorrelate path) reconciles
@@ -1556,7 +1556,7 @@ export default function SectionsCanvas(): JSX.Element {
       }
       log.info(
         "section",
-        `delete-lens: dissolving ${aboveId}/${belowId} â†” ${targetId}`,
+        `delete-lens: dissolving ${aboveId}/${belowId} ↔ ${targetId}`,
       );
       await handleDeleteContactCorrelation(aboveId, targetId);
       await handleDeleteContactCorrelation(belowId, targetId);
@@ -1565,12 +1565,12 @@ export default function SectionsCanvas(): JSX.Element {
     [handleDeleteContactCorrelation, refetchLensData],
   );
 
-  // Body context menu handlers â€” wired from BodyContextMenu via SectionPanel.
+  // Body context menu handlers — wired from BodyContextMenu via SectionPanel.
 
   // Name a body via a native prompt (quick path; full rename in the
   // InspectLensBodyPanel).
   // Open the name dialog for a body. (The actual PATCH happens in
-  // ``submitBodyName`` on dialog submit â€” window.prompt is a dead end in
+  // ``submitBodyName`` on dialog submit — window.prompt is a dead end in
   // Electron, so naming goes through a Modal.)
   const handleNameBody = useCallback(
     (bodyId: string): void => {
@@ -1589,7 +1589,7 @@ export default function SectionsCanvas(): JSX.Element {
   );
 
   // Commit the name entered in NameBodyDialog. A named body is preserved by
-  // the detector reconcile sweep (the preserve-named guard) â€” naming is how
+  // the detector reconcile sweep (the preserve-named guard) — naming is how
   // the user keeps ("accepts") a detected lens.
   const submitBodyName = useCallback(
     async (name: string): Promise<void> => {
@@ -2033,7 +2033,7 @@ export default function SectionsCanvas(): JSX.Element {
       if (!ok) return;
       await handleDeleteContact(contactId);
       // The geoModel bus already patched lithoContacts optimistically.
-      // The FK cascade on the backend also removed correlation edges â€”
+      // The FK cascade on the backend also removed correlation edges —
       // refetch so the section view reflects the updated edge graph.
       void refetchContactEdges();
       void refetchLithoContacts();
@@ -2056,7 +2056,7 @@ export default function SectionsCanvas(): JSX.Element {
       armedContactId,
       armedContactSide,
       lastTargetTestId,
-      // Arming a (new) source always resets the sticky lens window â€”
+      // Arming a (new) source always resets the sticky lens window —
       // a fresh source starts a fresh arm-cycle (debt #135).
       // The optional ``side`` parameter lets the bottom-of-test handle
       // arm with side='base'; band clicks default to 'top'.
@@ -2124,10 +2124,10 @@ export default function SectionsCanvas(): JSX.Element {
   }, [isLitho, edgeDrag]);
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
-  // SectionPanel and ContactsLayer are UNCHANGED â€” the prop boundary absorbs
+  // SectionPanel and ContactsLayer are UNCHANGED — the prop boundary absorbs
   // the switch. Geological is the default and existing behaviour is identical.
   // (isLitho is defined above the Slice 4 block so both slices share it.)
-  // Active model for the chosen axis â€” used for export button gating.
+  // Active model for the chosen axis — used for export button gating.
   // Geotech axis is view-only so it doesn't own an axis model for editing;
   // fall through to the geological model so export buttons gate correctly.
   const activeAxisModel = isLitho
@@ -2197,7 +2197,7 @@ export default function SectionsCanvas(): JSX.Element {
   useSectionColumnRevealBridge(columnRevealRef);
   // Litho axis left-click creates a ghost layer, not a committed contact.
   // The geological axis keeps the original committed-contact flow unchanged.
-  // Geotech axis is view-only: no contact creation (undefined â†’ disabled).
+  // Geotech axis is view-only: no contact creation (undefined → disabled).
   const axisCreateContact = isLitho
     ? handleCreateLithoContact
     : isGeotech
@@ -2218,7 +2218,7 @@ export default function SectionsCanvas(): JSX.Element {
     () => activeLithoModel?.parent_model_id ?? null,
     [activeLithoModel],
   );
-  // Effective backdrop model â€” the ShellContext override takes precedence when set.
+  // Effective backdrop model — the ShellContext override takes precedence when set.
   const effectiveBackdropModelId =
     backdropModelIdOverride ?? defaultBackdropModelId;
 
@@ -2226,14 +2226,14 @@ export default function SectionsCanvas(): JSX.Element {
   //
   // WHY: the "Sync stratigraphy" verb in SectionsToolbar loads backdrop surfaces
   // on demand, but users expect to see the geological reference immediately
-  // when they switch to the litho axis â€” they should not have to know to
+  // when they switch to the litho axis — they should not have to know to
   // press a separate button first.  Auto-loading on axis-switch is cheap
   // (handleLoadBackdropSurfaces is idempotent: already-loaded surfaces are
   // skipped in useGeologicalModel) and makes the litho axis useful out of
   // the box.
   //
   // Gate: only fire when axis is litho AND a backdrop model id is known.
-  // null effectiveBackdropModelId means no litho model or no parent â€” nothing
+  // null effectiveBackdropModelId means no litho model or no parent — nothing
   // to load.
   useEffect(() => {
     if (!isLitho) return;
@@ -2241,16 +2241,16 @@ export default function SectionsCanvas(): JSX.Element {
     void handleLoadBackdropSurfaces(effectiveBackdropModelId);
   }, [isLitho, effectiveBackdropModelId, handleLoadBackdropSurfaces]);
 
-  // P2-F â€” explicit-content filter (owner directive 2026-05-17).
+  // P2-F — explicit-content filter (owner directive 2026-05-17).
   //
   // Classification follows the test (owner directive 2026-06-08, supersedes the
   // 2026-05-17 explicit-content filter for classification): a section shows the
   // contacts/litho of EVERY test in its corridor, not only the ids it was seeded
-  // with â€” so a test is classified once and appears on every section through it.
+  // with — so a test is classified once and appears on every section through it.
   // Correlations stay relational (unchanged). The seeded set rides the bundle for
   // compat but no longer gates rendering.
   //
-  // The contacts list is loaded model-wide (correct for the Build/TIN path â€” the
+  // The contacts list is loaded model-wide (correct for the Build/TIN path — the
   // Delaunay needs ALL anchors). The render/export gate is now "the contact's
   // anchor investigation is in this section's corridor", which the section
   // already projects. Stale-id tolerance is inherent: a contact whose anchor is
@@ -2276,7 +2276,7 @@ export default function SectionsCanvas(): JSX.Element {
     [selectedSection, sectionInvestigationIds, axisContacts],
   );
 
-  // P2-H â€” section-aware contact draw.
+  // P2-H — section-aware contact draw.
   //
   // The plain axisCreateContact passes no section context.  This wrapper
   // passes section_id so the backend (P2-E) seeds seeded_formation_contact_ids,
@@ -2304,12 +2304,12 @@ export default function SectionsCanvas(): JSX.Element {
       // zero-thickness, outline-only band that the user cannot see, making the
       // gesture invisible and confusing.  The right-click path already covers
       // the intent; this branch is deleted (dogfeed 2026-05-26).
-      // Geotech axis is view-only â€” no new contacts may be created.
+      // Geotech axis is view-only — no new contacts may be created.
       if (isLitho || isGeotech) return;
 
       // Pass the section id so the backend seeds seeded_formation_contact_ids
       // (P2-E). Without this the create succeeds but the P2-F filter below
-      // hides the new contact â€” the root cause of the "draw/copy does
+      // hides the new contact — the root cause of the "draw/copy does
       // nothing" dogfeed bug: the threading stopped here and never reached
       // the create body.
       if (!axisCreateContact) return;
@@ -2355,11 +2355,11 @@ export default function SectionsCanvas(): JSX.Element {
     ],
   );
 
-  // P2-H (batch) â€” section-aware contact COPY (drag-to-next-test: one-by-one,
+  // P2-H (batch) — section-aware contact COPY (drag-to-next-test: one-by-one,
   // marquee batch, shift-drag all funnel through onBatchCreateContacts).
   // Mirrors sectionAwareCreateContact: thread the section id so the backend
   // seeds every copied id, then ONE section GET so P2-F's filter shows them
-  // all on the next render. This was the missing wiring â€” the plain
+  // all on the next render. This was the missing wiring — the plain
   // handleBatchCreateContacts created contacts the filter then dropped.
   const sectionAwareBatchCreateContacts = useCallback(
     async (creates: readonly ContactCopyPayload[]): Promise<void> => {
@@ -2389,7 +2389,7 @@ export default function SectionsCanvas(): JSX.Element {
   );
 
   // Slice 3 (#55): resolve the surface elevation for the suggestion target so
-  // the ghost overlay can convert depth-below-surface â†’ absolute mTAW level.
+  // the ghost overlay can convert depth-below-surface → absolute mTAW level.
   // Searches both visible lists; null when the investigation isn't loaded yet.
   const lithoGhostSurfaceElevationM = useMemo(() => {
     if (!focusedSuggestAnchorId) return null;
@@ -2404,11 +2404,11 @@ export default function SectionsCanvas(): JSX.Element {
   // WHY the wrapper: handleAcceptLithoSuggestion calls the bulk endpoint which
   // returns updated_section containing the freshly-seeded contact ids.  Without
   // forwarding those ids via applyUpdatedSection, the explicit-content filter
-  // in P2-F hides every accepted contact immediately after acceptance â€” the #57
-  // class bug, recurred 3Ã—.  The raw handler accepts an optional onSectionUpdated
+  // in P2-F hides every accepted contact immediately after acceptance — the #57
+  // class bug, recurred 3×.  The raw handler accepts an optional onSectionUpdated
   // callback; we wire it here at the SectionsCanvas boundary where both
   // selectedSection and applyUpdatedSection are in scope.
-  // â”€â”€ Debt #134 â€” litho â†” geological snap prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Debt #134 — litho ↔ geological snap prompt ──────────────────────
   //
   // When a litho-contact drag commits within tolerance of a geological
   // contact on the same investigation (or the post-accept check #134-C
@@ -2418,7 +2418,7 @@ export default function SectionsCanvas(): JSX.Element {
   //
   // Tolerance is per-project (debt #134-A): reads from
   // ``view_state.litho_segmenter.litho_snap_tolerance_m`` with a 0.20 m
-  // default that matches the original MVP.  Settings â†’ Litho segmenter
+  // default that matches the original MVP.  Settings → Litho segmenter
   // exposes the field.
   const lithoSnapToleranceM = useMemo(
     () =>
@@ -2725,12 +2725,12 @@ export default function SectionsCanvas(): JSX.Element {
         selectedSection?.id ?? null,
         applyUpdatedSection,
       );
-      // Debt #134-C â€” post-accept litho-geo snap check.  Only the
+      // Debt #134-C — post-accept litho-geo snap check.  Only the
       // single-suggestion path is wired here; accept-all-focused +
       // bulk paths are tracked under follow-up work (see debt entry).
       //
       // Read the depth the user actually accepted (after any drag-
-      // resize edits) from the focused-anchor ghost entry â€” same
+      // resize edits) from the focused-anchor ghost entry — same
       // source the handler uses internally, so the two are guaranteed
       // to agree on what was sent.
       if (result === null || !isLitho) return;
@@ -2752,7 +2752,7 @@ export default function SectionsCanvas(): JSX.Element {
       // the upper interval first; the lower-half on a straddle follows
       // immediately after).  If nothing was actually created (idempotent
       // re-accept of an already-committed layer), there is no contact
-      // to retarget â€” silently skip the prompt.
+      // to retarget — silently skip the prompt.
       const newContactId = result.created_contact_ids[0];
       if (!newContactId) return;
       openLithoGeoSnapPrompt({
@@ -2793,7 +2793,7 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Build the lithoGhostState bundle passed to SectionPanel.
   // Only populated on the litho axis when suggestions are loaded for an
-  // investigation â€” zero regression on the geological axis. Reads the
+  // investigation — zero regression on the geological axis. Reads the
   // focused entry from the unified Map (debt #77 Phase 2).
   const lithoGhostState = useMemo(() => {
     if (!isLitho || focusedSuggestAnchorId === null) return undefined;
@@ -2807,12 +2807,12 @@ export default function SectionsCanvas(): JSX.Element {
       rejectedIndices: entry.rejected,
       onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
-      // Drag-resize edits â€” the user's depth modifications per ghost
+      // Drag-resize edits — the user's depth modifications per ghost
       // index (Phase 2). LithoSuggestionGhostColumns reads `edits` at
       // render time so the ghost rect tracks the live drag commit.
       edits: entry.edits,
       onEdit: handleEditLithoSuggestion,
-      // Debt #86: cross-investigation copy-composition paste â€” routes
+      // Debt #86: cross-investigation copy-composition paste — routes
       // through the bulk edit handler regardless of which anchor the
       // target belongs to (the unified ghostsByAnchor Map covers every
       // anchor including the focused one).
@@ -2870,7 +2870,7 @@ export default function SectionsCanvas(): JSX.Element {
       // matching shape. The hook uses this list to find the contact
       // whose depth_top_m equals the pre-drag boundary depth (the
       // dragger's initialDepthM) when an accepted neighbour is on the
-      // drag direction â€” then fires onUpdateContactDepth to move the
+      // drag direction — then fires onUpdateContactDepth to move the
       // committed contact along with the pending edit. Pre-filter by
       // anchor so the lookup is O(N_contacts_on_this_anchor) not O(N_all).
       committedContactsForAnchor: lithoContacts.filter(
@@ -2887,10 +2887,10 @@ export default function SectionsCanvas(): JSX.Element {
       contactIdsByAcceptedIdx: entry.contactIdsByAcceptedIdx,
       // The cross-store PATCH dispatch (Slice 3). Uses the existing
       // snap-aware wrapper so the post-PATCH litho-geo snap prompt
-      // (debt #134) still fires identically â€” the suggestion-drag
+      // (debt #134) still fires identically — the suggestion-drag
       // path is just another entry point to the same audit trail.
       onUpdateContactDepth: handleLithoSnapAwareUpdateContactDepth,
-      // P1b â€” live preview callback. Updates SectionsCanvas state;
+      // P1b — live preview callback. Updates SectionsCanvas state;
       // SectionPanel forwards the resulting override to ContactsLayer
       // so the committed contact's render follows the drag live.
       onContactLivePreview: handleLithoContactLivePreview,
@@ -2916,7 +2916,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleLithoContactLivePreview,
   ]);
 
-  // Bulk-suggest bundle (debt #73 / Phase 3) â€” passed to SectionPanel
+  // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
   // so it can render one LithoSuggestionGhostColumns per bulk anchor.
   // The accept handler wraps to forward the section id +
   // applyUpdatedSection for the explicit-content invariant (#57).
@@ -2947,7 +2947,7 @@ export default function SectionsCanvas(): JSX.Element {
       onAccept: sectionAwareAcceptBulkLitho,
       onReject: handleRejectBulkLitho,
       onEdit: handleEditBulkLitho,
-      // Debt #86: same handler â€” works for any target anchor in the Map.
+      // Debt #86: same handler — works for any target anchor in the Map.
       onCrossColumnPaste: handleEditBulkLitho,
       // Installer #42: Shift-drag a ghost boundary onto another test → give that
       // test a ghost column with the same units.
@@ -2959,7 +2959,7 @@ export default function SectionsCanvas(): JSX.Element {
       onSplitLayer: handleSplitLithoLayer,
       // Debt #102: bulk variant takes (anchorId, upperIdx).
       onMergeLayers: handleMergeLithoLayers,
-      // Extend a manual ghost sentinel â€” bulk variant takes (anchorId, idx).
+      // Extend a manual ghost sentinel — bulk variant takes (anchorId, idx).
       onExtendToNearest: (anchorId: string, idx: number) => {
         const cpt = visibleCpts.find((c) => c.id === anchorId);
         const bh =
@@ -2996,11 +2996,11 @@ export default function SectionsCanvas(): JSX.Element {
   // for the inspected formation on THIS section.  Empty when the panel is
   // closed.  Built from sectionContacts (already filtered to this section).
   //
-  // investigationLabels: id â†’ human label map built from visibleCpts +
+  // investigationLabels: id → human label map built from visibleCpts +
   // visibleBoreholes so the panel can show "CPT-123" instead of a UUID.
   //
   // existingLens: the LithoLensOrm row (if any) whose formation_id +
-  // body_ordinal match the panel's target â€” pre-fills the name field.
+  // body_ordinal match the panel's target — pre-fills the name field.
   // -------------------------------------------------------------------------
   const inspectPresentIds = useMemo((): readonly string[] => {
     if (inspectTarget === null) return [];
@@ -3037,7 +3037,7 @@ export default function SectionsCanvas(): JSX.Element {
   if (selectedSection !== null) {
     // WHY Fragment: InspectLensBodyPanel and CompanionOfferDialog are SectionsCanvas-
     // level portals (they escape the SVG stacking context via createPortal in Modal).
-    // They must render alongside SectionPanel â€” not only in the no-section-selected
+    // They must render alongside SectionPanel — not only in the no-section-selected
     // branch. Wrapping in a Fragment keeps the early-return semantics while ensuring
     // both dialogs are reachable from the section view (#101 fix-up 2).
     return (
@@ -3183,11 +3183,11 @@ export default function SectionsCanvas(): JSX.Element {
             onSelectBorehole={handleSelectBorehole}
             liveContactDepthOverride={lithoSuggestionContactPreview}
             // On the litho axis, left-click must never open the formation
-            // picker â€” the right-click ghost flow is the intended entry point
+            // picker — the right-click ghost flow is the intended entry point
             // (dogfeed 2026-05-26). Passing undefined here prevents
             // ContactPickBar's onCommitDepth and BoreholeColumn's onCommitDepth
             // from firing handlePickCpt/handlePickBorehole, which is where the
-            // picker dialog opens in useContactPicker â€” BEFORE the internal
+            // picker dialog opens in useContactPicker — BEFORE the internal
             // sectionAwareCreateContact early-return guard even runs. The previous
             // guard was too late in the callback chain.
             onCreateContact={
@@ -3284,7 +3284,7 @@ export default function SectionsCanvas(): JSX.Element {
             // P2-G: pass selectedSection.id as sectionId so the router seeds
             // seeded_formation_contact_ids and returns updated_section.
             // applyUpdatedSection patches local section state from the response
-            // without a refetch GET â€” the section's seeded set is immediately
+            // without a refetch GET — the section's seeded set is immediately
             // current so P2-F's filter picks up the new contacts on the next render.
             onAutoPopulateFromStratigraphy={
               !isLitho && !isGeotech && formations.length > 0
@@ -3322,9 +3322,9 @@ export default function SectionsCanvas(): JSX.Element {
               isLitho ? handleUnapprovedDragStart : undefined
             }
             unapprovedEdgeDrag={unapprovedEdgeDrag}
-            // #163e: right-click a correlation edge â†’ "Delete correlation".
+            // #163e: right-click a correlation edge → "Delete correlation".
             // On litho: uses the litho delete handler (undo-stack wired).
-            // On geotech: uses the packing disconnect handler (no undo â€” the
+            // On geotech: uses the packing disconnect handler (no undo — the
             //   subdivide verb re-generates all packing correlations anyway).
             onRequestDeleteEdge={
               isLitho
@@ -3345,7 +3345,7 @@ export default function SectionsCanvas(): JSX.Element {
                       )
                   : undefined
             }
-            // Dogfeed 2026-05-31: right-click a pending edge â†’ "Accept correlation".
+            // Dogfeed 2026-05-31: right-click a pending edge → "Accept correlation".
             // On litho: promotes the pending contact edge on the litho model.
             // On geotech: promotes the pending PACKING tie on the geotech model. The
             //   geotech axis used to be excluded here because every geotech edge was
@@ -3444,8 +3444,8 @@ export default function SectionsCanvas(): JSX.Element {
                 : undefined
             }
             // Stratigraphy-stage deep-link (litho axis only, dogfeed 2026-05-25).
-            // Right-click on a reference (geological backdrop) contact strip â†’
-            // "Edit in Stratigraphy stage" â†’ sets geoDeepLinkTarget on the coordinator.
+            // Right-click on a reference (geological backdrop) contact strip →
+            // "Edit in Stratigraphy stage" → sets geoDeepLinkTarget on the coordinator.
             // AppShell watches the target and switches to the Stratigraphy stage on
             // the correct section; GeologyInspector consumes + clears the payload.
             onEditInGeologyStage={
@@ -3477,7 +3477,7 @@ export default function SectionsCanvas(): JSX.Element {
             onCancel={() => setCompositionEditTarget(null)}
           />
         )}
-        {/* Inspect-lens-body panel (#101 Blocker 1) â€” shared between section-selected
+        {/* Inspect-lens-body panel (#101 Blocker 1) — shared between section-selected
             and no-section branches; Portal via Modal escapes the SVG stacking context. */}
         {inspectTarget !== null && (
           <InspectLensBodyPanel
@@ -3520,7 +3520,7 @@ export default function SectionsCanvas(): JSX.Element {
             onClose={() => setInspectTarget(null)}
           />
         )}
-        {/* Companion-offer dialog â€” same: must be reachable from the section view. */}
+        {/* Companion-offer dialog — same: must be reachable from the section view. */}
         {companionOffer !== null && project !== null && (
           <CompanionOfferDialog
             open={companionOffer !== null}
@@ -3537,7 +3537,7 @@ export default function SectionsCanvas(): JSX.Element {
             onClose={() => setCompanionOffer(null)}
           />
         )}
-        {/* Litho â†” geological snap prompt (debt #134) â€” fires after a
+        {/* Litho ↔ geological snap prompt (debt #134) — fires after a
             litho-contact drag commits within tolerance of a geological
             contact on the same investigation. */}
         <LithoGeoSnapDialog
@@ -3558,7 +3558,7 @@ export default function SectionsCanvas(): JSX.Element {
           onCancel={() => setPendingContactMove(null)}
           onConfirm={() => void handleConfirmContactMove()}
         />
-        {/* Name / rename a lens (body). Replaces the dead-end window.prompt â€”
+        {/* Name / rename a lens (body). Replaces the dead-end window.prompt —
             Electron disables prompt() in the renderer. */}
         <NameBodyDialog
           open={namingBody !== null}
@@ -3591,7 +3591,7 @@ export default function SectionsCanvas(): JSX.Element {
     );
   }
 
-  // No section selected â€” show the map so the user can draw a new line
+  // No section selected — show the map so the user can draw a new line
   // or click an existing section marker.  Bbox-draw props are threaded
   // through so DOV imports also work from the Sections stage.
   //
@@ -3647,7 +3647,7 @@ export default function SectionsCanvas(): JSX.Element {
         onRejectTie={handleRejectTie}
       />
 
-      {/* Empty-state CTA â€” pointer-events-none on the wrapper keeps
+      {/* Empty-state CTA — pointer-events-none on the wrapper keeps
           the map interactive; pointer-events-auto on the card itself
           lets the user click "New cross-section" without fighting the
           map's pan/zoom handlers. Hides automatically once a section
