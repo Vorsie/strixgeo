@@ -46,7 +46,7 @@ import LithologyCanvas, {
 // Module mocks
 // ---------------------------------------------------------------------------
 
-// Geology3DViewer imports Cesium and WebGL â€” mock it as a sentinel div.
+// Geology3DViewer imports Cesium and WebGL — mock it as a sentinel div.
 // The div mirrors the bodySolidsWireframe prop into a data-attribute so the
 // wireframe-toggle test can assert the prop flips without a WebGL harness.
 vi.mock('../geology/Geology3DViewer', () => ({
@@ -567,7 +567,7 @@ afterEach(() => {
 describe('LithologyCanvas (Slice D, #55)', () => {
   // C1: hasLithoSolids=false → EmptyState renders; Geology3DViewer absent.
   //     Surfaces being present (vertices or not) does not mount the pane.
-  it('C1 â€” no solids: shows guided EmptyState, no Geology3DViewer', () => {
+  it('C1 — no solids: shows guided EmptyState, no Geology3DViewer', () => {
     const ctx = makeCtx({
       hasLithoSolids: false,
       lithoSolids: [],
@@ -581,7 +581,7 @@ describe('LithologyCanvas (Slice D, #55)', () => {
 
   // C1b: Surfaces map with real vertices but hasLithoSolids=false → still EmptyState.
   //      This pins the key behavioural change: surfaces alone no longer mount the pane.
-  it('C1b â€” surfaces present but no solids: shows EmptyState (surfaces no longer gate the pane)', () => {
+  it('C1b — surfaces present but no solids: shows EmptyState (surfaces no longer gate the pane)', () => {
     const surfMap = new Map([['f-built', makeSurface('f-built', true)]])
     const ctx = makeCtx({
       lithoSurfacesByFormationId: surfMap,
@@ -594,7 +594,7 @@ describe('LithologyCanvas (Slice D, #55)', () => {
   })
 
   // C2: hasLithoSolids=true → Geology3DViewer mounts; EmptyState absent.
-  it('C2 â€” solids present: Geology3DViewer mounts', () => {
+  it('C2 — solids present: Geology3DViewer mounts', () => {
     const solid = makeSolid('b-1', 'f-built')
     const ctx = makeCtx({
       lithoSolids: [solid],
