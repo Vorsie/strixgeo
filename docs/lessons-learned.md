@@ -629,3 +629,34 @@ the harness never ran and say nothing about the thing under test. Reporting
 those as a `.pyd` deviation sent a debug session hunting a compiled-code bug
 that did not exist.
 
+
+## A test that pins a setting where you SET it proves nothing about where the library READS it (2026-09-22)
+
+The 3-D stratigraphic view showed a deeper, wider formation composited over
+the younger one on top ("a green sheen on top, while that should be all
+red"). The fix was obvious: make the translucent formation sheets write
+depth. PR #36 passed `renderState: { depthMask: true }` to Cesium's
+`PerInstanceColorAppearance`, its test asserted
+`appearance.renderState.depthMask === true`, the suite went green, and the
+owner still saw the wrong sheet on top. Two more rounds of "did you reload"
+followed before the owner said "find it yourself".
+
+The setting was written where nothing reads it. Cesium's `Primitive` builds
+its GPU render state from `appearance.getRenderState()`, and
+`Appearance.prototype.getRenderState` forces `depthMask = false` on every
+translucent appearance — the constructor option is honoured for every field
+EXCEPT the one the fix needed. The property said true; the GPU said false.
+A standalone probe (three stacked sheets under Playwright + swiftshader,
+reading the centre pixel and the primitive's `_frontFaceRS.depthMask`)
+showed it in one run: `false` on the GPU and the wrong colour for every
+variant of the option, the right colour the moment the call itself was
+answered on the instance (`geology3DPrimitives.withDepthWrites`).
+
+Three rules. **Assert at the consumer's boundary** — the value the library
+actually reads (`getRenderState()`), not the property you wrote; a test on
+the property is a test of your own assignment. **A fix the product cannot
+show is reproduced outside the product before the code is touched again**
+— a pixel read from a twenty-line page answers in minutes what a dogfeed
+round-trip answers in hours. **Read the library's path from your setting to
+the GPU** — here three functions in one file — before reasoning about depth
+semantics; the answer was a line of source, not a theory.
