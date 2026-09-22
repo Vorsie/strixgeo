@@ -4,7 +4,7 @@ Why this exists
 ---------------
 Synthetic unit tests cannot reproduce the full geometry of Cross-section 1
 in ``test.strix``.  This gate reads a JSON snapshot extracted from the dev DB
-(by ``scripts/throwaway_cs1_geotech_gate_extract.py`` after
+(by ``scripts/extract_cs1_geotech_gate.py`` after
 ``scripts/rematerialise_dev_geotech.py``) and asserts four structural
 invariants on the REAL materialised geotech model.
 
@@ -13,7 +13,7 @@ Input
 ``scripts/cs1_geotech_gate.json`` — gitignored; regenerate before running::
 
     uv run python scripts/rematerialise_dev_geotech.py
-    uv run python scripts/throwaway_cs1_geotech_gate_extract.py
+    uv run python scripts/extract_cs1_geotech_gate.py
 
 Gate activation
 ---------------
@@ -86,7 +86,7 @@ _skip = pytest.mark.skipif(
     reason=(
         f"Set {_GATE_VAR}=1 and regenerate {_INPUT.name} to run this gate. "
         "Run: scripts/rematerialise_dev_geotech.py then "
-        "scripts/throwaway_cs1_geotech_gate_extract.py"
+        "scripts/extract_cs1_geotech_gate.py"
     ),
 )
 
@@ -117,7 +117,7 @@ def _load() -> dict[str, Any]:
     assert data.get("bands"), (
         "Gate input has no bands — regenerate it before trusting the gate: "
         "uv run python scripts/rematerialise_dev_geotech.py "
-        "then uv run python scripts/throwaway_cs1_geotech_gate_extract.py"
+        "then uv run python scripts/extract_cs1_geotech_gate.py"
     )
     assert data.get("samples"), (
         "Gate input has no samples — regenerate it (see the bands message above)."
@@ -212,7 +212,7 @@ def test_null_class_on_a_cpt_band_means_the_qc_could_not_classify_it() -> None:
         f"{len(stale)} null-class CPT band(s) carry no qc-coverage fields — the gate "
         "JSON predates this invariant. Regenerate it: uv run python "
         "scripts/rematerialise_dev_geotech.py then uv run python "
-        "scripts/throwaway_cs1_geotech_gate_extract.py"
+        "scripts/extract_cs1_geotech_gate.py"
     )
 
     unjustified = [
