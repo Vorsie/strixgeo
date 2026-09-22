@@ -313,13 +313,15 @@ export function readBoreholeChannels(
 
 /** Count of enabled borehole channels. The width-aware nudge layout
  * uses this to compute how many strip-widths a borehole column
- * occupies, so adjacent columns get pushed apart proportionally. */
+ * occupies, so adjacent columns get pushed apart proportionally.
+ *
+ * Walks the SAME list ``BoreholeColumn`` draws its strips from, so the
+ * footprint can never be narrower than the band: the coded-lithology
+ * stream came back (PR #18) as a fourth strip but was not counted here,
+ * and at a small column spacing the band overlapped its neighbour
+ * (owner's dogfeed 2026-09-22). */
 export function enabledBoreholeChannelCount(channels: BoreholeChannels): number {
-  let n = 0
-  if (channels.geotech) n += 1
-  if (channels.formal_strat) n += 1
-  if (channels.informal_strat) n += 1
-  return n
+  return BOREHOLE_CHANNEL_OBSERVATION_TYPES.filter(([key]) => channels[key]).length
 }
 
 // ---------------------------------------------------------------------------
