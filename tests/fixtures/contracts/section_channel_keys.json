@@ -1,0 +1,5 @@
+{
+  "_comment": "Cross-language arbiter for the cross-section view-state channel toggles (debt #284/#275). The renderer's CptChannels / BoreholeChannels interfaces (desktop/src/renderer/src/components/sections/cptChannels.ts) and the backend's strict PATCH schema (src/groundmodel/api/schemas/project/cross_section.py, extra='forbid') must name the SAME keys: the renderer always PATCHes the whole bag, so one key the backend does not know turns every toggle into a 422 ('Kon de profielwijziging niet opslaan', 2026-09-22). Both twin tests read this file; a drift on either side turns that side's suite red.",
+  "cpt_channels": ["qc", "rf", "fs", "u2", "qTotal"],
+  "borehole_channels": ["lithology", "geotech", "formal_strat", "informal_strat"]
+}
