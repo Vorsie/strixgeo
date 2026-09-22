@@ -1,13 +1,13 @@
 /**
- * Inspect-lens-body panel â€” Position 4 gesture surface (#101 Blocker 1).
+ * Inspect-lens-body panel — Position 4 gesture surface (#101 Blocker 1).
  *
  * Opened by right-clicking a body-ordinal chip in CorrelationEdgesOverlay
- * and choosing "Inspect lens bodyâ€¦".  Displays:
+ * and choosing "Inspect lens body…".  Displays:
  *
  * - Formation name + body ordinal
  * - Present investigations (those with a committed contact on this section)
  * - Absence list grouped by source with confidence badges and per-row
- *   "Confirm" buttons that promote inferred â†’ manual
+ *   "Confirm" buttons that promote inferred → manual
  * - "Confirm all auto absences" bulk action
  * - "Name this lens" text field (POST /lenses)
  * - "Create perpendicular companion" button (opens CompanionOfferDialog)
@@ -17,7 +17,7 @@
  * Inferred absence rows carry an amber "auto" badge and the formation
  * band in CorrelationEdgesOverlay renders at 40% opacity / dashed
  * when ALL absences are inferred (see bandOpacity helper in the overlay).
- * Any manual/observed absence flips the band to solid/70% with no badge â€”
+ * Any manual/observed absence flips the band to solid/70% with no badge —
  * the panel's "Confirm" gesture is the trigger that makes the band solid.
  *
  * The panel is a full modal (uses the shared Modal shell + portal) so it
@@ -63,11 +63,11 @@ interface Props {
    *  contact for this formation).  Computed by the caller from axisContacts
    *  filtered to the formation + section. */
   presentInvestigationIds: readonly string[]
-  /** Human-readable labels for investigation ids â€” keyed by investigation id.
+  /** Human-readable labels for investigation ids — keyed by investigation id.
    *  Built from visibleCpts + visibleBoreholes at the SectionsCanvas boundary.
    *  Absent ids fall back to the id string. */
   investigationLabels: ReadonlyMap<string, string>
-  /** Existing named lens for this (formationId, bodyOrdinal) pair â€” null when
+  /** Existing named lens for this (formationId, bodyOrdinal) pair — null when
    *  the body has not been named yet.  Used to pre-fill the name field. */
   existingLensId: string | null
   existingLensName: string | null
@@ -116,7 +116,7 @@ const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
  * presentInvestigationIds : readonly string[]
  *     Investigations with a committed contact for this formation on this section.
  * investigationLabels : ReadonlyMap<string, string>
- *     Human-readable id â†’ label map.
+ *     Human-readable id → label map.
  * existingLensId : string | null
  *     Pre-existing lens metadata row, if any.
  * existingLensName : string | null
@@ -151,7 +151,7 @@ export default function InspectLensBodyPanel({
   const [absences, setAbsences] = useState<FormationAbsenceItem[]>([])
   const [absencesLoading, setAbsencesLoading] = useState(false)
 
-  // Lens name field state â€” pre-filled from existingLensName.
+  // Lens name field state — pre-filled from existingLensName.
   const [lensName, setLensName] = useState(existingLensName ?? '')
   const [nameSaving, setNameSaving] = useState(false)
   const [nameError, setNameError] = useState<string | null>(null)
@@ -160,7 +160,7 @@ export default function InspectLensBodyPanel({
   // Bulk-confirm-all loading state.
   const [confirmAllBusy, setConfirmAllBusy] = useState(false)
 
-  // #163f Slice 2 â€” lens boundary render style + the current control nodes
+  // #163f Slice 2 — lens boundary render style + the current control nodes
   // (preserved so a style change PUTs the full shape, not an empty one).
   const [renderStyle, setRenderStyle] = useState<BodyRenderStyle>('straight')
   const [boundaryNodes, setBoundaryNodes] = useState<{
@@ -212,7 +212,7 @@ export default function InspectLensBodyPanel({
     }
   }, [target])
 
-  // #163f Slice 2 â€” load the lens's boundary shape (style + nodes) when the
+  // #163f Slice 2 — load the lens's boundary shape (style + nodes) when the
   // panel opens for a lens that has a row. Drives the render-style picker +
   // preserves the control nodes across a style change.
   useEffect(() => {
@@ -340,9 +340,9 @@ export default function InspectLensBodyPanel({
     }
     if (!existingLensId) {
       // The body row is always created by the resolver before the panel opens.
-      // A null existingLensId means the lens list fetch failed â€” the user
+      // A null existingLensId means the lens list fetch failed — the user
       // should close and reopen the panel once the model is resolved.
-      setNameError('Body not yet resolved â€” close and reopen the panel.')
+      setNameError('Body not yet resolved. Close and reopen the panel.')
       return
     }
     setNameSaving(true)
@@ -367,7 +367,7 @@ export default function InspectLensBodyPanel({
       )
     } catch (err) {
       log.warn('section', 'InspectLensBodyPanel: nameBody failed', err)
-      setNameError('Could not save name â€” try again.')
+      setNameError('Could not save name. Try again.')
     } finally {
       setNameSaving(false)
     }
