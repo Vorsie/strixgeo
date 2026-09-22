@@ -370,7 +370,7 @@ export interface UseGeologicalModelResult {
     snapped: boolean,
     // Sections stage passes the active section id so the backend seeds
     // seeded_formation_contact_ids (P2 explicit-content). Omitted from
-    // the Geology stage (no section context). See sectionAwareCreateContact.
+    // the Stratigraphy stage (no section context). See sectionAwareCreateContact.
     sectionId?: string | null,
   ) => Promise<void>
   handleUpdateContactDepth: (
@@ -387,7 +387,7 @@ export interface UseGeologicalModelResult {
     creates: readonly ContactCopyPayload[],
     // Sections stage passes the active section id so every copied
     // contact is seeded into seeded_formation_contact_ids server-side
-    // (P2 explicit-content). Omitted from the Geology stage.
+    // (P2 explicit-content). Omitted from the Stratigraphy stage.
     sectionId?: string | null,
   ) => Promise<void>
   handleBatchUpdateContacts: (updates: readonly FormationContactBatchUpdateEntry[]) => Promise<void>
@@ -748,7 +748,7 @@ export interface UseGeologicalModelResult {
   // Geological surface backdrop for the litho cross-section (#60).
   // READ-ONLY: surfaces from the reference geological model rendered as faint
   // polylines behind the active litho contacts. Fetched on explicit user
-  // request (the rewired "Sync geology" toolbar verb on the litho axis).
+  // request (the rewired "Sync stratigraphy" toolbar verb on the litho axis).
   // Never routes through seeded_formation_contact_ids — the backdrop is a
   // surface-geometry overlay, not an explicit-content contact set.
   // -------------------------------------------------------------------------
@@ -1350,7 +1350,7 @@ export function useGeologicalModel({
   >(new Map())
   const [crossingsRefreshCounter, setCrossingsRefreshCounter] = useState(0)
   // Geological surface backdrop for the litho cross-section (#60).
-  // Loaded on explicit user request (the rewired "Sync geology" verb on
+  // Loaded on explicit user request (the rewired "Sync stratigraphy" verb on
   // the litho axis). Cleared when the project changes so stale surfaces
   // from a previous project never bleed in.
   const [backdropSurfacesByFormationId, setBackdropSurfacesByFormationId] = useState<
@@ -1520,7 +1520,7 @@ export function useGeologicalModel({
         // claimed the outer catch would leave the resolved geological
         // state alone, but the catch wipes activeGeologicalModel +
         // formations + contacts + surfaces — so one flaky picker fetch
-        // blanked the whole geology stage ("the units are gone and the
+        // blanked the whole Stratigraphy stage ("the units are gone and the
         // model is gone too", owner dogfeed 2026-08-03) until the project
         // was closed and reopened. Isolate it: the picker stays empty on
         // failure, the geological flow keeps what it already loaded.
@@ -1801,7 +1801,7 @@ export function useGeologicalModel({
   // alone is sufficient to bring newly-created litho units into view.)
 
   // Fetch (or re-fetch) the geological model's surfaces for the backdrop.
-  // Called from SectionsCanvas when the user clicks the rewired "Sync geology"
+  // Called from SectionsCanvas when the user clicks the rewired "Sync stratigraphy"
   // toolbar verb on the litho axis. The dep array is [project] — stable to
   // project identity — so the callback identity does not churn on every surface
   // state change.
