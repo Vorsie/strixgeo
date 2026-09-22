@@ -33,7 +33,7 @@ const baseProps = {
   investigationLabels: new Map<string, string>(),
   existingLensName: '',
   // existingLensId is the body_id resolved from the lens list (always
-  // non-null after resolver runs â€” null only if listLenses failed).
+  // non-null after resolver runs — null only if listLenses failed).
   existingLensId: 'BODY-REAL',
   onLensNamed: vi.fn(),
   onOfferCompanion: vi.fn(),
@@ -42,7 +42,7 @@ const baseProps = {
 }
 
 beforeEach(() => {
-  // Backend returns body_id (audit #3 â€” was mistakenly lens_id before).
+  // Backend returns body_id (audit #3 — was mistakenly lens_id before).
   geo.nameBody.mockResolvedValue({ body_id: 'BODY-REAL', was_created: false })
 })
 afterEach(() => {
@@ -50,7 +50,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('InspectLensBodyPanel â€” name-body callback (audit #3 / debt #207)', () => {
+describe('InspectLensBodyPanel — name-body callback (audit #3 / debt #207)', () => {
   it('passes the real body_id to onLensNamed via nameBody (PATCH), not the retired POST', async () => {
     const onLensNamed = vi.fn()
     render(<InspectLensBodyPanel {...baseProps} target={target} onLensNamed={onLensNamed} />)
