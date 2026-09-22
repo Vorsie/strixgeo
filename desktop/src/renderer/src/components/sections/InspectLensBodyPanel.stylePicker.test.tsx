@@ -52,15 +52,15 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('InspectLensBodyPanel â€” boundary style picker (#163f)', () => {
-  it('SP1 â€” renders the three style buttons with the stored style preselected', async () => {
+describe('InspectLensBodyPanel — boundary style picker (#163f)', () => {
+  it('SP1 — renders the three style buttons with the stored style preselected', async () => {
     render(<InspectLensBodyPanel target={target} existingLensId="L1" {...baseProps} />)
     expect(await screen.findByTestId('inspect-lens-style-straight')).toBeTruthy()
     expect(screen.getByTestId('inspect-lens-style-blocky')).toBeTruthy()
     expect(screen.getByTestId('inspect-lens-style-rounded')).toBeTruthy()
   })
 
-  it('SP2 â€” clicking a style PUTs saveBodyBoundary preserving the nodes', async () => {
+  it('SP2 — clicking a style PUTs saveBodyBoundary preserving the nodes', async () => {
     render(<InspectLensBodyPanel target={target} existingLensId="L1" {...baseProps} />)
     fireEvent.click(await screen.findByTestId('inspect-lens-style-blocky'))
     await waitFor(() => expect(geo.saveBodyBoundary).toHaveBeenCalledTimes(1))
@@ -71,7 +71,7 @@ describe('InspectLensBodyPanel â€” boundary style picker (#163f)', () => {
     expect(body.upper_nodes).toEqual([{ along_m: 10, elevation_m: 5 }])
   })
 
-  it('SP3 â€” no style section when the body has no lens row', () => {
+  it('SP3 — no style section when the body has no lens row', () => {
     render(<InspectLensBodyPanel target={target} existingLensId={null} {...baseProps} />)
     expect(screen.queryByTestId('inspect-lens-style')).toBeNull()
   })
