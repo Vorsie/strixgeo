@@ -1,6 +1,6 @@
 /**
  * Behavioural net for ``buildGeotechLegendTree`` — the nested 3-D LAYERS
- * legend (owner ruling 2026-08-26, mockup ``blend_viewer/geotech_ui_tidy_ideas.html``).
+ * legend (owner ruling 2026-08-26, mockup ``blend_viewer/geotech_ui_tidy_ideas.html`` (not kept in the repo)).
  *
  * The rule these pins paraphrase, in the owner's words: the flat legend shows
  * "34 rows of SAND/SAND/SAND/CLAY, identical text, different colours". It must
