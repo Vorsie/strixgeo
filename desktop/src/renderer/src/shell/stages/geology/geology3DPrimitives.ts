@@ -614,7 +614,9 @@ export function makeMeshGeometry(
  *     ``Cesium.Color`` (including alpha) for the instance.
  * appearance
  *     ``translucent`` / ``flat`` / optional ``closed`` flags — the only
- *     attributes that differ between the tin, fence and solid builders.
+ *     attributes that differ between the tin, fence and solid builders — plus
+ *     ``writesDepth`` for a translucent sheet that must also write depth
+ *     (see ``withDepthWrites``).
  *
  * Returns
  * -------
@@ -626,6 +628,7 @@ export function makeColorPrimitive(
   appearance: { translucent: boolean; flat: boolean; closed?: boolean; writesDepth?: boolean },
 ): Cesium.Primitive {
   const { writesDepth, ...appearanceOptions } = appearance
+  const colorAppearance = new Cesium.PerInstanceColorAppearance(appearanceOptions)
   return new Cesium.Primitive({
     geometryInstances: new Cesium.GeometryInstance({
       geometry,
@@ -633,37 +636,72 @@ export function makeColorPrimitive(
         color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
       },
     }),
-    appearance: new Cesium.PerInstanceColorAppearance(
-      writesDepth
-        ? { ...appearanceOptions, renderState: translucentDepthWritingRenderState() }
-        : appearanceOptions,
-    ),
+    appearance: writesDepth ? withDepthWrites(colorAppearance) : colorAppearance,
     asynchronous: false,
   })
 }
 
 /**
- * Render state for a TRANSLUCENT sheet that also writes depth.
+ * Render state of a TRANSLUCENT sheet: alpha blend, depth test, no culling,
+ * and a depth write when asked.
  *
- * With order-independent translucency off (``CesiumViewport``, the shimmer
- * fix) Cesium sorts translucent draws per frame by bounding-sphere distance,
- * and the formation sheets of one model share a footprint, so from the side
- * the sort ties and the deepest colour could composite on top ("a green sheen
- * on top, while that should be all red"; owner 2026-09-22). Writing depth
- * makes the nearer sheet win whatever the draw order, like the cut view's
- * opaque caps; alpha blending is kept so the sheet stays translucent.
+ * Parameters
+ * ----------
+ * writesDepth
+ *     ``true`` for a sheet that must write depth. Only meaningful through
+ *     ``withDepthWrites`` — handed to an appearance constructor, Cesium
+ *     drops the depth write (see there).
  *
  * Returns
  * -------
- * The render-state literal (alpha blend, depth test, depth write, no culling).
+ * The render-state literal.
  */
-export function translucentDepthWritingRenderState(): object {
+export function translucentSheetRenderState(writesDepth: boolean): object {
   return {
     blending: Cesium.BlendingState.ALPHA_BLEND,
     depthTest: { enabled: true },
-    depthMask: true,
+    depthMask: writesDepth,
     cull: { enabled: false, face: Cesium.CullFace.BACK },
   }
+}
+
+/**
+ * Make a translucent appearance write depth.
+ *
+ * With order-independent translucency off (``CesiumViewport``, the shimmer
+ * fix) Cesium sorts translucent draws per frame by the distance to each
+ * bounding-sphere SURFACE, so the sheet with the widest footprint sorts
+ * nearest and composites on top from every direction — a deeper, wider
+ * formation over a younger, narrower one ("a green sheen on top, while that
+ * should be all red"; "i can only see antropogeen while i turn off
+ * holoceen"; owner 2026-09-22). Writing depth makes the nearer sheet win
+ * whatever the draw order, like the cut view's opaque caps; alpha blending
+ * is kept so the sheet stays translucent.
+ *
+ * Why an override and not the ``renderState`` constructor option:
+ * ``Primitive`` builds its GPU render state from
+ * ``appearance.getRenderState()``, and Cesium's ``Appearance.prototype``
+ * version of that call forces ``depthMask = false`` on every translucent
+ * appearance — the option is honoured for everything EXCEPT the depth
+ * write (Cesium 1.141, ``Scene/Appearance.js``). The first version of this
+ * fix set the option, its test pinned the ``renderState`` property, and
+ * nothing changed on screen; a standalone Cesium probe (2026-09-22) showed
+ * the GPU state stayed ``depthMask: false`` until the call itself was
+ * answered. Answering it on the instance is the one seam Cesium leaves.
+ *
+ * Parameters
+ * ----------
+ * appearance
+ *     A translucent ``Cesium.Appearance`` (any subclass); mutated in place.
+ *
+ * Returns
+ * -------
+ * The same appearance, whose ``getRenderState()`` now returns
+ * ``translucentSheetRenderState(true)``.
+ */
+export function withDepthWrites<T extends Cesium.Appearance>(appearance: T): T {
+  appearance.getRenderState = () => translucentSheetRenderState(true)
+  return appearance
 }
 
 /**
@@ -1056,19 +1094,16 @@ export const _vertexColorAppearanceFS = [
 ].join('\n')
 
 export function makeVertexColorAppearance(writesDepth = false): Cesium.Appearance {
-  return new Cesium.Appearance({
+  const appearance = new Cesium.Appearance({
     vertexShaderSource: _vertexColorAppearanceVS,
     fragmentShaderSource: _vertexColorAppearanceFS,
     translucent: true,
     closed: false,
-    renderState: {
-      blending: Cesium.BlendingState.ALPHA_BLEND,
-      depthTest: { enabled: true },
-      // Formation sheets write depth (see translucentDepthWritingRenderState).
-      depthMask: writesDepth,
-      cull: { enabled: false, face: Cesium.CullFace.BACK },
-    } as unknown as object,
+    // The base Appearance has no default state, so the see-through state
+    // goes in here; a depth write cannot (Cesium drops it — withDepthWrites).
+    renderState: translucentSheetRenderState(false),
   })
+  return writesDepth ? withDepthWrites(appearance) : appearance
 }
 
 /**
