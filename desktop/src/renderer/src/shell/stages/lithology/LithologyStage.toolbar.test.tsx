@@ -35,7 +35,7 @@ import type { VoxelBuildState } from '../../../hooks/useVoxelBuildStream'
 import LithologyStage from './LithologyStage'
 
 // ---------------------------------------------------------------------------
-// Module mocks â€” LithologyCanvas and Geology3DViewer bring Cesium/Leaflet
+// Module mocks — LithologyCanvas and Geology3DViewer bring Cesium/Leaflet
 // ---------------------------------------------------------------------------
 
 vi.mock('./LithologyCanvas', () => ({
@@ -605,7 +605,7 @@ describe('LithologyToolbar Build model button (Task 7 — single-button collapse
 describe('LithologyToolbar Reset camera button', () => {
   // BM8a: Reset camera absent when no built litho solids exist (the 3D pane
   // that the button controls mounts on solids now, not retired TIN surfaces).
-  it('BM8a â€” Reset camera absent when no built litho solids exist', () => {
+  it('BM8a — Reset camera absent when no built litho solids exist', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel(), hasLithoSolids: false })
     renderToolbar(ctx)
     expect(screen.queryByRole('button', { name: /reset camera/i })).not.toBeInTheDocument()
@@ -613,7 +613,7 @@ describe('LithologyToolbar Reset camera button', () => {
 
   // BM8b: Reset camera present when built litho solids exist. Surfaces present
   // but no solids must NOT show the button (gate is solids-driven).
-  it('BM8b â€” Reset camera present when built litho solids exist', () => {
+  it('BM8b — Reset camera present when built litho solids exist', () => {
     const ctx = makeCtx({ activeLithoModel: makeLithoModel(), hasLithoSolids: true })
     renderToolbar(ctx)
     expect(screen.getByRole('button', { name: /reset camera/i })).toBeInTheDocument()
@@ -621,7 +621,7 @@ describe('LithologyToolbar Reset camera button', () => {
 
   // BM8c: surfaces-only (no solids) does NOT show Reset camera — proves the
   // gate no longer keys on TIN surfaces.
-  it('BM8c â€” Reset camera absent when only surfaces exist (no solids)', () => {
+  it('BM8c — Reset camera absent when only surfaces exist (no solids)', () => {
     const surfaces = new Map([['f-1', makeSurface('f-1', true)]])
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
