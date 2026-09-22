@@ -267,7 +267,7 @@ export default function SectionsInspector(): JSX.Element {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Model actions — Build / Sync geology / Seed / Dedupe (debt #97).   */}
+      {/* Model actions — Build / Sync stratigraphy / Seed / Dedupe (debt #97).   */}
       {/* These verbs act on the model and used to live in the Sections      */}
       {/* toolbar; per owner directive 2026-05-22 they belong next to the   */}
       {/* model they manage. Axis-aware: litho axis shows Build/Sync/Dedupe; */}
@@ -660,7 +660,7 @@ interface SectionListProps {
  *
  * Mirrors the SectionList component in Sidebar.tsx.  Sidebar.tsx is NOT
  * deleted — it still renders the section list in the legacy sidebar tab for
- * the transition period between S5 and S7.  When S7 lands (Geology stage
+ * the transition period between S5 and S7.  When S7 lands (Stratigraphy stage
  * migration) the Sidebar.tsx section tab can be removed.
  *
  * Parameters
@@ -1348,7 +1348,7 @@ function CrossingsBanner({
 }
 
 // ---------------------------------------------------------------------------
-// ModelActions — Build / Sync geology / Seed / Dedupe (debt #97)
+// ModelActions — Build / Sync stratigraphy / Seed / Dedupe (debt #97)
 // ---------------------------------------------------------------------------
 
 interface ModelActionsProps {
@@ -1385,7 +1385,7 @@ interface ModelActionsProps {
  * Axis-aware row:
  *
  *   - Geological axis: Build · Seed · Seed for new tests · Dedupe
- *   - Lithostratigraphic axis: Build · Sync geology · Dedupe
+ *   - Lithostratigraphic axis: Build · Sync stratigraphy · Dedupe
  *
  * Each verb mirrors its prior toolbar behaviour exactly — same gates,
  * same handlers, same async affordances. Build's amber "stale" badge
@@ -1431,7 +1431,7 @@ function ModelActions({
   const geoVerbDisabled = isLitho || activeGeologicalModel === null
   const geoVerbHint = isLitho ? t('sections.inspector.geoAxisHintBuildDedupe') : null
 
-  // Litho-axis Sync geology — load the parent geological model's TIN
+  // Litho-axis Sync stratigraphy — load the parent geological model's TIN
   // surfaces as a read-only backdrop reference. Disabled when no
   // backdrop is resolved (no litho parent + no override).
   const effectiveBackdropModelId =
