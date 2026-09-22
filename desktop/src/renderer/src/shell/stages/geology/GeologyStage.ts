@@ -1,4 +1,4 @@
-// Geology stage descriptor — functional core (G1).
+// Stratigraphy stage descriptor — functional core (G1).
 //
 // Wires GeologyToolbar (Fill, Build, Dedupe, Reset, Delete model) and
 // GeologyInspector (formation list, drag-reorder, borehole scope, crossings
@@ -16,7 +16,7 @@ import GeologyToolbar from './GeologyToolbar'
 import GeologyInspector from './GeologyInspector'
 
 /**
- * ``useStageSummary`` for the Geology stage.
+ * ``useStageSummary`` for the Stratigraphy stage.
  *
  * Returns
  * -------
