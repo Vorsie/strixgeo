@@ -38,8 +38,19 @@ class CptChannels(StrictRequestModel):
 
 
 class BoreholeChannels(StrictRequestModel):
-    """Section borehole-stream toggles persisted into ``view_state``."""
+    """Section borehole-stream toggles persisted into ``view_state``.
 
+    Mirrors the frontend's ``BoreholeChannels`` interface in
+    ``desktop/src/renderer/src/components/sections/cptChannels.ts``; the twin
+    test ``tests/unit/api/test_twin_section_channel_keys.py`` pins both to
+    ``tests/fixtures/contracts/section_channel_keys.json``. The renderer PATCHes
+    the whole bag on every toggle, so a key missing here refuses EVERY toggle
+    with a 422 (2026-09-22, the coded-lithology toggle of PR #18).
+    """
+
+    # Coded lithology (``coded_lithology`` observations) as a section stream,
+    # added on the renderer side by PR #18 (2026-09-21); OFF by default there.
+    lithology: bool | None = None
     geotech: bool | None = None
     formal_strat: bool | None = None
     informal_strat: bool | None = None
