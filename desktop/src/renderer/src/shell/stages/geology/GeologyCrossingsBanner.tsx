@@ -28,6 +28,8 @@ interface GeologyCrossingsBannerProps {
   crossingIssues: readonly GapIssueResponse[]
   /** Navigate to the section that owns an issue's contacts. */
   onClickIssue: (issue: GapIssueResponse) => void
+  /** The sentence to show for an issue; absent = the backend's English ``detail``. */
+  describeIssue?: (issue: GapIssueResponse) => string
   t: Translator
 }
 
@@ -57,6 +59,7 @@ export default function GeologyCrossingsBanner({
   validationFailed,
   crossingIssues,
   onClickIssue,
+  describeIssue,
   t,
 }: GeologyCrossingsBannerProps): JSX.Element {
   return (
@@ -135,10 +138,10 @@ export default function GeologyCrossingsBanner({
                       title={t('geology.openOffendingSection')}
                       data-testid="crossings-banner-item"
                     >
-                      {issue.detail}
+                      {describeIssue ? describeIssue(issue) : issue.detail}
                     </button>
                   ) : (
-                    issue.detail
+                    describeIssue ? describeIssue(issue) : issue.detail
                   )}
                 </li>
               )
