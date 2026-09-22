@@ -29,7 +29,7 @@ LabTest                      ← performed on a Sample, NOT on a Borehole
 ├── CaCO3Content       (typed: % calcium carbonate by mass)
 ├── OrganicContent     (typed: organic carbon %)
 ├── WaterContent       (typed: w%)
-└── ScalarLabTest      (catch-all: any (parameter, value, unit) tuple)
+└── ScalarLabTest      (catch-all: any (parameter, value, unit) tuple; ORM + API only, the unused domain class went 2026-09-22)
 
 Monitoring: Piezometer, Inclinometer
 Geophysical: MASW, Seismic CPT
