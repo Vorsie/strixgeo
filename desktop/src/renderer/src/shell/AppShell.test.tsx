@@ -133,7 +133,7 @@ describe('AppShell geotech report reveal', () => {
   })
 })
 
-describe('AppShell "Edit in Geology stage" deep-link (#156)', () => {
+describe('AppShell "Edit in Stratigraphy stage" deep-link (#156)', () => {
   it('lands on the SECTION VIEW (not the 3D globe): switches to the Sections stage, selects the geological axis, selects the section, and focuses the contact with a geological override', () => {
     const { ctx } = makeCtx({
       geoDeepLinkTarget: { sectionId: 'section-1', contactId: 'geo-contact-1' },
@@ -147,8 +147,8 @@ describe('AppShell "Edit in Geology stage" deep-link (#156)', () => {
 
     render(<AppShell context={ctx} />)
 
-    // The geological model is edited on cross-sections, not the globe — so the
-    // deep-link opens the Sections stage, NOT the Geology (Cesium) stage.
+    // The stratigraphic model is edited on cross-sections, not the globe — so the
+    // deep-link opens the Sections stage, NOT the Stratigraphy (Cesium) stage.
     expect(mockSetActiveStage).toHaveBeenCalledWith('sections')
     expect(mockSetActiveStage).not.toHaveBeenCalledWith('geology')
 
