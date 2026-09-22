@@ -1,10 +1,10 @@
-// Geology stage canvas.
+// Stratigraphy stage canvas.
 //
 // G2/G5: Cesium 3D viewer — shown when at least one non-stale formation
 // surface exists (i.e. after the user has run "Build 3D model").  Falls back
 // to a clean empty-state message (NOT a 2D map) when no surfaces exist yet.
 // The 3D viewer is the ONLY canvas content; a plan-view map is absent from
-// the Geology stage by design — the Data stage owns geographic context.
+// the Stratigraphy stage by design — the Data stage owns geographic context.
 //
 // G6: split-viewport mode — the user draws a split line in the 3D scene;
 // the canvas splits into two independent CesiumWidget viewports.  Reset
@@ -17,7 +17,7 @@
 // mounted.  Only one canvas instance is ever mounted at a time, so a
 // module-level ref is safe here — it is never a state-race hazard.
 //
-// Investigation-selection is intentionally absent: the Geology stage is the
+// Investigation-selection is intentionally absent: the Stratigraphy stage is the
 // model-definition surface; the Data stage is the inspection surface.
 
 import { useMemo, useState } from 'react'
@@ -54,7 +54,7 @@ export const resetSplitViewportCallback: React.MutableRefObject<(() => void) | n
 }
 
 /**
- * Center canvas for the Geology stage.
+ * Center canvas for the Stratigraphy stage.
  *
  * Renders a ``Geology3DViewer`` (Cesium) when at least one non-stale
  * formation surface exists, and falls back to a read-only ``MapView``
@@ -158,7 +158,7 @@ export default function GeologyCanvas(): JSX.Element {
   const projectEpsg = project.default_horizontal_epsg ?? 31370
 
   // The geoModel bus exposes EVERY formation in the project —
-  // geological, lithostratigraphic, and geotech. The Geology stage
+  // geological, lithostratigraphic, and geotech. The Stratigraphy stage
   // must only show the geological vocabulary; litho / geotech units
   // belong in their own stages. Filter here so the 3D viewer's
   // Layers panel + body rendering both honour the boundary.
