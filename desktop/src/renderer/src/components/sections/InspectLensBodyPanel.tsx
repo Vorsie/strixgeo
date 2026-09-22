@@ -335,14 +335,14 @@ export default function InspectLensBodyPanel({
     if (target === null) return
     const trimmed = lensName.trim()
     if (trimmed === '') {
-      setNameError('Name cannot be empty.')
+      setNameError(t('sections.lensPanel.nameEmpty'))
       return
     }
     if (!existingLensId) {
       // The body row is always created by the resolver before the panel opens.
       // A null existingLensId means the lens list fetch failed — the user
       // should close and reopen the panel once the model is resolved.
-      setNameError('Body not yet resolved. Close and reopen the panel.')
+      setNameError(t('sections.lensPanel.bodyUnresolved'))
       return
     }
     setNameSaving(true)
@@ -367,7 +367,7 @@ export default function InspectLensBodyPanel({
       )
     } catch (err) {
       log.warn('section', 'InspectLensBodyPanel: nameBody failed', err)
-      setNameError('Could not save name. Try again.')
+      setNameError(t('sections.lensPanel.saveNameFailed'))
     } finally {
       setNameSaving(false)
     }
@@ -378,7 +378,7 @@ export default function InspectLensBodyPanel({
     // A companion requires a named lens.  If there's no existing lens id,
     // surface a short error rather than silently failing.
     if (existingLensId === null) {
-      setNameError('Save a lens name first to create a companion section.')
+      setNameError(t('sections.lensPanel.saveNameForCompanion'))
       nameInputRef.current?.focus()
       return
     }
