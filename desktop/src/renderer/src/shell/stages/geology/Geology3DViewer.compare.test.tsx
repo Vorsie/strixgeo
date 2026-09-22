@@ -260,7 +260,7 @@ describe('compare split', () => {
   })
 
   it('CMP10 — a stage with no counterpart model never shows the verb', () => {
-    // The geology stage: nothing to compare against.
+    // The Stratigraphy stage: nothing to compare against.
     render(<Geology3DViewer {...baseProps('single')} />)
 
     expect(screen.queryByTestId('geology3d-compare-button')).toBeNull()
