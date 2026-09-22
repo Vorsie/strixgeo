@@ -7,6 +7,15 @@
 // are opaque and depth-tested. Formation sheets therefore WRITE depth: the
 // nearer sheet is in front whatever the draw order. The ground sheet and the
 // lid keep the see-through default so the block stays visible under them.
+//
+// The assertions read ``appearance.getRenderState()`` — the call Cesium's
+// Primitive makes when it builds the GPU render state — NOT the
+// ``appearance.renderState`` property. Cesium (1.141) forces ``depthMask =
+// false`` inside that call for every translucent appearance and ignores the
+// ``renderState`` option, so the property can say "true" while the GPU never
+// writes depth. The first version of this fix pinned the property, stayed
+// green, and changed nothing on screen ("cesium ordering is still wrong",
+// owner 2026-09-22).
 import * as Cesium from 'cesium'
 import { describe, expect, it } from 'vitest'
 
@@ -33,7 +42,7 @@ interface RenderStateShape {
 
 function renderStateOf(p: Cesium.Primitive | null): RenderStateShape {
   expect(p).not.toBeNull()
-  return (p as Cesium.Primitive).appearance.renderState as RenderStateShape
+  return (p as Cesium.Primitive).appearance.getRenderState() as RenderStateShape
 }
 
 describe('formation sheets in the 3-D view: the nearer sheet is in front whatever the draw order', () => {
