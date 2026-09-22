@@ -147,7 +147,7 @@ function LithologyToolbar(): JSX.Element | null {
  * -------
  * StageSummary
  *     Count of formations in the ACTIVE litho model — mirrors the
- *     Geology stage badge (``visibleFormations.length``) so every spine
+ *     Stratigraphy stage badge (``visibleFormations.length``) so every spine
  *     badge consistently counts that stage's content, not containers.
  *     An empty/new litho model (nothing drawn yet) → no badge.
  */
