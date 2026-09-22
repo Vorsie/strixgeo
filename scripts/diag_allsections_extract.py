@@ -1,6 +1,6 @@
 """THROWAWAY DIAG — extract EVERY section's computeSectionFill INPUT from the dev DB.
 
-Generalises ``throwaway_cs1_partition_extract.py`` across all sections of the
+Generalises ``extract_cs1_partition_input.py`` across all sections of the
 litho model so the all-sections tie-straddle diagnostic can hunt the owner's
 "lithology spilling over a correlation band" report. Not production code.
 Run: ``uv run python scripts/diag_allsections_extract.py``
