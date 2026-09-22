@@ -1,4 +1,4 @@
-"""THROWAWAY — extract CS1 geotech data from the dev DB for the real-data gate.
+"""Extract CS1 geotech data from the dev DB for the real-data gate.
 
 Queries the dev DB for every investigation that projects onto Cross-section 1
 (CS1) of ``test.strix`` and dumps their geotech band + sample data to
@@ -9,7 +9,7 @@ reads this file and asserts on the real-data geometry.
 snapshots the DB state at extraction time, not at test time.  Typical workflow::
 
     uv run python scripts/rematerialise_dev_geotech.py
-    uv run python scripts/throwaway_cs1_geotech_gate_extract.py
+    uv run python scripts/extract_cs1_geotech_gate.py
     CS1_GEOTECH_GATE=1 uv run pytest tests/gate_cs1_geotech.py -v
 
 Output
