@@ -89,14 +89,14 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   }, [context.project.id])
 
   // Geology deep-link — triggered from the Sections (litho) canvas when
-  // the user picks "Edit in Geology stage" on a geological contact.
+  // the user picks "Edit in Stratigraphy stage" on a geological contact.
   //
-  // The geological model is edited on CROSS-SECTIONS, not on the Geology
+  // The stratigraphic model is edited on CROSS-SECTIONS, not on the Stratigraphy
   // stage's 3D Cesium viewer (that stage is 3D-or-empty-state only, see
   // GeologyCanvas). So the deep-link opens the SECTION VIEW — the Sections
   // stage on the GEOLOGICAL axis, where the geological contact is the
   // editable one — and pulses that contact (debt #156). Routing to the
-  // geology stage instead landed the user on the globe and fired
+  // Stratigraphy stage instead landed the user on the globe and fired
   // "couldn't find the contact" twice (dogfeed 2026-05-28).
   //
   // The focus states the geological axis explicitly (third arg): the user
