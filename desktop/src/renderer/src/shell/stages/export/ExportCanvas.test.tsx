@@ -2,7 +2,7 @@
 //
 // Mirrors GeologyStage.test.tsx's stub-ShellContext approach. Covers:
 //   * smoke render with no prerequisites (both cards show guidance)
-//   * no active model â†’ guidance points at the Geology stage, no buttons
+//   * no active model â†’ guidance points at the Stratigraphy stage, no buttons
 //   * model + sections â†’ picker + both export buttons render, and clicking
 //     them calls the shared bus handlers with the right arguments
 //
