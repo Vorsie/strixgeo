@@ -1,14 +1,14 @@
 // Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
 //
-// GD1 â€” right-click on a reference (geological backdrop) contact hit-strip
-//        in the litho section view â†’ the contact context menu opens with the
+// GD1 — right-click on a reference (geological backdrop) contact hit-strip
+//        in the litho section view → the contact context menu opens with the
 //        "Edit in Stratigraphy stage" item present.
 //
-// GD2 â€” clicking "Edit in Stratigraphy stage" calls the onEditInGeologyStage
+// GD2 — clicking "Edit in Stratigraphy stage" calls the onEditInGeologyStage
 //        callback with the correct contactId + formationId args, and the
 //        menu does NOT show Delete / Pinch-out for reference contacts.
 //
-// GD5 â€” Reference-contact hit-strips render AFTER (on top of) active
+// GD5 — Reference-contact hit-strips render AFTER (on top of) active
 //        litho-contact drag strips in SVG DOM order (Slice D z-order fix,
 //        dogfeed 2026-05-25).  The strips must be topmost so right-click
 //        on a geological contact position wins over any overlapping litho
@@ -28,7 +28,7 @@ import { render, cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // ---------------------------------------------------------------------------
-// GD1 / GD2  â€” ContactsLayer ref-contact hit-strip + menu item
+// GD1 / GD2  — ContactsLayer ref-contact hit-strip + menu item
 // ---------------------------------------------------------------------------
 
 import ContactsLayer from '../../../components/sections/ContactsLayer'
@@ -113,7 +113,7 @@ function renderContactsLayer(
   )
 }
 
-describe('GD1 â€” right-click reference contact shows "Edit in Stratigraphy stage" menu item', () => {
+describe('GD1 — right-click reference contact shows "Edit in Stratigraphy stage" menu item', () => {
   afterEach(() => {
     cleanup()
   })
@@ -159,7 +159,7 @@ describe('GD1 â€” right-click reference contact shows "Edit in Stratigraphy
       plotBottom: 400,
       referenceContacts: [makeContact(contactId, formationId, anchorId)],
       referenceFormations: [makeFormation(formationId, 'Boom Klei')],
-      // onEditInGeologyStage absent â€” hit-strips must not render
+      // onEditInGeologyStage absent — hit-strips must not render
     })
 
     const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
@@ -167,7 +167,7 @@ describe('GD1 â€” right-click reference contact shows "Edit in Stratigraphy
   })
 })
 
-describe('GD2 â€” clicking "Edit in Stratigraphy stage" calls the callback with correct args', () => {
+describe('GD2 — clicking "Edit in Stratigraphy stage" calls the callback with correct args', () => {
   afterEach(() => {
     cleanup()
   })
@@ -231,7 +231,7 @@ describe('GD2 â€” clicking "Edit in Stratigraphy stage" calls the callback 
 })
 
 // ---------------------------------------------------------------------------
-// GD5 â€” coincident reference strip is SUPPRESSED, not topmost (#159 supersedes
+// GD5 — coincident reference strip is SUPPRESSED, not topmost (#159 supersedes
 // the Slice-D 2026-05-25 z-order fix).
 // ---------------------------------------------------------------------------
 //
@@ -244,7 +244,7 @@ describe('GD2 â€” clicking "Edit in Stratigraphy stage" calls the callback 
 // contact's own drag-strip wins; the geo-deep-link stays reachable from the
 // litho contact's own context menu (covered by GD1-GD4).
 
-describe('GD5 â€” coincident reference strip is suppressed so the litho contact stays draggable (#159)', () => {
+describe('GD5 — coincident reference strip is suppressed so the litho contact stays draggable (#159)', () => {
   afterEach(() => {
     cleanup()
   })
@@ -290,7 +290,7 @@ describe('GD5 â€” coincident reference strip is suppressed so the litho con
 })
 
 // ---------------------------------------------------------------------------
-// GD6 â€” "Edit in Stratigraphy stage" on litho contact when parent geo contact exists
+// GD6 — "Edit in Stratigraphy stage" on litho contact when parent geo contact exists
 //
 // Regression for dogfeed Bug 1 (2026-05-26): right-clicking a NON-TOPMOST
 // litho contact (i.e. a litho-litho boundary within a geological formation)
@@ -301,7 +301,7 @@ describe('GD5 â€” coincident reference strip is suppressed so the litho con
 // boundaries silently had no geological context menu.
 // ---------------------------------------------------------------------------
 
-describe('GD6 â€” litho contact right-click shows geo-deep-link when parent geo contact exists', () => {
+describe('GD6 — litho contact right-click shows geo-deep-link when parent geo contact exists', () => {
   afterEach(() => {
     cleanup()
   })
@@ -327,7 +327,7 @@ describe('GD6 â€” litho contact right-click shows geo-deep-link when parent
     const lithoContact = makeContact(lithoContactId, lithoFormationId, anchorId)
     lithoContact.depth_top_m = 3
 
-    // Reference geological contact at 1 m (topmost geo boundary) â€” different
+    // Reference geological contact at 1 m (topmost geo boundary) — different
     // depth so it is a truly separate strip.  The litho contact at 3 m is
     // BELOW this geological boundary, making it a litho-litho boundary.
     const geoContact = makeContact(geoContactId, geoFormationId, anchorId)
@@ -353,7 +353,7 @@ describe('GD6 â€” litho contact right-click shows geo-deep-link when parent
     const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')
     expect(activeStrip).not.toBeNull()
 
-    // Right-click the litho contact strip â†’ menu must include the geo deep-link item.
+    // Right-click the litho contact strip → menu must include the geo deep-link item.
     fireEvent.contextMenu(activeStrip!)
     const menuItem = screen.getByTestId('geo-deep-link-menu-item')
     expect(menuItem).toBeTruthy()
