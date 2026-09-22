@@ -3,7 +3,7 @@
  * refinement (ruling 8k: "columns are ground truth — a picked unit's own interval may never
  * paint another litho").
  *
- * THE PREMISE (REWRITE_STATE.md §62, the sole S56 residual). Tie-section 7 gap 0:
+ * THE PREMISE (REWRITE_STATE.md §62, deleted 2026-09-22 and kept in git history; the sole S56 residual). Tie-section 7 gap 0:
  *   col0 = SILT(u0, top-band) / KLEI(u1) / 2af4(u2) / KLEI(u3, el 3.14..6.30) / SILT(u4)…
  *   col1 = SILT(u0, el 4.84..11.73, huge) / KLEI(u1, el 3.80..4.84)…
  * The surface SILT band (col0-u0 ↔ col1-u0, top-tied) is 8m-suppressed (same litho both
