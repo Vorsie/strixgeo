@@ -51,6 +51,9 @@ export const MODELS_NL = {
     'Open het dwarsprofiel met de betrokken laaggrenzen en verschuif ernaartoe.',
   'geology.noSectionForContact':
     'Geen enkel dwarsprofiel bevat de betrokken laaggrens. Teken er een door de boring of sondering om ze te bekijken.',
+  'geology.crossing.text': 'Jongere formatie {younger} ligt tot {delta} m onder oudere {older}',
+  'geology.crossing.at': ' bij {tests}',
+  'geology.sectionDrawnThrough': 'Dwarsprofiel getekend door {test}. Ctrl+Z maakt het ongedaan.',
   'geology.loadFailed':
     'Kon het stratigrafisch model niet laden. Controleer de verbinding en open het project opnieuw.',
   'geology.splitView': 'Gesplitste weergave',
