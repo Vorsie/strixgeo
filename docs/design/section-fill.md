@@ -266,7 +266,7 @@ the litho frame draws no closed black rectangle there) on the committed CS2 deco
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
-first via `scripts/throwaway_cs1_partition_extract.py` against the dev DB.
+first via `scripts/extract_cs1_partition_input.py` against the dev DB.
 Asserts: **cross-formation overlap 0 / interior void 0 / lithology correct /
 quad 0.**
 
