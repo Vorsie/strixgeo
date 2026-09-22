@@ -77,8 +77,8 @@ export function messageForDetail(detail: unknown, fallback: string, language?: L
  * (``@model_validator``) reports its ``ValueError`` text with a pydantic-added
  * ``"Value error, "`` prefix and a ``loc`` of just ``["body"]``; that prefix is
  * stripped and the sentence shown alone. A field-constraint error carries the
- * field name in ``loc`` (e.g. ``["body", "north"]``) and is shown as
- * ``"north: <message>"``.
+ * field path in ``loc`` (e.g. ``["body", "north"]``) and is shown as
+ * ``"north: <message>"``; a nested key shows its dotted path.
  *
  * Parameters
  * ----------
@@ -97,10 +97,13 @@ function messageForValidationErrors(errors: unknown[]): string | null {
   // pydantic prefixes a raised ValueError with "Value error, " — an internal
   // detail the engineer should never see.
   const msg = first.msg.replace(/^Value error,\s*/i, '')
-  // The field name is the last ``loc`` segment that is not the request-body
-  // envelope pydantic wraps every field in. A model-level validator has no
-  // field segment (loc is just ["body"]), so the sentence stands alone.
+  // The field path is every ``loc`` segment after the request-body envelope
+  // pydantic wraps each field in, dotted: a nested key reads as
+  // ``view_state.borehole_channels.lithology``, which names WHERE the input
+  // was refused (the last segment alone, "lithology", sent the reader to the
+  // wrong schema on 2026-09-22). A model-level validator has no field segment
+  // (loc is just ["body"]), so the sentence stands alone.
   const loc = Array.isArray(first.loc) ? first.loc : []
-  const field = loc.filter(s => typeof s === 'string' && s !== 'body' && s !== 'query').pop()
+  const field = loc.filter(s => typeof s === 'string' && s !== 'body' && s !== 'query').join('.')
   return field ? `${field}: ${msg}` : msg
 }
