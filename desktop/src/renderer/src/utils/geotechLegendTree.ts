@@ -6,7 +6,7 @@
  * identical ("SAND", "SAND", "SAND", "CLAY", …) and whose only difference is a
  * near-adjacent shade of the NAD ramp — unreadable, and impossible to use as a
  * visibility control (owner ruling 2026-08-26, mockup
- * ``blend_viewer/geotech_ui_tidy_ideas.html``). Three levels fix it:
+ * ``blend_viewer/geotech_ui_tidy_ideas.html`` (not kept in the repo)). Three levels fix it:
  *
  *   • SOIL family  — one row per main soil code; the eye hides the whole family.
  *   • NAD class    — the level the engineer works at; labelled by DENSITY /
