@@ -1,12 +1,12 @@
 // Regression anchors for InspectorSection collapsibility (debt #115 sub-item 1).
 //
-// IC1 â€” header is a <button> with aria-expanded="true" by default (first mount,
+// IC1 — header is a <button> with aria-expanded="true" by default (first mount,
 //        no stored preference).
-// IC2 â€” clicking the header toggles aria-expanded to "false" and hides content.
-// IC3 â€” re-clicking restores aria-expanded to "true" and shows content.
-// IC4 â€” collapse state is persisted to localStorage; a fresh render with the
+// IC2 — clicking the header toggles aria-expanded to "false" and hides content.
+// IC3 — re-clicking restores aria-expanded to "true" and shows content.
+// IC4 — collapse state is persisted to localStorage; a fresh render with the
 //        stored "closed" key starts collapsed.
-// IC5 â€” Space/Enter on the header toggles the section (keyboard support).
+// IC5 — Space/Enter on the header toggles the section (keyboard support).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -47,7 +47,7 @@ vi.mock('../../../utils/log', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Minimal shell context â€” only the slices SectionsInspector reads
+// Minimal shell context — only the slices SectionsInspector reads
 // ---------------------------------------------------------------------------
 
 const noopAsync = (): Promise<void> => Promise.resolve()
@@ -404,7 +404,7 @@ afterEach(() => {
 })
 
 describe('InspectorSection collapsibility (debt #115 sub-item 1)', () => {
-  it('IC1 â€” header button is aria-expanded=true by default (no stored state)', () => {
+  it('IC1 — header button is aria-expanded=true by default (no stored state)', () => {
     renderInspector()
     // "Cross-sections" is always shown (the primary section in SectionsInspector)
     const headers = screen.getAllByRole('button', { name: /cross.sections/i })
@@ -414,7 +414,7 @@ describe('InspectorSection collapsibility (debt #115 sub-item 1)', () => {
     expect(header!.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('IC2 â€” clicking header collapses the section (aria-expanded=false)', () => {
+  it('IC2 — clicking header collapses the section (aria-expanded=false)', () => {
     renderInspector()
     const headers = screen.getAllByRole('button', { name: /cross.sections/i })
     const header = headers.find(h => h.getAttribute('aria-expanded') !== null)!
@@ -423,7 +423,7 @@ describe('InspectorSection collapsibility (debt #115 sub-item 1)', () => {
     expect(header.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('IC3 â€” double-click header restores open state (aria-expanded=true)', () => {
+  it('IC3 — double-click header restores open state (aria-expanded=true)', () => {
     renderInspector()
     const headers = screen.getAllByRole('button', { name: /cross.sections/i })
     const header = headers.find(h => h.getAttribute('aria-expanded') !== null)!
@@ -432,7 +432,7 @@ describe('InspectorSection collapsibility (debt #115 sub-item 1)', () => {
     expect(header.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('IC4 â€” collapsed state persists to localStorage via the stored key', () => {
+  it('IC4 — collapsed state persists to localStorage via the stored key', () => {
     renderInspector()
     const headers = screen.getAllByRole('button', { name: /cross.sections/i })
     const header = headers.find(h => h.getAttribute('aria-expanded') !== null)!
@@ -447,7 +447,7 @@ describe('InspectorSection collapsibility (debt #115 sub-item 1)', () => {
     expect(storedOpen).toBe('open')
   })
 
-  it('IC5 â€” Space key toggles the section header', () => {
+  it('IC5 — Space key toggles the section header', () => {
     renderInspector()
     const headers = screen.getAllByRole('button', { name: /cross.sections/i })
     const header = headers.find(h => h.getAttribute('aria-expanded') !== null)!
