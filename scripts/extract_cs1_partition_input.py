@@ -1,8 +1,9 @@
-"""THROWAWAY — extract CS1's computeSectionFill INPUT from the dev DB.
+"""Extract CS1's computeSectionFill INPUT from the dev DB.
 
 Reconstructs the partition input for Cross-section 1 (model 019e934c…) into a
-JSON the throwaway TS harness feeds to computeSectionFill. Not production code.
-Run: ``uv run python scripts/throwaway_cs1_partition_extract.py``
+JSON the CS1 gate harness (``partitionFillV2.cs1gates.diag.test.ts``) feeds to
+computeSectionFill. A diagnostics tool, not production code.
+Run: ``uv run python scripts/extract_cs1_partition_input.py``
 """
 
 import json
