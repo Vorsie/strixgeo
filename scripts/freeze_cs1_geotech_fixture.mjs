@@ -1,4 +1,6 @@
-// THROWAWAY — freezes the CS1 geotech-refinement fixture (2026-07-06).
+// Freezes the CS1 geotech-refinement fixture (2026-07-06).
+// (The geotech-brainstorm extractor it names below was an untracked one-off;
+// re-derive that input from the dev DB if the fixture ever needs refreshing.)
 //
 // Combines scripts/throwaway_cs1_input.json (litho columns + edges + section
 // order) + scripts/throwaway_geotech_brainstorm.json (geotech NAD sub-band
@@ -16,7 +18,7 @@
 //   surfaceElevM + along_m offset so their minima are 0; depths unchanged.
 //   Real test names + geo contacts + Lambert-72 coordinates are DROPPED.
 //
-// Run: node scripts/throwaway_freeze_geotech_fixture.mjs   (from repo root)
+// Run: node scripts/freeze_cs1_geotech_fixture.mjs   (from repo root)
 import { readFileSync, writeFileSync } from 'node:fs'
 
 const litho = JSON.parse(readFileSync('scripts/throwaway_cs1_input.json', 'utf8'))
@@ -116,8 +118,8 @@ for (const id of order) alongM[invMap.get(id)] = r3(alongRaw.get(id) - alongOff)
 const out = {
   provenance:
     'CS1 of test.strix (litho model + geotech model), extracted 2026-07-06, anonymised. ' +
-    'Regenerate: scripts/throwaway_cs1_partition_extract.py + scripts/throwaway_geotech_brainstorm_extract.py ' +
-    'against the dev DB, then node scripts/throwaway_freeze_geotech_fixture.mjs.',
+    'Regenerate: scripts/extract_cs1_partition_input.py + scripts/throwaway_geotech_brainstorm_extract.py ' +
+    'against the dev DB, then node scripts/freeze_cs1_geotech_fixture.mjs.',
   alongM,
   columns,
   edges,
