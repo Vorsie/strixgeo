@@ -1,5 +1,5 @@
 /**
- * Geology stage inspector pane — formation list, drag-reorder, borehole
+ * Stratigraphy stage inspector pane — formation list, drag-reorder, borehole
  * scope, and the surface-crossing banner.
  *
  * Owns the geological model definition UI (formations + reorder + borehole
@@ -47,7 +47,7 @@ import GeologyBoreholesInModel from './GeologyBoreholesInModel'
 // ---------------------------------------------------------------------------
 
 /**
- * Geology stage inspector: formation list, drag-reorder, borehole scope, and
+ * Stratigraphy stage inspector: formation list, drag-reorder, borehole scope, and
  * the surface-crossing banner.
  *
  * Takes no props — all state is sourced from ``useShell()``.
@@ -132,9 +132,9 @@ export default function GeologyInspector(): JSX.Element {
     pushUndoCommand,
   })
 
-  // The "Edit in Geology stage" deep-link (#156) is consumed in AppShell now:
+  // The "Edit in Stratigraphy stage" deep-link (#156) is consumed in AppShell now:
   // it opens the SECTION VIEW (Sections stage, geological axis) and pulses the
-  // contact there, because the geological model is edited on cross-sections,
+  // contact there, because the stratigraphic model is edited on cross-sections,
   // not on this stage's 3D viewer. This inspector no longer reads the payload.
 
   // Cross-formation crossing-validator results. Gated on surface
