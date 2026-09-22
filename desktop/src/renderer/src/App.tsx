@@ -427,6 +427,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedBoreholeId, setSelectedBoreholeId] = useState<string | null>(null)
   const [view, setView] = useState<View>('map')
+  // Counts open-detail ACTIONS (handleSelect / handleSelectBorehole). The shell's
+  // open-detail → Data-stage jump keys on it, so asking for the SAME test's
+  // details again after walking away from Data still returns there
+  // (owner 2026-09-22: the selection alone did not change, so nothing fired).
+  const [detailOpenSeq, setDetailOpenSeq] = useState(0)
 
   // Map marquee selection — investigation IDs selected by Shift+drag on
   // the map. Drives the checkbox state in DataInspector so map and list
@@ -1064,6 +1069,7 @@ export default function App() {
     async (id: string): Promise<void> => {
       await handleSelectWithoutView(id)
       setView('chart')
+      setDetailOpenSeq(n => n + 1)
     },
     [handleSelectWithoutView, setView],
   )
@@ -1074,6 +1080,7 @@ export default function App() {
       setSelectedId(null)
       await loadBoreholeDetail(id)
       setView('chart')
+      setDetailOpenSeq(n => n + 1)
     },
     [setSelectedBoreholeId, setSelectedId, loadBoreholeDetail, setView],
   )
@@ -1392,7 +1399,7 @@ export default function App() {
     // mapState
     mapState,
     // coordinator
-    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView,
+    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView, detailOpenSeq,
     handleSelect, handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
