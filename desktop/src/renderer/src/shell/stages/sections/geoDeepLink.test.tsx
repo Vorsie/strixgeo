@@ -2,9 +2,9 @@
 //
 // GD1 â€” right-click on a reference (geological backdrop) contact hit-strip
 //        in the litho section view â†’ the contact context menu opens with the
-//        "Edit in Geology stage" item present.
+//        "Edit in Stratigraphy stage" item present.
 //
-// GD2 â€” clicking "Edit in Geology stage" calls the onEditInGeologyStage
+// GD2 â€” clicking "Edit in Stratigraphy stage" calls the onEditInGeologyStage
 //        callback with the correct contactId + formationId args, and the
 //        menu does NOT show Delete / Pinch-out for reference contacts.
 //
@@ -16,7 +16,7 @@
 //
 // GD1/GD2/GD5/GD6 exercise ContactsLayer (the hit-strip + menu item surface).
 //
-// The former GD3/GD4 pinned the OLD "Edit in Geology stage" target — the
+// The former GD3/GD4 pinned the OLD "Edit in Stratigraphy stage" target — the
 // GeologyInspector (3D-stage) payload consumer. That target was the debt #156
 // mis-land (it opened the globe). The deep-link now opens the SECTION VIEW and
 // is consumed in AppShell; GD3/GD4 were removed with the GeologyInspector
@@ -113,7 +113,7 @@ function renderContactsLayer(
   )
 }
 
-describe('GD1 â€” right-click reference contact shows "Edit in Geology stage" menu item', () => {
+describe('GD1 â€” right-click reference contact shows "Edit in Stratigraphy stage" menu item', () => {
   afterEach(() => {
     cleanup()
   })
@@ -167,7 +167,7 @@ describe('GD1 â€” right-click reference contact shows "Edit in Geology stag
   })
 })
 
-describe('GD2 â€” clicking "Edit in Geology stage" calls the callback with correct args', () => {
+describe('GD2 â€” clicking "Edit in Stratigraphy stage" calls the callback with correct args', () => {
   afterEach(() => {
     cleanup()
   })
@@ -290,11 +290,11 @@ describe('GD5 â€” coincident reference strip is suppressed so the litho con
 })
 
 // ---------------------------------------------------------------------------
-// GD6 â€” "Edit in Geology stage" on litho contact when parent geo contact exists
+// GD6 â€” "Edit in Stratigraphy stage" on litho contact when parent geo contact exists
 //
 // Regression for dogfeed Bug 1 (2026-05-26): right-clicking a NON-TOPMOST
 // litho contact (i.e. a litho-litho boundary within a geological formation)
-// must also show "Edit in Geology stage" when the litho formation has a
+// must also show "Edit in Stratigraphy stage" when the litho formation has a
 // parent_formation_id AND a matching geological contact at the same anchor
 // exists in referenceContacts.  Before the fix only the topmost boundary
 // (which had a dedicated reference hit-strip) offered the item; lower
@@ -306,7 +306,7 @@ describe('GD6 â€” litho contact right-click shows geo-deep-link when parent
     cleanup()
   })
 
-  it('shows "Edit in Geology stage" for a litho contact whose formation has a parent', () => {
+  it('shows "Edit in Stratigraphy stage" for a litho contact whose formation has a parent', () => {
     const onEditInGeologyStage = vi.fn()
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
     const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
