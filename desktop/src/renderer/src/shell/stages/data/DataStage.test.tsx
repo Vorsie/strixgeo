@@ -1,11 +1,11 @@
 // Smoke + consistency test for the Data stage components (DataStage,
 // DataInspector).
 //
-// Pins that the Data badge (DataStage.ts â†’ useDataStageSummary) and the
+// Pins that the Data badge (DataStage.ts → useDataStageSummary) and the
 // Data inspector (DataInspector.tsx) both source their counts from the
 // manifest-filtered ``visibleCpts`` / ``visibleBoreholes`` lists on the
 // ShellContext bus.  This was already consistent before the Fix 1/2
-// investigation â€” this test documents and guards the property so a future
+// investigation — this test documents and guards the property so a future
 // refactor cannot silently regress it.
 
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
@@ -387,9 +387,9 @@ describe('Data stage (smoke + consistency)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('DataInspector count == badge â€” both read visibleCpts.length + visibleBoreholes.length', () => {
+  it('DataInspector count == badge — both read visibleCpts.length + visibleBoreholes.length', () => {
     // Pins the Fix 2 investigation result: badge (DataStage.ts) and inspector
-    // (DataInspector.tsx) were ALREADY consistent â€” both read visibleCpts /
+    // (DataInspector.tsx) were ALREADY consistent — both read visibleCpts /
     // visibleBoreholes (manifest-filtered).  This test guards the property so
     // a future refactor cannot silently regress it.
     //
@@ -445,8 +445,8 @@ describe('Data stage (smoke + consistency)', () => {
   // load-bearing assertions here lets Sidebar.tsx + Sidebar.test.tsx be
   // deleted without losing user-visible coverage. The exhaustive
   // shift-range / mirror-deselect permutations from Sidebar.test are
-  // deliberately NOT re-ported â€” identical copied logic, and the
-  // bulk-barâ†’Remove integration below is the contract that actually
+  // deliberately NOT re-ported — identical copied logic, and the
+  // bulk-bar→Remove integration below is the contract that actually
   // protects the user-facing behaviour.
   const makeCpt = (id: string, name: string) => ({
     id,
