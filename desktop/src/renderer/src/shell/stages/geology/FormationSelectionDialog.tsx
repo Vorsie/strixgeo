@@ -1,6 +1,6 @@
 /**
  * Formation selection dialog — opened by the "Fill from boreholes" toolbar
- * verb in the Geology stage.
+ * verb in the Stratigraphy stage.
  *
  * Shows the candidate formation names discovered from borehole stratigraphy
  * (result of ``discoverBoreholeFormations``).  The user selects which
