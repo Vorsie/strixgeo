@@ -18,7 +18,7 @@ import type {
 import VirtueleBoringGhostColumns from './VirtueleBoringGhostColumns'
 import type { PlacedColumn } from './utils'
 
-// Screen Y grows downward, mTAW grows upward â€” the real
+// Screen Y grows downward, mTAW grows upward — the real
 // ``levelToScreen`` is a sign-flipping affine. We mirror that here so
 // a layer with top > base produces a positive-height rect (otherwise
 // the component's zero-thickness guard would silently skip every
@@ -177,7 +177,7 @@ describe('VirtueleBoringGhostColumns', () => {
               'bh-b',
               prediction('bh-b', 'borehole', {
                 g3dv3_F: [{ top: 7, base: -5, color: '#dddddd' }],
-                // hcovv2_H intentionally missing â€” simulates a per-call
+                // hcovv2_H intentionally missing — simulates a per-call
                 // failure for this (investigation, model) pair.
               }),
             ],
@@ -210,8 +210,8 @@ describe('VirtueleBoringGhostColumns', () => {
               'cpt-a',
               prediction('cpt-a', 'cpt', {
                 g3dv3_F: [
-                  { top: 5, base: 5, color: '#aaaaaa' }, // zero thickness â€” skipped
-                  { top: 5, base: 0, color: '#bbbbbb' }, // 5m thick â€” rendered
+                  { top: 5, base: 5, color: '#aaaaaa' }, // zero thickness — skipped
+                  { top: 5, base: 0, color: '#bbbbbb' }, // 5m thick — rendered
                 ],
               }),
             ],
@@ -311,7 +311,7 @@ describe('VirtueleBoringGhostColumns', () => {
       </svg>,
     )
     const rect = container.querySelector('rect')
-    // Fallback grey â€” must NOT inherit current colour or render
+    // Fallback grey — must NOT inherit current colour or render
     // black on dark theme.
     expect(rect?.getAttribute('fill')).toBe('#9ca3af')
   })
