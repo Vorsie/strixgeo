@@ -438,6 +438,14 @@ export function buildSectionInput(
  * Repeats until no more enclosed lenses exist (a matrix can enclose several). The
  * shallowest enclosing unit's identity represents the merged matrix.
  *
+ * STACKED LENSES (owner 2026-09-23, section "test" GEO-19/100-S1: peat / silt / peat inside
+ * clay — *"should be three stacked lensen peat on top of silt on top of peat but now there is
+ * overlap?"*). Pulling the silt merges the two peats into one run; when that run is itself
+ * pulled as a lens it comes apart again into its RAW picked pieces, each a lens at its own
+ * level — never one diamond spanning the silt (whose own diamond then poked out of it and
+ * overlapped the clay). The lenses pulled from INSIDE the run (the silt, matrix = peat) are
+ * re-parented to the run's matrix (the clay): that is the mass that really wraps the stack.
+ *
  * Parameters
  * ----------
  * units : UnitGeom[]
@@ -462,6 +470,10 @@ function extractEnclosedLenses(
   facingHasFormation: (formationId: string, baseElev: number, topElev: number) => boolean,
 ): EnclosedLens[] {
   const lenses: EnclosedLens[] = []
+  // Per merged unit, the raw units it was welded from (original elevations, shallow->deep) —
+  // read when a merged run is pulled as a lens (see the module note on stacked lenses).
+  const rawPieces = new Map<UnitGeom, UnitGeom[]>()
+  const piecesOf = (u: UnitGeom): UnitGeom[] => rawPieces.get(u) ?? [{ ...u }]
   let changed = true
   while (changed) {
     changed = false
@@ -524,7 +536,27 @@ function extractEnclosedLenses(
           facingHasFormation(above.formationId, lens.baseElev, lens.topElev) ||
           facingHasFormation(lens.formationId, lens.baseElev, lens.topElev))
       ) {
-        lenses.push({ lens: { ...lens }, matrixFormationId: above.formationId })
+        const matrixFid = above.formationId
+        const pieces = rawPieces.get(lens)
+        if (pieces) {
+          // A merged run comes apart: every lens pulled from inside it (spanning within the run,
+          // matrix = the run's formation) now sits in the run's own matrix, and each raw piece of
+          // the run is its own lens at its own level.
+          for (const el of lenses) {
+            if (
+              el.matrixFormationId === lens.formationId &&
+              el.lens.topElev <= lens.topElev + 1e-6 &&
+              el.lens.baseElev >= lens.baseElev - 1e-6
+            ) {
+              el.matrixFormationId = matrixFid
+            }
+          }
+          for (const piece of pieces) lenses.push({ lens: { ...piece }, matrixFormationId: matrixFid })
+        } else {
+          lenses.push({ lens: { ...lens }, matrixFormationId: matrixFid })
+        }
+        // Remember the raw make-up of the unit that survives this merge, BEFORE it is grown.
+        const mergedRaw = [...piecesOf(above), ...piecesOf(below)]
         // SESSION-24 EXPERIMENT (flag-ON, MEASURED): when ``below`` is EDGED, the ordinary merge
         // (keep ``above``, splice ``below``) would drop ``below``'s tie layerId → its band vanishes
         // (the guard that historically blocked it). Instead KEEP ``below``'s identity and grow it
@@ -538,9 +570,11 @@ function extractEnclosedLenses(
           // both-edged limit — but it did not fire on any real interbed, so this stays the
           // below-edged single case that produced the CS1 g21 / coherentStack(a) win.)
           below.topElev = above.topElev
+          rawPieces.set(below, mergedRaw)
           units.splice(k - 1, 2) // remove ``above`` and the lens; ``below`` (now at k-1) survives
         } else {
           above.baseElev = below.baseElev
+          rawPieces.set(above, mergedRaw)
           units.splice(k, 2) // remove the lens and the (now-merged) below unit
         }
         changed = true
