@@ -54,6 +54,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.scope_guard import load_scoped_or_raise
+from groundmodel.application.section_membership import (
+    load_section_member_investigation_ids,
+    stale_surfaces_if_membership_changed,
+)
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -62,9 +66,6 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import Formation
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
-)
-from groundmodel.infrastructure.db.repositories.geology_repository import (
-    GeologyRepository,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -249,6 +250,9 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # 9. Create the companion section.
         # ------------------------------------------------------------------
         repo = CrossSectionRepository(self._session)
+        members_before = await load_section_member_investigation_ids(
+            self._session, project_id=project_id
+        )
         companion = await repo.create(
             project_id,
             name=companion_name,
@@ -265,10 +269,13 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         companion.is_body_companion = True
         await self._session.flush()
         # A companion is a section like any other: it can draw tests no section
-        # drew before, and only tests a section draws feed the model (owner
-        # ruling 2026-09-23).
-        await GeologyRepository(self._session).mark_project_surfaces_stale(
-            project_id, reason=f"companion section created: {companion_name}"
+        # drew before, and only tests a section draws feed the model; only a
+        # changed drawn-test set stales it (owner ruling 2026-09-23).
+        await stale_surfaces_if_membership_changed(
+            self._session,
+            project_id=project_id,
+            before=members_before,
+            reason=f"companion section created: {companion_name}",
         )
         await self._session.commit()
         await self._session.refresh(companion)
