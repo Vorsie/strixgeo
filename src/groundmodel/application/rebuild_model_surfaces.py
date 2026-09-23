@@ -328,7 +328,8 @@ class RebuildModelSurfaces(GroundModelLogger):
         # Label each formation for the anthropogenic-youngest pin. Pass
         # the DOV code (regional_ref) when present, else the name, so the
         # pin fires whether Antropogeen arrives as the code "A" or the
-        # name "Antropogeen" (owner ruling 2026-09-05).
+        # name "Antropogeen" (owner ruling 2026-09-05), and likewise for
+        # DOV's disturbed group, code "G" (owner 2026-09-23).
         labels_by_formation = {f.id: (f.regional_ref or f.name) for f in all_formations}
         age_ordered_oldest_first = list(
             reversed(
