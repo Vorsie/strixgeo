@@ -263,6 +263,42 @@ Four guards, each real-data-proven, keep it from over-firing:
 Pinned in `partitionFillV2/we2Gap0SubTdStrip.test.ts` (no strip under B1's TD, the strip is ZAND, and
 the litho frame draws no closed black rectangle there) on the committed CS2 decode.
 
+## Plain 2/1/0 below a shallow test (owner ruling 2026-09-23)
+
+Cross-section 1, gap GEO-08/118-S13 (TD 0.74 mTAW) → GEO-23/116-S6 (deep). Owner: *"the peat has 0
+correlations to the left but doesn't emit a lens, the clean sand has 1 correlation to left but
+doesn't onlap, the matig siltig zand has 0 correlations to the left but doesn't lens."* Ruling:
+*"Plain 2 1 0 is fine."* Below a shallow test's TD the sub-TD rules run, and three of them fell
+short of 2/1/0 there. Pinned in the owner's words on his own picks in
+`partitionFillV2/ownerCs1SubTd.test.ts` (fixture `__fixtures__/owner_cs1_s13_s6_2026-09-23.json`).
+
+* **A tied unit entirely below the shallow TD onlaps its bottom tie (R3, extended).** R3's onlap
+  lived in `drawTermination` (the above-TD sweep); a unit whose TOP already sits below the facing
+  TD never reached it, and `emitSubTdLenses` only onlapped a resolved bridge tie. So S6's sand (top
+  −0.66, tied to S13's TD 0.74) had no region at all, and the R4 wedge under it, whose top flank
+  rides that very line, read as the silty sand climbing into the sand's band.
+  `emitBottomTieOnlap` now draws the R3 flank (unit base → the bottom-tie point, reach 1.0) for such
+  a unit — only where the strip is a genuine hole: when a deeper column BEYOND the shallow facing
+  reads those levels (dev Cross-section 1 gap 22: the 19→23 jump-tie bridge carries the sand across
+  S5B) the substrate already owns it (the same `terminationRun` guard as the straddle-sliver
+  branch), and the flank would only cut an unlabelled sliver out of the bridge.
+* **An enclosed lens keeps its own base below the substrate floor.** The 2026-07-26 clamp
+  (`enclosedLensDiamond`) lifted a lens's base to the gap's substrate floor (the shallow TD); on a
+  0.93 m peat whose base lay 0.86 m below S13's TD that left a 7 cm sliver, and the clay band
+  painted the rest. The diamond now uses the lens's real base. Two things had made the clamp
+  necessary, both fixed at their source: a closing curve registers cuts only at EXACT vertices
+  (`splitSegments`, debt #271), so a flank crossing the floor mid-segment dead-ended and was
+  stripped — `emitOne` now puts an explicit vertex on the flank at the floor crossing, so the floor
+  splits the diamond into two faces; and `labelFaces` disqualified any face touching a `flood`
+  curve from being the lens's own — the BARE shallow-TD floor (`flood<gap>`, the one flood curve
+  with no label) no longer does, so both pieces read the lens. A labelled flood (the lone-pinch
+  vacated wedge, the sweep wedges) still disqualifies; the floor still anchors band classification.
+  The adopted-stack scene (2026-08-19, "a band the far test read in one piece stays one piece") now
+  reads its SF on both sides of the floor, which is the stronger form of that ruling.
+* **The silty sand was right all along:** its region is the R4 wedge whose top flank rides the sand
+  onlap's base flank; with the onlap missing it looked like the silty sand rising 2.5 m above its
+  own top. Nothing changed there.
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
