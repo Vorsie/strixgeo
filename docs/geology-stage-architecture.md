@@ -70,6 +70,28 @@ This is load-bearing and drives every component boundary below.
 | Export Plaxis 3D | Sections toolbar | Unchanged |
 | Build model (also here) | Sections toolbar | Identical `handleRebuildSurfaces` call; the verb lives in both stages because engineers rebuild from wherever they are working |
 
+### Model membership — only tests a section draws feed a model
+
+Owner ruling 2026-09-23 ("you don't need to drop subdivision on tests, only
+don't use tests not on sections for the model"): a test that projects onto no
+cross-section is not a model input, in ANY model. The picks stay on the test;
+its contribution stops while no section draws it, and resumes when one does.
+One rule, one place: `application/section_membership.py` (the geotech
+membership invariant since 2026-08-15) — corridor of any section of the
+project, minus the tests that section excludes. Consumers: the formation TIN
+rebuild (`contact_feeds_surface`, next to the hidden-from-project and
+excluded-from-model filters), the ground hull, and through the built
+surfaces the crossing check. A project with no section has an empty model.
+
+Because membership moves with the sections, every route that can move a test
+on or off one — create, delete, batch create, companion create, and a PATCH of
+the endpoints, CRS, corridor or exclusion lists — flags every built surface of
+the project stale (`GeologyRepository.mark_project_surfaces_stale`); the next
+Build re-filters. A rename or a view-state change does not. The desktop
+mirrors it: `useSections` fires `onSectionsChanged`, `App` bumps
+`sectionsStaleNonce`, and `useGeologicalModel` re-reads the surfaces so the
+"rebuild" badge turns amber without a reopen (the bed-change pattern).
+
 ### The Seed action closure
 
 Seed is currently no-op disabled in `SectionsToolbar.tsx` with an explicit
