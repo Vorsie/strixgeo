@@ -85,9 +85,12 @@ surfaces the crossing check. A project with no section has an empty model.
 
 Because membership moves with the sections, every route that can move a test
 on or off one — create, delete, batch create, companion create, and a PATCH of
-the endpoints, CRS, corridor or exclusion lists — flags every built surface of
-the project stale (`GeologyRepository.mark_project_surfaces_stale`); the next
-Build re-filters. A rename or a view-state change does not. The desktop
+the endpoints, CRS, corridor or exclusion lists — compares the drawn-test set
+before and after, and flags every built surface of the project stale only when
+it changed (`section_membership.stale_surfaces_if_membership_changed`); the
+next Build re-filters. Widening a corridor that captures nobody new, deleting a
+section whose tests another section still draws, or a rename leaves the model
+fresh (owner 2026-09-23). The desktop
 mirrors it: `useSections` fires `onSectionsChanged`, `App` bumps
 `sectionsStaleNonce`, and `useGeologicalModel` re-reads the surfaces so the
 "rebuild" badge turns amber without a reopen (the bed-change pattern).
