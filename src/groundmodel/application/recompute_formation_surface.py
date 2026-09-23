@@ -30,6 +30,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.section_membership import (
+    load_section_member_investigation_ids,
+)
 from groundmodel.domain.services.clip_tin_by_ground_surface import (
     clip_tin_by_ground_surface,
 )
@@ -73,6 +76,7 @@ class RecomputeFormationSurface(GroundModelLogger):
         force: bool = False,
         *,
         hidden_investigation_ids: set[UUID] | None = None,
+        section_member_ids: set[UUID] | None = None,
         ground_sampler: Callable[[float, float], float | None] | None = None,
     ) -> bool:
         """Recompute and upsert the surface row.
@@ -109,6 +113,12 @@ class RecomputeFormationSurface(GroundModelLogger):
             — the single-call / auto path. The batch path
             (:class:`RebuildModelSurfaces`) loads it once and passes it
             here so every formation in one Build shares the same lookup.
+        section_member_ids : set[UUID] or None, keyword-only
+            Investigations that project onto at least one cross-section of
+            the project. Only their contacts feed the surface (owner ruling
+            2026-09-23: "only don't use tests not on sections for the
+            model"). ``None`` (default) makes this method load the set
+            itself; the batch path loads it once and passes it here.
 
         Returns
         -------
@@ -136,9 +146,10 @@ class RecomputeFormationSurface(GroundModelLogger):
         )
 
         # A contact feeds the TIN only when its anchoring investigation is
-        # neither excluded from the model nor removed from the project. Both
-        # filters SKIP (never delete) the contact row so un-excluding /
-        # un-hiding restores its contribution — mirroring
+        # drawn by a cross-section, not excluded from the model and not
+        # removed from the project. All three filters SKIP (never delete) the
+        # contact row so a section that reaches the test again, un-excluding
+        # or un-hiding restores its contribution — mirroring
         # BuildSectionSnapshot's filter-at-projection.
         #
         # * ``excluded_borehole_ids`` (debt #36): a borehole the user excluded
@@ -150,6 +161,12 @@ class RecomputeFormationSurface(GroundModelLogger):
         #   surface — its Vlierzele / Pleistoceen TIN survived a rebuild with
         #   no "stale" flag. Project-scoped, CPT and borehole. Loaded here when
         #   the batch caller did not pass it.
+        # * ``section_member_ids`` (owner ruling 2026-09-23): a test no
+        #   cross-section draws kept feeding the surface after the section
+        #   moved away from it — picks nobody can see or correct shaped the
+        #   model. The geotech membership invariant, applied to every model.
+        #   Project-scoped, CPT and borehole. Loaded here when the batch
+        #   caller did not pass it.
         model_row = (
             await self._session.execute(
                 select(
@@ -170,24 +187,37 @@ class RecomputeFormationSurface(GroundModelLogger):
                 if model_row is not None
                 else set()
             )
-        if excluded_bh_ids or hidden_ids:
-            before = len(contacts)
-            contacts = [
-                c
-                for c in contacts
-                if contact_feeds_surface(
-                    borehole_id=c.borehole_id,
-                    cpt_id=c.cpt_id,
-                    hidden_investigation_ids=hidden_ids,
-                    excluded_borehole_ids=excluded_bh_ids,
+        member_ids = section_member_ids
+        if member_ids is None:
+            member_ids = (
+                await load_section_member_investigation_ids(
+                    self._session, project_id=model_row.app_project_id
                 )
-            ]
-            dropped = before - len(contacts)
-            if dropped:
-                self.debug(
-                    f"recompute: dropped {dropped} contact(s) on excluded / removed "
-                    f"investigation(s) (model={model_id} formation={formation_id})"
-                )
+                if model_row is not None
+                else set()
+            )
+        before = len(contacts)
+        contacts = [
+            c
+            for c in contacts
+            if contact_feeds_surface(
+                borehole_id=c.borehole_id,
+                cpt_id=c.cpt_id,
+                hidden_investigation_ids=hidden_ids,
+                excluded_borehole_ids=excluded_bh_ids,
+                section_member_ids=member_ids,
+            )
+        ]
+        dropped = before - len(contacts)
+        if dropped:
+            # INFO, not DEBUG: this is the line that explains a surface that
+            # ignores a pick the user can see on a test (the test is on no
+            # section, or hidden, or excluded).
+            self.info(
+                f"recompute: dropped {dropped} of {before} contact(s) on tests that are "
+                f"off-section / removed / excluded (model={model_id} "
+                f"formation={formation_id}, {len(member_ids)} test(s) on a section)"
+            )
 
         # Bulk-load the unique anchor ids referenced by these contacts.
         # Two queries because borehole_id and cpt_id are XOR-nullable;
@@ -368,6 +398,7 @@ class RecomputeFormationSurface(GroundModelLogger):
         force: bool = False,
         *,
         hidden_investigation_ids: set[UUID] | None = None,
+        section_member_ids: set[UUID] | None = None,
         ground_sampler: Callable[[float, float], float | None] | None = None,
     ) -> int:
         """Convenience: recompute multiple (model, formation) pairs.
@@ -388,6 +419,9 @@ class RecomputeFormationSurface(GroundModelLogger):
             Forwarded to :meth:`execute` so every pair in one batch
             shares the same project-hidden lookup instead of each pair
             re-querying it.
+        section_member_ids : set[UUID] or None, keyword-only
+            Forwarded to :meth:`execute` so every pair in one batch shares
+            the same on-a-section lookup (owner ruling 2026-09-23).
         ground_sampler : Callable[[float, float], float | None] or None, keyword-only
             Forwarded to :meth:`execute` so every formation in one Build is
             cut against the same ground surface (owner ruling 2026-09-06).
@@ -400,6 +434,7 @@ class RecomputeFormationSurface(GroundModelLogger):
                 formation_id,
                 force=force,
                 hidden_investigation_ids=hidden_investigation_ids,
+                section_member_ids=section_member_ids,
                 ground_sampler=ground_sampler,
             ):
                 wrote += 1
