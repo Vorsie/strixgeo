@@ -1,4 +1,4 @@
-import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, net, session, shell } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { spawn, ChildProcess } from 'child_process'
@@ -116,6 +116,7 @@ import { configureActivationStore, readActivationState } from './activationStore
 import { ActivationService } from './activationService'
 import { activationBlocksLaunch } from './activation'
 import { activationBaseUrl, createActivationRepository } from './activationConfig'
+import { chromiumFetch } from './chromiumFetch'
 import { resolveDeviceIdentity } from './deviceIdentity'
 import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
 import { installE2eDialogStubs, installE2eShellStubs } from './e2eDialogs'
@@ -1774,6 +1775,9 @@ function startDiagnosticsUpload(): void {
       queueDir: join(diagnosticsDirPath(), DIAGNOSTICS_QUEUE_DIR_NAME),
       baseUrl: activationBaseUrl({ env: process.env, packaged: app.isPackaged }),
       consent: readTransmissionConsent,
+      // Through Chromium, so the company proxy and certificate store apply
+      // (see chromiumFetch) — the same path the activation issuer takes.
+      fetchImpl: chromiumFetch(net),
     })
     diagnosticsUploader = uploader
 
@@ -2190,6 +2194,11 @@ if (!gotSingleInstanceLock) {
         env: process.env,
         packaged: app.isPackaged,
         appVersion: app.getVersion(),
+        // Electron's net.fetch: the Windows proxy settings and the OS
+        // certificate store apply, like the browser that DID reach the server
+        // from the owner's work PC (2026-09-23). Node's global fetch honours
+        // neither, which is what made the activation server "unreachable".
+        fetchImpl: chromiumFetch(net),
       }),
       deviceLabel: deviceIdentity.deviceLabel,
     })
