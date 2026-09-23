@@ -20,6 +20,9 @@ from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionO
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -79,6 +82,12 @@ class BatchCreateSections(GroundModelLogger):
             created.append(row)
             self.debug(f"[{i}/{len(sections)}] flushed section '{spec.get('name')}'")
 
+        if created:
+            # New sections can draw tests no section drew before; only tests a
+            # section draws feed the model (owner ruling 2026-09-23).
+            await GeologyRepository(self._session).mark_project_surfaces_stale(
+                app_project_id, reason=f"{len(created)} section(s) created in batch"
+            )
         await self._session.commit()
 
         # Refresh so all server-set columns (created_at, updated_at) are
