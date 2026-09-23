@@ -7,7 +7,7 @@
 // or keep the backup.
 import { describe, expect, it, vi } from 'vitest'
 
-import { revertBeforeDiscardBackup } from './discardBackupRevert'
+import { reloadProjectAfterDiscard, revertBeforeDiscardBackup } from './discardBackupRevert'
 
 describe('deleting a crash backup when the file is not the latest save', () => {
   it('asks, and on "revert anyway" forces the revert and lets the discard proceed', async () => {
@@ -60,5 +60,35 @@ describe('deleting a crash backup when the file is not the latest save', () => {
     })
     expect(proceed).toBe(false)
     expect(toast).toHaveBeenCalledWith('error', 'project.revertFailed')
+  })
+})
+
+describe('reloading the project after a crash backup is deleted', () => {
+  // Owner 2026-09-23: after "Delete backup" the section list stayed as it was
+  // before the revert, and the next body recompute was refused ("the payload
+  // must cover every section of the project exactly") — the toast "Body
+  // identity could not be saved". Every project-keyed loader refetches on a
+  // project-id CHANGE; reopening the same file keeps the id, so nothing
+  // refetched. The reload must close the project first, so the reopen is a
+  // real transition for every list.
+  it('closes the project before reopening its file, with the path captured before the close', async () => {
+    const calls: string[] = []
+    const close = vi.fn(() => {
+      calls.push('close')
+    })
+    const open = vi.fn(async (path: string) => {
+      calls.push(`open:${path}`)
+      return null
+    })
+    await reloadProjectAfterDiscard({ path: 'C:/p/test.strix', close, open })
+    expect(calls).toEqual(['close', 'open:C:/p/test.strix'])
+  })
+
+  it('does nothing without a file path', async () => {
+    const close = vi.fn()
+    const open = vi.fn()
+    await reloadProjectAfterDiscard({ path: null, close, open })
+    expect(close).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
   })
 })
