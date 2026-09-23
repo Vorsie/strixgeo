@@ -352,8 +352,8 @@ function closeInterval(
   // the LITHO pass only (``allowFirstUnitTopSeam``); the geotech constructive fill draws its own
   // seams and never reaches this tiler.
   // The seam is a TOP-to-TOP cross-lithology meeting (ruling 5, CS2: the S5 sand top tied to the
-  // 2891-C silt top). A MIXED base<->top tie is a BOTTOM tie into a shallow test's TD (the R3/R4
-  // territory: its onlap + ``emitBottomTieWedge`` already fill the sub-TD wedge). Lifting the band
+  // 2891-C silt top). A MIXED base<->top tie is a BOTTOM tie into a shallow test's TD (plain 2/1/0
+  // territory: the deep unit onlaps it halfway, the rest is the no-data void — owner 2026-09-23). Lifting the band
   // guard for such a mixed tie drew a mid-gap fence through the sub-TD interval that SPLIT the
   // bottom-tie onlap (its left half vanished), opening the coverage hole the owner reported under a
   // bottom-test correlation (dev CS1 gap18 S7->S6, gap19 S6->S5A). So the seam fires only when BOTH
@@ -394,10 +394,11 @@ function closeInterval(
   // remaining mass floods around them.
   // BOTTOM TIE INTO THE SHALLOW TD IS NOT A DECLARED MEETING (owner installer #42, 2026-09-16). A
   // MIXED base<->top tie whose SHALLOW endpoint sits on the interval's ``td`` floor — the shallow
-  // test's deepest contact — is the R3/R4 bottom tie: the DEEP unit's ``bottomTieToTd`` onlap
-  // (``drawTermination``, reach 1.0) already fills this whole sub-band interval to the shallow column.
-  // A ``declared`` mid-gap seam here would fence that onlap at ``INTERIOR_PINCH_FRACTION`` and hand the
-  // far half back white — the exact coverage hole ruling 5's TOP-to-TOP restriction cured for the
+  // test's deepest contact — is the shallow test's bottom tie: the DEEP unit onlaps it to the halfway
+  // tip (``drawTermination``, plain 2/1/0 — owner 2026-09-23) and the space past the tip is the
+  // no-data void, not a meeting of two masses. A ``declared`` mid-gap seam here fenced the (then
+  // reach-1.0) onlap at ``INTERIOR_PINCH_FRACTION`` and handed the far half back white — the exact
+  // coverage hole ruling 5's TOP-to-TOP restriction cured for the
   // ``crossLithoDeclaredMeeting`` seam, here on the honest-meeting path. Owner's case: Cross-section 1
   // GEO-02/145-S13 -> S14, plain ZAND band over ZAND (GL:|KL:) welded into one body, the GL top tied to
   // S14's plain-ZAND base (= S14's TD); the thin white sliver at ~-4.8 m TAW is that fence. Such a tie
