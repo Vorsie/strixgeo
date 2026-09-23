@@ -129,6 +129,16 @@ export function activationBaseUrl({ env, packaged }: ActivationConfigInputs): st
 export interface ActivationRepositoryInputs extends ActivationConfigInputs {
   /** ``app.getVersion()`` — sent on activate/trial; optional. */
   appVersion?: string
+  /**
+   * The ``fetch`` the HTTP issuer sends with. The main process passes
+   * Electron's ``net.fetch`` (through ``chromiumFetch``) so the Windows proxy
+   * settings and the OS certificate store apply — behind a company proxy or
+   * TLS inspection, Node's global fetch reported the live server unreachable
+   * while the browser reached it (owner's work PC and a coworker's,
+   * 2026-09-23). Optional: tests inject a stub, and the client falls back to
+   * the global when nothing is given.
+   */
+  fetchImpl?: typeof fetch
 }
 
 /**
@@ -137,7 +147,7 @@ export interface ActivationRepositoryInputs extends ActivationConfigInputs {
  * Parameters
  * ----------
  * inputs : ActivationRepositoryInputs
- *     Env, packaged flag and app version.
+ *     Env, packaged flag, app version and the ``fetch`` to send with.
  *
  * Returns
  * -------
@@ -150,7 +160,13 @@ export interface ActivationRepositoryInputs extends ActivationConfigInputs {
  */
 export function createActivationRepository(inputs: ActivationRepositoryInputs): ActivationRepository {
   const baseUrl = activationBaseUrl(inputs)
-  if (baseUrl) return new HttpActivationRepository({ baseUrl, appVersion: inputs.appVersion })
+  if (baseUrl) {
+    return new HttpActivationRepository({
+      baseUrl,
+      appVersion: inputs.appVersion,
+      fetchImpl: inputs.fetchImpl,
+    })
+  }
   // No issuer URL. A packaged build must NOT fall back to the mock: it accepts
   // the published STRIX-*-DEMO keys, so a distributed build would "activate" on a
   // key anyone can read. The explicit rule (owner beta ruling): a beta build runs
