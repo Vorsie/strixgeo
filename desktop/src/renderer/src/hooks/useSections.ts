@@ -292,6 +292,13 @@ function tieToCreatePayload(
  * UseSectionsResult
  *     All section state + action callbacks.
  */
+/** Patch keys that can move tests on or off the selected section. */
+const SECTION_MEMBERSHIP_PATCH_KEYS = [
+  'projection_buffer_m',
+  'excluded_cpt_ids',
+  'excluded_borehole_ids',
+] as const
+
 export function useSections({
   project,
   ready,
@@ -310,6 +317,7 @@ export function useSections({
   cpts,
   setSelectedId,
   setSelectedBoreholeId,
+  onSectionsChanged,
 }: {
   project: {
     id: string
@@ -331,6 +339,15 @@ export function useSections({
    * Optional so hand-rolled test fixtures need not supply it.
    */
   requestBodyRecompute?: (kind: 'litho' | 'geotech') => void
+  /**
+   * Fired after a section is created or deleted, or after a patch that can
+   * move tests on or off it (corridor, exclusions). Only tests a section draws
+   * feed the model (owner ruling 2026-09-23): the backend stales every built
+   * surface of the project on such a change, and this lets the model hook
+   * re-read them so the "rebuild" badge turns amber without a reopen. Optional
+   * so hand-rolled test fixtures need not supply it.
+   */
+  onSectionsChanged?: () => void
   manifestSectionIds: ReadonlySet<string>
   addToManifest: (kind: 'section', ids: string[]) => void
   removeFromManifest: (kind: 'section', ids: Iterable<string>) => void
@@ -682,6 +699,7 @@ export function useSections({
         // geometry moved (slice 5).
         requestBodyRecompute?.('litho')
         requestBodyRecompute?.('geotech')
+        onSectionsChanged?.()
         log.success('section', `created ${created.name} from map draw`)
         const projectId = project.id
         let currentId = created.id
@@ -693,6 +711,7 @@ export function useSections({
             setSelectedSectionId(prev => (prev === currentId ? null : prev))
             requestBodyRecompute?.('litho')
             requestBodyRecompute?.('geotech')
+            onSectionsChanged?.()
           },
           reapply: async () => {
             const recreated = await api.section.create(projectId, createPayload)
@@ -702,6 +721,7 @@ export function useSections({
             handleSectionCreated(recreated.id)
             requestBodyRecompute?.('litho')
             requestBodyRecompute?.('geotech')
+            onSectionsChanged?.()
           },
         })
       } catch (err) {
@@ -709,7 +729,7 @@ export function useSections({
         toast('error', t('sections.toast.createFailed'))
       }
     },
-    [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo, requestBodyRecompute],
+    [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo, requestBodyRecompute, onSectionsChanged],
   )
 
   const handleDeleteSection = useCallback(
@@ -726,6 +746,7 @@ export function useSections({
         // Removing a section removes its whole partition from both axes (slice 5).
         requestBodyRecompute?.('litho')
         requestBodyRecompute?.('geotech')
+        onSectionsChanged?.()
         log.info('section', `deleted ${id}`)
         const projectId = project.id
         const recreatePayload = {
@@ -749,6 +770,7 @@ export function useSections({
             handleSectionCreated(recreated.id)
             requestBodyRecompute?.('litho')
             requestBodyRecompute?.('geotech')
+            onSectionsChanged?.()
           },
           reapply: async () => {
             if (!currentId) return
@@ -759,6 +781,7 @@ export function useSections({
             currentId = null
             requestBodyRecompute?.('litho')
             requestBodyRecompute?.('geotech')
+            onSectionsChanged?.()
           },
         })
       } catch (err) {
@@ -774,6 +797,7 @@ export function useSections({
       sections,
       pushUndo,
       requestBodyRecompute,
+      onSectionsChanged,
     ],
   )
 
@@ -796,12 +820,15 @@ export function useSections({
         const updated = await api.section.update(project.id, selectedSectionId, patch)
         setSections(prev => prev.map(s => (s.id === updated.id ? updated : s)))
         log.debug('section', `patched ${selectedSectionId} → ${JSON.stringify(patch)}`)
+        // A wider / narrower corridor or a changed exclusion list moves tests
+        // on or off this section; a rename or a VEX change does not.
+        if (SECTION_MEMBERSHIP_PATCH_KEYS.some(k => k in patch)) onSectionsChanged?.()
       } catch (err) {
         log.error('section', `patch ${selectedSectionId} failed`, err)
         toast('error', t('sections.toast.saveFailed'))
       }
     },
-    [project, selectedSectionId],
+    [project, selectedSectionId, onSectionsChanged],
   )
 
   // Cross-section selection — exclusive with CPT + borehole. Clearing
@@ -970,6 +997,7 @@ export function useSections({
         const created = await api.section.create(project.id, createPayload)
         setSections(prev => [...prev, created])
         handleSectionCreated(created.id)
+        onSectionsChanged?.()
         // Do NOT select the new section: selecting flips SectionsCanvas to its
         // profile view, throwing the user off the map mid-triage. Stay on the
         // map so they can keep accepting/rejecting the remaining ghosts; the new
@@ -981,7 +1009,7 @@ export function useSections({
         toast('error', t('sections.toast.tieCreateFailed'))
       }
     },
-    [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated],
+    [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated, onSectionsChanged],
   )
 
   const handleAcceptAllTies = useCallback(async () => {
@@ -999,6 +1027,7 @@ export function useSections({
       const { sections: created } = await api.section.createBatch(project.id, { sections: payloads })
       setSections(prev => [...prev, ...created])
       created.forEach(s => handleSectionCreated(s.id))
+      if (created.length > 0) onSectionsChanged?.()
       // Do NOT select a created section: selecting flips SectionsCanvas from the
       // map to a single section's profile view, yanking the user off the map
       // where they just accepted the whole ladder. Stay on the map — the new
@@ -1009,7 +1038,7 @@ export function useSections({
       log.error('section', 'accept-all-ties failed', err)
       toast('error', t('sections.toast.tiesCreateFailed'))
     }
-  }, [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated])
+  }, [project, effectiveHorizontalEpsg, suggestedTies, visibleSections.length, handleSectionCreated, onSectionsChanged])
 
   // P2-G / P2-H: apply a server-returned updated section to local state
   // without a round-trip GET.  Replaces the matching entry in the sections
