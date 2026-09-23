@@ -20,6 +20,7 @@ from uuid import uuid4
 
 import pytest
 
+from groundmodel.application import build_ground_surface
 from groundmodel.application.build_ground_surface import BuildGroundSurface
 from groundmodel.domain.services.dem_clip_constants import KIND_DEM_CELL_LOW_CONFIDENCE
 from groundmodel.infrastructure.dem.dem_provider import DemZGrid
@@ -27,6 +28,26 @@ from groundmodel.infrastructure.dem.dem_provider import DemZGrid
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
+
+class _EveryTest(set):
+    """A member set that holds every investigation — all tests are on a section."""
+
+    def __contains__(self, item: object) -> bool:
+        return True
+
+
+@pytest.fixture(autouse=True)
+def _every_test_on_a_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Membership (only tests a section draws feed the model, owner 2026-09-23)
+    is the database's business and is pinned by the integration tests; these
+    unit cases are about the DEM, so every scripted test counts as on a section
+    and the fake session need not answer the section queries."""
+
+    async def _all(_session: Any, *, project_id: Any) -> set:  # noqa: ARG001
+        return _EveryTest()
+
+    monkeypatch.setattr(build_ground_surface, "load_section_member_investigation_ids", _all)
 
 
 class _FakeResult:
