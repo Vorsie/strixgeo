@@ -211,6 +211,39 @@ function emitSubTdOnlap(
 }
 
 /**
+ * Emit the R3 BOTTOM-TIE ONLAP for a corr-1 unit ENTIRELY below the facing TD (owner 2026-09-23,
+ * Cross-section 1 GEO-08/118-S13 → GEO-23/116-S6: *"the clean sand has 1 correlation to left but
+ * doesn't onlap"* — ruling *"Plain 2 1 0 is fine"*).
+ *
+ * R3 (2026-09-07) lives in ``drawTermination``'s ``bottomTieToTd``, which the ABOVE-TD sweep runs;
+ * a tied unit whose TOP already sits below the facing TD never reaches it (the sweep defers every
+ * sub-TD unit here), and this pass only onlapped a resolved BRIDGE tie (``emitSubTdOnlap``). So
+ * S6's sand — top −0.66 tied to S13's TD 0.74 — had no region at all, and the R4 wedge below it,
+ * whose top flank rides this very line, read as the silty sand climbing into the sand's band.
+ *
+ * Same construction as R3: ONE closing flank from the unit's free BASE to the bottom-tie point on
+ * the shallow column (reach 1.0); the tie itself bounds the other side; NO flood wedge (the
+ * deep-to-deep substrate / the R4 wedge is the flood below). Returns ``true`` when emitted.
+ */
+function emitBottomTieOnlap(
+  u: UnitGeom,
+  colX: number,
+  facingX: number,
+  facingTD: number,
+  lensLabels: Map<string, LensLabel>,
+  nextOflankId: () => string,
+  out: InputCurve[],
+): boolean {
+  const basePt: Point = { x: colX, y: u.baseElev }
+  const apex: Point = { x: facingX, y: facingTD }
+  if (segmentDeg(basePt, apex)) return false
+  const id = `oflank${nextOflankId()}`
+  lensLabels.set(id, { formationId: u.formationId, bodyId: u.bodyId })
+  out.push({ id, kind: 'closing', points: [apex, basePt] })
+  return true
+}
+
+/**
  * Emit the sub-TD corr-0 lenses for ONE side of ONE gap (ruling 8i(e), audit item 4). ``col`` is
  * the near column (whose sub-TD units lens toward ``facing``, at index ``colIndex`` in
  * ``columns`` so the termination target can be resolved past blind columns); ``side`` names which
@@ -366,8 +399,33 @@ function emitSideSubTd(
       // flood). corr-2 sub-TD units are band members (given substrate/bridge line art) — not drawn.
       // A split piece has no plan → its inherited corr-1 onlap rides the host tie only when a plan
       // exists for the unsplit host (the bridge case); an interbed-cut piece is corr-0 and lenses above.
-      if (eff.corr === 1 && plan) {
-        emitSubTdOnlap(pu, plan, side, colX, facingX, lensLabels, nextOflankId, out)
+      if (eff.corr === 1) {
+        if (plan && emitSubTdOnlap(pu, plan, side, colX, facingX, lensLabels, nextOflankId, out)) continue
+        // Plain 2/1/0 below the facing TD (owner 2026-09-23): a sub-TD unit whose TOP is tied to
+        // the facing column's TD (the bottom tie) and whose base is free onlaps to that point —
+        // the R3 onlap the above-TD sweep would have drawn had the unit reached above the TD.
+        const nearElev = (t: ResolvedTie): number => (side === 'left' ? t.left.y : t.right.y)
+        const facingElev = (t: ResolvedTie): number => (side === 'left' ? t.right.y : t.left.y)
+        const bottomTie = activeTies.find(
+          (t) =>
+            t.gapIndex === gapIndex &&
+            Math.abs(nearElev(t) - pu.topElev) <= ELEV_EPS &&
+            Math.abs(facingElev(t) - facingTD) <= ELEV_EPS,
+        )
+        // Only where the strip is a GENUINE hole: when a deeper column BEYOND the shallow facing
+        // reads these levels, the deep-to-deep substrate / a jump-tie bridge already carries the
+        // unit across the shallow test (dev Cross-section 1 gap 22, GEO-23/125-S5B -> S11: the
+        // 19->23 bridge), and a flank here would cut an unlabelled sliver out of it — the same
+        // ``terminationRun`` guard the straddle-sliver branch uses.
+        if (
+          bottomTie &&
+          eff.topTied &&
+          !eff.baseTied &&
+          pu.baseElev < facingTD - ELEV_EPS &&
+          !terminationRun(columns, colIndex, side === 'left' ? 1 : -1, facingTD, pu.baseElev).reads
+        ) {
+          emitBottomTieOnlap(pu, colX, facingX, facingTD, lensLabels, nextOflankId, out)
+        }
       }
     }
   }
