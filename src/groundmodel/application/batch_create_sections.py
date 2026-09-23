@@ -16,12 +16,13 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.section_membership import (
+    load_section_member_investigation_ids,
+    stale_surfaces_if_membership_changed,
+)
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
-)
-from groundmodel.infrastructure.db.repositories.geology_repository import (
-    GeologyRepository,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -77,6 +78,9 @@ class BatchCreateSections(GroundModelLogger):
             f"BatchCreateSections.execute: {len(sections)} section(s) for project {app_project_id}"
         )
         created: list[CrossSectionOrm] = []
+        members_before = await load_section_member_investigation_ids(
+            self._session, project_id=app_project_id
+        )
         for i, spec in enumerate(sections, start=1):
             row = await self._repo.create(app_project_id, **spec)
             created.append(row)
@@ -84,9 +88,14 @@ class BatchCreateSections(GroundModelLogger):
 
         if created:
             # New sections can draw tests no section drew before; only tests a
-            # section draws feed the model (owner ruling 2026-09-23).
-            await GeologyRepository(self._session).mark_project_surfaces_stale(
-                app_project_id, reason=f"{len(created)} section(s) created in batch"
+            # section draws feed the model, and only a changed drawn-test set
+            # stales it (owner ruling 2026-09-23).
+            await self._session.flush()
+            await stale_surfaces_if_membership_changed(
+                self._session,
+                project_id=app_project_id,
+                before=members_before,
+                reason=f"{len(created)} section(s) created in batch",
             )
         await self._session.commit()
 
