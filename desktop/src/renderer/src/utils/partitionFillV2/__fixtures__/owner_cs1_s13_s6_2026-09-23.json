@@ -1,0 +1,113 @@
+{
+ "_source": "owner's dev DB, project 01a0c9eb-c436-7b86-b3fc-00c059312858, litho model 01a0cca1-ee6b-7edb-8683-157b5fefa0df, extracted 2026-09-23 (the gap the owner read as a 2/1/0 violation)",
+ "sections": [
+  {
+   "sectionId": "01a0c9ee-53a7-7b30-8233-26bbb368a414",
+   "name": "Cross-section 1 (S13 to S6)",
+   "columns": [
+    {
+     "investigationId": "01a0c9ec-2a4e-7b67-b798-a198b62f79d3",
+     "name": "GEO-08/118-S13",
+     "surfaceElevM": 8.27,
+     "units": [
+      {
+       "layerId": "01a0cca6-b5be-7f38-bb44-a172130bc2be",
+       "topDepthM": 1.47,
+       "baseDepthM": 2.02,
+       "formationId": "01a0cca6-b5b5-7ccf-a7aa-2783ed467192",
+       "bodyId": "01a0cca6-c5cd-7285-91f2-fea7a7fafaf9"
+      },
+      {
+       "layerId": "01a0cca6-b5cc-7994-9042-f14d127bf960",
+       "topDepthM": 2.02,
+       "baseDepthM": 5.52,
+       "formationId": "01a0cca6-b5bf-799b-a131-c39dc4bd50a0",
+       "bodyId": "01a0cca6-c5d7-737f-a681-403d69c71664"
+      },
+      {
+       "layerId": "01a0cca6-b5d7-7e0a-872e-6204714d363f",
+       "topDepthM": 5.52,
+       "baseDepthM": 7.53,
+       "formationId": "01a0cca6-b5cd-73c1-9953-7378bb94a853",
+       "bodyId": "01a0cca6-c5d9-7143-95f5-9633ecb9e670"
+      }
+     ]
+    },
+    {
+     "investigationId": "01a0c9ec-2a66-75fd-a855-32a1e4fe1112",
+     "name": "GEO-23/116-S6",
+     "surfaceElevM": 3.61,
+     "units": [
+      {
+       "layerId": "01a0cca6-b669-74c1-9326-15b74abb7089",
+       "topDepthM": 1.21,
+       "baseDepthM": 2.01,
+       "formationId": "01a0cca6-b5bf-799b-a131-c39dc4bd50a0",
+       "bodyId": "01a0cca6-c5d7-737f-a681-403d69c71664"
+      },
+      {
+       "layerId": "01a0cca6-b66a-7508-bcb9-e969ab5e47b3",
+       "topDepthM": 2.01,
+       "baseDepthM": 2.8,
+       "formationId": "01a0cca6-b5cd-73c1-9953-7378bb94a853",
+       "bodyId": "01a0cca6-c5d9-7143-95f5-9633ecb9e670"
+      },
+      {
+       "layerId": "01a0cca6-b676-7de9-8e40-89f22be9d052",
+       "topDepthM": 2.8,
+       "baseDepthM": 3.73,
+       "formationId": "01a0cca6-b66b-7b9c-a948-fdac621bd545",
+       "bodyId": "01a0cca6-c5dc-7213-96b4-37c526cec134"
+      },
+      {
+       "layerId": "01a0cca6-b677-7cc2-9f1b-98de0dce3225",
+       "topDepthM": 3.73,
+       "baseDepthM": 4.27,
+       "formationId": "01a0cca6-b5cd-73c1-9953-7378bb94a853",
+       "bodyId": "01a0cca6-c5d9-7143-95f5-9633ecb9e670"
+      },
+      {
+       "layerId": "01a0cca6-b678-7bce-8f27-46bb1f0a021d",
+       "topDepthM": 4.27,
+       "baseDepthM": 8.343873927809547,
+       "formationId": "01a0cca6-b5b5-7ccf-a7aa-2783ed467192",
+       "bodyId": "01a0cca6-c5cc-75e9-97ec-e2d1dc13bf5a"
+      },
+      {
+       "layerId": "01a0cca6-b68c-7f59-bf1f-a374d5fae1a6",
+       "topDepthM": 8.343873927809547,
+       "baseDepthM": 20.41,
+       "formationId": "01a0cca6-b612-7a9c-8e6b-ba6003c014d3",
+       "bodyId": "01a0cca7-51ec-72b1-9dfc-5acfe369ea6e"
+      }
+     ]
+    }
+   ],
+   "alongM": [
+    0.374,
+    60.999
+   ],
+   "edges": [
+    {
+     "a": "01a0cca6-b5d7-7e0a-872e-6204714d363f",
+     "b": "01a0cca6-b66a-7508-bcb9-e969ab5e47b3",
+     "aSide": "top",
+     "bSide": "top"
+    },
+    {
+     "a": "01a0cca6-b5d7-7e0a-872e-6204714d363f",
+     "b": "01a0cca6-b678-7bce-8f27-46bb1f0a021d",
+     "aSide": "base",
+     "bSide": "top"
+    }
+   ]
+  }
+ ],
+ "formationNames": {
+  "01a0cca6-b5b5-7ccf-a7aa-2783ed467192": "ZAND",
+  "01a0cca6-b5bf-799b-a131-c39dc4bd50a0": "SILT",
+  "01a0cca6-b5cd-73c1-9953-7378bb94a853": "KLEI",
+  "01a0cca6-b66b-7b9c-a948-fdac621bd545": "VEEN",
+  "01a0cca6-b612-7a9c-8e6b-ba6003c014d3": "ZAND (SL:M)"
+ }
+}
