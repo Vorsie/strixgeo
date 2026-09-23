@@ -3,15 +3,17 @@
  * GEO-23/116-S6 (dogfeed 2026-09-23), pinned in his words on his own picks.
  *
  * S13 is shallow (TD 0.74 mTAW); S6 is deep. Below S13's TD, S6 reads peat, clay, a clean sand
- * whose TOP is tied to S13's TD (the bottom tie) and a silty sand. Owner: *"GEO-23/116-S6 does
- * not follow the 2/1/0 rule. the peat has 0 correlations to the left but doesn't emit a lens, the
- * clean sand has 1 correlation to left but doesn't onlap, the matig siltig zand has 0
- * correlations to the left but doesn't lens."* Ruling: *"Plain 2 1 0 is fine."*
+ * whose TOP is tied to S13's TD (the bottom tie) and a silty sand. Owner, first pass: *"the peat
+ * has 0 correlations to the left but doesn't emit a lens, the clean sand has 1 correlation to left
+ * but doesn't onlap, the matig siltig zand has 0 correlations to the left but doesn't lens."*
+ * Ruling: *"Plain 2 1 0 is fine."*
  *
- * The engine drew (offline run on the extracted picks): a peat lens of zero area (the 7 cm above
- * S13's TD), NO region at all for the tied clean sand, and the silty sand as the R4 wedge — whose
- * top rides the onlap's base flank, so with the onlap missing it reads as the silty sand climbing
- * 2.5 m above its own top. The clay band (2 ties) was right.
+ * Owner, on the first fix (the sand reached S13, the silty sand tiled the wedge under it): *"this
+ * is not plain 2/1/0 the bottom silty sand has no ties to the left side so it should lens, it now
+ * onlaps the sand above, which only has one tie and should onlap halfway that tie but instead
+ * spans the whole tie."* Shown both readings side by side he ruled: *"let's go with plain 2 / 1 / 0
+ * everywhere"* — so below a shallow test's TD: a 1-tie unit onlaps to the halfway point of its
+ * tie, a 0-tie unit is a lens at its own level, and the rest is the no-data void.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -47,6 +49,10 @@ function s6Layer(name: string, topDepthM: number): RawUnit {
   return u
 }
 const S6_Z = 3.61
+const S13_TD = 0.74
+/** The bottom tie runs from S13's TD (fraction 0) to the clean sand's top at S6 (fraction 1). */
+const SAND_TOP = S6_Z - 4.27
+const tieElevAt = (frac: number): number => S13_TD + frac * (SAND_TOP - S13_TD)
 
 /** Elevation intervals a vertical at ``frac`` cuts out of a polygon (even-odd). */
 function crossAt(poly: readonly { fraction: number; elevation: number }[], frac: number): [number, number][] {
@@ -66,6 +72,9 @@ function crossAt(poly: readonly { fraction: number; elevation: number }[], frac:
 }
 const coveredHeightAt = (regs: readonly SectionRegion[], frac: number): number =>
   regs.reduce((sum, r) => sum + crossAt(r.polygon, frac).reduce((s, [a, b]) => s + (b - a), 0), 0)
+/** Covered height on the vertical at ``frac`` counting only what lies below ``ceiling`` (mTAW). */
+const coveredHeightBelow = (regs: readonly SectionRegion[], frac: number, ceiling: number): number =>
+  regs.reduce((sum, r) => sum + crossAt(r.polygon, frac).reduce((s, [a, b]) => s + Math.max(0, Math.min(b, ceiling) - a), 0), 0)
 const regionsForLayer = (regs: readonly SectionRegion[], layerId: string): SectionRegion[] =>
   regs.filter((r) => (r.layerIds ?? []).includes(layerId))
 const fracSpan = (r: SectionRegion): number => {
@@ -92,25 +101,44 @@ describe('CS1 gap S13 → S6 — plain 2/1/0 below the shallow test (owner 2026-
     expect(Math.max(...regs.map(fracSpan)), 'the peat pinches, it does not band to S13').toBeLessThan(0.98)
   })
 
-  it('the clean sand (1 tie, its top to S13\'s TD) onlaps all the way to that bottom-tie point', () => {
+  it('the clean sand (1 tie, its top to S13\'s TD) onlaps HALFWAY that tie, not the whole tie', () => {
     const sand = s6Layer('ZAND', 4.27)
     const regs = regionsForLayer(gap0(), sand.layerId)
     expect(regs.length, 'the tied sand is drawn in the gap').toBeGreaterThan(0)
-    const reach = Math.min(...regs.flatMap((r) => r.polygon.map((p) => p.fraction)))
-    expect(reach, 'the onlap reaches S13 (fraction 0 is S13)').toBeLessThan(0.1)
+    // Owner: "should onlap halfway that tie but instead spans the whole tie". The tip sits at the
+    // halfway point of the gap (fraction 0 is S13, 1 is S6) and ON the tie line.
+    const tip = regs.flatMap((r) => r.polygon).reduce((m, p) => (p.fraction < m.fraction ? p : m))
+    expect(tip.fraction, 'the onlap tip is halfway the gap').toBeGreaterThan(0.45)
+    expect(tip.fraction, 'the onlap tip is halfway the gap').toBeLessThan(0.55)
+    expect(Math.abs(tip.elevation - tieElevAt(tip.fraction)), 'the tip rides the tie').toBeLessThan(0.05)
     // Its full thickness at S6: -0.66 .. -4.73 mTAW = 4.07 m.
     expect(coveredHeightAt(regs, 0.995), 'the sand fills its own interval at S6').toBeGreaterThan(3.9)
   })
 
-  it('the silty sand (0 ties, below S13\'s TD) lenses toward S13 — no band to the section edge', () => {
+  it('the silty sand (0 ties) is a lens at its OWN level — it does not climb onto the sand above', () => {
     const silty = s6Layer('ZAND (SL:M)', 8.343873927809547)
     const regs = regionsForLayer(gap0(), silty.layerId)
     expect(regs.length, 'the silty sand is drawn in the gap').toBeGreaterThan(0)
     expect(Math.max(...regs.map(fracSpan)), 'it pinches, it does not band').toBeLessThan(0.98)
     expect(coveredHeightAt(regs, 0.05), 'nothing of it reaches S13').toBe(0)
-    // R4: it tiles the wedge under the sand onlap — never above the sand onlap's own top.
-    const top = Math.max(...regs.flatMap((r) => r.polygon.map((p) => p.elevation)))
-    expect(top, 'it never rises into the clean sand\'s own band').toBeLessThanOrEqual(S6_Z - 4.27 + 1e-6)
+    // Owner: "the bottom silty sand has no ties to the left side so it should lens, it now onlaps
+    // the sand above". A lens stays between its own top and base at S6.
+    const top = S6_Z - silty.topDepthM
+    const base = S6_Z - silty.baseDepthM
+    for (const p of regs.flatMap((r) => r.polygon)) {
+      const where = `a lens vertex at f=${p.fraction.toFixed(2)} stays within the silty sand's own [${base.toFixed(2)}..${top.toFixed(2)}]`
+      expect(p.elevation, where).toBeLessThanOrEqual(top + 1e-3)
+      expect(p.elevation, where).toBeGreaterThanOrEqual(base - 1e-3)
+    }
+  })
+
+  it('past the sand\'s tip, below the bottom tie, nothing is drawn — the no-data void', () => {
+    // The tie descends from S13's TD (0.74) to the sand top at S6 (-0.66). A quarter of the way
+    // from S13 the onlap has not arrived yet (its tip is halfway) and the silty-sand lens pinched
+    // long before: under the tie there is no reading, so there is no fill.
+    const regs = gap0()
+    const f = 0.25
+    expect(coveredHeightBelow(regs, f, tieElevAt(f) - 1e-3), 'the space under the tie before the onlap tip is void').toBe(0)
   })
 
   it('the clay above and below the peat (2 ties) still bands, merged around the peat', () => {
