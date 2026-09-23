@@ -143,6 +143,7 @@ function renderGhost(
         rf_pct: readonly (number | null)[] | null
       }
     >
+    terminalDepthM?: number | null
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -171,6 +172,7 @@ function renderGhost(
         onSplitLayer={opts.onSplitLayer}
         onMergeLayers={opts.onMergeLayers}
         cptPlotByAnchorId={opts.cptPlotByAnchorId}
+        terminalDepthM={opts.terminalDepthM}
       />
     </svg>,
   )
@@ -298,6 +300,29 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(idx).toBe(0)
     expect(edit.depth_top_m).toBeCloseTo(1.0, 5)
     expect(edit.depth_base_m).toBeUndefined()
+  })
+
+  // Owner 2026-09-23, subdividing testproject_dev: "i copied the ghost from the
+  // drilling to the cptm, but i couldn't drag the bottom unit to the bottom of the
+  // cptm." The copied column ends at the borehole's depth; the CPT goes on below.
+  // With the test's terminal depth known, the deepest layer's base drag reaches it.
+  it('G13 — the deepest layer\'s base drags down to the test\'s terminal depth', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, terminalDepthM: 6 },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    expect(baseHandle).not.toBeNull()
+    // 1000 px = 10 m: past the terminal depth, so the drag clamps at 6 m.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 1200 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    const [idx, edit] = onEdit.mock.calls[0]
+    expect(idx).toBe(0)
+    expect(edit.depth_base_m).toBeCloseTo(6, 5)
+    expect(edit.depth_top_m).toBeUndefined()
   })
 
   it('G14 — accepted ghost layer is not rendered (debt #142)', () => {
