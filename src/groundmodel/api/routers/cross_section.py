@@ -39,6 +39,9 @@ from groundmodel.application.batch_create_sections import BatchCreateSections
 from groundmodel.application.build_section_polygons import BuildSectionPolygons
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
 from groundmodel.application.export_artifact import ExportArtifact
+from groundmodel.application.section_membership_constants import (
+    SECTION_MEMBERSHIP_FIELDS,
+)
 from groundmodel.application.section_polygon_set import SectionPolygonSet
 from groundmodel.application.section_snapshot import SectionSnapshot
 from groundmodel.application.thin_export_units import ThinExportUnits
@@ -49,6 +52,9 @@ from groundmodel.infrastructure.codelists.horizontal_crs import (
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
+)
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.infrastructure.exporters.dsheet_piling_exporter import (
@@ -220,6 +226,12 @@ async def create_section(
         max_depth_m=request.max_depth_m,
         display_order=request.display_order,
         view_state=request.view_state,
+    )
+    # A new section can draw tests no section drew before, and only tests a
+    # section draws feed the model (owner ruling 2026-09-23) — every built
+    # surface of the project must be rebuilt.
+    await GeologyRepository(session).mark_project_surfaces_stale(
+        project_id, reason=f"section created: {section.name}"
     )
     await session.commit()
     await session.refresh(section)
@@ -415,6 +427,13 @@ async def update_section(
         )
     if view_state_merge is not None:
         await apply_view_state_patch(session, CrossSectionOrm, section_id, view_state_merge)
+    if SECTION_MEMBERSHIP_FIELDS & patch.keys():
+        # Geometry, corridor or exclusion changes move tests on or off this
+        # section — model membership changed (owner ruling 2026-09-23). A
+        # rename or a view-state change does not.
+        await GeologyRepository(session).mark_project_surfaces_stale(
+            project_id, reason=f"section changed: {updated.name}"
+        )
     await session.commit()
     await session.refresh(updated)
     return updated
@@ -453,6 +472,10 @@ async def delete_section(
     repo = CrossSectionRepository(session)
     await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     await repo.delete(section_id)
+    # The tests only this section drew leave the model (owner ruling 2026-09-23).
+    await GeologyRepository(session).mark_project_surfaces_stale(
+        project_id, reason="section deleted"
+    )
     await session.commit()
 
 
