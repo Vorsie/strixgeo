@@ -134,6 +134,22 @@ the shallow TD). The two permanent band-capped-hole scans (`bottomTieRenderHole.
 `zandGlSeamHole.test.ts`, shared `__fixtures__/bandCappedHoleScan.ts`) measure holes only ABOVE a
 gap's bottom tie (`gapBottomTie`); a gap without one is scanned whole.
 
+## Stacked enclosed lenses come apart (owner 2026-09-23)
+
+Section "test", GEO-19/100-S1: peat 3.74..1.85, silt 1.85..1.39, peat 1.39..0.85 mTAW inside clay,
+none tied. Owner: *"should be three stacked lensen peat on top of silt on top of peat but now there
+is overlap?"* The enclosed-lens walk (`sectionGeom.extractEnclosedLenses`) pulls the silt out from
+between the peats and merges the peats into one run; when that run is itself pulled as a lens it
+came out as ONE diamond from 0.85 to 3.74, and the silt's own diamond (apex at its own mid) poked
+out of it — silt over clay, the top peat dipping below its own base. The walk now remembers the raw
+units a merged run was welded from (`rawPieces`) and, when the run is pulled, pushes one
+`EnclosedLens` per raw piece — each a lens at its own level (2/1/0) — and re-parents the lenses
+pulled from inside the run (the silt, matrix = peat) to the run's own matrix (the clay), the mass
+that really wraps the stack. The clay host still merges around the whole stack, so its raw split
+(`splitHostIntoRawPieces`) is unchanged. Pinned in `partitionFillV2/ownerTestS1Sandwich.test.ts`
+(fixture `__fixtures__/owner_test_s1_sandwich_2026-09-23.json`, both gaps: each of the three drawn
+and inside its own top..base, no cross-lithology overlap); CS1 golden byte-identical.
+
 ## Same-litho enclosed lens is one mass (owner ruling 2, 2026-09-07)
 
 `mergeTouchingBodies` welds a same-lithology enclosed lens and its enclosing matrix under one body
