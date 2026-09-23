@@ -44,6 +44,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.recompute_formation_surface import (
     RecomputeFormationSurface,
 )
+from groundmodel.application.section_membership import (
+    load_section_member_investigation_ids,
+)
 from groundmodel.domain.services.formation_age_order import infer_age_order
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -165,6 +168,17 @@ class RebuildModelSurfaces(GroundModelLogger):
             if project_id is not None
             else set()
         )
+        # Only tests a cross-section draws are model inputs (owner ruling
+        # 2026-09-23). Same batch treatment: one membership load per Build.
+        member_ids: set[UUID] = (
+            await load_section_member_investigation_ids(self._session, project_id=project_id)
+            if project_id is not None
+            else set()
+        )
+        self.info(
+            f"rebuild surfaces: model={model_id} {len(member_ids)} test(s) on a section, "
+            f"{len(hidden_ids)} hidden"
+        )
 
         recompute = RecomputeFormationSurface(self._session)
         # force=True: an explicit Build always re-triangulates, even
@@ -175,6 +189,7 @@ class RebuildModelSurfaces(GroundModelLogger):
             ((model_id, fid) for fid in formation_ids),
             force=True,
             hidden_investigation_ids=hidden_ids,
+            section_member_ids=member_ids,
             ground_sampler=ground_sampler,
         )
         # Auto-derive formation age order from the data the user just
