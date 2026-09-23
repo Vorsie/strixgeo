@@ -1141,6 +1141,7 @@ export function useGeologicalModel({
   requestBodyRecompute,
   markMutated,
   bedStaleNonce = 0,
+  sectionsStaleNonce = 0,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -1201,6 +1202,14 @@ export function useGeologicalModel({
    * 0 so the many geoModel test mocks need not thread it.
    */
   bedStaleNonce?: number
+  /**
+   * Monotonic counter bumped by ``App`` after every section create / delete /
+   * corridor / exclusion change. Only tests a section draws feed the model
+   * (owner ruling 2026-09-23), so the backend stales every built surface of
+   * the project on such a change; this re-reads them, the same way the bed
+   * nonce does. Optional / defaults to 0 for the geoModel test mocks.
+   */
+  sectionsStaleNonce?: number
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1743,6 +1752,16 @@ export function useGeologicalModel({
     lastBedStaleNonceRef.current = bedStaleNonce
     refetchSurfaces()
   }, [bedStaleNonce, refetchSurfaces])
+
+  // A section change moves tests on or off the sections, and only tests a
+  // section draws feed the model (owner ruling 2026-09-23) — the backend
+  // staled every surface of the project, so re-read them like the bed change.
+  const lastSectionsStaleNonceRef = useRef(sectionsStaleNonce)
+  useEffect(() => {
+    if (sectionsStaleNonce === lastSectionsStaleNonceRef.current) return
+    lastSectionsStaleNonceRef.current = sectionsStaleNonce
+    refetchSurfaces()
+  }, [sectionsStaleNonce, refetchSurfaces])
 
   // Refetch geological contacts for the active geological model.
   // Needed after a drag-down cross-merge on the geological axis — the BE
