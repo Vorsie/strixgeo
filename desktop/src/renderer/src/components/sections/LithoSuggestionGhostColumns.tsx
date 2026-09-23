@@ -90,6 +90,15 @@ export interface LithoSuggestionGhostColumnsProps {
   columns: readonly PlacedColumn[]
   /** Id of the CPT or borehole whose suggestions are shown. */
   investigationId: string
+  /**
+   * The investigation's own terminal depth (m below collar): CPT last
+   * sample / borehole total depth. The floor a base drag may reach when no
+   * layer lies below it (owner 2026-09-23: a ghost column copied from a
+   * shallower borehole must be draggable down to the CPTM's bottom).
+   * Absent / null (still loading, or unknown) = the last layer's own base,
+   * which is the test bottom for a segmenter column anyway.
+   */
+  terminalDepthM?: number | null
   /** Suggestions ordered top to bottom from the segmenter. */
   suggestions: readonly LithoLayerSuggestion[]
   /** mTAW elevation → screen Y. */
@@ -329,6 +338,7 @@ export interface LithoSuggestionGhostColumnsProps {
 export default function LithoSuggestionGhostColumns({
   columns,
   investigationId,
+  terminalDepthM = null,
   suggestions,
   levelToScreen,
   surfaceElevationM,
@@ -1019,6 +1029,7 @@ export default function LithoSuggestionGhostColumns({
                       edits,
                       acceptedIndices,
                       effectivelyRejectedIndices,
+                      terminalDepthM,
                     )
                     startDrag({
                       idx,
