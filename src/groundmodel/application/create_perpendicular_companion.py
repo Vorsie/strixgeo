@@ -63,6 +63,9 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Distance along the perpendicular line within which an investigation is
@@ -261,6 +264,12 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         companion.companion_body_id = body_id
         companion.is_body_companion = True
         await self._session.flush()
+        # A companion is a section like any other: it can draw tests no section
+        # drew before, and only tests a section draws feed the model (owner
+        # ruling 2026-09-23).
+        await GeologyRepository(self._session).mark_project_surfaces_stale(
+            project_id, reason=f"companion section created: {companion_name}"
+        )
         await self._session.commit()
         await self._session.refresh(companion)
 
