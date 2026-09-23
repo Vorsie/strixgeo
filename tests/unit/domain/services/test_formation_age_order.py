@@ -16,6 +16,9 @@ ANTROPOGEEN = _fid("000001")
 QUARTAIR = _fid("000002")
 AALBEKE = _fid("000003")
 ROUBAIX = _fid("000004")
+BOOM = _fid("000005")
+# Sorts AFTER Quartair by UUID string, so the tie-break alone would put Quartair on top.
+GEROERD = _fid("000009")
 BH_X = UUID("00000000-0000-0000-0000-0000000000a1")
 BH_Y = UUID("00000000-0000-0000-0000-0000000000a2")
 CPT_Z = UUID("00000000-0000-0000-0000-0000000000b1")
@@ -232,3 +235,37 @@ def test_deterministic_under_identical_input() -> None:
     a = infer_age_order(contacts_by_anchor=payload, all_formation_ids=ids)
     b = infer_age_order(contacts_by_anchor=payload, all_formation_ids=ids)
     assert a == b
+
+
+def test_dov_disturbed_group_code_g_is_youngest_when_present() -> None:
+    """Owner 2026-09-23, a new project built from DOV boreholes: "it reordered
+    the formations but in a wrong manner! put aangebracht geroerd below
+    quartair". DOV's formal-stratigraphy code ``G`` ("Groep van geroerd/
+    verstoord", reworked / disturbed ground) is the man-made top of the
+    column, the same thing as Antropogeen. No borehole logged both G and Q
+    (each column starts with one of them at 0 m), so no vote ordered them,
+    both mean tops were 0 m, and the UUID tie-break put Quartair on top. The
+    anthropogenic pin must recognise G.
+    """
+    order = infer_age_order(
+        contacts_by_anchor={
+            BH_X: [(0.0, GEROERD), (12.0, BOOM)],
+            BH_Y: [(0.0, QUARTAIR), (10.8, BOOM)],
+        },
+        all_formation_ids=[GEROERD, QUARTAIR, BOOM],
+        labels_by_formation={GEROERD: "G", QUARTAIR: "Q", BOOM: "Bm"},
+    )
+    assert order == [GEROERD, QUARTAIR, BOOM]
+
+
+def test_dov_disturbed_group_by_name_is_youngest_when_present() -> None:
+    """The same pin by DOV's full name, for a formation that carries no code."""
+    order = infer_age_order(
+        contacts_by_anchor={BH_X: [(0.0, GEROERD)], BH_Y: [(0.0, QUARTAIR)]},
+        all_formation_ids=[GEROERD, QUARTAIR],
+        labels_by_formation={
+            GEROERD: "Groep van geroerd/verstoord",
+            QUARTAIR: "Groep van Quartaire afzetting",
+        },
+    )
+    assert order[0] == GEROERD
