@@ -199,8 +199,23 @@ function emitOne(
   // the slot, holes/overlaps 0). ``collectEnclosedLensDiamonds`` mirrors this drop so the detour
   // never wraps a diamond the emitter did not draw.
   if (segmentDegenerate(topPt, apex) || segmentDegenerate(apex, basePt)) return
-  push([topPt, apex])
-  push([apex, basePt])
+  // PLAIN 2/1/0 (owner 2026-09-23, Cross-section 1 GEO-08/118-S13 -> GEO-23/116-S6: "the peat has 0
+  // correlations to the left but doesn't emit a lens"). A lens whose diamond STRADDLES the gap's
+  // substrate floor (the shallow test's TD: the floor line ``flood<gap>`` runs across the gap at that
+  // elevation) crosses that line mid-flank. Closing curves register cuts only at EXACT vertices
+  // (``splitSegments``, debt #271), so the crossing flank dead-ended past the floor and was stripped
+  // as a spur — the lens vanished below the floor and the matrix painted its place (the 0.93 m peat
+  // read as 7 cm; the adopted-stack SF lost its above-floor half). Giving the flank an explicit
+  // vertex AT the crossing makes the cut exact on both curves, so the floor splits the diamond into
+  // two faces that both stay the lens's own (``labelFaces`` lets the bare floor through).
+  const floor = Math.max(columnDeepestBase(col), columnDeepestBase(facing))
+  const atFloor = (a: Point, b: Point): Point[] => {
+    if (!((a.y > floor && b.y < floor) || (a.y < floor && b.y > floor))) return []
+    const t = (floor - a.y) / (b.y - a.y)
+    return [{ x: a.x + t * (b.x - a.x), y: floor }]
+  }
+  push([topPt, ...atFloor(topPt, apex), apex])
+  push([apex, ...atFloor(apex, basePt), basePt])
 }
 
 /**
@@ -257,8 +272,15 @@ export function enclosedLensDiamond(
   // deep-to-deep substrate, not this lens). A lens already at/above the floor is byte-identical (the
   // ``max`` is a no-op); a lens ENTIRELY below the floor (floor ≥ top) is left untouched — it is a
   // sub-TD unit for ``emitSubTdLenses``, not an interior enclosed lens.
+  // PLAIN 2/1/0 (owner 2026-09-23, Cross-section 1 GEO-08/118-S13 → GEO-23/116-S6: *"the peat has 0
+  // correlations to the left but doesn't emit a lens"*): the clamp above erased a 0.93 m peat
+  // enclosed in clay whose base (−0.12) lay 0.86 m below the shallow test's TD (0.74) — the lens
+  // became the 7 cm above the floor, and the clay band painted the rest. A lens closes at its OWN
+  // level with its OWN base; the ground below the shallow test's TD is still this unit's where the
+  // test read it. The substrate floor is kept only as the reference the tie-collision reach uses.
   const substrateFloor = Math.max(columnDeepestBase(col), columnDeepestBase(facing))
-  const clampedBase = substrateFloor < lens.topElev ? Math.max(lens.baseElev, substrateFloor) : lens.baseElev
+  void substrateFloor
+  const clampedBase = lens.baseElev
   const topPt: Point = { x: colX, y: lens.topElev }
   const basePt: Point = { x: colX, y: clampedBase }
   // Ruling 8s (design partition-engine-v2.md §8, owner 2026-07-19, "0.45 stands, matrix detours"):
