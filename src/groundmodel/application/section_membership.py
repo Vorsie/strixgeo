@@ -25,10 +25,12 @@ Since 2026-09-23 the same rule governs EVERY model, not only the geotech one
 on sections for the model" — "wel into any model really"). The formation
 surfaces and the ground hull read the project-wide member set through
 :func:`load_section_member_investigation_ids`; a section create / geometry /
-corridor / exclusion / delete stales every built surface of the project
-(:meth:`GeologyRepository.mark_project_surfaces_stale`, the fields that count
-in :mod:`section_membership_constants`). The picks stay on the test; only its
-contribution stops while no section draws it.
+corridor / exclusion / delete stales every built surface of the project — but
+ONLY when the drawn-test set actually changed
+(:func:`stale_surfaces_if_membership_changed`; owner, the same day: widening a
+corridor that captures nobody new leaves the model fresh). The fields that can
+change the set are in :mod:`section_membership_constants`. The picks stay on the
+test; only its contribution stops while no section draws it.
 """
 
 from __future__ import annotations
@@ -45,6 +47,59 @@ from groundmodel.application.project_investigations_onto_section import (
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.repositories.geology_repository import GeologyRepository
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+
+async def stale_surfaces_if_membership_changed(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    before: set[UUID],
+    reason: str,
+) -> bool:
+    """Flag every built surface of the project stale IF the drawn-test set changed.
+
+    Owner ruling 2026-09-23 on the first version, which staled on every section
+    change: "if i change the buffer and no new tests are added to a CS or none
+    are not on the section anymore, e.g. we only widen the buffer without the
+    actual tests on the section changing, then the model shouldn't become
+    stale." Membership is the SET of tests at least one section draws; only a
+    different set after the change invalidates the models.
+
+    Call it after the section mutation is FLUSHED (the loader reads the same
+    transaction) and before the commit.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Owning project.
+    before : set[UUID]
+        :func:`load_section_member_investigation_ids` taken BEFORE the mutation.
+    reason : str
+        What changed, for the log line.
+
+    Returns
+    -------
+    bool
+        ``True`` when the set changed and the surfaces were flagged.
+    """
+    after = await load_section_member_investigation_ids(session, project_id=project_id)
+    logger = LoggerFactory.get_logger(__name__)
+    if after == before:
+        logger.info(
+            f"section membership unchanged after {reason} ({len(after)} test(s) drawn) — "
+            f"surfaces stay fresh (project={project_id})"
+        )
+        return False
+    logger.info(
+        f"section membership changed after {reason}: {len(before)} -> {len(after)} test(s) drawn "
+        f"(+{len(after - before)} / -{len(before - after)}) (project={project_id})"
+    )
+    await GeologyRepository(session).mark_project_surfaces_stale(project_id, reason=reason)
+    return True
 
 
 async def load_section_member_investigation_ids(
