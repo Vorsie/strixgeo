@@ -24,16 +24,23 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._section_builders import covering_section
 
 
 @pytest_asyncio.fixture
 async def project_with_borehole(
     db_session: AsyncSession,
 ) -> tuple[ProjectOrm, BoreholeOrm]:
-    """Set up a project + one 10 m borehole for contact-anchoring tests."""
+    """Set up a project + one 10 m borehole for contact-anchoring tests.
+
+    The project also carries a section whose corridor draws every test: only
+    tests a cross-section draws feed the model (owner 2026-09-23), and in the
+    product a pick can only be made on a section — this stands in for it.
+    """
     project = ProjectOrm(id=uuid7(), name="API geology test", status="active")
     db_session.add(project)
     await db_session.flush()
+    db_session.add(covering_section(project.id))
     borehole = BoreholeOrm(
         id=uuid7(),
         name="BH-1",
