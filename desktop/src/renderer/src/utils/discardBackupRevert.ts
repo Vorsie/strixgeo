@@ -14,6 +14,10 @@
  * Pure module: the revert, the question and the toast are injected so the
  * decision is testable without React.
  *
+ * The twin of the pre-discard revert is the post-discard RELOAD
+ * (``reloadProjectAfterDiscard``): the reverted database has to become what
+ * the engineer looks at, and that reload must be a real close-and-open.
+ *
  * @module utils/discardBackupRevert
  */
 import type { RevertToLastSavedResult } from '../hooks/useProject'
@@ -47,4 +51,34 @@ export async function revertBeforeDiscardBackup(deps: DiscardBackupRevertDeps): 
   }
   deps.toast('error', deps.message('project.revertFailed'))
   return false
+}
+
+export interface ReloadProjectAfterDiscardDeps {
+  /** The open project's file path at the moment of the discard; ``null`` = nothing to reload. */
+  path: string | null
+  /** ``closeProject`` — nulls the live project so every project-keyed loader clears. */
+  close: () => void
+  /** ``openProjectFile`` — adopts the file's project again. */
+  open: (path: string) => Promise<unknown>
+}
+
+/**
+ * Reload the project from its file after a crash backup was deleted.
+ *
+ * WHY close first: every project-keyed loader (sections, CPTs, boreholes, the
+ * models) refetches on a project-id CHANGE. The revert replays the file over
+ * the database, but reopening the same file keeps the same id, so a plain
+ * reopen refetched nothing — the section list stayed as it was before the
+ * revert and the next body recompute was refused ("the payload must cover
+ * every section of the project exactly", the "Body identity could not be
+ * saved" toast; owner 2026-09-23). Closing first makes the reopen a real
+ * transition for every list, exactly as if the engineer had closed and
+ * reopened the project by hand. The path is captured BEFORE the close, which
+ * nulls it.
+ */
+export async function reloadProjectAfterDiscard(deps: ReloadProjectAfterDiscardDeps): Promise<void> {
+  const path = deps.path
+  if (path === null) return
+  deps.close()
+  await deps.open(path)
 }
