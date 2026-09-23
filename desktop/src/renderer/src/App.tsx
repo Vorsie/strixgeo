@@ -671,11 +671,18 @@ export default function App() {
   // handed to useBedOverrides below (which sits after the horizontal CRS resolves).
   const [bedStaleNonce, setBedStaleNonce] = useState(0)
   const bumpBedStale = useCallback(() => setBedStaleNonce((n) => n + 1), [])
+  // Bumped by useSections after every section create / delete / corridor or
+  // exclusion change: only tests a section draws feed the model (owner
+  // 2026-09-23), so the backend stales the built surfaces and the model hook
+  // re-reads them, turning the "rebuild" badge amber without a reopen.
+  const [sectionsStaleNonce, setSectionsStaleNonce] = useState(0)
+  const bumpSectionsStale = useCallback(() => setSectionsStaleNonce((n) => n + 1), [])
 
   const geo = useGeologicalModel({
     project,
     toast,
     bedStaleNonce,
+    sectionsStaleNonce,
     pushUndo,
     clearUndo,
     addToManifest,
@@ -1018,6 +1025,7 @@ export default function App() {
     toast,
     pushUndo,
     requestBodyRecompute,
+    onSectionsChanged: bumpSectionsStale,
     manifestSectionIds,
     addToManifest,
     removeFromManifest,
