@@ -13,7 +13,7 @@
 //
 // No Electron, no network — vitest runs it under src/main/**.
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   ACTIVATION_URL_ENV,
@@ -97,6 +97,31 @@ describe('sanitizeIssuerUrl (HTTPS-only scheme rule)', () => {
 describe('createActivationRepository', () => {
   it('DEV with no URL builds the in-memory mock — the dogfeed is unchanged', () => {
     expect(createActivationRepository({ env: {}, packaged: false })).toBeInstanceOf(MockActivationRepository)
+  })
+
+  // A company proxy and TLS inspection let the browser reach strixgeo.com while
+  // the app said "unreachable" (owner's work PC and a coworker's, 2026-09-23):
+  // the client was on Node's global fetch, which ignores the Windows proxy
+  // settings and the OS certificate store. The main process hands the factory
+  // Electron's net.fetch; the HTTP issuer must use THAT, never the global.
+  it('the HTTP issuer sends through the injected fetch, never the global fetch', async () => {
+    const injected = vi.fn().mockResolvedValue({ status: 500, json: async () => ({}) })
+    const globalSpy = vi.fn()
+    const saved = globalThis.fetch
+    globalThis.fetch = globalSpy as unknown as typeof fetch
+    try {
+      const repo = createActivationRepository({
+        env: {},
+        packaged: true,
+        fetchImpl: injected as unknown as typeof fetch,
+      })
+      await repo.activate({ deviceId: 'device-A', deviceLabel: 'Laptop A', key: 'STRIX-XXXX-AB12' })
+      expect(injected).toHaveBeenCalledTimes(1)
+      expect(String(injected.mock.calls[0][0])).toBe(`${LIVE_ACTIVATION_URL}/activate`)
+      expect(globalSpy).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = saved
+    }
   })
 
   // audit C3(a): a packaged build with no server must NOT get the mock (its demo
