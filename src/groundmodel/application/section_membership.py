@@ -19,6 +19,16 @@ derivation all agree on, and it already honours a section's
 ``excluded_cpt_ids`` / ``excluded_borehole_ids``.  Consequence worth stating:
 an investigation inside a section's corridor but on its exclusion list is NOT a
 member *there*; if that leaves it on no section at all, it is off-section.
+
+Since 2026-09-23 the same rule governs EVERY model, not only the geotech one
+(owner: "you don't need to drop subdivision on tests, only don't use tests not
+on sections for the model" — "wel into any model really"). The formation
+surfaces and the ground hull read the project-wide member set through
+:func:`load_section_member_investigation_ids`; a section create / geometry /
+corridor / exclusion / delete stales every built surface of the project
+(:meth:`GeologyRepository.mark_project_surfaces_stale`, the fields that count
+in :mod:`section_membership_constants`). The picks stay on the test; only its
+contribution stops while no section draws it.
 """
 
 from __future__ import annotations
