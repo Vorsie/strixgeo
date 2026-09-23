@@ -1281,6 +1281,31 @@ export default function SectionPanel({
     gapForPair,
   ]);
 
+  // The terminal depth of each placed test — CPT: the last sample of its
+  // loaded plot; borehole: total_depth_m off the detail map. Read by the
+  // zoom-fit below and handed to the ghost columns as the floor a base drag
+  // may reach when no layer lies below (owner 2026-09-23: a ghost column
+  // copied from a shallower borehole must be draggable down to the CPTM's
+  // bottom). A test whose plot / detail has not loaded is absent.
+  const terminalDepthByAnchorId = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const col of placedColumns) {
+      const id = col.proj.item.id;
+      if (col.kind === "cpt") {
+        const plot = cptPlots?.get(id);
+        if (plot && plot.depths_m.length > 0) {
+          out.set(id, plot.depths_m[plot.depths_m.length - 1]);
+        }
+      } else {
+        const detail = boreholeDetails?.get(id);
+        if (detail && detail.total_depth_m !== null) {
+          out.set(id, detail.total_depth_m);
+        }
+      }
+    }
+    return out;
+  }, [placedColumns, cptPlots, boreholeDetails]);
+
   // Scrub-bar outer bounds: the WARP-EFFECTIVE leftmost / rightmost
   // along-section position (world m). The track represents the RENDERED
   // extent of the columns — NOT 0..sectionLength, and NOT the raw
@@ -1401,23 +1426,11 @@ export default function SectionPanel({
       const elevation = col.proj.item.elevation_m;
       if (elevation === null || elevation === undefined) continue;
 
-      // Deepest data point — drives the bottom of the vertical fit.
-      // CPT: last sample of the loaded plot. Borehole: total_depth_m
-      // off the detail map. If neither loaded yet, fall back to a
-      // typical 20 m so the fit still has a sensible vertical span.
-      let depthBottom: number | null = null;
-      if (col.kind === "cpt") {
-        const plot = cptPlots?.get(anchorId);
-        if (plot && plot.depths_m.length > 0) {
-          depthBottom = plot.depths_m[plot.depths_m.length - 1];
-        }
-      } else {
-        const detail = boreholeDetails?.get(anchorId);
-        if (detail && detail.total_depth_m !== null) {
-          depthBottom = detail.total_depth_m;
-        }
-      }
-      if (depthBottom === null) depthBottom = 20;
+      // Deepest data point — drives the bottom of the vertical fit
+      // (``terminalDepthByAnchorId``). If neither the plot nor the
+      // detail loaded yet, fall back to a typical 20 m so the fit still
+      // has a sensible vertical span.
+      const depthBottom = terminalDepthByAnchorId.get(anchorId) ?? 20;
       fits.push({
         along: col.proj.along,
         nudgedX: col.nudgedX,
@@ -1629,8 +1642,7 @@ export default function SectionPanel({
     contacts,
     focusableContacts,
     placedColumns,
-    cptPlots,
-    boreholeDetails,
+    terminalDepthByAnchorId,
     columnSpacing,
   ]);
 
@@ -3405,6 +3417,9 @@ export default function SectionPanel({
               <LithoSuggestionGhostColumns
                 columns={visibleColumns}
                 investigationId={lithoGhostState.investigationId}
+                terminalDepthM={
+                  terminalDepthByAnchorId.get(lithoGhostState.investigationId) ?? null
+                }
                 suggestions={lithoGhostState.suggestions}
                 levelToScreen={levelToScreen}
                 surfaceElevationM={lithoGhostState.surfaceElevationM}
@@ -3464,6 +3479,7 @@ export default function SectionPanel({
                     key={`bulk-ghost-${anchorId}`}
                     columns={visibleColumns}
                     investigationId={anchorId}
+                    terminalDepthM={terminalDepthByAnchorId.get(anchorId) ?? null}
                     suggestions={ghost.suggestions}
                     levelToScreen={levelToScreen}
                     surfaceElevationM={ghost.surfaceElevationM}
