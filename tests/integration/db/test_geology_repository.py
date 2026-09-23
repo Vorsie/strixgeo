@@ -31,6 +31,7 @@ from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from tests.integration._section_builders import covering_section
 
 
 async def _make_project_with_borehole(
@@ -705,6 +706,9 @@ async def test_recompute_skips_contacts_on_excluded_boreholes(
     project = ProjectOrm(id=uuid7(), name="Excl test", status="active")
     db_session.add(project)
     await db_session.flush()
+    # Only tests a cross-section draws feed the model (owner 2026-09-23): the
+    # picks below are "made on" this section, as the product guarantees.
+    db_session.add(covering_section(project.id))
     bh_keep = await _bh(db_session, project.id, name="KEEP", x=1000.0, y=1000.0, z=10.0)
     bh_drop = await _bh(db_session, project.id, name="DROP", x=2000.0, y=2000.0, z=12.0)
 
