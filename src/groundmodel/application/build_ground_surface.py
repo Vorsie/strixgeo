@@ -30,6 +30,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.section_membership import (
+    load_section_member_investigation_ids,
+)
 from groundmodel.domain.services.bed_override import ground_sampler_with_bed
 from groundmodel.domain.services.dem_clip import (
     GroundPoint,
@@ -174,7 +177,12 @@ class BuildGroundSurface(GroundModelLogger):
         """
         self.info(f"build ground surface: project={project_id} model={model_id}")
 
-        ground_points = await self._load_hull_points(model_id)
+        # Only tests a cross-section draws are model inputs (owner ruling
+        # 2026-09-23) — the hull follows the same membership as the surfaces.
+        member_ids = await load_section_member_investigation_ids(
+            self._session, project_id=project_id
+        )
+        ground_points = await self._load_hull_points(model_id, member_ids)
         hull_points = [(p.x_m, p.y_m) for p in ground_points]
         if not hull_points:
             self.warning(
@@ -284,13 +292,15 @@ class BuildGroundSurface(GroundModelLogger):
             from_cache=grid.from_cache,
         )
 
-    async def _load_hull_points(self, model_id: UUID) -> list[GroundPoint]:
-        """Load labelled locations for all investigations anchored to this model.
+    async def _load_hull_points(
+        self, model_id: UUID, section_member_ids: set[UUID]
+    ) -> list[GroundPoint]:
+        """Load labelled locations for the model's investigations a section draws.
 
         Queries the ``formation_contact`` table for distinct borehole and CPT
-        ids in the model, then joins to the name + geometry columns for each.
-        Investigations with NULL x/y are silently skipped — they cannot
-        contribute to the hull.
+        ids in the model, keeps those in ``section_member_ids``, then joins to
+        the name + geometry columns for each. Investigations with NULL x/y are
+        silently skipped — they cannot contribute to the hull.
 
         The name travels with the location because the coverage report has to
         name the test the DEM could not answer for; a UUID in that message
@@ -300,6 +310,10 @@ class BuildGroundSurface(GroundModelLogger):
         ----------
         model_id : UUID
             Geological model to query.
+        section_member_ids : set[UUID]
+            Investigations that project onto at least one cross-section. A
+            contact-bearing test outside this set is not a model input and
+            must not stretch the hull (owner ruling 2026-09-23).
 
         Returns
         -------
@@ -334,6 +348,18 @@ class BuildGroundSurface(GroundModelLogger):
             .scalars()
             .all()
         )
+
+        # Membership filter: a test no cross-section draws feeds no surface, so
+        # it must not define the ground hull either.
+        before = len(bh_rows) + len(cpt_rows)
+        bh_rows = [b for b in bh_rows if b in section_member_ids]
+        cpt_rows = [c for c in cpt_rows if c in section_member_ids]
+        skipped = before - len(bh_rows) - len(cpt_rows)
+        if skipped:
+            self.info(
+                f"ground hull: skipped {skipped} contact-bearing test(s) on no cross-section "
+                f"(model={model_id}, {len(bh_rows) + len(cpt_rows)} kept)"
+            )
 
         points: list[GroundPoint] = []
 
