@@ -640,6 +640,45 @@ class GeologyRepository(GroundModelLogger):
             self.debug(f"mark_all_surfaces_stale: flipped {count} row(s) for model={model_id}")
         return count
 
+    async def mark_project_surfaces_stale(self, project_id: UUID, *, reason: str) -> int:
+        """Flip ``is_stale=True`` on every cached TIN surface of EVERY model in a project.
+
+        Used when model MEMBERSHIP changes: only tests a cross-section draws
+        feed a model (owner ruling 2026-09-23), so creating, moving, widening,
+        narrowing, re-excluding or deleting a section can put tests into or out
+        of every model of the project at once. The next Build re-filters; until
+        then the surfaces are flagged, never rebuilt here (on-click build).
+
+        Parameters
+        ----------
+        project_id : UUID
+            The project whose models' surfaces are invalidated — geological,
+            lithostratigraphic and geotechnical alike ("into any model
+            really").
+        reason : str
+            What changed, for the log line — a section name or the batch
+            size; it is the only trace of why a fresh model went amber.
+
+        Returns
+        -------
+        int
+            Rows flipped. ``0`` when nothing is built yet (a legal no-op).
+        """
+        model_ids = select(GeologicalModelOrm.id).where(
+            GeologicalModelOrm.app_project_id == project_id
+        )
+        result = await self._session.execute(
+            update(FormationSurfaceOrm)
+            .where(FormationSurfaceOrm.model_id.in_(model_ids))
+            .values(is_stale=True)
+        )
+        count = result.rowcount or 0
+        self.info(
+            f"mark_project_surfaces_stale: {reason} — flipped {count} surface row(s) "
+            f"for project={project_id}"
+        )
+        return count
+
     async def stale_surfaces_for_investigation(
         self,
         *,
