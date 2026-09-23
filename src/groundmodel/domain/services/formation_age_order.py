@@ -58,10 +58,11 @@ def infer_age_order(
         Optional per-formation label (its display name, or its
         regional-reference code) used only to recognise the
         anthropogenic unit. Any formation whose label identifies it as
-        Antropogeen (see :func:`is_anthropogenic`) is pinned to the
-        youngest end of the result — man-made fill is younger than every
-        natural formation by definition, regardless of the per-borehole
-        contact evidence (owner ruling 2026-09-05). ``None`` (default)
+        Antropogeen or DOV's disturbed group "Groep van geroerd/verstoord"
+        (see :func:`is_anthropogenic`) is pinned to the youngest end of the
+        result — man-made ground is younger than every natural formation by
+        definition, regardless of the per-borehole contact evidence (owner
+        rulings 2026-09-05 and 2026-09-23). ``None`` (default)
         applies no pin, preserving the pure data-driven order.
 
     Returns
@@ -87,8 +88,9 @@ def infer_age_order(
     * **DAG cycles after conflict resolution** (rare; would require
       a true odd-length contradiction cycle) — any formations not
       reached by the toposort are appended by mean depth ascending.
-    * **Anthropogenic unit** (``Antropogeen`` / DOV code ``A``, matched
-      via ``labels_by_formation``) is moved to the youngest end after
+    * **Anthropogenic unit** (``Antropogeen`` / DOV code ``A``, or the
+      disturbed group ``Groep van geroerd/verstoord`` / DOV code ``G``,
+      matched via ``labels_by_formation``) is moved to the youngest end after
       the data-driven order is built, overriding any contact evidence
       or tie-break — it is younger than everything by definition.
 
