@@ -516,7 +516,15 @@ function labelOneFace(
         // exact branch so face labelling stays byte-identical (the re-role is export-only).
         const l = lensLabels?.get(id)
         if (l) floodLabel = l
-        nonLensBoundary = true
+        // PLAIN 2/1/0 (owner 2026-09-23, Cross-section 1 GEO-08/118-S13 -> GEO-23/116-S6: "the peat
+        // has 0 correlations to the left but doesn't emit a lens"): the BARE shallow-TD floor
+        // (emitEnclosingFlood's ``flood<gap>``, the one flood curve that carries NO label) cutting
+        // through an enclosed lens does not un-lens the pieces. A lens closes at its own level,
+        // below the far test's TD too, so the piece above the floor and the piece below it are
+        // both the lens's own face (each bounded by a lens flank, the floor and the lens's column
+        // vertical). A LABELLED flood (emitLonePinch's vacated-wedge closure, the sweep wedges)
+        // still disqualifies, and the floor still anchors band classification below.
+        if (!(id.startsWith('flood') && l === undefined)) nonLensBoundary = true
         hasAnchorSpan = true
         nTie++
       } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
