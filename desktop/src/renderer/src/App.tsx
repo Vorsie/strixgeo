@@ -33,7 +33,10 @@ import BackendRestartingBanner from './components/BackendRestartingBanner'
 import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
 import ConfirmDialog from './components/ui/ConfirmDialog'
 import { usePromiseConfirm } from './hooks/usePromiseConfirm'
-import { revertBeforeDiscardBackup as revertBeforeDiscardBackupDecision } from './utils/discardBackupRevert'
+import {
+  reloadProjectAfterDiscard,
+  revertBeforeDiscardBackup as revertBeforeDiscardBackupDecision,
+} from './utils/discardBackupRevert'
 import { discardBackupRevertMessage } from './utils/closeFlowMessages'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
@@ -771,10 +774,15 @@ export default function App() {
 
   // After a successful discard, reload the project from its file so the
   // reverted database state is what the user is looking at — the in-memory
-  // session still holds the crashed session's leftovers otherwise.
-  const reloadAfterDiscardBackup = useCallback(async (): Promise<void> => {
-    if (projectFilePath !== null) await openProjectFile(projectFilePath)
-  }, [projectFilePath, openProjectFile])
+  // session still holds the crashed session's leftovers otherwise. The reload
+  // CLOSES the project first: a same-id reopen refetches no project-keyed
+  // list (owner 2026-09-23, the stale section list behind "Body identity could
+  // not be saved"). The recovery file is already gone by now (``discardOffer``
+  // deletes it before this runs), so the plain ``closeProject`` is the right one.
+  const reloadAfterDiscardBackup = useCallback(
+    (): Promise<void> => reloadProjectAfterDiscard({ path: projectFilePath, close: closeProject, open: openProjectFile }),
+    [projectFilePath, closeProject, openProjectFile],
+  )
 
   const {
     offer: recoveryOffer,
