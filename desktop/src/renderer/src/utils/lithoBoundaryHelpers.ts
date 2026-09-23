@@ -228,6 +228,15 @@ export interface DragBoundsResult {
  * mousedown. The dragged edge cannot cross either bound; if the
  * user releases at OWN-OPPOSITE-EDGE (the #81 self-collapse direction)
  * with snap, the dragged layer is auto-rejected on mouseup.
+ *
+ * ``terminalDepthM`` is the test's own bottom (CPT last sample / borehole
+ * total depth). A base drag with no visible layer below may reach it —
+ * owner 2026-09-23, a ghost column copied from a shallower borehole onto a
+ * CPTM: *"i couldn't drag the bottom unit to the bottom of the cptm"*. The
+ * last layer's own base was the only floor, which is right for a segmenter
+ * column (it already reaches the test bottom) and wrong for a copied one.
+ * Unknown (``null``) keeps the last layer's base as the floor; a terminal
+ * depth above that base never pulls the floor up.
  */
 export function computeDragBounds(
   edge: 'top' | 'base',
@@ -236,6 +245,7 @@ export function computeDragBounds(
   edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
   acceptedIndices: ReadonlySet<number>,
   rejectedIndices: ReadonlySet<number>,
+  terminalDepthM: number | null = null,
 ): DragBoundsResult {
   const own = effectiveDepths(suggestions, edits, idx)
   if (edge === 'top') {
@@ -267,11 +277,13 @@ export function computeDragBounds(
     rejectedIndices,
   )
   // Below-walk: nearEdge is the neighbour's TOP; farEdge is its BASE.
-  // Outer fallback: the LAST suggestion's BASE (= test's effective
-  // bottom). When the dragged layer IS the last, this equals own.baseM
-  // → no extension downward (matches "can't drag past the test bottom").
+  // Outer fallback: the test's terminal depth when known, else the LAST
+  // suggestion's BASE. A segmenter column's last base IS the test bottom,
+  // so nothing changes there; a column copied from a shallower test ends
+  // above the bottom, and its deepest unit may now be pulled down to it.
   const lastIdx = suggestions.length - 1
-  const outerBelow = effectiveDepths(suggestions, edits, lastIdx).baseM
+  const lastBase = effectiveDepths(suggestions, edits, lastIdx).baseM
+  const outerBelow = terminalDepthM !== null && terminalDepthM > lastBase ? terminalDepthM : lastBase
   const belowBound = boundFromNeighbour(
     below,
     outerBelow,
