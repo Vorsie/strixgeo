@@ -211,16 +211,67 @@ describe('Ruling 2 — a sand pocket enclosed by sand is one sand mass', () => {
  *   column). Its deepest clay KLEI has no tie in that direction → it LENSES (pinches), it must NOT
  *   flood the sub-TD full width.
  */
-describe('Ruling 3 — below a shallow test, the tied sand onlaps its bottom tie and the untied clay lenses', () => {
-  const T4_SAND = '01a07acb-e044-713c-adee-dde01a53ae85' // GEO-20/034-S5 u8 ZAND (KL:V)
-  const T4_CLAY = '01a07acb-e04b-7590-9cf1-7360cfaf13db' // GEO-20/034-S5 u9 KLEI
+/** A unit's elevations (top / base, mTAW) in a section by its layer id. */
+function unitElev(sectionName: string, layerId: string): { top: number; base: number } {
+  const sec = raw.sections.find((s) => s.name === sectionName)
+  if (!sec) throw new Error(`fixture section not found: ${sectionName}`)
+  for (const c of sec.columns) {
+    const u = c.units.find((x) => x.layerId === layerId)
+    if (u && c.surfaceElevM != null) return { top: c.surfaceElevM - u.topDepthM, base: c.surfaceElevM - u.baseDepthM }
+  }
+  throw new Error(`no unit ${layerId} in ${sectionName}`)
+}
 
-  // LANDED (walk22d, 2026-09-07). The bottom-tie onlap now reaches the shallow column
-  // (``drawTermination`` ``bottomTieToTd``, no invented flood) and the untied units below fill the
-  // sub-TD wedge as one hole-free construction riding the onlap base-flank line (``emitBottomTieWedge``,
-  // gated in ``emitSubTdLenses`` on a genuine bottom tie). Verified: TS4 gap1 hole 0, overlap 0, KLEI
-  // correctly labelled.
-  it('the deepest clay does NOT flood the sub-TD full width (it lenses)', () => {
+/** A column's TD (its deepest base, mTAW) in a section by the test name. */
+function columnTD(sectionName: string, colName: string): number {
+  const sec = raw.sections.find((s) => s.name === sectionName)
+  const c = sec?.columns.find((x) => x.name === colName)
+  if (!c || c.surfaceElevM == null) throw new Error(`no column ${colName} in ${sectionName}`)
+  return Math.min(...c.units.map((u) => (c.surfaceElevM as number) - u.baseDepthM))
+}
+
+/** Covered height on the vertical at ``frac`` counting only what lies below ``ceiling`` (mTAW). */
+const coveredHeightBelow = (regs: readonly SectionRegion[], frac: number, ceiling: number): number =>
+  regs.reduce((sum, r) => sum + crossAt(r.polygon, frac).reduce((s, [a, b]) => s + Math.max(0, Math.min(b, ceiling) - a), 0), 0)
+
+/** Like ``biggestHoleInGap`` but measures only the part of each uncovered stretch ABOVE ``floor`` (mTAW). */
+function biggestHoleInGapAbove(regs: readonly SectionRegion[], floor: number): { frac: number; gap: number } {
+  let worst = { frac: -1, gap: 0 }
+  for (let f = 0.04; f < 0.97; f += 0.04) {
+    const ivs: [number, number][] = []
+    for (const r of regs) ivs.push(...crossAt(r.polygon, f))
+    if (ivs.length === 0) continue
+    ivs.sort((a, b) => a[0] - b[0])
+    const merged: [number, number][] = []
+    for (const iv of ivs) {
+      const last = merged[merged.length - 1]
+      if (last && iv[0] <= last[1] + 5e-3) last[1] = Math.max(last[1], iv[1])
+      else merged.push([...iv])
+    }
+    for (let k = 0; k + 1 < merged.length; k++) {
+      const gap = merged[k + 1][0] - Math.max(merged[k][1], floor)
+      if (gap > worst.gap) worst = { frac: f, gap }
+    }
+  }
+  return worst
+}
+
+/*
+ * Ruling 3 — RE-RULED 2026-09-23: plain 2/1/0 everywhere, also below a shallow test.
+ *   2026-09-07 the owner had the tied sand reach the shallow test's TD point and the untied clay
+ *   tile the sub-TD wedge under it hole-free (walk22d). On CS1 S13 -> S6 that same construction
+ *   read to him as *"not plain 2/1/0 the bottom silty sand has no ties to the left side so it should
+ *   lens, it now onlaps the sand above, which only has one tie and should onlap halfway that tie
+ *   but instead spans the whole tie"*. Shown both readings on this gap and on CS1 he ruled:
+ *   *"let's go with plain 2 / 1 / 0 everywhere"* — a 1-tie unit onlaps to the HALFWAY point of its
+ *   tie, a 0-tie unit is a lens at its OWN level, and the space past the tip and the pinch below the
+ *   shallow TD is the no-data void.
+ */
+describe('Ruling 3 (2026-09-23) — below a shallow test, the tied sand onlaps HALFWAY its bottom tie and the untied clay is a lens at its own level', () => {
+  const T4_SAND = '01a07acb-e044-713c-adee-dde01a53ae85' // GEO-20/034-S5 u8 ZAND (KL:V), -27.09 .. -39.39
+  const T4_CLAY = '01a07acb-e04b-7590-9cf1-7360cfaf13db' // GEO-20/034-S5 u9 KLEI, -39.39 .. -45.99
+
+  it('the deepest clay does NOT flood the sub-TD full width — it is a lens at its own level', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const clay = regionsForLayer(g1, T4_CLAY)
@@ -228,30 +279,50 @@ describe('Ruling 3 — below a shallow test, the tied sand onlaps its bottom tie
     // A lens/pinch, not a full-width flood: no clay region spans the whole gap.
     const widest = Math.max(...clay.map(fracSpan))
     expect(widest, 'the untied sub-TD clay lenses, it does not flood full width').toBeLessThan(0.98)
+    // At its OWN level: no vertex of the clay climbs above the clay's own top (the 2026-09-07 wedge
+    // rode the sand onlap's base flank up into the sand's band; the owner called that an onlap).
+    const { top, base } = unitElev('Tie-section 4', T4_CLAY)
+    for (const p of clay.flatMap((r) => r.polygon)) {
+      const where = `a clay lens vertex at f=${p.fraction.toFixed(2)} stays within the clay's own [${base.toFixed(2)}..${top.toFixed(2)}]`
+      expect(p.elevation, where).toBeLessThanOrEqual(top + 1e-3)
+      expect(p.elevation, where).toBeGreaterThanOrEqual(base - 1e-3)
+    }
   })
 
-  it('the tied sand onlaps toward the shallow column (it does not pinch mid-gap)', () => {
+  it('the tied sand onlaps to the HALFWAY point of its bottom tie (it does not reach the shallow test)', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
     const sand = regionsForLayer(g1, T4_SAND)
     expect(sand.length, 'the deep sand is drawn').toBeGreaterThan(0)
-    // The sand onlaps the bottom tie: its fill reaches well past mid-gap toward the shallow test.
+    // Owner: "should onlap halfway that tie". GEO-20/034-S5 is the left column (fraction 0), the
+    // shallow GEO-19/081-S5 the right one (fraction 1): the sand's tip sits at the gap's midpoint.
     const reach = Math.max(...sand.flatMap((r) => r.polygon.map((p) => p.fraction)))
-    expect(reach, 'the tied sand onlaps toward the shallow test, past the mid-gap pinch').toBeGreaterThan(0.9)
+    expect(reach, 'the onlap tip is halfway the gap').toBeGreaterThan(0.45)
+    expect(reach, 'the onlap tip is halfway the gap').toBeLessThan(0.55)
   })
 })
 
 /*
- * Ruling 4 — the fill has no hole under a shallow test.
- *   Owner (screenshot 10:01): dark rectangles (no region at all) right under two shallow tests'
- *   TDs. Every point between a gap's shallowest top and its deepest floor must be covered.
+ * Ruling 4 — the fill has no hole under a shallow test — RE-RULED 2026-09-23 for the sub-TD part.
+ *   Owner (2026-09-07 screenshot 10:01): dark rectangles (no region at all) right under two shallow
+ *   tests' TDs. Every point between a gap's shallowest top and its deepest floor had to be covered.
+ *   Under plain 2/1/0 (2026-09-23) the tied unit's onlap stops halfway its bottom tie and the untied
+ *   unit pinches at its own level, so BELOW the shallow test's TD the space past the tip and the
+ *   pinch is the no-data void by ruling. The no-hole rule stands ABOVE the shallow TD.
  */
-describe('Ruling 4 — the fill has no hole under a shallow test', () => {
-  it('Tie-section 4 gap1 has no coverage hole below the shallow test TD', () => {
+describe('Ruling 4 — no hole above the shallow test\'s TD; below it, past the tip and the pinch, the void is no-data (2026-09-23)', () => {
+  it('Tie-section 4 gap1 is hole-free above the shallow TD, and void under the bottom tie past the onlap tip', () => {
     const { columns, alongM, edges } = prepare('Tie-section 4')
     const g1 = gapRegions(computeSectionFillV2(columns, edges, undefined, alongM), 1)
-    const worst = biggestHoleInGap(g1)
-    expect(worst.gap, `no hole in Tie-section 4 gap1 (worst ${worst.gap.toFixed(2)}m at f=${worst.frac})`).toBeLessThan(0.5)
+    const shallowTD = columnTD('Tie-section 4', 'GEO-19/081-S5')
+    const worst = biggestHoleInGapAbove(g1, shallowTD)
+    expect(worst.gap, `no hole above the shallow TD in Tie-section 4 gap1 (worst ${worst.gap.toFixed(2)}m at f=${worst.frac})`).toBeLessThan(0.5)
+    // The bottom tie runs from the sand top at GEO-20/034-S5 (f=0) to the shallow TD (f=1); at f=0.8
+    // the halfway onlap has ended and the clay lens has pinched: nothing is drawn under the tie.
+    const sandTop = unitElev('Tie-section 4', '01a07acb-e044-713c-adee-dde01a53ae85').top
+    const f = 0.8
+    const tieElev = sandTop + f * (shallowTD - sandTop)
+    expect(coveredHeightBelow(g1, f, tieElev - 1e-3), 'under the bottom tie past the onlap tip is the no-data void').toBe(0)
   })
 
   // Cross-section 2 gap 2 (GEO-61/2891-C to GEO-20/034-S2): the only uncovered stretch is the
