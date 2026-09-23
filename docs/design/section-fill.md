@@ -96,35 +96,43 @@ always empty, so nothing pinches. This REVERSES, at the outer edge only, the ear
 are unchanged. (Owner: *"the basal clay on 20/034-S5 emits a lens to the left; it is
 a test on the utter left side, it should band left, like all the other columns."*)
 
-## Bottom-tie onlap below a shallow test (owner rulings R3/R4, 2026-09-07)
+## Below a shallow test's TD: plain 2/1/0 (owner ruling 2026-09-23)
 
 When a deep test's unit TOP is tied to the FACING (shallow) column's DEEPEST contact — its TD — the
-tie is that shallow test's **bottom tie** (a mixed base↔top tie the base↔base
-`emitBottomTieSubstrate` never sees). Two coupled behaviours follow, both flag-ON:
+tie is that shallow test's **bottom tie** (a mixed base↔top tie the base↔base `emitBottomTieSubstrate`
+never sees). The owner's 7 September rulings had the tied unit reach the TD point and the untied
+unit below tile the wedge hole-free; on CS1 S13 → S6 he read that construction as *"not plain 2/1/0
+... it now onlaps the sand above, which only has one tie and should onlap halfway that tie but
+instead spans the whole tie"*, and shown both readings on that gap and on Tie-section 4 he ruled:
+*"let's go with plain 2 / 1 / 0 everywhere."* So, flag-ON:
 
-* The tied unit ONLAPS all the way to that bottom-tie point on the shallow column (reach 1.0), filling
-  the sub-TD wedge, instead of pinching at `INTERIOR_PINCH_FRACTION` and letting `emitFloodWedge` invent
-  a facing litho below the shallow TD. Implemented as `drawTermination`'s `bottomTieToTd` gate in
-  `emitOnlap` (top-tied, facing endpoint == facing TD, own free base below that TD, no free-draw
-  override) — every ordinary onlap stays byte-identical. Owner: *"below a shallow test, the tied sand
-  onlaps its bottom tie."*
-* The single untied unit BELOW the bottom tie fills the remaining sub-TD triangle as ONE hole-free
-  wedge (`emitBottomTieWedge`, gated in `emitSubTdLenses` on `facingTdTied`): its flanks ride the onlap
-  base-flank line so no gap opens under the rising onlap, and it pinches short of the apex column (a
-  visible LENS, never a full-width flood). The space past the pinch is the §8-Q3 no-data void. Owner:
-  *"the untied clay lenses ... it leaves the no-data void below its own pinch."* The wedge flanks carry
-  an `oflank` prefix so `channelMatrix.isEnclosingFloodFace` treats the face as the unit's own closed
-  loop (immune) — the apex rides into the tied unit's elevation band, which the channel-matrix vacancy
-  rule would otherwise repaint to the tied litho.
+* **The tied unit onlaps to the HALFWAY point of its bottom tie** — the ordinary 8i(d) onlap, tip at
+  `INTERIOR_PINCH_FRACTION` on the tie. Above the TD it is `drawTermination.emitOnlap` (a unit
+  straddling the TD); entirely below it is `emitSubTdLenses.emitSubTdOnlapFlank` (shared with the F5
+  bridge-tie onlap). In both there is NO flood wedge past the tip: below the shallow TD there is no
+  facing litho to flood with (the wedge would invent one, the `floodsw` KLEI defect), so the space
+  past the tip is the §8-Q3 no-data void. `drawTermination` keeps its `bottomTieIntoShallowTd` gate
+  only to skip that wedge.
+* **Every untied unit below the bottom tie is a lens at its OWN level** (`emitCorr0Termination` in its
+  sub-TD flood context, the bare closing at `LENS_PINCH_FRACTION` about the unit's mid-elevation),
+  measured against the first column that READ these levels (the 2026-08-21 relocation, unchanged: dev
+  CS1's S7 lenses still cross the blind S7A toward 1411-B2). The bottom tie changes ONE thing: where
+  NO column beyond the shallow one reads the level, the shallow column is the boundary the tie
+  declares and the unit lenses toward it, instead of running flat to the section edge
+  (`emitContinuation`). The 2026-09-07 shared-apex wedge (`emitBottomTieWedge`) is gone.
+* **Where a deeper test beyond the shallow one reads the level, nothing changes**: the deep-to-deep
+  substrate carries the band under the shallow test as before (dev CS1 GEO-23/125-S7 → S6, the owner's
+  2026-09-08 "gap under a bottom test correlation"; worked example GEO-02/145-S13 → S14, his
+  2026-09-16 PDF sliver — both stay filled).
+* The `declared` seam of `emitEnclosingFlood.closeInterval` still never fires on a bottom tie: the
+  void past the tip is not a meeting of two masses.
 
-**Scope guard:** the wedge is the CLEAN single-untied-unit case (the TS4 clay). A multi-unit /
-interspersed sub-TD config is NOT general to the shared-apex wedge (it can overpaint an interspersed
-unit and it is where the 2026-08-21 continuous-band ruling lives, e.g. CS1 S7), so those units fall
-back to the ORIGINAL sub-TD path (flat continuation to the edge, else the ordinary lens) — byte-
-identical to the pre-R3 behaviour. So `facingTdTied` only ever reshapes the clean single wedge.
-
-Pinned in the owner's words in `partitionFillV2/ownerRulings.test.ts` (rulings 3 + 4, Tie-section 4);
-the CS1 golden's gap 18 legitimately moves where the same bottom-tie config occurs there.
+Pinned in the owner's words: `partitionFillV2/ownerCs1SubTd.test.ts` (CS1 S13 → S6, fixture
+`__fixtures__/owner_cs1_s13_s6_2026-09-23.json`) and `ownerRulings.test.ts` rulings 3/4 (Tie-section
+4 gap 1: tip at 0.5, clay lens within its own span, void under the tie past the tip, hole-free above
+the shallow TD). The two permanent band-capped-hole scans (`bottomTieRenderHole.test.ts`,
+`zandGlSeamHole.test.ts`, shared `__fixtures__/bandCappedHoleScan.ts`) measure holes only ABOVE a
+gap's bottom tie (`gapBottomTie`); a gap without one is scanned whole.
 
 ## Same-litho enclosed lens is one mass (owner ruling 2, 2026-09-07)
 
@@ -169,8 +177,8 @@ dev project, a B4 silt top tied to a B6 silt top). Owner's words are quoted; pin
   derivation `tieLandsOn` gives a same-litho tie landing on the unit above it), so a real
   same-formation band is untouched and the geotech jump-tie run (H9) is not seamed. The top-to-top
   restriction (owner 2026-09-08, installer #25) keeps the seam OFF a MIXED base↔top tie — a bottom
-  tie into a shallow test's TD, R3/R4 territory whose onlap + `emitBottomTieWedge` already fill the
-  sub-TD wedge: lifting the guard there drew a mid-gap fence that SPLIT the bottom-tie onlap (its
+  tie into a shallow test's TD (plain 2/1/0 territory, see "Below a shallow test's TD"): lifting the
+  guard there drew a mid-gap fence that SPLIT the bottom-tie onlap (its
   facing half vanished), opening a coverage hole under a bottom-test correlation (dev CS1 gap 18
   GEO-23/125-S7 → S6, gap 19 S6 → S5A; owner CS2/TS4 at the deepest TD). Litho pass
   only (`allowFirstUnitTopSeam`, threaded `computeSectionFillV2 → emitCurves → emitEnclosingFlood`);
@@ -257,47 +265,27 @@ Four guards, each real-data-proven, keep it from over-firing:
 * **Gap-local, not the cross-section `terminationRun` continuation**: a near column only MARGINALLY
   deeper than its facing (TS4 gap0: 1411-B8A 0.04 m below GEO-20/034-S5's TD) must not paint a
   section-wide sliver across the next gap's bottom-tie wedge.
-* **Not the R3/R4 bottom-tie config** (`facingTdTied`): a deep unit tied to the facing TD there also
-  looks like a straddler, but its onlap + `emitBottomTieWedge` already fill that wedge.
+* **Not the bottom-tie config** (`facingTdTied`): a deep unit tied to the facing TD there also
+  looks like a straddler, but its halfway onlap owns that wedge and the rest is the no-data void by
+  ruling (2026-09-23).
 
 Pinned in `partitionFillV2/we2Gap0SubTdStrip.test.ts` (no strip under B1's TD, the strip is ZAND, and
 the litho frame draws no closed black rectangle there) on the committed CS2 decode.
 
-## Plain 2/1/0 below a shallow test (owner ruling 2026-09-23)
+## An enclosed lens keeps its own base below the substrate floor (2026-09-23)
 
-Cross-section 1, gap GEO-08/118-S13 (TD 0.74 mTAW) → GEO-23/116-S6 (deep). Owner: *"the peat has 0
-correlations to the left but doesn't emit a lens, the clean sand has 1 correlation to left but
-doesn't onlap, the matig siltig zand has 0 correlations to the left but doesn't lens."* Ruling:
-*"Plain 2 1 0 is fine."* Below a shallow test's TD the sub-TD rules run, and three of them fell
-short of 2/1/0 there. Pinned in the owner's words on his own picks in
-`partitionFillV2/ownerCs1SubTd.test.ts` (fixture `__fixtures__/owner_cs1_s13_s6_2026-09-23.json`).
-
-* **A tied unit entirely below the shallow TD onlaps its bottom tie (R3, extended).** R3's onlap
-  lived in `drawTermination` (the above-TD sweep); a unit whose TOP already sits below the facing
-  TD never reached it, and `emitSubTdLenses` only onlapped a resolved bridge tie. So S6's sand (top
-  −0.66, tied to S13's TD 0.74) had no region at all, and the R4 wedge under it, whose top flank
-  rides that very line, read as the silty sand climbing into the sand's band.
-  `emitBottomTieOnlap` now draws the R3 flank (unit base → the bottom-tie point, reach 1.0) for such
-  a unit — only where the strip is a genuine hole: when a deeper column BEYOND the shallow facing
-  reads those levels (dev Cross-section 1 gap 22: the 19→23 jump-tie bridge carries the sand across
-  S5B) the substrate already owns it (the same `terminationRun` guard as the straddle-sliver
-  branch), and the flank would only cut an unlabelled sliver out of the bridge.
-* **An enclosed lens keeps its own base below the substrate floor.** The 2026-07-26 clamp
-  (`enclosedLensDiamond`) lifted a lens's base to the gap's substrate floor (the shallow TD); on a
-  0.93 m peat whose base lay 0.86 m below S13's TD that left a 7 cm sliver, and the clay band
-  painted the rest. The diamond now uses the lens's real base. Two things had made the clamp
-  necessary, both fixed at their source: a closing curve registers cuts only at EXACT vertices
-  (`splitSegments`, debt #271), so a flank crossing the floor mid-segment dead-ended and was
-  stripped — `emitOne` now puts an explicit vertex on the flank at the floor crossing, so the floor
-  splits the diamond into two faces; and `labelFaces` disqualified any face touching a `flood`
-  curve from being the lens's own — the BARE shallow-TD floor (`flood<gap>`, the one flood curve
-  with no label) no longer does, so both pieces read the lens. A labelled flood (the lone-pinch
-  vacated wedge, the sweep wedges) still disqualifies; the floor still anchors band classification.
-  The adopted-stack scene (2026-08-19, "a band the far test read in one piece stays one piece") now
-  reads its SF on both sides of the floor, which is the stronger form of that ruling.
-* **The silty sand was right all along:** its region is the R4 wedge whose top flank rides the sand
-  onlap's base flank; with the onlap missing it looked like the silty sand rising 2.5 m above its
-  own top. Nothing changed there.
+The 2026-07-26 clamp (`enclosedLensDiamond`) lifted a lens's base to the gap's substrate floor (the
+shallow TD); on a 0.93 m peat whose base lay 0.86 m below S13's TD that left a 7 cm sliver, and the
+clay band painted the rest. The diamond now uses the lens's real base. Two things had made the clamp
+necessary, both fixed at their source: a closing curve registers cuts only at EXACT vertices
+(`splitSegments`, debt #271), so a flank crossing the floor mid-segment dead-ended and was stripped —
+`emitOne` now puts an explicit vertex on the flank at the floor crossing, so the floor splits the
+diamond into two faces; and `labelFaces` disqualified any face touching a `flood` curve from being
+the lens's own — the BARE shallow-TD floor (`flood<gap>`, the one flood curve with no label) no longer
+does, so both pieces read the lens. A labelled flood (the lone-pinch vacated wedge, the sweep wedges)
+still disqualifies; the floor still anchors band classification. The adopted-stack scene
+(2026-08-19, "a band the far test read in one piece stays one piece") now reads its SF on both sides
+of the floor, which is the stronger form of that ruling. Pinned in `ownerCs1SubTd.test.ts` (the peat).
 
 ## The arbiter — the CS1 real-data gate
 
