@@ -23,6 +23,16 @@ RS6. Litho model kind-scope guard — _reorder_by_age MUST NOT reorder a
 
 RS7. Idempotent rebuild — two consecutive rebuild calls on the same model produce
      the same RebuildOutcome.formations_rebuilt; the surface geometry is stable.
+
+RS9. Membership (owner ruling 2026-09-23, "only don't use tests not on sections
+     for the model"): a test no cross-section draws does not feed the TIN — its
+     pick stays, its contribution stops (RS9a); a test excluded from the only
+     section that reaches it is off-section (RS9b); a project with no section
+     builds an empty surface from every pick (RS9c).
+
+Every ordinary scene carries a ``covering_section`` — in the product a pick can
+only be made on a section, so a scene without one is not a scene the app can
+produce.
 """
 
 from __future__ import annotations
@@ -37,6 +47,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -51,6 +62,7 @@ from tests.integration._litho_builders import (
 from tests.integration._litho_builders import (
     litho_model as _litho_model,
 )
+from tests.integration._section_builders import covering_section, section_through
 
 # ---------------------------------------------------------------------------
 # Private fixture helpers
@@ -160,6 +172,18 @@ async def project(db_session: AsyncSession) -> ProjectOrm:
     return proj
 
 
+@pytest_asyncio.fixture
+async def covering(db_session: AsyncSession, project: ProjectOrm) -> None:
+    """A section whose corridor draws every test of the scene.
+
+    Only tests a cross-section draws feed the model (owner 2026-09-23). The
+    scenes below pick contacts as the product would — on a section — without
+    each one drawing its own line.
+    """
+    db_session.add(covering_section(project.id))
+    await db_session.commit()
+
+
 # ---------------------------------------------------------------------------
 # RS1: happy path — contacts on two formations → both surfaces rebuilt
 # ---------------------------------------------------------------------------
@@ -169,6 +193,7 @@ async def project(db_session: AsyncSession) -> ProjectOrm:
 async def test_happy_path_rebuilds_all_formations_with_contacts(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """A geological model with contacts on two formations rebuilds both surfaces.
 
@@ -233,6 +258,7 @@ async def test_happy_path_rebuilds_all_formations_with_contacts(
 async def test_empty_model_is_noop(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """A model with no contacts and no stale surfaces returns a zero-count outcome."""
     model = _geo_model(project)
@@ -258,6 +284,7 @@ async def test_empty_model_is_noop(
 async def test_stale_flag_is_cleared_after_rebuild(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """A surface row with is_stale=True must have is_stale=False after a rebuild.
 
@@ -313,6 +340,7 @@ async def test_stale_flag_is_cleared_after_rebuild(
 async def test_orphan_stale_surface_is_cleared(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """After deleting the last contact on a formation, a rebuild clears the
     orphan surface row (sets is_stale=False or removes it).
@@ -360,6 +388,7 @@ async def test_orphan_stale_surface_is_cleared(
 async def test_age_reorder_assigns_display_order_from_contact_depths(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """_reorder_by_age assigns display_order so younger (shallower) formations
     receive a HIGHER display_order than older (deeper) ones, matching the
@@ -441,6 +470,7 @@ async def test_age_reorder_assigns_display_order_from_contact_depths(
 async def test_litho_model_reorder_is_skipped(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """Debt #69 regression: rebuilding a lithostratigraphic model MUST NOT
     trigger _reorder_by_age (which would clobber per-instance ordinal
@@ -507,6 +537,7 @@ async def test_litho_model_reorder_is_skipped(
 async def test_idempotent_rebuild(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """Two consecutive rebuilds on an unchanged model produce the same
     formations_rebuilt count.
@@ -571,6 +602,7 @@ async def test_idempotent_rebuild(
 async def test_removed_test_is_dropped_but_surface_survives_above_three(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """RS8a: a contact on a test removed from the project (is_hidden) is NOT a
     model input — the rebuild ignores it. With four contacts and one test
@@ -618,6 +650,7 @@ async def test_removed_test_is_dropped_but_surface_survives_above_three(
 async def test_removing_a_test_below_three_contacts_empties_the_surface(
     db_session: AsyncSession,
     project: ProjectOrm,
+    covering: None,
 ) -> None:
     """RS8b: removing a test that drops a formation below three contacts leaves
     an EMPTY, non-rendering surface — the removed test's TIN disappears.
@@ -679,3 +712,153 @@ async def test_removing_a_test_below_three_contacts_empties_the_surface(
     assert surface.triangles == [], (
         "RS8b: two contacts cannot triangulate — the surface must be empty so nothing renders"
     )
+
+
+# ---------------------------------------------------------------------------
+# RS9: model membership — only tests a cross-section draws feed the TIN
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rs9a_a_test_on_no_section_does_not_feed_the_surface(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """Four boreholes with picks; the section draws three of them. The fourth
+    keeps its pick (the row is untouched) but the TIN is built from three —
+    "only don't use tests not on sections for the model" (owner 2026-09-23).
+    """
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS9a-Formation", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS9a-BH1", x=170_000.0)
+    bh2 = _borehole(project.id, suffix="RS9a-BH2", x=170_200.0)
+    bh3 = _borehole(project.id, suffix="RS9a-BH3", x=170_100.0, y=200_150.0)
+    # 400 m north of the line: outside the 200 m corridor, on no section.
+    bh4 = _borehole(project.id, suffix="RS9a-BH4", x=170_100.0, y=200_400.0)
+    section = section_through(
+        project.id,
+        name="RS9a-Section",
+        start=(169_900.0, 200_000.0),
+        end=(170_300.0, 200_000.0),
+        buffer_m=200.0,
+    )
+    db_session.add_all([model, f1, bh1, bh2, bh3, bh4, section])
+    await db_session.flush()
+    contacts = [
+        _contact(model, f1, bh1, depth=3.0),
+        _contact(model, f1, bh2, depth=3.5),
+        _contact(model, f1, bh3, depth=3.2),
+        _contact(model, f1, bh4, depth=3.4),
+    ]
+    db_session.add_all(contacts)
+    await db_session.commit()
+
+    await RebuildModelSurfaces(db_session).execute(model.id)
+
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 3, (
+        "RS9a: the off-section test's pick must not feed the TIN — expected 3 "
+        f"contributing contacts, got {surface.source_contact_count}"
+    )
+    assert surface.is_stale is False
+    # The pick itself survives: nothing was dropped from the test.
+    remaining = (
+        (
+            await db_session.execute(
+                select(FormationContactOrm.id).where(FormationContactOrm.model_id == model.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(remaining) == 4, "RS9a: the off-section pick must stay on the test"
+
+
+@pytest.mark.asyncio
+async def test_rs9b_a_test_excluded_from_its_only_section_is_off_section(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """In the corridor but on the section's exclusion list = not drawn there;
+    with no other section reaching it, the test is off-section and its pick
+    does not feed the TIN (the geotech membership rule, verbatim)."""
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS9b-Formation", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS9b-BH1", x=171_000.0)
+    bh2 = _borehole(project.id, suffix="RS9b-BH2", x=171_200.0)
+    bh3 = _borehole(project.id, suffix="RS9b-BH3", x=171_100.0, y=200_150.0)
+    bh4 = _borehole(project.id, suffix="RS9b-BH4", x=171_050.0, y=200_100.0)
+    section = section_through(
+        project.id,
+        name="RS9b-Section",
+        start=(170_900.0, 200_000.0),
+        end=(171_300.0, 200_000.0),
+        buffer_m=200.0,
+        excluded_borehole_ids=[bh4.id],
+    )
+    db_session.add_all([model, f1, bh1, bh2, bh3, bh4, section])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            _contact(model, f1, bh1, depth=3.0),
+            _contact(model, f1, bh2, depth=3.5),
+            _contact(model, f1, bh3, depth=3.2),
+            _contact(model, f1, bh4, depth=3.4),
+        ]
+    )
+    await db_session.commit()
+
+    await RebuildModelSurfaces(db_session).execute(model.id)
+
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 3, (
+        "RS9b: a test excluded from its only section is off-section — expected 3 "
+        f"contributing contacts, got {surface.source_contact_count}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rs9c_a_project_without_sections_builds_from_no_pick(
+    db_session: AsyncSession,
+    project: ProjectOrm,
+) -> None:
+    """No section → nothing is on a section → every anchored pick is dropped
+    and the surface rebuilds EMPTY (0 triangles, 0 contributing contacts), the
+    same shape a formation takes when it falls below three tests (RS8b)."""
+    model = _geo_model(project)
+    f1 = _formation(project, name="RS9c-Formation", display_order=0)
+    bh1 = _borehole(project.id, suffix="RS9c-BH1", x=172_000.0)
+    bh2 = _borehole(project.id, suffix="RS9c-BH2", x=172_200.0)
+    bh3 = _borehole(project.id, suffix="RS9c-BH3", x=172_100.0, y=200_200.0)
+    db_session.add_all([model, f1, bh1, bh2, bh3])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            _contact(model, f1, bh1, depth=3.0),
+            _contact(model, f1, bh2, depth=3.5),
+            _contact(model, f1, bh3, depth=3.2),
+        ]
+    )
+    await db_session.commit()
+
+    await RebuildModelSurfaces(db_session).execute(model.id)
+
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 0, (
+        "RS9c: with no section nothing is on a section — expected 0 contributing "
+        f"contacts, got {surface.source_contact_count}"
+    )
+    assert surface.triangles == [], "RS9c: the surface must be empty, not drawn"
+    assert surface.is_stale is False
