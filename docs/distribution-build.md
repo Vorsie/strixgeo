@@ -488,6 +488,23 @@ Before every release:
    branch and push develop; the guard also demands a clean tree level with
    `origin/develop`. The version bump is required for every release because the
    updater only offers a strictly greater semver.
-2. Run the release; it creates a DRAFT release named after the package version
+2. Set the two environment variables the chain reads, in the shell that runs it:
+   `MAIN_VITE_STRIX_BETA_EXPIRES_AT` (the beta expiry stamp, ISO date — the
+   package step refuses without it, see `docs/design/beta-expiry.md`) and
+   `GH_TOKEN` (electron-builder's GitHub publisher reads the token from that
+   variable only; `gh auth token` of the account that owns the releases repo,
+   never echoed). Without the token the installer builds and the upload fails at
+   the very end; `npx electron-builder --publish=always` in `desktop/` then
+   uploads the already-built package.
+3. Run the release; it creates a DRAFT release named after the package version
    (`v0.1.0`) on the releases repo. Publish it by hand after a download check;
    the git tag on the private repo (`v0.1.0-beta.1`) is a separate name.
+4. Tag the built commit AFTER the release ran. The guard reads `v<semver>` git
+   tags as published when it falls back from the feed, so a tag pushed before
+   the run refuses its own release ("0.1.2 is not newer than the latest published
+   0.1.2", hotfix 2026-09-23).
+
+A hotfix follows the same chain off `main`: branch off the last BUILT commit
+(fast-forward `main` to it first if a release skipped that step), cherry-pick the
+fix, bump the version, gate, push `main`, release, tag, then merge the same
+commits back into `develop` (PR, rebase).
