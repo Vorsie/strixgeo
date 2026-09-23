@@ -5,7 +5,12 @@ The anthropogenic unit (Dutch ``Antropogeen`` — man-made fill, DOV code
 it is deposited by people, on top of everything natural. No amount of
 per-borehole contact evidence can make it older, so the age-order
 inference pins it to the youngest end whenever it is present (owner
-ruling 2026-09-05).
+ruling 2026-09-05). DOV's formal stratigraphy ships the same thing under
+a second label: code ``G``, "Groep van geroerd/verstoord" (reworked /
+disturbed ground, the man-made top of a column) — pinned the same way
+(owner 2026-09-23: a new project built from DOV boreholes "put
+aangebracht geroerd below quartair" because no borehole logged both and
+the UUID tie-break decided).
 
 The recognition tokens live here, as data, so the rule is one edit away
 from covering a new label variant without touching the algorithm.
@@ -13,14 +18,24 @@ from covering a new label variant without touching the algorithm.
 
 from __future__ import annotations
 
-# Normalised labels that identify the anthropogenic (man-made fill) unit.
-# WHY these two: DOV ships the unit as the name "Antropogeen" and the
-# formal-stratigraphy code "A". Both are matched so the pin fires whether
-# the caller passes a formation's display name or its regional_ref code.
-# Matching is against the *normalised* label (lowercased, whitespace
-# collapsed) produced by ``_normalize_label`` — never a substring test,
-# so a formation merely mentioning fill in a longer name is not caught.
-ANTHROPOGENIC_TOKENS: frozenset[str] = frozenset({"antropogeen", "a"})
+# Normalised labels that identify the anthropogenic (man-made) unit.
+# WHY these: DOV ships it as the name "Antropogeen" with the formal-
+# stratigraphy code "A", and as the disturbed-ground group "Groep van
+# geroerd/verstoord" with the code "G" (``dov_formal_stratigraphy.json``).
+# Both name and code forms are matched so the pin fires whether the caller
+# passes a formation's display name or its regional_ref code. Matching is
+# against the *normalised* label (lowercased, whitespace collapsed)
+# produced by ``_normalize_label`` — never a substring test, so a
+# formation merely mentioning fill in a longer name is not caught.
+ANTHROPOGENIC_TOKENS: frozenset[str] = frozenset(
+    {
+        "antropogeen",
+        "a",
+        "groep van geroerd/verstoord",
+        "geroerd/verstoord",
+        "g",
+    }
+)
 
 
 def _normalize_label(label: str | None) -> str:
