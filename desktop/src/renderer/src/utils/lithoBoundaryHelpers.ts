@@ -209,6 +209,46 @@ export function boundFromNeighbour(
   }
 }
 
+/**
+ * The absorb-all bounds (see ``computeDragBounds``): the outer bound in the drag direction
+ * is the first ACCEPTED unit's near edge (rejected units are skipped, pending ones passed),
+ * else the outer edge — the test bottom below (the terminal depth when known and deeper
+ * than the last layer's base), the ground above. The opposite bound is the dragger's own
+ * other edge with the usual self-collapse chain.
+ */
+function absorbAllBounds(
+  edge: 'top' | 'base',
+  idx: number,
+  own: { topM: number; baseM: number },
+  suggestions: readonly LithoLayerSuggestion[],
+  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+  terminalDepthM: number | null,
+): DragBoundsResult {
+  if (edge === 'top') {
+    let bound = 0
+    for (let i = idx - 1; i >= 0; i--) {
+      if (rejectedIndices.has(i)) continue
+      if (acceptedIndices.has(i)) {
+        bound = effectiveDepths(suggestions, edits, i).baseM
+        break
+      }
+    }
+    return { boundsAboveM: bound, boundsBelowM: own.baseM, collapseChainAbove: [], collapseChainBelow: [idx] }
+  }
+  const lastBase = effectiveDepths(suggestions, edits, suggestions.length - 1).baseM
+  let bound = terminalDepthM !== null && terminalDepthM > lastBase ? terminalDepthM : lastBase
+  for (let i = idx + 1; i < suggestions.length; i++) {
+    if (rejectedIndices.has(i)) continue
+    if (acceptedIndices.has(i)) {
+      bound = effectiveDepths(suggestions, edits, i).topM
+      break
+    }
+  }
+  return { boundsAboveM: own.topM, boundsBelowM: bound, collapseChainAbove: [idx], collapseChainBelow: [] }
+}
+
 export interface DragBoundsResult {
   boundsAboveM: number
   boundsBelowM: number
@@ -237,6 +277,12 @@ export interface DragBoundsResult {
  * column (it already reaches the test bottom) and wrong for a copied one.
  * Unknown (``null``) keeps the last layer's base as the floor; a terminal
  * depth above that base never pulls the floor up.
+ *
+ * ``opts.absorbAll`` is the Ctrl+drag ABSORB-ALL gesture (owner 2026-09-23/24): the
+ * dragged edge may travel through every consecutive pending unit in its direction —
+ * an accepted contact's near edge is where it stops, else the test bottom (base) or the
+ * ground (top). No snap chain in that direction: the reducer absorbs whatever the
+ * release fully passed (``applyCrossMergeOnDrag`` with ``_absorbAll``).
  */
 export function computeDragBounds(
   edge: 'top' | 'base',
@@ -246,8 +292,12 @@ export function computeDragBounds(
   acceptedIndices: ReadonlySet<number>,
   rejectedIndices: ReadonlySet<number>,
   terminalDepthM: number | null = null,
+  opts: { absorbAll?: boolean } = {},
 ): DragBoundsResult {
   const own = effectiveDepths(suggestions, edits, idx)
+  if (opts.absorbAll) {
+    return absorbAllBounds(edge, idx, own, suggestions, edits, acceptedIndices, rejectedIndices, terminalDepthM)
+  }
   if (edge === 'top') {
     const above = findVisibleNeighbourAbove(idx, acceptedIndices, rejectedIndices)
     // Above-walk: nearEdge is the neighbour's BASE (facing the dragged
