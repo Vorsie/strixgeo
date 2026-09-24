@@ -108,6 +108,13 @@ export interface UnitGeom {
   topElev: number
   /** Lower elevation (base contact). */
   baseElev: number
+  /**
+   * The raw picked units this MERGED unit was welded from (original elevations, shallow->deep),
+   * set by the enclosed-lens walk when it merges the matrix above and below a pulled lens. Absent
+   * on an un-merged unit. Read when a merged run is itself pulled as a lens (stacked lenses, owner
+   * 2026-09-23) — by the section-wide walk and by the per-gap edged path alike.
+   */
+  rawPieces?: readonly UnitGeom[]
 }
 
 /** One column: real along-section x + its gap-free, elevation-space unit stack. */
@@ -470,10 +477,9 @@ function extractEnclosedLenses(
   facingHasFormation: (formationId: string, baseElev: number, topElev: number) => boolean,
 ): EnclosedLens[] {
   const lenses: EnclosedLens[] = []
-  // Per merged unit, the raw units it was welded from (original elevations, shallow->deep) —
-  // read when a merged run is pulled as a lens (see the module note on stacked lenses).
-  const rawPieces = new Map<UnitGeom, UnitGeom[]>()
-  const piecesOf = (u: UnitGeom): UnitGeom[] => rawPieces.get(u) ?? [{ ...u }]
+  // The raw units a merged unit was welded from ride on the unit itself (``UnitGeom.rawPieces``),
+  // so the per-gap edged path can read them too (see the module note on stacked lenses).
+  const piecesOf = (u: UnitGeom): UnitGeom[] => (u.rawPieces ? [...u.rawPieces] : [{ ...u }])
   let changed = true
   while (changed) {
     changed = false
@@ -537,7 +543,7 @@ function extractEnclosedLenses(
           facingHasFormation(lens.formationId, lens.baseElev, lens.topElev))
       ) {
         const matrixFid = above.formationId
-        const pieces = rawPieces.get(lens)
+        const pieces = lens.rawPieces
         if (pieces) {
           // A merged run comes apart: every lens pulled from inside it (spanning within the run,
           // matrix = the run's formation) now sits in the run's own matrix, and each raw piece of
@@ -570,11 +576,11 @@ function extractEnclosedLenses(
           // both-edged limit — but it did not fire on any real interbed, so this stays the
           // below-edged single case that produced the CS1 g21 / coherentStack(a) win.)
           below.topElev = above.topElev
-          rawPieces.set(below, mergedRaw)
+          below.rawPieces = mergedRaw
           units.splice(k - 1, 2) // remove ``above`` and the lens; ``below`` (now at k-1) survives
         } else {
           above.baseElev = below.baseElev
-          rawPieces.set(above, mergedRaw)
+          above.rawPieces = mergedRaw
           units.splice(k, 2) // remove the lens and the (now-merged) below unit
         }
         changed = true
