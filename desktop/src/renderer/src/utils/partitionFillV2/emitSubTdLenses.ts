@@ -329,7 +329,7 @@ function emitSideSubTd(
     // enclosed-lens pre-merge (``extractEnclosedLenses``) collapsed a same-formation sandwich into one
     // host, and a raw sub-piece below the facing TD is exactly the sub-TD lens this pass owns. An
     // UNSPLIT host returns a SINGLE piece = itself (byte-identical to the pre-8r per-``col.units`` loop).
-    const pieces = splitHostIntoRawPieces(units[ui], ui, col, hostEff, hostDf.top, hostDf.base)
+    const pieces = splitHostIntoRawPieces(units[ui], ui, col, hostEff, hostDf.top, hostDf.base, gapIndex)
     const isSplit = pieces.length > 1
     for (const piece of pieces) {
       const pu = piece.unit
