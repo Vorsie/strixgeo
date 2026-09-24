@@ -670,3 +670,77 @@ describe('structural helpers — an anchor never loses its whole ghost list', ()
     expect(absorbThroughLayer(g, 0, 0, 'down')).toBe(g)
   })
 })
+
+// ---------------------------------------------------------------------------
+// applyCrossMergeOnDrag — Ctrl+drag ABSORB-ALL (owner 2026-09-23: "shift click + drag
+// down, to absorb all units the shift drag passes into the one we're dragging ... if
+// i'm dragging bottom handle down absorb all units below, if i'm dragging top up vice
+// versa"; 2026-09-24: "ctrl+drag is fine", Shift being the column-copy gesture).
+// The edit carries ``_absorbAll``; the reducer absorbs EVERY pending unit the released
+// depth fully passed, stops at an accepted contact, and moves the near edge of the unit
+// the release lands in — all in one atomic step, so no index shifts between dispatches.
+// ---------------------------------------------------------------------------
+
+describe('applyCrossMergeOnDrag — Ctrl+drag absorb-all', () => {
+  it('AA1 — a base drag past two pending units into a third absorbs the two and the third\'s top follows', () => {
+    // 0→2, 2→4, 4→6, 6→8. Drag layer 0's base to 7: layers 1 and 2 are fully passed, layer 3 only entered.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6), L(6, 8)])
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 7, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(2)
+    expect(result.edits.get(0)?.depth_base_m).toBe(7)
+    // The entered unit (was idx 3, now idx 1) keeps its own base and its top rides the new boundary.
+    expect(result.suggestions[1].depth_base_m).toBe(8)
+    expect(result.edits.get(1)?.depth_top_m).toBe(7)
+    // The marker never lands in the stored edits.
+    expect(result.edits.get(0)?._absorbAll).toBeUndefined()
+  })
+
+  it('AA2 — an accepted contact stops the absorb: nothing at or beyond it is touched', () => {
+    // 0→2, 2→4 (accepted), 4→6. A stray absorb-all edit to 5 must not eat the accepted layer.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)], { accepted: new Set([1]) })
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 5, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(3)
+    expect(result.accepted.has(1)).toBe(true)
+    expect(result.edits.get(2)?.depth_top_m).toBeUndefined()
+  })
+
+  it('AA3 — rejected units in between are consumed with the run, they never block it', () => {
+    // 0→2, 2→4 (rejected), 4→6, 6→8. Drag layer 0's base to 7.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6), L(6, 8)], { rejected: new Set([1]) })
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 7, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(2)
+    expect(result.edits.get(0)?.depth_base_m).toBe(7)
+    expect(result.edits.get(1)?.depth_top_m).toBe(7)
+    expect(result.rejected.size).toBe(0)
+  })
+
+  it('AA4 — a release inside the immediate neighbour only moves the shared boundary, nothing is absorbed', () => {
+    // 0→2, 2→4, 4→6. Drag layer 0's base to 3: layer 1 is entered, not passed.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 3, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(3)
+    expect(result.edits.get(0)?.depth_base_m).toBe(3)
+    // Absorb-all propagates the partner itself (the hook fires no second edit in this mode).
+    expect(result.edits.get(1)?.depth_top_m).toBe(3)
+  })
+
+  it('AA5 — the top-edge mirror: a top drag up past two pending units absorbs them and the unit above follows', () => {
+    // 0→2, 2→4, 4→6, 6→8. Drag layer 3's top to 1: layers 2 and 1 are fully passed, layer 0 only entered.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6), L(6, 8)])
+    const result = applyCrossMergeOnDrag(g, 3, { depth_top_m: 1, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(2)
+    // The dragger is now idx 1 with its top at 1; layer 0's base rides the boundary.
+    expect(result.edits.get(1)?.depth_top_m).toBe(1)
+    expect(result.suggestions[1].depth_base_m).toBe(8)
+    expect(result.edits.get(0)?.depth_base_m).toBe(1)
+  })
+
+  it('AA6 — the dragger\'s own composition edits survive an absorb-all', () => {
+    const edits = new Map([[0, { suggested_lithology: 'KLEI' }]])
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)], { edits })
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 5, _absorbAll: true })
+    expect(result.suggestions).toHaveLength(2)
+    expect(result.edits.get(0)?.suggested_lithology).toBe('KLEI')
+    expect(result.edits.get(0)?.depth_base_m).toBe(5)
+  })
+})
