@@ -126,7 +126,7 @@ export interface RecoverySnapshotInputs {
  * @returns The same edit without the internal marker.
  */
 function stripInternalMarkers(edit: LithoSuggestionEdit): LithoSuggestionEdit {
-  const { _propagateOnly: _ignored, ...rest } = edit
+  const { _propagateOnly: _ignored, _absorbAll: _ignoredToo, ...rest } = edit
   return rest
 }
 
