@@ -76,14 +76,19 @@ export interface RawSubPiece {
 /**
  * The enclosed-lens intervals of ``col`` that fall strictly INSIDE the host unit's span — the split
  * points. Sorted shallow→deep (higher elevation first). A host that contains none is not split.
+ * A lens restricted to OTHER gaps (``emitGaps``, ruling 8v) does not cut the host in ``gapIndex``:
+ * its interval is host material in this gap (stacked lenses, owner 2026-09-23 — the inner clays of
+ * S8's comb are lenses toward S10, where the silt bands, and clay-band material toward S3).
  */
 function lensIntervalsInHost(
   host: UnitGeom,
   enclosedLenses: readonly EnclosedLens[],
+  gapIndex: number | undefined,
 ): { elHi: number; elLo: number }[] {
   const hostHi = Math.max(host.topElev, host.baseElev)
   const hostLo = Math.min(host.topElev, host.baseElev)
   return enclosedLenses
+    .filter((el) => gapIndex === undefined || el.emitGaps === undefined || el.emitGaps.has(gapIndex))
     .map((el) => ({
       elHi: Math.max(el.lens.topElev, el.lens.baseElev),
       elLo: Math.min(el.lens.topElev, el.lens.baseElev),
@@ -115,6 +120,9 @@ function lensIntervalsInHost(
  *     sweep already computed for ``col.units``).
  * hostDirectTop, hostDirectBase : boolean
  *     The host's DIRECT top/base tie flags (from ``tiedFlags``) on this side.
+ * gapIndex : number, optional
+ *     The gap being emitted into; a lens whose ``emitGaps`` excludes it does not split the host here.
+ *     Omitted = every enclosed lens splits (the pre-2026-09-23 behaviour).
  *
  * Returns
  * -------
@@ -128,8 +136,9 @@ export function splitHostIntoRawPieces(
   hostEff: EffectiveCorr,
   hostDirectTop: boolean,
   hostDirectBase: boolean,
+  gapIndex?: number,
 ): RawSubPiece[] {
-  const cuts = lensIntervalsInHost(host, col.enclosedLenses)
+  const cuts = lensIntervalsInHost(host, col.enclosedLenses, gapIndex)
   if (cuts.length === 0) {
     // Ordinary unit — the host IS the raw unit. Single piece, corr/flags unchanged (no-op split).
     return [
