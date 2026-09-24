@@ -306,7 +306,7 @@ describe('LithoSuggestionGhostColumns', () => {
   // drilling to the cptm, but i couldn't drag the bottom unit to the bottom of the
   // cptm." The copied column ends at the borehole's depth; the CPT goes on below.
   // With the test's terminal depth known, the deepest layer's base drag reaches it.
-  it('G13 — the deepest layer\'s base drags down to the test\'s terminal depth', () => {
+  it('G12b — the deepest layer\'s base drags down to the test\'s terminal depth', () => {
     const onEdit = vi.fn()
     const { container } = renderGhost(
       [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
@@ -323,6 +323,34 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(idx).toBe(0)
     expect(edit.depth_base_m).toBeCloseTo(6, 5)
     expect(edit.depth_top_m).toBeUndefined()
+  })
+
+  // Owner 2026-09-23: "shift click + drag down, to absorb all units the shift drag passes into
+  // the one we're dragging"; 2026-09-24: Ctrl, since Shift copies the column. Ctrl on a handle
+  // starts an absorb-all drag: the bound runs through the pending units below (to the test
+  // bottom here) and the release commits ONE edit marked for the reducer.
+  it('G12c — Ctrl+drag on a base handle passes the pending units below and commits one marked edit', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+      ],
+      { onEdit, terminalDepthM: 10 },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    expect(baseHandle).not.toBeNull()
+    // 500 px = 5 m: the base goes from 2 m to 7 m, past layers 1 and 2 (a plain drag would have
+    // clamped at layer 1's far edge, 4 m) and short of the 10 m test bottom.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, ctrlKey: true })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    const [idx, edit] = onEdit.mock.calls[0]
+    expect(idx).toBe(0)
+    expect(edit.depth_base_m).toBeCloseTo(7, 5)
+    expect(edit._absorbAll).toBe(true)
   })
 
   it('G14 — accepted ghost layer is not rendered (debt #142)', () => {
