@@ -166,6 +166,15 @@ export interface LithoSuggestionEdit {
    * Never persisted to the server; stripped by the accept path.
    */
   _propagateOnly?: boolean
+  /**
+   * Internal marker set by the Ctrl+drag ABSORB-ALL gesture (owner 2026-09-23: "absorb all
+   * units the drag passes into the one we're dragging"; 2026-09-24: Ctrl, since Shift copies
+   * the column). ``applyCrossMergeOnDrag`` then absorbs EVERY pending unit the released depth
+   * fully passed (an accepted contact stops it), moves the near edge of the unit the release
+   * landed in, and does both in one atomic step — the hook fires no partner edit and no merge
+   * chain in this mode. Never persisted; stripped like ``_propagateOnly``.
+   */
+  _absorbAll?: boolean
 }
 
 /**
