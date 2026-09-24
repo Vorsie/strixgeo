@@ -160,6 +160,13 @@ export function crossMergeAbsorbTarget(
   // Composition-only or no-op depth edit — nothing to cross.
   if (!topDragged && !baseDragged) return null
 
+  // ABSORB-ALL (Ctrl+drag, owner 2026-09-23/24): keep walking past every pending
+  // neighbour the new edge has fully crossed (or eaten to a sliver) and return the
+  // FARTHEST one; the first neighbour not crossed ends the run. A plain drag keeps its
+  // "only the immediately adjacent pending neighbour" rule.
+  const absorbAll = edit._absorbAll === true
+  let farthest: CrossMergeAbsorbTarget | null = null
+
   if (topDragged && newTop < preTop) {
     // TOP dragged UP — absorb the neighbour above when the dragger has eaten
     // it down to a sliver (or fully crossed it).
@@ -171,9 +178,11 @@ export function crossMergeAbsorbTarget(
       if (neighbourTop === null || neighbourBase === null) break
       const threshold = absorbRemainderThresholdM(neighbourBase - neighbourTop)
       if (newTop <= neighbourTop + threshold) {
-        return { targetIdx: i, direction: 'up' }
+        farthest = { targetIdx: i, direction: 'up' }
+        if (!absorbAll) return farthest
+        continue
       }
-      break // Only the immediately adjacent pending neighbour.
+      break // Only the immediately adjacent pending neighbour (or the run's end).
     }
   }
 
@@ -187,11 +196,13 @@ export function crossMergeAbsorbTarget(
       if (neighbourTop === null || neighbourBase === null) break
       const threshold = absorbRemainderThresholdM(neighbourBase - neighbourTop)
       if (newBase >= neighbourBase - threshold) {
-        return { targetIdx: i, direction: 'down' }
+        farthest = { targetIdx: i, direction: 'down' }
+        if (!absorbAll) return farthest
+        continue
       }
       break
     }
   }
 
-  return null
+  return farthest
 }
