@@ -447,6 +447,43 @@ function propagateWouldCollapse(
   return nextThicknessM <= absorbRemainderThresholdM(preBase - preTop)
 }
 
+/** The edit without the absorb-all marker (never stored, never persisted). */
+function stripAbsorbAll(edit: LithoSuggestionEdit): LithoSuggestionEdit {
+  const { _absorbAll: _ignored, ...rest } = edit
+  return rest
+}
+
+/**
+ * Finish a Ctrl+drag ABSORB-ALL commit (owner 2026-09-23/24) on the ghost the absorb (if
+ * any) already produced: put the dragger's dragged edge at the RELEASED depth (the absorb
+ * had extended it only to the last consumed unit's far edge) and move the near edge of the
+ * unit the release landed in, so the shared boundary stays shared. An accepted contact is
+ * never moved (the drag's own bound stops at it). All of it in one reducer step: the hook
+ * fires no follow-up edit in this mode, so no index can shift between two dispatches — the
+ * 2026-09-11 bug class.
+ */
+function finishAbsorbAll(
+  ghost: BulkAnchorGhost,
+  draggerIdx: number,
+  edge: 'top' | 'base',
+  releasedDepthM: number,
+): BulkAnchorGhost {
+  const nextEdits = new Map(ghost.edits)
+  const ownKey = edge === 'top' ? 'depth_top_m' : 'depth_base_m'
+  nextEdits.set(draggerIdx, { ...(nextEdits.get(draggerIdx) ?? {}), [ownKey]: releasedDepthM })
+  const step = edge === 'top' ? -1 : 1
+  const nearKey = edge === 'top' ? 'depth_base_m' : 'depth_top_m'
+  for (let i = draggerIdx + step; i >= 0 && i < ghost.suggestions.length; i += step) {
+    if (ghost.rejected.has(i)) continue
+    if (ghost.accepted.has(i)) break
+    const near = nextEdits.get(i)?.[nearKey] ?? ghost.suggestions[i][nearKey]
+    const entered = edge === 'top' ? near > releasedDepthM : near < releasedDepthM
+    if (entered) nextEdits.set(i, { ...(nextEdits.get(i) ?? {}), [nearKey]: releasedDepthM })
+    break
+  }
+  return { ...ghost, edits: nextEdits }
+}
+
 /**
  * Apply a depth-edit to one ghost layer and detect whether the edit
  * crossed a pending neighbour's boundary.  When a cross is detected,
@@ -531,19 +568,26 @@ export function applyCrossMergeOnDrag(
   )
   if (target !== null) {
     const withEdit = new Map(ghost.edits)
-    withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
+    withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...stripAbsorbAll(edit) })
     // absorbThroughLayer consumes the inclusive range between the dragger and
     // the target: the pending target AND any rejected layers the scan skipped
     // past. Pre-2026-05-31 this was ``absorbLithoLayer(ghost, idx, dir)``,
     // which hardcoded the immediate neighbour and absorbed the rejected
     // in-between layer instead of the target — leaving the target alive as a
     // phantom band with overlapping bounds ("two sand bands + sliver").
-    return absorbThroughLayer(
+    const absorbed = absorbThroughLayer(
       { ...ghost, edits: withEdit },
       idx,
       target.targetIdx,
       target.direction,
     )
+    if (edit._absorbAll !== true || absorbed === ghost) return absorbed
+    // Absorb-all: the dragger now sits at ``idx`` (down) or at the range start (up); its edge
+    // goes to the released depth and the entered unit's near edge follows.
+    const draggerIdx = target.direction === 'down' ? idx : target.targetIdx
+    const edge: 'top' | 'base' = target.direction === 'up' ? 'top' : 'base'
+    const released = (edge === 'top' ? edit.depth_top_m : edit.depth_base_m) as number
+    return finishAbsorbAll(absorbed, draggerIdx, edge, released)
   }
 
   // No cross — plain depth / composition edit, merged into the edits Map as
@@ -551,6 +595,12 @@ export function applyCrossMergeOnDrag(
   // which keeps the Alt-drag cross-column paste path working).
   const nextEdits = new Map(ghost.edits)
   const prior = nextEdits.get(idx) ?? {}
-  nextEdits.set(idx, { ...prior, ...edit })
-  return { ...ghost, edits: nextEdits }
+  nextEdits.set(idx, { ...prior, ...stripAbsorbAll(edit) })
+  const plain = { ...ghost, edits: nextEdits }
+  if (edit._absorbAll !== true) return plain
+  // Absorb-all without a full cross: the release landed inside the immediate neighbour (or
+  // moved away from it) — still propagate the shared boundary here, the hook fires no partner edit.
+  if (edit.depth_top_m !== undefined) return finishAbsorbAll(plain, idx, 'top', edit.depth_top_m)
+  if (edit.depth_base_m !== undefined) return finishAbsorbAll(plain, idx, 'base', edit.depth_base_m)
+  return plain
 }
