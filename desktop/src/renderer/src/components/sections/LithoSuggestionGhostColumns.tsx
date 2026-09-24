@@ -150,6 +150,8 @@ export interface LithoSuggestionGhostColumnsProps {
     suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
     /** Internal marker — see ``LithoSuggestionEdit._propagateOnly``. */
     _propagateOnly?: boolean
+    /** Internal marker — see ``LithoSuggestionEdit._absorbAll`` (Ctrl+drag absorb-all). */
+    _absorbAll?: boolean
   }) => void
   /**
    * Debt #86: copy composition to a different anchor (cross-column
@@ -982,6 +984,8 @@ export default function LithoSuggestionGhostColumns({
                       })
                       return
                     }
+                    // Ctrl + drag (owner 2026-09-23/24): ABSORB-ALL — the edge travels up through
+                    // every pending unit above and the release absorbs the ones it passed.
                     const bounds = computeDragBounds(
                       'top',
                       idx,
@@ -989,6 +993,8 @@ export default function LithoSuggestionGhostColumns({
                       edits,
                       acceptedIndices,
                       effectivelyRejectedIndices,
+                      terminalDepthM,
+                      { absorbAll: e.ctrlKey },
                     )
                     startDrag({
                       idx,
@@ -996,6 +1002,7 @@ export default function LithoSuggestionGhostColumns({
                       initialClientY: e.clientY,
                       initialDepthM: topM,
                       ...bounds,
+                      absorbAll: e.ctrlKey,
                     })
                   }}
                 />
@@ -1022,6 +1029,8 @@ export default function LithoSuggestionGhostColumns({
                       })
                       return
                     }
+                    // Ctrl + drag (owner 2026-09-23/24): ABSORB-ALL — the edge travels down through
+                    // every pending unit below and the release absorbs the ones it passed.
                     const bounds = computeDragBounds(
                       'base',
                       idx,
@@ -1030,6 +1039,7 @@ export default function LithoSuggestionGhostColumns({
                       acceptedIndices,
                       effectivelyRejectedIndices,
                       terminalDepthM,
+                      { absorbAll: e.ctrlKey },
                     )
                     startDrag({
                       idx,
@@ -1037,6 +1047,7 @@ export default function LithoSuggestionGhostColumns({
                       initialClientY: e.clientY,
                       initialDepthM: baseM,
                       ...bounds,
+                      absorbAll: e.ctrlKey,
                     })
                   }}
                 />
