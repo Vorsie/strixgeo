@@ -150,6 +150,21 @@ that really wraps the stack. The clay host still merges around the whole stack, 
 (fixture `__fixtures__/owner_test_s1_sandwich_2026-09-23.json`, both gaps: each of the three drawn
 and inside its own top..base, no cross-lithology overlap); CS1 golden byte-identical.
 
+**The same, one level deeper, on the per-gap edged path (owner 2026-09-23, section "test",
+GEO-08/118-S8 toward GEO-19/100-S3).** S8 is a clay/silt comb whose silt is tied toward S10 only.
+The section-wide walk pulled the two inner clays as lenses IN SILT and welded the three silts into
+one run; `edgedEnclosedLens.extractPerGapEnclosedLenses` (ruling 8v) then recorded that run as ONE
+silt lens toward S3 with the clay lenses nested inside it, and `splitHostIntoRawPieces` cut the clay
+host at those nested clay intervals — phantom clay pieces exactly where the silt is (*"the fuk is
+happening here ... these wrong lens fills"*). Now: the raw make-up of a merged unit rides on the
+unit itself (`UnitGeom.rawPieces`), so the 8v path splits a pulled run into its raw pieces too
+(each a lens toward the untied gaps), restricts the lenses nested inside it to the TIED gaps (there
+they are the matrix's own material), and `lensIntervalsInHost` takes the gap index and ignores a
+lens not emitted in that gap. Toward S3: a clay band with three silt lenses hugging S8; toward S10:
+unchanged (the silt bands, the inner clays lens). Pinned in `partitionFillV2/ownerTestS8Alternation.test.ts`
+(fixture `__fixtures__/owner_test_s8_alternation_2026-09-23.json`, S10 / S8 / S3); CS1 golden
+byte-identical.
+
 ## Same-litho enclosed lens is one mass (owner ruling 2, 2026-09-07)
 
 `mergeTouchingBodies` welds a same-lithology enclosed lens and its enclosing matrix under one body
