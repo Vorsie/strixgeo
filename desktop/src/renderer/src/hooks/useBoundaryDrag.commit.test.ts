@@ -284,3 +284,43 @@ describe('useBoundaryDrag lifecycle', () => {
     expect(h.result.current.drag?.snapped).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Ctrl+drag absorb-all (owner 2026-09-23/24). The hook commits ONE edit marked
+// ``_absorbAll``; the reducer absorbs the passed units and propagates the partner,
+// so the hook fires neither the partner edit nor the merge chain.
+// ---------------------------------------------------------------------------
+
+describe('useBoundaryDrag — Ctrl+drag absorb-all', () => {
+  it('BD11: an absorb-all base drag past two pending units commits one marked edit and nothing else', () => {
+    const h = renderHarness({
+      suggestions: [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 8 }),
+        makeSuggestion({ depth_top_m: 8, depth_base_m: 12 }),
+      ],
+    })
+    startDrag(h, { idx: 0, edge: 'base', initialDepthM: 4, boundsBelowM: 12, absorbAll: true })
+    moveToDepth(10, 4)
+    releaseMouse()
+
+    expect(h.onEdit).toHaveBeenCalledTimes(1)
+    expect(h.onEdit).toHaveBeenCalledWith(0, { depth_base_m: 10, _absorbAll: true })
+    expect(h.onMergeLayers).not.toHaveBeenCalled()
+    expect(h.onReject).not.toHaveBeenCalled()
+  })
+
+  it('BD12: an absorb-all drag that collapses the layer onto its own opposite edge still auto-rejects it', () => {
+    const h = renderHarness({
+      suggestions: [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 8 }),
+      ],
+    })
+    startDrag(h, { idx: 0, edge: 'base', initialDepthM: 4, boundsBelowM: 8, absorbAll: true })
+    moveToDepth(0, 4)
+    releaseMouse()
+
+    expect(h.onReject).toHaveBeenCalledWith(0)
+  })
+})
