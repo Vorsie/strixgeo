@@ -100,6 +100,8 @@ export interface BoundaryDragState {
   snapTargetM: number | null
   /** Chain of layers to auto-reject on mouseup when ``snapped``. */
   collapseChainOnRelease: number[]
+  /** See ``BoundaryDragStart.absorbAll``. */
+  absorbAll?: boolean
 }
 
 /**
@@ -115,6 +117,12 @@ export interface BoundaryDragStart {
   boundsBelowM: number
   collapseChainAbove: number[]
   collapseChainBelow: number[]
+  /**
+   * Ctrl+drag ABSORB-ALL (owner 2026-09-23/24): the release commits ONE edit marked
+   * ``_absorbAll`` and the reducer absorbs every pending unit the drag passed; the hook
+   * fires no partner edit and no merge chain. The self-collapse auto-reject still applies.
+   */
+  absorbAll?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +520,21 @@ export function useBoundaryDrag(
                 : { depth_top_m: fillBoundary }
             onEdit(neighbourIdx, fillEdit)
           }
+        }
+        setDrag(null)
+        return
+      }
+
+      // Ctrl+drag ABSORB-ALL (owner 2026-09-23/24): ONE marked edit; the reducer absorbs
+      // every pending unit the release fully passed and moves the entered unit's near edge
+      // itself, atomically. No partner edit, no chain, no contact PATCH (the bound stops at
+      // an accepted contact's near edge, so no committed contact ever moves here).
+      if (drag.absorbAll) {
+        if (onEdit) {
+          onEdit(
+            drag.idx,
+            drag.edge === 'top' ? { depth_top_m: final, _absorbAll: true } : { depth_base_m: final, _absorbAll: true },
+          )
         }
         setDrag(null)
         return
