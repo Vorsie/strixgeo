@@ -259,7 +259,7 @@ function emitSideSweep(
     // (``col.enclosedLenses`` is populated only under the flag-ON extraction; flag-OFF never reaches
     // the sweep). ``ui`` is the merged host index — geometry reads that index the merged stack
     // (``lensEnclosingMatrix``, the boundary-polyline choice) use it via ``piece.hostUnitIndex``.
-    const pieces = splitHostIntoRawPieces(col.units[ui], ui, col, hostEff, hostDf.top, hostDf.base)
+    const pieces = splitHostIntoRawPieces(col.units[ui], ui, col, hostEff, hostDf.top, hostDf.base, gapIndex)
     const nHost = col.units.length
     for (const piece of pieces) {
     const eff = piece.eff
