@@ -225,11 +225,32 @@ export function extractPerGapEnclosedLenses(
         // and flood the TIED gap full-width. ``above`` and ``below`` now abut at the lens base (both the
         // same formation), which the arrangement traces as one continuous matrix face. ``above``'s own
         // top tie is unmoved (only its base grows), so the UNTIED gap's enclosing band keeps its anchor.
-        columns[ci].enclosedLenses.push({
-          lens: { ...lens },
-          matrixFormationId: above.formationId,
-          emitGaps: new Set(emitGaps),
-        })
+        // STACKED LENSES (owner 2026-09-23, section "test" GEO-08/118-S8: a clay/silt comb whose silt
+        // is tied toward one neighbour only). The section-wide walk may have welded this minority
+        // from raw pieces around lenses of the MATRIX formation (the inner clays pulled as lenses in
+        // silt, the silts merged into one run). Toward the emit gaps that run is a lens in the matrix
+        // and comes apart into its raw pieces — each a lens at its own level — while the lenses
+        // nested inside it are the matrix's own material there: they are emitted only where the run
+        // bands (the tied gaps). Toward the tied gaps nothing changes. Without this the run was one
+        // silt diamond cut by nested clay lenses, and the host's raw split cut at those nested
+        // intervals — phantom clay pieces exactly where the silt is.
+        const pieces = lens.rawPieces ?? [lens]
+        for (const el of columns[ci].enclosedLenses) {
+          if (
+            el.matrixFormationId === lens.formationId &&
+            el.lens.topElev <= lens.topElev + TIE_CONTACT_SNAP_M &&
+            el.lens.baseElev >= lens.baseElev - TIE_CONTACT_SNAP_M
+          ) {
+            el.emitGaps = new Set(tiedGaps.filter((g) => el.emitGaps === undefined || el.emitGaps.has(g)))
+          }
+        }
+        for (const piece of pieces) {
+          columns[ci].enclosedLenses.push({
+            lens: { ...piece },
+            matrixFormationId: above.formationId,
+            emitGaps: new Set(emitGaps),
+          })
+        }
         above.baseElev = lens.baseElev
         units.splice(k, 1) // remove ONLY the lens; ``below`` survives at k with its ties intact
         changed = true
