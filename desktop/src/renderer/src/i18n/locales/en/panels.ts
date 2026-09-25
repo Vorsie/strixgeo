@@ -321,6 +321,7 @@ export const PANELS = {
   'undo.movePackingBoundary': 'Move packing boundary',
   'undo.splitPackingBand': 'Split packing band',
   'undo.absorbPackingLens': 'Absorb packing lens',
+  'undo.absorbPackingRun': 'Absorb packing bands',
   'undo.mergePackingBands': 'Merge packing bands',
   'undo.disconnectPackingBands': 'Disconnect packing bands',
   // Borehole membership + elevation.
