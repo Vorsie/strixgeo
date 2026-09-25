@@ -273,6 +273,8 @@ POST   /models/{model_id}/geotech/bands/merge — Commit a hand merge. Only the 
 POST   /models/{model_id}/geotech/statistic — Change which representative statistic the NAD classifier reads.
 POST   /models/{model_id}/geotech/bands/preview-move — Answer what dragging this boundary to this depth would do, without writing.
 POST   /models/{model_id}/geotech/bands/move — Commit the drag: an atomic two-row write, both classes re-derived.
+POST   /models/{model_id}/geotech/bands/preview-absorb-run — Answer what a Ctrl+drag absorb-all would do (the run unions, its far boundary moves), without writing.
+POST   /models/{model_id}/geotech/bands/absorb-run — Commit the absorb-all in one transaction: the survivor takes the union, the entered band the remainder.
 POST   /models/{model_id}/geotech/contact/move — Move a contact restated by a packing boundary, in every model that records it.
 ```
 
