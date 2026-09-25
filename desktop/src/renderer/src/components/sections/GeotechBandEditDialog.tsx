@@ -79,11 +79,14 @@ export default function GeotechBandEditDialog({
   const confirmRef = useRef<HTMLButtonElement>(null)
   const isMerge = plan.kind === 'merge'
   const isMove = plan.kind === 'move'
-  const verb = isMove
-    ? t('sections.bandDialog.verbMove')
-    : isMerge
-      ? t('sections.bandDialog.verbMerge')
-      : t('sections.bandDialog.verbSplit')
+  const isAbsorb = plan.kind === 'absorb'
+  const verb = isAbsorb
+    ? t('sections.bandDialog.verbAbsorb')
+    : isMove
+      ? t('sections.bandDialog.verbMove')
+      : isMerge
+        ? t('sections.bandDialog.verbMerge')
+        : t('sections.bandDialog.verbSplit')
   // Ruling 6 under ruling 7: once the model's statistic is not the default,
   // the sheet names it — a number labelled bare "representative qc" would
   // read as the median it no longer is.
@@ -115,11 +118,13 @@ export default function GeotechBandEditDialog({
           id="geotech-band-edit-title"
           className="text-base font-semibold text-text-primary mb-1"
         >
-          {isMove
-            ? t('sections.bandDialog.moveTitle')
-            : isMerge
-              ? t('sections.bandDialog.mergeTitle')
-              : t('sections.bandDialog.splitTitle')}
+          {isAbsorb
+            ? t('sections.bandDialog.absorbTitle')
+            : isMove
+              ? t('sections.bandDialog.moveTitle')
+              : isMerge
+                ? t('sections.bandDialog.mergeTitle')
+                : t('sections.bandDialog.splitTitle')}
         </h2>
         <p className="text-xs text-text-secondary mb-4">
           {t('sections.bandDialog.rederiveBlurb', {
