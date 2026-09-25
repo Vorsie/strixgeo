@@ -35,6 +35,7 @@ import type {
   GeotechBandEditPlanResponse,
   GeotechBandEditResponse,
 } from '../../../api/client'
+import type { AbsorbRunRequest } from '../../../components/sections/geotechBandEdit'
 import { markBoreholesStale } from '../../../utils/boreholesStaleStore'
 import { apiFailureMessage } from '../../../utils/apiFailureMessage'
 import { log } from '../../../utils/log'
@@ -68,6 +69,11 @@ type PendingEdit =
       upperBoundaryDepthM: number
       lowerBoundaryDepthM: number
     }
+  // Ctrl+drag absorb-all (owner 2026-09-25): the run unions and its far boundary
+  // moves in ONE server transaction. The request carries the run's internal
+  // boundaries and the entered band's original boundary so undo can put every
+  // row back (move the boundary back, re-split top down).
+  | { kind: 'absorbRun'; request: AbsorbRunRequest }
 
 /** The one slice of the undo stack this hook needs. */
 export interface BandEditUndoStack {
@@ -146,6 +152,12 @@ export interface UseGeotechBandEditResult {
     upperBoundaryDepthM: number,
     lowerBoundaryDepthM: number,
   ) => void
+  /**
+   * Preview a Ctrl+drag absorb-all: the run unions into the dragged band and the
+   * boundary with the band the release landed in moves there — one sheet over the
+   * FINAL intervals, one undo step.
+   */
+  onRequestAbsorbRun?: (request: AbsorbRunRequest) => void
   /**
    * Set a BOREHOLE band's NAD class by hand (owner ask 2026-08-18). Commits
    * DIRECTLY — no consequence sheet: the change is one number, fully undoable
@@ -340,6 +352,36 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         .catch((err: unknown) => {
           log.warn('section', 'lens-absorb preview failed', err)
           reportFailure(err, t('sections.bandEdit.absorbPlanFailed'))
+        })
+        .finally(() => setBusy(false))
+    },
+    [modelId, projectId, reportFailure],
+  )
+
+  const onRequestAbsorbRun = useCallback(
+    (request: AbsorbRunRequest): void => {
+      if (modelId === null) return
+      log.info(
+        'section',
+        `absorb-run preview: run=[${request.runBandIds.join(', ')}] ` +
+          `entered=${request.enteredBandId ?? 'wall'} depth=${request.newDepthM.toFixed(3)} m`,
+      )
+      setBusy(true)
+      void api.geology
+        .previewAbsorbGeotechRun(
+          projectId,
+          modelId,
+          request.runBandIds,
+          request.enteredBandId,
+          request.enteredBandId === null ? null : request.newDepthM,
+        )
+        .then(result => {
+          setPlan(result)
+          setPending({ kind: 'absorbRun', request })
+        })
+        .catch((err: unknown) => {
+          log.warn('section', 'absorb-run preview failed', err)
+          reportFailure(err, t('sections.bandEdit.absorbRunPlanFailed'))
         })
         .finally(() => setBusy(false))
     },
@@ -551,6 +593,55 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
         })
         return
       }
+      if (edit.kind === 'absorbRun') {
+        // Revert = the boundary with the entered band back where it was, then the
+        // survivor re-split at every carried boundary, top down (the lens-absorb
+        // undo, generalised). Every fresh id is closure-mutable so redo cycles
+        // keep working on the rows that exist.
+        const { runBandIds, carriedBoundariesM, enteredBandId, enteredOriginalBoundaryM } =
+          edit.request
+        const survivorId = runBandIds[0]
+        let currentRunIds = [...runBandIds]
+        undoStack.push({
+          descriptionKey: 'undo.absorbPackingRun',
+          revert: async () => {
+            if (enteredBandId !== null && enteredOriginalBoundaryM !== null) {
+              await api.geology.moveGeotechBoundary(
+                projectId,
+                modelId,
+                survivorId,
+                enteredBandId,
+                enteredOriginalBoundaryM,
+              )
+            }
+            const fresh = [survivorId]
+            let splitId = survivorId
+            for (const boundaryM of carriedBoundariesM) {
+              const split = await api.geology.splitGeotechBand(
+                projectId,
+                modelId,
+                splitId,
+                boundaryM,
+              )
+              splitId = split.created_layer_ids[0]
+              fresh.push(splitId)
+            }
+            currentRunIds = fresh
+            await settleAfterWrite()
+          },
+          reapply: async () => {
+            await api.geology.absorbGeotechRun(
+              projectId,
+              modelId,
+              currentRunIds,
+              enteredBandId,
+              enteredBandId === null ? null : edit.request.newDepthM,
+            )
+            await settleAfterWrite()
+          },
+        })
+        return
+      }
       // merge (also the drag-absorb and remove-band paths — they commit through
       // the same verb): re-split the survivor at the carried boundary AND restore
       // each half's pre-merge class + source. A bare re-split re-derives from qc,
@@ -607,6 +698,14 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
                   pending.lensId,
                   pending.lowerHostId,
                 ])
+              : pending.kind === 'absorbRun'
+                ? await api.geology.absorbGeotechRun(
+                    projectId,
+                    modelId,
+                    pending.request.runBandIds,
+                    pending.request.enteredBandId,
+                    pending.request.enteredBandId === null ? null : pending.request.newDepthM,
+                  )
               : await api.geology.moveGeotechBoundary(
                   projectId,
                   modelId,
@@ -640,6 +739,8 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
             ? 'Bands merged; the merged band re-classified'
             : pending.kind === 'absorb'
               ? 'Lens absorbed; the merged band re-classified'
+              : pending.kind === 'absorbRun'
+                ? 'Bands absorbed; both survivors re-classified'
               : 'Boundary moved; both bands re-classified'
       const tieClauses = [
         flagged > 0 ? `${flagged} accepted tie${flagged === 1 ? '' : 's'} flagged for review` : '',
@@ -735,6 +836,7 @@ export function useGeotechBandEdit(deps: UseGeotechBandEditDeps): UseGeotechBand
     onRequestMergeBands: modelId === null ? undefined : onRequestMergeBands,
     onRequestMoveBoundary: modelId === null ? undefined : onRequestMoveBoundary,
     onRequestAbsorbLens: modelId === null ? undefined : onRequestAbsorbLens,
+    onRequestAbsorbRun: modelId === null ? undefined : onRequestAbsorbRun,
     onRequestSetBandClass: modelId === null ? undefined : onRequestSetBandClass,
     onRequestSplitBandHere: modelId === null ? undefined : onRequestSplitBandHere,
     onRequestClearColumn: modelId === null ? undefined : onRequestClearColumn,
