@@ -20,6 +20,7 @@ import type {
   LithoLayerSuggestion,
 } from "../api/client";
 import type { ContactCopyPayload } from "./sections/ContactsLayer";
+import type { AbsorbRunRequest } from "./sections/geotechBandEdit";
 import type { ContactGestureState } from "./sections/CorrelationEdgesOverlay";
 import type { JoinNotice } from "./sections/joinPick";
 import type { BedClipPolygon } from "./sections/sectionBedClip";
@@ -200,6 +201,12 @@ export interface SectionPanelProps {
     upperBoundaryDepthM: number,
     lowerBoundaryDepthM: number,
   ) => void;
+  /**
+   * Ctrl+drag absorb-all on a packing boundary (geotech axis only, owner 2026-09-25):
+   * the run unions into the dragged band and the far boundary moves. Absent → Ctrl+drag
+   * is a plain drag.
+   */
+  onRequestGeotechAbsorbRun?: (request: AbsorbRunRequest) => void;
   /** The geotech model's "thinnest packing band kept" pref — the lens badge's size gate. */
   geotechSmallLensThicknessM?: number;
   /** Break the litho↔geo coupling on a lithostratigraphic contact.
