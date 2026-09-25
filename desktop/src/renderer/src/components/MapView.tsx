@@ -694,6 +694,7 @@ export default function MapView({
           attribution={basemap.attribution}
           url={basemap.url}
           {...(basemap.subdomains !== undefined ? { subdomains: basemap.subdomains } : {})}
+          {...(basemap.maxZoom !== undefined ? { maxZoom: basemap.maxZoom } : {})}
         />
 
         {/* Basemap overlay layer — present only on hybrid basemaps (e.g.
