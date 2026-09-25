@@ -2,7 +2,9 @@
 
 Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef_constants.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
 
-**Parsing flow:** header → data → CPT type detection → void masking → column rename → unit normalisation → depth column → Rf calculation → validation → `GEFParseResult`
+**Parsing flow:** header → data → CPT type detection → void masking → column rename → unit normalisation → depth column → non-finite replacement → **rows without qc dropped** → Rf calculation → validation → `GEFParseResult`
+
+**A data row without a cone resistance is dropped.** After void masking a row whose `qc_mpa` is null (the file's `#COLUMNVOID` marker, or a NaN/inf) is removed from the frame, as the DOV parser has always done for a row with no qc — every reader of the stored series (the Ic chart, the litho segmenter, the SBT profile, the geotech subdivision) takes qc as a number, so the stored `qc_mpa` array never carries a null. A file whose every qc is void raises `ParseError`. A series stored by builds 0.1.0 to 0.1.2 can still hold such rows (issue #55: the chart request answered 500 on one); `cpt_series_orm.compact_void_qc_rows` drops them when the series loads (ORM `load` / `refresh` hook), and the first commit after that read writes the compacted arrays back.
 
 **Unit normalisation:** MPa, kPa, bar, tf/m², Pa, kgf/cm² → MPa. kN (qty 128 totaalweerstand) is left as-is — for the standard 1000 mm² Belgian CPTM cone the numeric value equals MPa.
 
@@ -31,6 +33,7 @@ Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef
 - `COORDINATES_OUTSIDE_CRS_BOUNDS` — WARNING, the `(x, y)` falls outside the area the declared horizontal EPSG covers (a swapped X/Y, a wrong EPSG, or a foreign position) — the message names the system and the offending values. Never an ERROR, and skipped when the CRS is unknown (`NO_EPSG` / `UNKNOWN_CRS_CODE`) or when coordinates are absent/`(0, 0)` so it never doubles a more specific finding. The area comes from pyproj's `area_of_use`, projected once per EPSG and padded by a 500 m margin (`crs_bounds.py` / `crs_bounds_constants.py`).
 - `UNCORRECTED_DEPTH` — WARNING, `depth_m` is really the qty-1 penetration length
 - `SKIPPED_ROWS` — WARNING, data lines dropped as unparseable
+- `ROWS_WITHOUT_QC` — INFO, data rows dropped because their qc was the void marker (a pre-drilled stretch is routinely written that way)
 - `MISSING_COLUMN` — qc always required; fs + u2 required for CPTU; fs required for CPTE
 - `DEPTH_NOT_MONOTONIC` — ERROR
 - `NEGATIVE_VALUES` — qc, fs must be ≥ 0
