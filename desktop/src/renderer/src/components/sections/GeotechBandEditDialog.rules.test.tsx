@@ -219,3 +219,16 @@ describe('the move verb and the statistic label', () => {
   })
 
 })
+
+
+describe('the absorb-all sheet is named after its own gesture', () => {
+  // Owner 2026-09-25: Ctrl+drag over several bands. The plan comes back as
+  // kind "absorb" with the FINAL two intervals; the sheet must not call it a
+  // move (the boundary did move) nor a merge (bands did merge) — it is both.
+  it('W9 — a kind "absorb" plan titles and names the action as an absorb', () => {
+    renderDialog({ ...PLAN_CLASS_HOLDS, kind: 'absorb' })
+    expect(screen.getByRole('heading').textContent?.toLowerCase()).toContain('absorb')
+    const label = screen.getByTestId('geotech-band-edit-confirm').textContent ?? ''
+    expect(label.toLowerCase()).toContain('absorb')
+  })
+})
