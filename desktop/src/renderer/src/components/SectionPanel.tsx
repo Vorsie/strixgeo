@@ -274,6 +274,7 @@ export default function SectionPanel({
   onRequestGeotechMergeBands,
   onRequestGeotechMoveBoundary,
   onRequestGeotechAbsorbLens,
+  onRequestGeotechAbsorbRun,
   geotechSmallLensThicknessM,
   onUnlinkLithoFromGeo,
   onLinkLithoToGeo,
@@ -3718,6 +3719,7 @@ export default function SectionPanel({
                 onRequestMerge={onRequestGeotechMergeBands}
                 onRequestMoveBoundary={onRequestGeotechMoveBoundary}
                 onRequestAbsorbLens={onRequestGeotechAbsorbLens}
+                onRequestAbsorbRun={onRequestGeotechAbsorbRun}
                 onRequestSetClass={onRequestGeotechSetBandClass}
                 onRequestSplitHere={onRequestGeotechSplitHere}
                 nadClassByFormationId={geotechNadClassByFormationId}
