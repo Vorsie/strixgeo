@@ -197,6 +197,39 @@ export const geotechBandsClient = {
     }),
 
   /**
+   * POST .../geotech/bands/preview-absorb-run — what a Ctrl+drag absorb-all would
+   * do (owner 2026-09-25): the run unions into the dragged band and the boundary
+   * with the band the release landed in moves there. ONE plan over the FINAL
+   * intervals (ruling 6). ``enteredBandId`` / ``newDepthM`` are null together at
+   * the litho wall.
+   */
+  previewAbsorbGeotechRun: (
+    projectId: string,
+    geotechModelId: string,
+    bandIds: readonly string[],
+    enteredBandId: string | null,
+    newDepthM: number | null,
+  ): Promise<GeotechBandEditPlanResponse> =>
+    post(
+      `/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/preview-absorb-run`,
+      { band_ids: bandIds, entered_band_id: enteredBandId, new_depth_m: newDepthM },
+    ),
+
+  /** POST .../geotech/bands/absorb-run — commit the absorb-all in one transaction. */
+  absorbGeotechRun: (
+    projectId: string,
+    geotechModelId: string,
+    bandIds: readonly string[],
+    enteredBandId: string | null,
+    newDepthM: number | null,
+  ): Promise<GeotechBandEditResponse> =>
+    post(`/projects/${projectId}/geology/models/${geotechModelId}/geotech/bands/absorb-run`, {
+      band_ids: bandIds,
+      entered_band_id: enteredBandId,
+      new_depth_m: newDepthM,
+    }),
+
+  /**
    * POST .../geotech/contact/move — drag the boundary that RESTATES a
    * lithostratigraphic contact, moving every model that records it.
    *
