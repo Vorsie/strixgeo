@@ -62,6 +62,12 @@ export interface BasemapSource {
   attribution: string
   /** Optional Leaflet subdomain string, e.g. ``'abcd'``. */
   subdomains?: string
+  /**
+   * Deepest zoom the tile servers answer. The map clamps to it while this
+   * basemap is active (Leaflet takes the active layers' maximum). Omitted =
+   * no clamp, the behaviour every other source has always had.
+   */
+  maxZoom?: number
   /** Approximate background colour while tiles load. Keeps the
    * transition from blank-canvas to tiled map less jarring. */
   loadingBg: string
@@ -118,6 +124,10 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     loadingBg: '#f0f0f0',
+    // openstreetmap.org serves tiles to zoom 19 and answers 400 beyond it —
+    // the walker's seed-2579495321 replay (2026-09-23) logged 16 such
+    // requests at zoom 20 before this cap.
+    maxZoom: 19,
   },
   {
     id: 'carto_voyager',
