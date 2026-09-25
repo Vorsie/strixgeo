@@ -1067,3 +1067,105 @@ describe('the class submenu is built from the band\'s SOIL (owner ruling 2026-08
     expect(screen.queryByTestId('geotech-borehole-band-bh-band-1')).toBeNull()
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// GS25+ — Ctrl+drag absorb-all (owner 2026-09-25)
+// ---------------------------------------------------------------------------
+//
+// The litho ghost gesture (PR #53) on packing bands. With Ctrl held the
+// boundary runs through every band in its direction inside the litho body;
+// the release absorbs every band it fully passed into the dragged band and
+// lands the boundary inside the band it stopped in. Without Ctrl the drag is
+// exactly what it was: clamped to its pair.
+
+/** Press the 4 m boundary strip (band-1 over band-2) with Ctrl held. */
+function ctrlPressBoundary(strip = 'geotech-band-boundary-band-1', depthM = 4): void {
+  fireEvent.mouseDown(screen.getByTestId(strip), {
+    button: 0,
+    ctrlKey: true,
+    clientY: yAtDepth(depthM),
+  })
+}
+
+describe('Ctrl+drag runs the boundary through the bands it passes', () => {
+  it('GS25 — Ctrl+drag down past band-2 into band-3 asks to absorb band-2 and land in band-3', () => {
+    const onRequestAbsorbRun = vi.fn()
+    const { onRequestMoveBoundary, onRequestMerge } = renderDraggable({ onRequestAbsorbRun })
+    ctrlPressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(7) })
+    // The line is not clamped at band-2's base (6 m): it followed the cursor.
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    expect(Number(line.getAttribute('y1'))).toBeCloseTo(yAtDepth(7), 5)
+    expect(screen.getByTestId('geotech-drag-absorb-hint')).toBeTruthy()
+    fireEvent.mouseUp(window, { clientY: yAtDepth(7) })
+    expect(onRequestAbsorbRun).toHaveBeenCalledTimes(1)
+    expect(onRequestAbsorbRun.mock.calls[0][0]).toEqual({
+      runBandIds: ['band-1', 'band-2'],
+      carriedBoundariesM: [4],
+      enteredBandId: 'band-3',
+      enteredOriginalBoundaryM: 6,
+      newDepthM: 7,
+      direction: 'down',
+    })
+    expect(onRequestMoveBoundary).not.toHaveBeenCalled()
+    expect(onRequestMerge).not.toHaveBeenCalled()
+  })
+
+  it('GS26 — Ctrl+drag to the litho wall absorbs every band below; nothing is entered', () => {
+    const onRequestAbsorbRun = vi.fn()
+    renderDraggable({ onRequestAbsorbRun })
+    ctrlPressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(9.5) }) // past the 8 m contact
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    expect(Number(line.getAttribute('y1'))).toBeCloseTo(yAtDepth(8), 5)
+    fireEvent.mouseUp(window, { clientY: yAtDepth(9.5) })
+    expect(onRequestAbsorbRun.mock.calls[0][0]).toEqual({
+      runBandIds: ['band-1', 'band-2', 'band-3'],
+      carriedBoundariesM: [4, 6],
+      enteredBandId: null,
+      enteredOriginalBoundaryM: null,
+      newDepthM: 8,
+      direction: 'down',
+    })
+  })
+
+  it('GS27 — Ctrl+drag released inside the immediate neighbour is the plain move', () => {
+    const onRequestAbsorbRun = vi.fn()
+    const { onRequestMoveBoundary } = renderDraggable({ onRequestAbsorbRun })
+    ctrlPressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(4.8) })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(4.8) })
+    expect(onRequestAbsorbRun).not.toHaveBeenCalled()
+    expect(onRequestMoveBoundary).toHaveBeenCalledWith('band-1', 'band-2', 4.8, 4)
+  })
+
+  it('GS28 — upward is the mirror: from the 6 m boundary up into band-1', () => {
+    const onRequestAbsorbRun = vi.fn()
+    renderDraggable({ onRequestAbsorbRun })
+    ctrlPressBoundary('geotech-band-boundary-band-2', 6)
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(3) })
+    fireEvent.mouseUp(window, { clientY: yAtDepth(3) })
+    expect(onRequestAbsorbRun.mock.calls[0][0]).toEqual({
+      runBandIds: ['band-2', 'band-3'],
+      carriedBoundariesM: [6],
+      enteredBandId: 'band-1',
+      enteredOriginalBoundaryM: 4,
+      newDepthM: 3,
+      direction: 'up',
+    })
+  })
+
+  it('GS29 — without Ctrl the drag still clamps at the pair edge', () => {
+    const onRequestAbsorbRun = vi.fn()
+    renderDraggable({ onRequestAbsorbRun })
+    pressBoundary()
+    fireEvent.mouseMove(window, { buttons: 1, clientY: yAtDepth(7) })
+    const line = screen.getByTestId('geotech-drag-preview-line')
+    const y = Number(line.getAttribute('y1'))
+    expect(y).toBeLessThanOrEqual(yAtDepth(6))
+    expect(y).toBeGreaterThan(yAtDepth(5.9))
+    fireEvent.mouseUp(window, { clientY: yAtDepth(7) })
+    expect(onRequestAbsorbRun).not.toHaveBeenCalled()
+  })
+})
