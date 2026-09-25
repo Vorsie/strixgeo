@@ -20,8 +20,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   SPLIT_EDGE_EPSILON_M,
+  absorbAllChains,
+  absorbAllPrediction,
   bandAtDepth,
   canMergeBands,
+  clampAbsorbAllDepth,
   clampDragDepth,
   clampSplitDepth,
   columnBands,
@@ -298,5 +301,86 @@ describe('the absorb needs a squeeze, not merely a thin band', () => {
   it('AB8 — squeezing that same thin band the other way still absorbs it', () => {
     // 3.05 → 3.01 shrinks it to 1 cm: the squeeze the verb is for.
     expect(dragAbsorbPrediction(THIN_UPPER, FAT_LOWER, 3.01)).toEqual({ side: 'upper' })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// AA — Ctrl+drag absorb-all (owner 2026-09-25: "ctrl drag over multiple
+// geotech ghost to absorb them"): the boundary runs through every band in its
+// direction inside the litho body; on release every band it fully passed (or
+// squeezed to the same sliver the pair absorb uses) is absorbed into the
+// dragged band, and the band the release landed in keeps its far edge.
+// ---------------------------------------------------------------------------
+
+describe('absorbAllChains — the bands a Ctrl+drag can run through', () => {
+  it('AA1 — downward: every mergeable band below the pair, outward; upward: the mirror', () => {
+    const chains = absorbAllChains(BANDS, 0, [LITHO_BODY, DEEPER_LITHO_BODY])
+    expect(chains.down.map(b => b.layerId)).toEqual(['b-2', 'b-3'])
+    expect(chains.up.map(b => b.layerId)).toEqual(['b-1'])
+  })
+
+  it('AA2 — the chain stops at the litho contact: b-4 is in the deeper body', () => {
+    const chains = absorbAllChains(BANDS, 1, [LITHO_BODY, DEEPER_LITHO_BODY])
+    expect(chains.down.map(b => b.layerId)).toEqual(['b-3'])
+    expect(chains.up.map(b => b.layerId)).toEqual(['b-2', 'b-1'])
+  })
+})
+
+describe('clampAbsorbAllDepth — the wall is the litho body, not the pair', () => {
+  const chains = absorbAllChains(BANDS, 0, [LITHO_BODY, DEEPER_LITHO_BODY])
+
+  it('AA3 — past the last band the boundary stops exactly on the litho wall', () => {
+    expect(clampAbsorbAllDepth(chains, 9.5)).toEqual({ depthM: 8, atLimit: 'lower' })
+    expect(clampAbsorbAllDepth(chains, 1.0)).toEqual({ depthM: 2, atLimit: 'upper' })
+  })
+
+  it('AA4 — inside the body the cursor is followed across the packing boundaries', () => {
+    expect(clampAbsorbAllDepth(chains, 7.0)).toEqual({ depthM: 7.0, atLimit: 'none' })
+  })
+})
+
+describe('absorbAllPrediction — what the release would do', () => {
+  const chains = absorbAllChains(BANDS, 0, [LITHO_BODY, DEEPER_LITHO_BODY])
+  const upper = BANDS[0]
+  const lower = BANDS[1]
+
+  it('AA5 — at rest nothing is predicted', () => {
+    expect(absorbAllPrediction(upper, lower, chains, 4)).toBeNull()
+  })
+
+  it('AA6 — inside the immediate neighbour it is a plain move: nothing absorbed', () => {
+    const p = absorbAllPrediction(upper, lower, chains, 4.8)
+    expect(p).toEqual({ direction: 'down', absorbed: [], entered: lower, depthM: 4.8 })
+  })
+
+  it('AA7 — past b-2 and into b-3: b-2 is absorbed, b-3 is entered at the released depth', () => {
+    const p = absorbAllPrediction(upper, lower, chains, 7)
+    expect(p?.absorbed.map(b => b.layerId)).toEqual(['b-2'])
+    expect(p?.entered?.layerId).toBe('b-3')
+    expect(p?.depthM).toBe(7)
+  })
+
+  it('AA8 — squeezing the entered band to a sliver absorbs it too (the pair rule)', () => {
+    // b-3 is 2 m thick → 0.3 m remaining is the sliver; 7.8 leaves 0.2 m.
+    const p = absorbAllPrediction(upper, lower, chains, 7.8)
+    expect(p?.absorbed.map(b => b.layerId)).toEqual(['b-2', 'b-3'])
+    expect(p?.entered).toBeNull()
+    expect(p?.depthM).toBe(8)
+  })
+
+  it('AA9 — on the wall every band below is absorbed and nothing is entered', () => {
+    const p = absorbAllPrediction(upper, lower, chains, 8)
+    expect(p?.absorbed.map(b => b.layerId)).toEqual(['b-2', 'b-3'])
+    expect(p?.entered).toBeNull()
+  })
+
+  it('AA10 — upward is the mirror: from the b-2|b-3 boundary up into b-1', () => {
+    const up = absorbAllChains(BANDS, 1, [LITHO_BODY, DEEPER_LITHO_BODY])
+    const p = absorbAllPrediction(BANDS[1], BANDS[2], up, 3)
+    expect(p?.direction).toBe('up')
+    expect(p?.absorbed.map(b => b.layerId)).toEqual(['b-2'])
+    expect(p?.entered?.layerId).toBe('b-1')
+    expect(p?.depthM).toBe(3)
   })
 })
