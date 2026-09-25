@@ -54,6 +54,7 @@ from groundmodel.api.routers._helpers import (
     require_model_kind,
 )
 from groundmodel.api.schemas.project.geotech_band_edit import (
+    AbsorbGeotechBandRunRequest,
     GeotechBandEditPlanResponse,
     GeotechBandEditResponse,
     GeotechBandIntervalItem,
@@ -83,6 +84,7 @@ from groundmodel.api.schemas.project.geotech_suggestion import (
     SubdivideAllBodiesRequest,
     SubdivideAllBodiesResponse,
 )
+from groundmodel.application.absorb_geotech_band_run import AbsorbGeotechBandRun
 from groundmodel.application.auto_correlate_geotech_edges import AutoCorrelateGeotechEdges
 from groundmodel.application.clear_geotech_column import ClearGeotechColumn
 from groundmodel.application.divide_boreholes import DivideBoreholes
@@ -1723,6 +1725,135 @@ async def move_geotech_boundary(
     logger.info(
         f"move_geotech_boundary ok investigation={result.investigation_id} "
         f"boundary={request.new_depth_m} flagged={len(result.flagged_edge_ids)} "
+        f"removed={len(result.deleted_edge_ids)}"
+    )
+    return _edit_payload(result)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/preview-absorb-run",
+    response_model=GeotechBandEditPlanResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Preview a Ctrl+drag absorb-all (no write)",
+    tags=["geotech"],
+)
+async def preview_absorb_geotech_band_run(
+    project_id: UUID,
+    model_id: UUID,
+    request: AbsorbGeotechBandRunRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditPlanResponse:
+    """Answer what absorbing the passed bands and landing the boundary would do.
+
+    Owner 2026-09-25: the litho ghost Ctrl+drag on packing bands. The run
+    unions into the dragged band and the boundary with the band the release
+    landed in moves there — ONE plan, so the sheet shows the final intervals.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : AbsorbGeotechBandRunRequest
+        The run, the entered band and the released depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditPlanResponse
+        The previewed intervals + advisory warnings.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not geotechnical, the bands sit on a borehole, the
+        run is not contiguous inside one litho body, the entered band does not
+        touch the run, or the depth is not strictly inside it.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/preview-absorb-run "
+        f"run={request.band_ids} entered={request.entered_band_id} depth={request.new_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/preview-absorb-run")
+    try:
+        plan = await PreviewGeotechBandEdit(session).preview_absorb_run(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            band_ids=request.band_ids,
+            entered_band_id=request.entered_band_id,
+            new_depth_m=request.new_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    return _plan_payload(plan)
+
+
+@router.post(
+    "/models/{model_id}/geotech/bands/absorb-run",
+    response_model=GeotechBandEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Commit a Ctrl+drag absorb-all: the run unions, its far boundary moves",
+    tags=["geotech"],
+)
+async def absorb_geotech_band_run(
+    project_id: UUID,
+    model_id: UUID,
+    request: AbsorbGeotechBandRunRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechBandEditResponse:
+    """Commit the absorb-all in one transaction. Only the edited column is rewritten.
+
+    The survivor (the shallowest band of the run) takes the union; the entered
+    band takes the remainder past the released depth; both re-derive their
+    class from the qc. The absorbed bands' accepted ties are transferred to
+    the survivor and flagged, never silently gone (flag-not-drop).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The **geotechnical** model the bands belong to.
+    request : AbsorbGeotechBandRunRequest
+        The run, the entered band and the released depth.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    GeotechBandEditResponse
+        The committed plan, the surviving row ids, the absorbed row ids, and
+        the tie outcome.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        Same refusals as the preview — the two can never disagree.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}/geotech/bands/absorb-run "
+        f"run={request.band_ids} entered={request.entered_band_id} depth={request.new_depth_m}"
+    )
+    await _require_geotech_model(session, project_id, model_id, "geotech/bands/absorb-run")
+    try:
+        result = await AbsorbGeotechBandRun(session).execute(
+            project_id=project_id,
+            geotech_model_id=model_id,
+            band_ids=request.band_ids,
+            entered_band_id=request.entered_band_id,
+            new_depth_m=request.new_depth_m,
+        )
+    except GeotechBandEditError as exc:
+        raise _band_edit_422(exc) from exc
+    logger.info(
+        f"absorb_geotech_band_run ok investigation={result.investigation_id} "
+        f"absorbed={result.deleted_layer_ids} flagged={len(result.flagged_edge_ids)} "
         f"removed={len(result.deleted_edge_ids)}"
     )
     return _edit_payload(result)
