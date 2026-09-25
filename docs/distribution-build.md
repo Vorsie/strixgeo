@@ -400,6 +400,7 @@ which makes `initdb` refuse a non-empty target).
 |---|---|---|
 | `oneClick` | `false` | Assisted installer; the tester still just clicks Next. |
 | `perMachine` | `false` | Per-user install under `%LOCALAPPDATA%\Programs` — **no UAC prompt**, so a coworker whose IT withholds admin can still install. |
+| `createDesktopShortcut` | `true` | Since 0.1.3 (issue #54): a tester on a managed PC found no way to start the app again — the per-user Start menu entry was hidden by policy. The assisted installer still lets the user untick it. Opt-in from 2026-09-03 to 0.1.2. |
 | `deleteAppDataOnUninstall` | `false` | **Data safety.** The database is the live store and the `.strix` is the save artefact; deleting `pgdata` on uninstall would destroy any project not saved to a file. |
 
 Uninstall therefore removes the program and leaves `%APPDATA%\StrixGeo\`. To
