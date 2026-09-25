@@ -68,6 +68,13 @@ export interface BasemapSource {
    * no clamp, the behaviour every other source has always had.
    */
   maxZoom?: number
+  /**
+   * Geographic extent the provider serves, as Leaflet bounds
+   * (``[[south, west], [north, east]]`` in WGS84 degrees). Leaflet skips
+   * tiles outside it, so a regional WMTS is never asked for a tile it
+   * cannot have (Geopunt answers 400 outside Flanders). Omitted = worldwide.
+   */
+  bounds?: readonly [[number, number], [number, number]]
   /** Approximate background colour while tiles load. Keeps the
    * transition from blank-canvas to tiled map less jarring. */
   loadingBg: string
@@ -102,6 +109,14 @@ const GEOPUNT_ORTHO_URL =
   'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
   '&LAYER=omwrgbmrvl&STYLE=&TILEMATRIXSET=GoogleMapsVL' +
   '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png'
+
+// The extent both Geopunt layers declare in their WMTS capabilities
+// (ows:WGS84BoundingBox of omwrgbmrvl and grb_sel, read 2026-09-25). A tile
+// row south of it at level 9 answered 400 in the walker's seed-667388193 run.
+const FLANDERS_BOUNDS: readonly [[number, number], [number, number]] = [
+  [50.685, 2.53],
+  [51.52, 5.92],
+]
 
 const GEOPUNT_GRB_SEL_URL =
   'https://geo.api.vlaanderen.be/GRB/wmts?' +
@@ -174,6 +189,7 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     id: 'geopunt_ortho',
     label: 'Luchtfoto (Geopunt)',
     url: GEOPUNT_ORTHO_URL,
+    bounds: FLANDERS_BOUNDS,
     attribution: GEOPUNT_ATTRIBUTION,
     loadingBg: '#1a1a1a',
   },
@@ -184,6 +200,7 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     id: 'geopunt_hybrid',
     label: 'Luchtfoto + GRB (Geopunt)',
     url: GEOPUNT_ORTHO_URL,
+    bounds: FLANDERS_BOUNDS,
     attribution: GEOPUNT_ATTRIBUTION,
     loadingBg: '#1a1a1a',
     overlay: {
