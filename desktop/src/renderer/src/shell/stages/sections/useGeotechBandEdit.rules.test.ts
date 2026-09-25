@@ -23,6 +23,8 @@ const splitGeotechBand = vi.fn()
 const mergeGeotechBands = vi.fn()
 const mergeGeotechRun = vi.fn()
 const moveGeotechBoundary = vi.fn()
+const previewAbsorbGeotechRun = vi.fn()
+const absorbGeotechRun = vi.fn()
 
 vi.mock('../../../api/client', () => ({
   api: {
@@ -35,6 +37,8 @@ vi.mock('../../../api/client', () => ({
       mergeGeotechBands: (...a: unknown[]) => mergeGeotechBands(...a),
       mergeGeotechRun: (...a: unknown[]) => mergeGeotechRun(...a),
       moveGeotechBoundary: (...a: unknown[]) => moveGeotechBoundary(...a),
+      previewAbsorbGeotechRun: (...a: unknown[]) => previewAbsorbGeotechRun(...a),
+      absorbGeotechRun: (...a: unknown[]) => absorbGeotechRun(...a),
     },
   },
 }))
@@ -668,5 +672,124 @@ describe('a stale view after a committed edit is said out loud', () => {
       await result.current.confirm()
     })
     expect(toast.mock.calls.map(c => c[0])).not.toContain('warning')
+  })
+})
+
+
+describe('Ctrl+drag absorb-all is ONE previewed edit and ONE undo step', () => {
+  // Owner 2026-09-25. The run unions and the far boundary moves in one server
+  // transaction; the sheet shows the final two intervals; ctrl+z moves the
+  // boundary back and re-splits the survivor at every carried boundary.
+  const REQUEST = {
+    runBandIds: ['band-1', 'band-2', 'band-3'],
+    carriedBoundariesM: [4, 6],
+    enteredBandId: 'band-4',
+    enteredOriginalBoundaryM: 8,
+    newDepthM: 9,
+    direction: 'down' as const,
+  }
+  const ABSORB_RUN_RESULT = {
+    deleted_edge_ids: [],
+    flagged_edge_ids: [],
+    investigation_id: 'cpt-1',
+    layer_ids: ['band-1', 'band-4'],
+    created_layer_ids: [],
+    deleted_layer_ids: ['band-2', 'band-3'],
+  }
+
+  it('HK24 — asking previews the final two intervals and writes nothing yet', async () => {
+    previewAbsorbGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    const { result } = renderHook(() => useGeotechBandEdit(deps()))
+    act(() => {
+      result.current.onRequestAbsorbRun?.(REQUEST)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    expect(previewAbsorbGeotechRun).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      ['band-1', 'band-2', 'band-3'],
+      'band-4',
+      9,
+    )
+    expect(absorbGeotechRun).not.toHaveBeenCalled()
+  })
+
+  it('HK25 — confirming commits it once; undo moves the boundary back, then re-splits top down', async () => {
+    previewAbsorbGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    absorbGeotechRun.mockResolvedValue(ABSORB_RUN_RESULT)
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestAbsorbRun?.(REQUEST)
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(absorbGeotechRun).toHaveBeenCalledTimes(1)
+    expect(absorbGeotechRun).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      ['band-1', 'band-2', 'band-3'],
+      'band-4',
+      9,
+    )
+    expect(d.undoStack.push).toHaveBeenCalledTimes(1)
+    const command = d.undoStack.push.mock.calls[0][0]
+    expect(command.descriptionKey).toBe('undo.absorbPackingRun')
+
+    splitGeotechBand
+      .mockResolvedValueOnce({ ...ABSORB_RUN_RESULT, created_layer_ids: ['new-2'], deleted_layer_ids: [] })
+      .mockResolvedValueOnce({ ...ABSORB_RUN_RESULT, created_layer_ids: ['new-3'], deleted_layer_ids: [] })
+    await command.revert()
+    // 1. the boundary with the entered band goes back where it was …
+    expect(moveGeotechBoundary).toHaveBeenCalledWith('proj-1', 'geo-model-1', 'band-1', 'band-4', 8)
+    // 2. … then the survivor is re-split at each carried boundary, top down.
+    expect(splitGeotechBand).toHaveBeenNthCalledWith(1, 'proj-1', 'geo-model-1', 'band-1', 4)
+    expect(splitGeotechBand).toHaveBeenNthCalledWith(2, 'proj-1', 'geo-model-1', 'new-2', 6)
+
+    absorbGeotechRun.mockClear()
+    await command.reapply()
+    // Redo absorbs the FRESH rows, never the dead ids.
+    expect(absorbGeotechRun).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      ['band-1', 'new-2', 'new-3'],
+      'band-4',
+      9,
+    )
+  })
+
+  it('HK26 — a release on the litho wall has no entered band: undo only re-splits', async () => {
+    previewAbsorbGeotechRun.mockResolvedValue(PLAN_WITH_WARNING)
+    absorbGeotechRun.mockResolvedValue({ ...ABSORB_RUN_RESULT, layer_ids: ['band-1'] })
+    const d = deps()
+    const { result } = renderHook(() => useGeotechBandEdit(d))
+    act(() => {
+      result.current.onRequestAbsorbRun?.({
+        ...REQUEST,
+        enteredBandId: null,
+        enteredOriginalBoundaryM: null,
+        newDepthM: 14,
+      })
+    })
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    await act(async () => {
+      await result.current.confirm()
+    })
+    expect(absorbGeotechRun).toHaveBeenCalledWith(
+      'proj-1',
+      'geo-model-1',
+      ['band-1', 'band-2', 'band-3'],
+      null,
+      null,
+    )
+    const command = d.undoStack.push.mock.calls[0][0]
+    splitGeotechBand
+      .mockResolvedValueOnce({ ...ABSORB_RUN_RESULT, created_layer_ids: ['new-2'], deleted_layer_ids: [] })
+      .mockResolvedValueOnce({ ...ABSORB_RUN_RESULT, created_layer_ids: ['new-3'], deleted_layer_ids: [] })
+    await command.revert()
+    expect(moveGeotechBoundary).not.toHaveBeenCalled()
+    expect(splitGeotechBand).toHaveBeenCalledTimes(2)
   })
 })
