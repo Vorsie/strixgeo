@@ -6,6 +6,7 @@ surface so callers import from the package path.
 
 from __future__ import annotations
 
+from .absorb_geotech_band_run_request import AbsorbGeotechBandRunRequest
 from .geotech_band_edit_plan_response import GeotechBandEditPlanResponse
 from .geotech_band_edit_response import GeotechBandEditResponse
 from .geotech_band_interval_item import GeotechBandIntervalItem
@@ -19,6 +20,7 @@ from .set_geotech_statistic_request import SetGeotechStatisticRequest
 from .split_geotech_band_request import SplitGeotechBandRequest
 
 __all__ = [
+    "AbsorbGeotechBandRunRequest",
     "GeotechBandEditPlanResponse",
     "GeotechBandEditResponse",
     "GeotechBandIntervalItem",
