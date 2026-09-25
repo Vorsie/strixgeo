@@ -54,11 +54,18 @@ import type { LithoLayerResponse } from '../../api/client'
 import type { ColumnMenuVerb } from './columnMenuVerbs'
 import { surfaceYForColumn } from './contactsLayerGeometry'
 import {
+  type AbsorbAllChains,
+  type AbsorbAllPrediction,
+  type AbsorbRunRequest,
   type DepthInterval,
   type GeotechBandInterval,
   type SplitClampWall,
+  absorbAllChains,
+  absorbAllPrediction,
+  absorbRunRequestFor,
   bandAtDepth,
   canMergeBands,
+  clampAbsorbAllDepth,
   clampDragDepth,
   clampSplitDepth,
   columnBands,
@@ -172,6 +179,12 @@ export interface Props {
     upperBoundaryDepthM: number,
     lowerBoundaryDepthM: number,
   ) => void
+  /**
+   * Ask to commit a Ctrl+drag absorb-all (owner 2026-09-25): the run unions into the
+   * dragged band and the boundary with the band the release landed in moves there.
+   * Absent → Ctrl+drag behaves as a plain drag.
+   */
+  onRequestAbsorbRun?: (request: AbsorbRunRequest) => void
   /**
    * Geotech formation id → NAD class (``refinement.nadMeta`` flattened). The lens
    * suggestion needs it to see host classes; absent → no badge, no menu item.
@@ -355,6 +368,15 @@ interface BoundaryDrag {
   depthM: number
   atLimit: 'upper' | 'lower' | 'none'
   absorb: 'upper' | 'lower' | null
+  /**
+   * Ctrl held at the press (owner 2026-09-25): the boundary runs through the bands in
+   * its direction inside the litho body instead of clamping to its pair.
+   */
+  absorbAll: boolean
+  /** The bands the absorb-all may pass, both ways; null on a plain drag. */
+  chains: AbsorbAllChains | null
+  /** What the absorb-all release would do this frame; null on a plain drag or at rest. */
+  run: AbsorbAllPrediction | null
 }
 
 /** A remove-band absorb target (the neighbour + their shared boundary). */
@@ -527,6 +549,7 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
       onRequestMerge,
       onRequestMoveBoundary,
       onRequestAbsorbLens,
+      onRequestAbsorbRun,
       nadClassByFormationId,
       soilCodeByFormationId,
       onRequestSetClass,
@@ -926,6 +949,20 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
         return
       }
       const raw = depthAtClientY(e.clientY, prev.svgTop, prev.column.surfaceY, prev.column.pxPerMetre)
+      if (prev.absorbAll && prev.chains !== null) {
+        // Ctrl+drag: the litho body is the wall, and the release is predicted over
+        // every band the boundary passed rather than over its pair alone.
+        const clamped = clampAbsorbAllDepth(prev.chains, raw)
+        const run = absorbAllPrediction(prev.upper, prev.lower, prev.chains, clamped.depthM)
+        applyDrag({
+          ...prev,
+          depthM: clamped.depthM,
+          atLimit: clamped.atLimit,
+          absorb: null,
+          run,
+        })
+        return
+      }
       const clamped = clampDragDepth(prev.upper, prev.lower, raw)
       const absorb = dragAbsorbPrediction(prev.upper, prev.lower, clamped.depthM)
       applyDrag({
@@ -940,6 +977,27 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
       applyDrag(null)
       if (prev === null) return
       if (Math.abs(prev.depthM - prev.preDragDepthM) <= 1e-6) return
+      if (prev.absorbAll && prev.run !== null) {
+        const run = prev.run
+        if (run.absorbed.length === 0) {
+          // Released inside the immediate neighbour: the plain move.
+          onRequestMoveBoundary?.(
+            prev.upper.layerId,
+            prev.lower.layerId,
+            run.depthM,
+            prev.preDragDepthM,
+          )
+          return
+        }
+        if (run.absorbed.length === 1 && run.entered === null) {
+          // Only the immediate neighbour went, to the wall or to a sliver: the
+          // pair MERGE, with its exact undo.
+          onRequestMerge?.(prev.upper.layerId, prev.lower.layerId, prev.preDragDepthM)
+          return
+        }
+        onRequestAbsorbRun?.(absorbRunRequestFor(prev.upper, prev.lower, run))
+        return
+      }
       if (prev.absorb !== null) {
         // The squeeze collapsed a band: the honest verb is the MERGE of the
         // pair, previewed and committed by the shipped endpoints.
@@ -969,7 +1027,7 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('blur', onBlur)
     }
-  }, [drag, applyDrag, onRequestMerge, onRequestMoveBoundary])
+  }, [drag, applyDrag, onRequestMerge, onRequestMoveBoundary, onRequestAbsorbRun])
 
   // Correlate mode taking the canvas mid-drag abandons the drag, exactly as the hit
   // targets vanish: a gesture whose surface disappeared must not commit on release.
@@ -1370,6 +1428,12 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
                             e.stopPropagation()
                             const svg = e.currentTarget.ownerSVGElement
                             if (!svg) return
+                            // Ctrl = absorb-all (owner 2026-09-25), the litho ghost
+                            // gesture; only when someone can commit it.
+                            const absorbAll = e.ctrlKey && onRequestAbsorbRun !== undefined
+                            const pairIndex = column.bands.findIndex(
+                              b => b.layerId === pair.upper.layerId,
+                            )
                             applyDrag({
                               svgTop: svg.getBoundingClientRect().top,
                               column,
@@ -1379,6 +1443,12 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
                               depthM: pair.upper.baseDepthM,
                               atLimit: 'none',
                               absorb: null,
+                              absorbAll,
+                              chains:
+                                absorbAll && pairIndex >= 0
+                                  ? absorbAllChains(column.bands, pairIndex, column.lithoBodies)
+                                  : null,
+                              run: null,
                             })
                           }
                         : undefined
@@ -1392,7 +1462,9 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
                   >
                     <title>
                       {draggable
-                        ? t('sections.bands.dragMoveHint')
+                        ? onRequestAbsorbRun !== undefined
+                          ? t('sections.bands.dragMoveHintAbsorbAll')
+                          : t('sections.bands.dragMoveHint')
                         : t('sections.bands.rightClickMerge')}
                     </title>
                   </rect>
@@ -1556,6 +1628,26 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
             strokeWidth={1.5}
             strokeDasharray="4 3"
           />
+          {drag.run !== null &&
+            drag.run.absorbed.length > 0 &&
+            (() => {
+              // The whole run the release would absorb, hatched as one block.
+              const first = drag.run.absorbed[0]
+              const last = drag.run.absorbed[drag.run.absorbed.length - 1]
+              const top = yAt(drag.column, Math.min(first.topDepthM, last.topDepthM))
+              const base = yAt(drag.column, Math.max(first.baseDepthM, last.baseDepthM))
+              return (
+                <rect
+                  data-testid="geotech-drag-absorb-hint"
+                  x={drag.column.x0}
+                  y={top}
+                  width={drag.column.x1 - drag.column.x0}
+                  height={Math.max(0, base - top)}
+                  fill="var(--section-edit-warn, #b45309)"
+                  fillOpacity={0.25}
+                />
+              )
+            })()}
           {drag.absorb !== null &&
             (() => {
               const victim = drag.absorb === 'upper' ? drag.upper : drag.lower
@@ -1582,7 +1674,21 @@ const GeotechBandEditOverlay = forwardRef<GeotechBandEditOverlayHandle, Props>(
             fontSize={10}
             fill="var(--section-edit-text, #0f172a)"
           >
-            {drag.absorb !== null
+            {drag.run !== null && drag.run.absorbed.length > 0
+              ? t('sections.bands.absorbRunReadout', {
+                  n: drag.run.absorbed.length,
+                  word: t(
+                    drag.run.absorbed.length === 1
+                      ? 'sections.bandEdit.bandWordOne'
+                      : 'sections.bandEdit.bandWordMany',
+                  ),
+                  dir: t(
+                    drag.run.direction === 'down'
+                      ? 'sections.bands.dirAbove'
+                      : 'sections.bands.dirBelow',
+                  ),
+                })
+              : drag.absorb !== null
               ? t('sections.bands.mergeReadout', {
                   dir: t(
                     drag.absorb === 'upper'
