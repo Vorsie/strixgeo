@@ -660,3 +660,31 @@ show is reproduced outside the product before the code is touched again**
 round-trip answers in hours. **Read the library's path from your setting to
 the GPU** — here three functions in one file — before reasoning about depth
 semantics; the answer was a line of source, not a theory.
+
+## One producer of a no-null array contract breaks every reader, and nothing types it (2026-09-25, issue #55)
+
+A tester's CPTE GEF declared `#COLUMNVOID` on the cone-resistance column.
+The parser masked the marker to null and kept the row, so the stored
+`cpt_series.qc_mpa` array carried `None` elements. The ORM said
+`Mapped[list[float]]`, the plot schema said `list[float]`, the renderer said
+`number[]`, and every reader — the Ic chart, the litho segmenter, the SBT
+profile, the geotech subdivision — did arithmetic on it. The first reader
+hit was the chart: `GET /cpt/{id}/plot` answered 500 from
+`robertson_2015.unit_weight` ("'<=' not supported between NoneType and
+float"). A comment in `CptChart.tsx` from May had already spelled the
+contract out ("changing qc_mpa to allow null elements is invasive — ORM,
+persist, API schema, all typed list[float]") and noted that the DOV parser
+skips such rows. The GEF parser was the one producer nobody checked, and
+a PostgreSQL array happily stores a NULL element behind a `list[float]`
+annotation: neither mypy nor the schema nor a test stood between the file
+and the crash, for four months.
+
+Three rules. **A "no null" contract on a stored array is only as good as
+its producers** — list every writer of the column (each parser, each
+importer, restore) and pin the invariant at each, or at the one choke
+point they share. **When a comment says "X never happens because Y
+guards it", grep for the other paths that would also have to guard it**;
+the comment named DOV and was silent on GEF. **A stored violation needs a
+read-side repair, not only a producer fix** — the tester's project already
+held the rows; the ORM `load` hook compacts them so the fix reaches data
+written by earlier builds without a re-import.
