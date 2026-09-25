@@ -172,7 +172,8 @@ class GEFParser(GroundModelLogger):
         Raises
         ------
         ParseError
-            If the file has no #EOH= marker or contains no data rows.
+            If the file has no #EOH= marker, contains no data rows, or no
+            data row carries a cone resistance value.
         """
         lines = content.splitlines()
         header, eoh_index = self._parse_header(lines)
@@ -190,6 +191,15 @@ class GEFParser(GroundModelLogger):
         # null anchor + an ERROR issue (see ``_check_non_finite``).
         df, non_finite_counts = self._replace_non_finite(df)
 
+        # A row whose cone resistance is the void marker (or was non-finite)
+        # has nothing to interpret, and every reader of the stored series —
+        # the Ic chart, the litho segmenter, the SBT profile, the geotech
+        # subdivision — takes qc as a number. The DOV parser skips such a
+        # row at parse time; this does the same, so the stored qc array never
+        # carries a null (issue #55: a null qc reached the unit-weight estimate
+        # and the chart request answered 500).
+        df, rows_without_qc = self._drop_rows_without_qc(df)
+
         # Provenance: capture rf source BEFORE we maybe compute Rf, so we can
         # tell "the GEF file gave us Rf directly" (qty 4 → MEASURED) apart from
         # "we derived Rf from qc and fs" (COMPUTED). qt_mpa (CPTU corrected qc)
@@ -203,7 +213,13 @@ class GEFParser(GroundModelLogger):
             rf_source = DerivedValueSource.COMPUTED
 
         issues = self._validate(
-            header, df, cpt_type, depth_from_length, skipped_rows, non_finite_counts
+            header,
+            df,
+            cpt_type,
+            depth_from_length,
+            skipped_rows,
+            non_finite_counts,
+            rows_without_qc,
         )
         # When the GEF file's ``#ZID=`` header provided an elevation we
         # stamp ``GEF``; when it didn't, we stamp ``NONE`` so the row
@@ -663,6 +679,47 @@ class GEFParser(GroundModelLogger):
     # Validation
     # ------------------------------------------------------------------
 
+    def _drop_rows_without_qc(self, df: pl.DataFrame) -> tuple[pl.DataFrame, int]:
+        """Drop every data row whose cone resistance is null.
+
+        Runs after void masking and non-finite replacement, so a qc that was
+        the file's void marker or NaN/inf is null here. A file without a qc
+        column is left to ``_check_required_columns`` to report.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            The frame after void masking, renaming and unit normalisation.
+
+        Returns
+        -------
+        tuple[pl.DataFrame, int]
+            The frame without those rows, and how many were dropped.
+
+        Raises
+        ------
+        ParseError
+            When no row at all carries a cone resistance value — there is
+            nothing to import, and a silent empty series would look like a
+            successful import.
+        """
+        if "qc_mpa" not in df.columns:
+            return df, 0
+        kept = df.filter(pl.col("qc_mpa").is_not_null())
+        dropped = df.height - kept.height
+        if dropped == 0:
+            return df, 0
+        if kept.height == 0:
+            raise ParseError(
+                f"GEF file has {dropped} data row(s) but none carries a cone "
+                "resistance value — every qc is the file's void marker"
+            )
+        self.warning(
+            f"GEF: {dropped} of {df.height} data row(s) carry no cone resistance "
+            "(void marker) — dropped; the depth series has gaps there"
+        )
+        return kept, dropped
+
     def _validate(
         self,
         header: GEFHeader,
@@ -671,6 +728,7 @@ class GEFParser(GroundModelLogger):
         depth_from_length: bool,
         skipped_rows: int,
         non_finite_counts: dict[str, int],
+        rows_without_qc: int = 0,
     ) -> list[ValidationIssue]:
         checks = [
             self._check_column_count(header),
@@ -678,6 +736,7 @@ class GEFParser(GroundModelLogger):
             self._check_crs_codes(header),
             self._check_uncorrected_depth(depth_from_length),
             self._check_skipped_rows(skipped_rows, df.height),
+            self._check_rows_without_qc(rows_without_qc, df.height),
             self._check_non_finite(non_finite_counts),
             self._check_required_columns(df, cpt_type),
             self._check_depth_monotonic(df),
@@ -912,6 +971,35 @@ class GEFParser(GroundModelLogger):
                 "SKIPPED_ROWS",
                 f"{skipped_rows} of {skipped_rows + kept_rows} data line(s) could not "
                 "be read as numbers and were dropped — the depth series has gaps",
+            )
+        ]
+
+    def _check_rows_without_qc(self, rows_without_qc: int, kept_rows: int) -> list[ValidationIssue]:
+        """Report data rows dropped because their cone resistance was null.
+
+        Parameters
+        ----------
+        rows_without_qc : int
+            Count of rows ``_drop_rows_without_qc`` removed.
+        kept_rows : int
+            Count of rows that made it into the frame.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            One ``ROWS_WITHOUT_QC`` INFO, or empty. INFO, not WARNING: a
+            pre-drilled stretch is routinely written as void rows, so the
+            file is not degraded — the engineer just sees where the gap is.
+        """
+        if rows_without_qc <= 0:
+            return []
+        return [
+            ValidationIssue(
+                ValidationLevel.INFO,
+                "ROWS_WITHOUT_QC",
+                f"{rows_without_qc} of {rows_without_qc + kept_rows} data row(s) carried "
+                "no cone resistance (void marker) and were dropped — the depth "
+                "series has gaps there",
             )
         ]
 
