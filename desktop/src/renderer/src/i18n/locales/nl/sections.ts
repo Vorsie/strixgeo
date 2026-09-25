@@ -853,18 +853,23 @@ export const SECTIONS_NL = {
   'sections.geotech.statisticName.harmonic': 'harmonisch',
   'sections.geotech.statisticName.geometric': 'meetkundig',
   'sections.bands.dragMoveHint': 'Sleep om deze pakkingsgrens te verplaatsen · rechtsklik om de banden samen te voegen',
+  'sections.bands.dragMoveHintAbsorbAll':
+    'Sleep om deze pakkingsgrens te verplaatsen · Ctrl+slepen om elke band die je passeert op te nemen · rechtsklik om de banden samen te voegen',
   'sections.bands.rightClickMerge': 'Rechtsklik om deze twee pakkingsbanden samen te voegen',
   'sections.bands.placeReadout': '{depth} m. Klik om te plaatsen, Esc om te annuleren',
   'sections.bands.mergeReadout': 'laat los om samen te voegen met de band {dir}: klasse opnieuw afgeleid over de vereniging',
   'sections.bands.dirBelow': 'eronder',
   'sections.bands.dirAbove': 'erboven',
   'sections.bands.moveReadout': '{depth} m. Laat los om te verplaatsen, Esc om te annuleren',
+  'sections.bands.absorbRunReadout':
+    'laat los om {n} {word} op te nemen in de band {dir}: klassen opnieuw afgeleid, Esc om te annuleren',
   'sections.bands.currentSuffix': ' (huidig)',
   // De "(huidig: X)"-markering op de "Pakkingsklasse ▸"-submenurij (owner #35).
   'sections.bands.packingClassCurrent': '(huidig: {label})',
   'sections.bands.toast.splitHere': 'Band gesplitst.',
   'sections.bands.foreignClassSuffix': ' (huidig, een {family}-klasse op deze grondsoort)',
   'sections.bandDialog.moveTitle': 'Deze pakkingsgrens verplaatsen?',
+  'sections.bandDialog.absorbTitle': 'De gepasseerde pakkingsbanden opnemen?',
   'sections.bandDialog.mergeTitle': 'Deze pakkingsbanden samenvoegen?',
   'sections.bandDialog.splitTitle': 'Deze pakkingsband splitsen?',
   'sections.bandDialog.rederiveBlurb': 'De pakkingsklasse wordt opnieuw afgeleid uit de conusweerstand over elk resulterend interval, binnen het litholichaam op {range}. Alleen deze kolom wordt opnieuw afgeleid.',
@@ -875,6 +880,7 @@ export const SECTIONS_NL = {
   // FLAG alt: klasse {n} | NAD-klasse {n} — borders the NAD domain-canon carve-out; "class" is a UI label here, the number is the NAD class.
   'sections.bandDialog.classLabel': 'klasse {n}',
   'sections.bandDialog.verbMove': 'Grens verplaatsen',
+  'sections.bandDialog.verbAbsorb': 'Banden opnemen',
   'sections.bandDialog.verbMerge': 'Banden samenvoegen',
   'sections.bandDialog.verbSplit': 'Band splitsen',
   'sections.toast.loadFailed': 'Laden van dwarsprofielen mislukt.',
@@ -920,6 +926,8 @@ export const SECTIONS_NL = {
   'sections.bandEdit.mergePlanFailed': 'Kon niet bepalen wat die samenvoeging zou doen. Probeer opnieuw.',
   'sections.bandEdit.movePlanFailed': 'Kon niet bepalen wat die verplaatsing zou doen. Probeer opnieuw.',
   'sections.bandEdit.absorbPlanFailed': 'Kon niet bepalen wat die opname zou doen. Probeer opnieuw.',
+  'sections.bandEdit.absorbRunPlanFailed':
+    'Kon niet bepalen wat het opnemen van die banden zou doen. Probeer opnieuw.',
   'sections.bandEdit.classSet': 'Klasse ingesteld op NAD {nadClass}.',
   'sections.bandEdit.classSetFlagged': 'Klasse ingesteld op NAD {nadClass}; {flagged} {word} gemarkeerd voor nazicht.',
   'sections.bandEdit.acceptedTieOne': 'aanvaarde koppeling',
