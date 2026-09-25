@@ -465,3 +465,175 @@ export function dragAbsorbPrediction(
   if (lowerCollapses) return { side: 'lower' }
   return null
 }
+
+
+// ---------------------------------------------------------------------------
+// Ctrl+drag absorb-all (owner 2026-09-25: "ctrl drag over multiple geotech
+// ghost to absorb them") — the litho ghost gesture (PR #53) on packing bands.
+// ---------------------------------------------------------------------------
+
+/** The bands a Ctrl+drag can run through, outward from the pressed boundary. */
+export interface AbsorbAllChains {
+  /** Downward: the lower band of the pair, then each mergeable band beneath it. */
+  down: GeotechBandInterval[]
+  /** Upward: the upper band of the pair, then each mergeable band above it. */
+  up: GeotechBandInterval[]
+}
+
+/**
+ * Collect the bands a Ctrl+drag from the boundary below ``bands[pairIndex]`` may pass.
+ *
+ * Each direction walks outward while the next boundary is merge-legal (same litho
+ * body, touching) — the litho contact ends the chain, exactly where the pair merge
+ * is refused. The chain is the wall of the gesture; the pair is not.
+ *
+ * @param bands - The column's packing bands, top to bottom.
+ * @param pairIndex - Index of the pair's UPPER band; the boundary is its base.
+ * @param lithoBodies - The column's litho bodies.
+ * @returns The two chains, each ordered outward from the boundary.
+ */
+export function absorbAllChains(
+  bands: readonly GeotechBandInterval[],
+  pairIndex: number,
+  lithoBodies: readonly DepthInterval[],
+): AbsorbAllChains {
+  const down: GeotechBandInterval[] = []
+  for (let i = pairIndex + 1; i < bands.length; i++) {
+    if (!canMergeBands(bands[i - 1], bands[i], lithoBodies).ok) break
+    down.push(bands[i])
+  }
+  const up: GeotechBandInterval[] = []
+  for (let i = pairIndex; i >= 0; i--) {
+    if (i < pairIndex && !canMergeBands(bands[i], bands[i + 1], lithoBodies).ok) break
+    up.push(bands[i])
+  }
+  return { down, up }
+}
+
+/**
+ * Clamp a Ctrl+drag to the litho body: the far end of each chain, exactly.
+ *
+ * Unlike {@link clampDragDepth} no epsilon is kept back: landing ON the wall is the
+ * gesture that absorbs every band in that direction, and it must be reachable.
+ *
+ * @param chains - The chains from {@link absorbAllChains}.
+ * @param rawDepthM - The cursor's depth this frame.
+ * @returns The clamped depth and which wall stopped it, if any.
+ */
+export function clampAbsorbAllDepth(chains: AbsorbAllChains, rawDepthM: number): ClampedDragDepth {
+  const min = chains.up[chains.up.length - 1].topDepthM
+  const max = chains.down[chains.down.length - 1].baseDepthM
+  if (rawDepthM < min) return { depthM: min, atLimit: 'upper' }
+  if (rawDepthM > max) return { depthM: max, atLimit: 'lower' }
+  return { depthM: rawDepthM, atLimit: 'none' }
+}
+
+/** What releasing a Ctrl+drag at a depth would do. */
+export interface AbsorbAllPrediction {
+  /** Which way the boundary travelled from its resting depth. */
+  direction: 'down' | 'up'
+  /** The bands fully passed (or squeezed to the pair-absorb sliver), outward. */
+  absorbed: GeotechBandInterval[]
+  /** The band the release lands in, keeping its far edge; null on the wall. */
+  entered: GeotechBandInterval | null
+  /** Where the boundary lands: the release depth, or the last absorbed band's far edge. */
+  depthM: number
+}
+
+/**
+ * Predict a Ctrl+drag release: every band the boundary fully passed is absorbed,
+ * a band squeezed to the same sliver the pair absorb uses is absorbed too, and
+ * the band the release stops in is entered at the released depth.
+ *
+ * @param upper - The pair's upper band (resting boundary = its base).
+ * @param lower - The pair's lower band.
+ * @param chains - The chains from {@link absorbAllChains}.
+ * @param depthM - The (clamped) release depth.
+ * @returns The prediction, or null when the boundary has not moved.
+ */
+export function absorbAllPrediction(
+  upper: DepthInterval,
+  lower: DepthInterval,
+  chains: AbsorbAllChains,
+  depthM: number,
+): AbsorbAllPrediction | null {
+  const restingM = upper.baseDepthM
+  if (Math.abs(depthM - restingM) <= 1e-9) return null
+  const direction: 'down' | 'up' = depthM > restingM ? 'down' : 'up'
+  const chain = direction === 'down' ? chains.down : chains.up
+  const absorbed: GeotechBandInterval[] = []
+  for (const band of chain) {
+    const remaining = direction === 'down' ? band.baseDepthM - depthM : depthM - band.topDepthM
+    if (remaining <= 1e-9) {
+      absorbed.push(band)
+      continue
+    }
+    if (remaining < absorbRemainderThresholdM(band.baseDepthM - band.topDepthM)) {
+      absorbed.push(band)
+      return {
+        direction,
+        absorbed,
+        entered: null,
+        depthM: direction === 'down' ? band.baseDepthM : band.topDepthM,
+      }
+    }
+    return { direction, absorbed, entered: band, depthM }
+  }
+  // Past the whole chain: the wall.
+  const last = chain[chain.length - 1]
+  return {
+    direction,
+    absorbed,
+    entered: null,
+    depthM: direction === 'down' ? last.baseDepthM : last.topDepthM,
+  }
+  void lower
+}
+
+/** What the overlay asks for on a Ctrl+drag release that absorbed something. */
+export interface AbsorbRunRequest {
+  /** The run that unions, TOP TO BOTTOM: the dragged band plus every band absorbed. */
+  runBandIds: string[]
+  /** The run's internal boundaries today, top to bottom — the undo re-splits there. */
+  carriedBoundariesM: number[]
+  /** The band the release landed in; null when the drag reached the litho wall. */
+  enteredBandId: string | null
+  /** The boundary between the run and the entered band today — the undo moves it back. */
+  enteredOriginalBoundaryM: number | null
+  /** Where the boundary lands. */
+  newDepthM: number
+  direction: 'down' | 'up'
+}
+
+/**
+ * Turn a Ctrl+drag prediction into the request the hook previews and commits.
+ *
+ * @param upper - The pair's upper band.
+ * @param lower - The pair's lower band.
+ * @param prediction - A prediction with at least one absorbed band.
+ * @returns The request, with the run ordered top to bottom.
+ */
+export function absorbRunRequestFor(
+  upper: GeotechBandInterval,
+  lower: GeotechBandInterval,
+  prediction: AbsorbAllPrediction,
+): AbsorbRunRequest {
+  const run =
+    prediction.direction === 'down'
+      ? [upper, ...prediction.absorbed]
+      : [...prediction.absorbed].reverse().concat(lower)
+  const outermost = prediction.absorbed[prediction.absorbed.length - 1]
+  return {
+    runBandIds: run.map(b => b.layerId),
+    carriedBoundariesM: run.slice(0, -1).map(b => b.baseDepthM),
+    enteredBandId: prediction.entered?.layerId ?? null,
+    enteredOriginalBoundaryM:
+      prediction.entered === null
+        ? null
+        : prediction.direction === 'down'
+          ? outermost.baseDepthM
+          : outermost.topDepthM,
+    newDepthM: prediction.depthM,
+    direction: prediction.direction,
+  }
+}
