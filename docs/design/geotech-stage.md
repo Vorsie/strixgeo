@@ -388,6 +388,17 @@ interval. The surface is six verbs wide:
   Squeezing a neighbour below `max(0.1 m, 15 %)` of its original thickness
   (`absorbRemainderThresholdM`, hoisted from `lithoLayerMerge.ts` — the SAME
   rule the litho axis absorbs by) turns the release into the pair MERGE.
+* **Ctrl+drag absorb-all** (owner 2026-09-25 — the litho ghost gesture of PR #53
+  on packing bands) — with Ctrl held at the press the boundary is clamped to the
+  LITHO BODY instead of its pair (`absorbAllChains` / `clampAbsorbAllDepth`), and
+  every band it fully passes (or squeezes to the same sliver) is absorbed into
+  the dragged band while the band the release lands in keeps its far edge
+  (`absorbAllPrediction`). The release is ONE edit: `POST …/bands/absorb-run`
+  (`AbsorbGeotechBandRun`, planned by `plan_absorb_run`) unions the run and moves
+  the far boundary in one transaction, previewed over the FINAL intervals
+  (ruling 6). Undo moves the boundary back and re-splits the survivor at each
+  carried boundary, top down. A release inside the immediate neighbour is the
+  plain move; the neighbour alone squeezed is the pair merge.
 * **Remove band** — band menu → "Remove band (merge into band above/below)",
   offered exactly where that merge is legal (no affordance rather than a
   refusing item; a sole band in its body has nothing to absorb it). Zero
