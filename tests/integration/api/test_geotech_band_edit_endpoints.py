@@ -1761,3 +1761,92 @@ async def test_os3_a_swept_unit_comes_back_when_the_next_divide_needs_it(
     assert keys_before <= keys_after_redivide, (
         "every unit the sweep retired must be back after the divide that needs it"
     )
+
+
+# ---------------------------------------------------------------------------
+# AR — Ctrl+drag absorb-all: the run unions and the far boundary moves (owner 2026-09-25)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ar1_an_absorb_run_unions_the_passed_bands_and_lands_in_the_entered_one(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """AR1 — three rows become two: the union to the released depth, the remainder past it."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    split = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(a_bands[0].id), "split_depth_m": 2.0},
+    )
+    assert split.status_code == 200, split.text
+    db_session.expire_all()
+    three = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert len(three) == 3
+    absorbed_id = three[1].id
+
+    preview = await async_client.post(
+        _band_url(band_scene, gid, "preview-absorb-run"),
+        json={
+            "band_ids": [str(three[0].id), str(three[1].id)],
+            "entered_band_id": str(three[2].id),
+            "new_depth_m": 5.0,
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["kind"] == "absorb"
+    assert [(i["depth_top_m"], i["depth_base_m"]) for i in preview.json()["intervals"]] == [
+        (0.0, 5.0),
+        (5.0, 8.0),
+    ]
+
+    resp = await async_client.post(
+        _band_url(band_scene, gid, "absorb-run"),
+        json={
+            "band_ids": [str(three[0].id), str(three[1].id)],
+            "entered_band_id": str(three[2].id),
+            "new_depth_m": 5.0,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted_layer_ids"] == [str(absorbed_id)]
+
+    db_session.expire_all()
+    after = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    assert [(round(b.depth_top_m, 3), round(b.depth_base_m, 3)) for b in after] == [
+        (0.0, 5.0),
+        (5.0, 8.0),
+    ]
+    assert after[0].id == three[0].id and after[1].id == three[2].id
+    assert after[0].source == "manual" and after[1].source == "manual"
+    assert await db_session.get(LithoLayerOrm, absorbed_id) is None
+    assert await db_session.get(FormationContactOrm, absorbed_id) is None
+    mirror = await db_session.get(FormationContactOrm, three[2].id)
+    assert mirror is not None and round(mirror.depth_top_m, 3) == 5.0
+
+
+@pytest.mark.asyncio
+async def test_ar2_the_entered_band_must_touch_the_run_and_the_preview_refuses_alike(
+    band_scene: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """AR2 — a band the drag never reached is a 422 on preview and on commit, nothing written."""
+    gid = await _subdivide(async_client, band_scene)
+    a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    split = await async_client.post(
+        _band_url(band_scene, gid, "split"),
+        json={"band_id": str(a_bands[0].id), "split_depth_m": 2.0},
+    )
+    assert split.status_code == 200, split.text
+    db_session.expire_all()
+    three = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
+    body = {
+        "band_ids": [str(three[0].id), str(three[1].id)],
+        "entered_band_id": str(three[1].id),  # inside the run, not past it
+        "new_depth_m": 2.5,
+    }
+    for tail in ("preview-absorb-run", "absorb-run"):
+        resp = await async_client.post(_band_url(band_scene, gid, tail), json=body)
+        assert resp.status_code == 422, resp.text
+        assert "Absorb rejected" in resp.json()["detail"]["message"]
+    db_session.expire_all()
+    assert len(await _bands_on(db_session, gid, band_scene["cpt_a_id"])) == 3
