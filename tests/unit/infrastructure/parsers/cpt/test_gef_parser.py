@@ -879,14 +879,25 @@ class TestRecordAndColumnSeparators:
         """A record separator that can occur inside a number is refused too."""
         # Same rule as the column separator: cutting the record at '-' throws
         # away every value that follows a minus sign on the line. Here the void
-        # marker sits in the MIDDLE column, so honouring the declaration would
-        # also lose the perfectly good sleeve friction behind it.
-        header = _BASE_HEADER + "#RECORDSEPARATOR= -\n#COLUMNVOID= 2, -9999.0\n"
-        data = "0.20; -9999.0; 0.05\n0.40; 1.5; 0.06\n0.60; 2.0; 0.07\n"
+        # marker sits in a MIDDLE column (fs — a void qc row is dropped, see
+        # TestRowsWithoutQc), so honouring the declaration would also lose the
+        # perfectly good pore pressure behind it.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 4\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+            "#COLUMNINFO= 3, MPa, sleeve friction, 3\n"
+            "#COLUMNINFO= 4, MPa, pore pressure u2, 6\n"
+            "#RECORDSEPARATOR= -\n#COLUMNVOID= 3, -9999.0\n"
+        )
+        data = "0.20; 1.0; -9999.0; 0.02\n0.40; 1.5; 0.06; 0.02\n0.60; 2.0; 0.07; 0.02\n"
         result = parser.parse(_gef(header=header, data=data))
         assert len(result.data) == 3
-        assert result.data["qc_mpa"][0] is None
-        assert result.data["fs_mpa"][0] == pytest.approx(0.05)
+        assert result.data["fs_mpa"][0] is None
+        assert result.data["u2_mpa"][0] == pytest.approx(0.02)
 
     def test_unparseable_rows_name_the_offending_line_not_an_empty_file(
         self, parser: GEFParser
@@ -1025,18 +1036,20 @@ class TestNonFiniteValues:
         )
 
     @pytest.mark.parametrize("token", ["nan", "inf", "-inf"])
-    def test_non_finite_measurement_is_nulled_and_warned_not_errored(
+    def test_non_finite_measurement_drops_the_row_and_warns_not_errors(
         self, parser: GEFParser, token: str
     ) -> None:
-        """A non-finite qc reading is nulled and flagged WARNING — not ERROR.
+        """A non-finite qc reading is a hole, flagged WARNING — the file is not refused.
 
-        A missing reading is a hole, not a corrupt anchor: the row is still
-        placeable at its (finite) depth.
+        A missing reading is a hole, not a corrupt anchor: the file keeps
+        its other rows and imports. The row itself goes with the other rows
+        without a cone resistance (see ``TestRowsWithoutQc``) — a null qc
+        has no reader.
         """
         data = f"0.20; {token}; 0.05\n0.40; 1.5; 0.06\n"
         result = parser.parse(_gef(data=data))
-        qc = result.data["qc_mpa"].to_list()
-        assert qc[0] is None, f"non-finite qc ({token}) must be nulled, got {qc[0]!r}"
+        assert result.data["depth_m"].to_list() == [0.40]
+        assert result.data["qc_mpa"].null_count() == 0
         assert "NON_FINITE_VALUES" in _warning_codes(result)
         assert "NON_FINITE_DEPTH" not in _error_codes(result)
 
@@ -1046,3 +1059,50 @@ class TestNonFiniteValues:
         assert "NON_FINITE_DEPTH" not in _error_codes(result)
         assert "NON_FINITE_VALUES" not in _warning_codes(result)
         assert result.data["depth_m"].to_list() == [0.2, 0.4, 0.6]
+
+
+# ---------------------------------------------------------------------------
+# Rows without a cone resistance value
+# ---------------------------------------------------------------------------
+
+
+class TestRowsWithoutQc:
+    """A data row whose qc is the file's void marker is dropped, as the DOV parser does.
+
+    Tester report 2026-09-24 (issue #55): a CPTE GEF with the void marker in
+    some qc rows imported fine, then the chart request answered 500 — a null
+    qc reached the Robertson 2015 unit-weight estimate. Every reader of the
+    stored series (the Ic chart, the litho segmenter, the SBT profile, the
+    geotech subdivision) takes qc as a number, so a row without one has no
+    place in the stored series.
+    """
+
+    _VOID_QC_HEADER = _BASE_HEADER + "#COLUMNVOID= 2, -9999.0\n"
+
+    def test_a_row_whose_qc_is_the_void_marker_is_dropped(self, parser: GEFParser) -> None:
+        data = "0.20; 1.0; 0.05\n0.40; -9999.0; 0.06\n0.60; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._VOID_QC_HEADER, data=data))
+        assert result.data["depth_m"].to_list() == [0.20, 0.60]
+        assert result.data["qc_mpa"].null_count() == 0
+        assert result.data["fs_mpa"].to_list() == [0.05, 0.07]
+
+    def test_the_dropped_rows_are_reported_as_info(self, parser: GEFParser) -> None:
+        data = "0.20; 1.0; 0.05\n0.40; -9999.0; 0.06\n0.60; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._VOID_QC_HEADER, data=data))
+        issue = next(i for i in result.issues if i.code == "ROWS_WITHOUT_QC")
+        assert issue.level == ValidationLevel.INFO
+        assert "1 of 3" in issue.message
+
+    def test_a_row_with_a_void_fs_only_is_kept(self, parser: GEFParser) -> None:
+        """Near miss: only the cone resistance decides; a missing fs stays a null fs."""
+        header = _BASE_HEADER + "#COLUMNVOID= 3, -9999.0\n"
+        data = "0.20; 1.0; -9999.0\n0.40; 1.5; 0.06\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert result.data.height == 2
+        assert result.data["fs_mpa"][0] is None
+        assert "ROWS_WITHOUT_QC" not in _codes(result)
+
+    def test_a_file_whose_every_qc_is_void_is_refused(self, parser: GEFParser) -> None:
+        data = "0.20; -9999.0; 0.05\n0.40; -9999.0; 0.06\n"
+        with pytest.raises(ParseError, match="cone resistance"):
+            parser.parse(_gef(header=self._VOID_QC_HEADER, data=data))
