@@ -350,6 +350,7 @@ export const PANELS_NL = {
   'undo.movePackingBoundary': 'Pakkingsgrens verplaatsen',
   'undo.splitPackingBand': 'Pakkingsband splitsen',
   'undo.absorbPackingLens': 'Pakkingslens opnemen',
+  'undo.absorbPackingRun': 'Pakkingsbanden opnemen',
   'undo.mergePackingBands': 'Pakkingsbanden samenvoegen',
   'undo.disconnectPackingBands': 'Pakkingsbanden loskoppelen',
   // Boring-lidmaatschap + hoogte.
