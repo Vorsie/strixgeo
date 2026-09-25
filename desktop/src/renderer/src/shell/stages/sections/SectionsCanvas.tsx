@@ -3231,6 +3231,9 @@ export default function SectionsCanvas(): JSX.Element {
             onRequestGeotechAbsorbLens={
               isGeotech ? geotechBandEdit.onRequestAbsorbLens : undefined
             }
+            onRequestGeotechAbsorbRun={
+              isGeotech ? geotechBandEdit.onRequestAbsorbRun : undefined
+            }
             onRequestGeotechSetBandClass={
               isGeotech ? geotechBandEdit.onRequestSetBandClass : undefined
             }
