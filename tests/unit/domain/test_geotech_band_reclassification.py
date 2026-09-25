@@ -24,6 +24,7 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.services.geotech_band_reclassification import (
+    KIND_ABSORB,
     KIND_MERGE,
     KIND_MOVE,
     WARNING_BELOW_MINIMUM_THICKNESS,
@@ -33,6 +34,7 @@ from groundmodel.domain.services.geotech_band_reclassification import (
     GeotechBandEditError,
     ProposedInterval,
     enclosing_litho_bounds,
+    plan_absorb_run,
     plan_merge,
     plan_merge_run,
     plan_move,
@@ -1446,3 +1448,156 @@ def test_gw8_control_a_split_outside_the_litho_body_is_still_refused() -> None:
             min_thickness_m=0.1,
         )
     assert "litho" in str(err.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# AR — plan_absorb_run: Ctrl+drag absorb-all on the geotech axis (owner 2026-09-25)
+# ---------------------------------------------------------------------------
+#
+# "Add the ctrl drag over multiple geotech ghost to absorb them" — the litho
+# ghost gesture (PR #53) on packing bands: the dragged boundary runs through
+# every band it passes, those bands union into the dragged one, and the
+# boundary with the band the release landed in moves to the released depth.
+# ONE plan, so the consequence sheet shows the final two intervals and never
+# an intermediate union that exists on no screen.
+
+
+def test_ar1_a_downward_absorb_unions_the_run_and_lands_in_the_entered_band() -> None:
+    """AR1 - b1's base dragged through b2 and b3, released inside b4."""
+    depths, qc = _series([(0.0, 1.0, 5.0), (1.0, 4.0, 18.0), (4.0, 6.0, 5.0)])
+    bands = [
+        _band("b1", 0.0, 1.0, 6),
+        _band("b2", 1.0, 2.0, 8),
+        _band("b3", 2.0, 3.0, 8),
+        _band("b4", 3.0, 6.0, 6),
+    ]
+    plan = plan_absorb_run(
+        bands=bands,
+        band_ids=["b1", "b2", "b3"],
+        entered_band_id="b4",
+        new_depth_m=4.5,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    assert plan.kind == KIND_ABSORB
+    merged, entered = plan.intervals
+    assert (merged.depth_top_m, merged.depth_base_m) == (0.0, 4.5)
+    assert (entered.depth_top_m, entered.depth_base_m) == (4.5, 6.0)
+    # Both survivors re-derive over their NEW extents (ruling 3), never carried.
+    assert merged.nad_class is not None and entered.nad_class is not None
+    assert (plan.parent_top_m, plan.parent_base_m) == (0.0, 6.0)
+
+
+def test_ar2_an_upward_absorb_is_the_mirror() -> None:
+    """AR2 - b4's top dragged up through b3 and b2, released inside b1."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [
+        _band("b1", 0.0, 1.0, 6),
+        _band("b2", 1.0, 2.0, 8),
+        _band("b3", 2.0, 3.0, 8),
+        _band("b4", 3.0, 6.0, 6),
+    ]
+    plan = plan_absorb_run(
+        bands=bands,
+        band_ids=["b4", "b3", "b2"],  # any order — normalised by depth
+        entered_band_id="b1",
+        new_depth_m=0.5,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    entered, merged = plan.intervals
+    assert (entered.depth_top_m, entered.depth_base_m) == (0.0, 0.5)
+    assert (merged.depth_top_m, merged.depth_base_m) == (0.5, 6.0)
+
+
+def test_ar3_released_at_the_litho_wall_there_is_no_entered_band_and_one_union() -> None:
+    """AR3 - dragged past every band to the wall: the run is the whole union."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [_band("b1", 0.0, 1.0, 6), _band("b2", 1.0, 2.0, 8), _band("b3", 2.0, 6.0, 8)]
+    plan = plan_absorb_run(
+        bands=bands,
+        band_ids=["b1", "b2", "b3"],
+        entered_band_id=None,
+        new_depth_m=None,
+        soil="ZAND",
+        admixtures=(),
+        depth_m=depths,
+        qc_mpa=qc,
+        min_thickness_m=0.35,
+    )
+    assert plan.kind == KIND_ABSORB
+    assert len(plan.intervals) == 1
+    assert (plan.intervals[0].depth_top_m, plan.intervals[0].depth_base_m) == (0.0, 6.0)
+
+
+def test_ar4_the_entered_band_must_touch_the_far_end_of_the_run() -> None:
+    """AR4 - a band the drag never reached cannot be the one it landed in."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [
+        _band("b1", 0.0, 1.0, 6),
+        _band("b2", 1.0, 2.0, 8),
+        _band("b3", 2.0, 3.0, 8),
+        _band("b4", 3.0, 6.0, 6),
+    ]
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_absorb_run(
+            bands=bands,
+            band_ids=["b1", "b2"],
+            entered_band_id="b4",  # b3 sits between the run and b4
+            new_depth_m=4.0,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+    assert "Absorb rejected" in str(err.value)
+
+
+def test_ar5_the_released_depth_must_lie_strictly_inside_the_entered_band() -> None:
+    """AR5 - a release inside the run itself is a shorter absorb, not this one."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [_band("b1", 0.0, 1.0, 6), _band("b2", 1.0, 2.0, 8), _band("b3", 2.0, 6.0, 8)]
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_absorb_run(
+            bands=bands,
+            band_ids=["b1", "b2"],
+            entered_band_id="b3",
+            new_depth_m=1.5,  # inside b2, not b3
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+    assert "Absorb rejected" in str(err.value)
+
+
+def test_ar6_a_run_never_crosses_a_litho_contact() -> None:
+    """AR6 - ruling 2 holds for the run exactly as for a pair merge."""
+    depths, qc = _series([(0.0, 6.0, 12.0)])
+    bands = [
+        _band("b1", 0.0, 1.0, 6, litho=LITHO_A),
+        _band("b2", 1.0, 2.0, 8, litho=LITHO_A),
+        _band("b3", 2.0, 6.0, 8, litho=LITHO_B),
+    ]
+    with pytest.raises(GeotechBandEditError) as err:
+        plan_absorb_run(
+            bands=bands,
+            band_ids=["b1", "b2", "b3"],
+            entered_band_id=None,
+            new_depth_m=None,
+            soil="ZAND",
+            admixtures=(),
+            depth_m=depths,
+            qc_mpa=qc,
+            min_thickness_m=0.35,
+        )
+    assert "Absorb rejected" in str(err.value)
+    assert "lithostratigraphic" in str(err.value)
