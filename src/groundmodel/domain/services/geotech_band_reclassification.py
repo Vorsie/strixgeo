@@ -84,6 +84,7 @@ told — the class is the thing that ships.
 KIND_SPLIT = "split"
 KIND_MERGE = "merge"
 KIND_MOVE = "move"
+KIND_ABSORB = "absorb"
 
 
 class GeotechBandEditError(ValueError):
@@ -1025,6 +1026,158 @@ def plan_move(
     )
     return BandEditPlan(
         kind=KIND_MOVE,
+        parent_top_m=parent_top,
+        parent_base_m=parent_base,
+        intervals=outcomes,
+        warnings=_build_warnings(outcomes, min_thickness_m),
+        statistic=statistic,
+    )
+
+
+def plan_absorb_run(
+    *,
+    bands: Sequence[GeotechBand],
+    band_ids: Sequence[str],
+    entered_band_id: str | None,
+    new_depth_m: float | None,
+    soil: BaseLithology | None,
+    admixtures: tuple[Admixture, ...],
+    depth_m: Sequence[float],
+    qc_mpa: Sequence[float | None],
+    min_thickness_m: float,
+    statistic: str = DEFAULT_STATISTIC,
+) -> BandEditPlan:
+    """Plan a Ctrl+drag absorb-all: a run unions and its far boundary moves, in ONE plan.
+
+    Owner 2026-09-25 ("ctrl drag over multiple geotech ghost to absorb them"):
+    the litho ghost gesture on packing bands. The dragged boundary runs through
+    every band it passes; those bands union into the dragged one, and the
+    boundary with the band the release landed in moves to the released depth.
+    One plan, because two sequential edits (a run merge, then a move) would
+    preview an intermediate union that exists on no screen (ruling 6).
+
+    Parameters
+    ----------
+    bands : Sequence[GeotechBand]
+        Every packing band on the edited column, ordered top to bottom.
+    band_ids : Sequence[str]
+        The run that unions — the dragged band plus every band it passed,
+        2..N ids, any order (normalised by depth).
+    entered_band_id : str | None
+        The band the release landed in, touching the far end of the run; or
+        ``None`` when the drag reached the litho wall and absorbed everything
+        in its direction.
+    new_depth_m : float | None
+        The released depth, strictly inside the entered band; ``None`` with no
+        entered band.
+    soil : BaseLithology | None
+        Main soil type of the parent litho unit.
+    admixtures : tuple[Admixture, ...]
+        Parent unit admixtures.
+    depth_m, qc_mpa : Sequence
+        The column's CPT series.
+    min_thickness_m : float
+        Configured minimum packing-band thickness (advisory only).
+    statistic : str
+        The model's representative-qc statistic (ruling 7).
+
+    Returns
+    -------
+    BandEditPlan
+        The union (grown or shrunk to the released depth) and the entered
+        band's remainder, both re-derived; a single union interval when the
+        drag reached the wall.
+
+    Raises
+    ------
+    GeotechBandEditError
+        When the run is not a contiguous same-body run, the entered band does
+        not touch its far end, or the released depth is not strictly inside
+        the entered band.
+    """
+    indices = sorted({_index_of(bands, str(band_id)) for band_id in band_ids})
+    if len(indices) < 2:
+        raise GeotechBandEditError(
+            "Absorb rejected: an absorb-all needs at least two distinct bands."
+        )
+    run = [bands[i] for i in indices]
+    for prev_index, next_index in zip(indices, indices[1:]):
+        upper, lower = bands[prev_index], bands[next_index]
+        if next_index - prev_index != 1:
+            raise GeotechBandEditError(
+                "Absorb rejected: only ADJACENT packing bands can be absorbed "
+                f"(bands {upper.band_id} and {lower.band_id} are not neighbours)."
+            )
+        if abs(upper.depth_base_m - lower.depth_top_m) > _ADJACENCY_EPS_M:
+            raise GeotechBandEditError(
+                "Absorb rejected: the two bands do not share a boundary "
+                f"(upper base {upper.depth_base_m:.3f} m, lower top {lower.depth_top_m:.3f} m)."
+            )
+        _assert_same_litho_body(upper, lower, verb="Absorb")
+    parent_top, parent_base = enclosing_litho_bounds(bands, indices[0])
+
+    if entered_band_id is None:
+        if new_depth_m is not None:
+            raise GeotechBandEditError(
+                "Absorb rejected: a released depth needs the band it was released in."
+            )
+        proposed = [ProposedInterval(run[0].depth_top_m, run[-1].depth_base_m, tuple(run))]
+    else:
+        if new_depth_m is None:
+            raise GeotechBandEditError(
+                "Absorb rejected: the band the drag landed in needs the released depth."
+            )
+        entered_index = _index_of(bands, entered_band_id)
+        entered = bands[entered_index]
+        if entered_index == indices[-1] + 1:
+            downward = True
+            touching = run[-1]
+            _assert_same_litho_body(touching, entered, verb="Absorb")
+            gap = abs(touching.depth_base_m - entered.depth_top_m)
+        elif entered_index == indices[0] - 1:
+            downward = False
+            touching = run[0]
+            _assert_same_litho_body(entered, touching, verb="Absorb")
+            gap = abs(entered.depth_base_m - touching.depth_top_m)
+        else:
+            raise GeotechBandEditError(
+                "Absorb rejected: the band the drag landed in must touch the far end "
+                f"of the run (band {entered.band_id} is not the run's neighbour)."
+            )
+        if gap > _ADJACENCY_EPS_M:
+            raise GeotechBandEditError(
+                "Absorb rejected: the run and the band the drag landed in do not share a boundary."
+            )
+        rounded = round(new_depth_m, LITHO_LAYER_DEPTH_DECIMALS)
+        # Strictly inside the entered band, both survivors at least the
+        # millimetre grain — the same structural floor the move applies. A
+        # release that would leave the entered band a sliver is the ABSORB of
+        # that band too (the caller extends the run), never a move.
+        if not (entered.depth_top_m + _DEPTH_EPS_M < rounded < entered.depth_base_m - _DEPTH_EPS_M):
+            raise GeotechBandEditError(
+                f"Absorb rejected: {new_depth_m:.2f} m does not fall inside the band the "
+                f"drag landed in ({entered.depth_top_m:.2f}–{entered.depth_base_m:.2f} m)."
+            )
+        if downward:
+            proposed = [
+                ProposedInterval(run[0].depth_top_m, rounded, tuple(run)),
+                ProposedInterval(rounded, entered.depth_base_m, (entered,)),
+            ]
+        else:
+            proposed = [
+                ProposedInterval(entered.depth_top_m, rounded, (entered,)),
+                ProposedInterval(rounded, run[-1].depth_base_m, tuple(run)),
+            ]
+    outcomes = reclassify_intervals(
+        soil=soil,
+        admixtures=admixtures,
+        depth_m=depth_m,
+        qc_mpa=qc_mpa,
+        intervals=proposed,
+        statistic=statistic,
+    )
+    return BandEditPlan(
+        kind=KIND_ABSORB,
         parent_top_m=parent_top,
         parent_base_m=parent_base,
         intervals=outcomes,
