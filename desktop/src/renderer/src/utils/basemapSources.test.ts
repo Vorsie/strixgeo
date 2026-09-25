@@ -22,3 +22,32 @@ describe('basemap zoom limits', () => {
     }
   })
 })
+
+/**
+ * The walker's seed-667388193 replay (2026-09-25) logged ten Geopunt WMTS
+ * requests answering 400 at level 9: the map was zoomed out and asked for
+ * tiles south of Flanders, outside the layers' extent (the capabilities
+ * declare 2.53 E to 5.92 E, 50.685 N to 51.52 N). A tile the layer cannot
+ * have must never be requested; Leaflet skips tiles outside a layer's
+ * ``bounds``.
+ */
+describe('basemap extents', () => {
+  const FLANDERS: readonly [[number, number], [number, number]] = [
+    [50.685, 2.53],
+    [51.52, 5.92],
+  ]
+
+  it('both Geopunt sources carry the Flanders extent the capabilities declare', () => {
+    for (const id of ['geopunt_ortho', 'geopunt_hybrid'] as const) {
+      const source = BASEMAP_SOURCES.find(s => s.id === id)
+      expect(source?.bounds, id).toEqual(FLANDERS)
+    }
+  })
+
+  it('the worldwide sources declare no extent', () => {
+    for (const source of BASEMAP_SOURCES) {
+      if (source.id.startsWith('geopunt_')) continue
+      expect(source.bounds, source.id).toBeUndefined()
+    }
+  })
+})
