@@ -41,6 +41,7 @@ from groundmodel.application.geotech_band_edit_helpers import (
 from groundmodel.domain.services.geotech_band_reclassification import (
     BandEditPlan,
     GeotechBandEditError,
+    plan_absorb_run,
     plan_merge_run,
     plan_move,
     plan_split,
@@ -250,6 +251,68 @@ class PreviewGeotechBandEdit(GroundModelLogger):
             statistic=context.statistic,
         )
         self._log_plan("move", plan)
+        return plan
+
+    async def preview_absorb_run(
+        self,
+        *,
+        project_id: UUID,
+        geotech_model_id: UUID,
+        band_ids: list[UUID],
+        entered_band_id: UUID | None,
+        new_depth_m: float | None,
+    ) -> BandEditPlan:
+        """Preview a Ctrl+drag absorb-all (owner 2026-09-25).
+
+        Parameters
+        ----------
+        project_id : UUID
+            Owning project (scope guard).
+        geotech_model_id : UUID
+            The geotechnical model the bands belong to.
+        band_ids : list[UUID]
+            The run that unions: the dragged band plus every band it passed.
+        entered_band_id : UUID | None
+            The band the release landed in; ``None`` at the litho wall.
+        new_depth_m : float | None
+            The released depth inside that band; ``None`` at the wall.
+
+        Returns
+        -------
+        BandEditPlan
+            The final intervals with their re-derived classes, plus the
+            advisory warnings.
+
+        Raises
+        ------
+        GeotechBandEditError
+            When the run or the landing is not one the rules allow.
+        """
+        self.info(
+            f"PreviewGeotechBandEdit.absorb_run: model={geotech_model_id} "
+            f"run={[str(b) for b in band_ids]} entered={entered_band_id} depth={new_depth_m}"
+        )
+        context = await load_geotech_column_context(
+            self._session,
+            self,
+            project_id=project_id,
+            geotech_model_id=geotech_model_id,
+            band_id=band_ids[0],
+        )
+        require_cpt_anchor(context, gesture="Absorb")
+        plan = plan_absorb_run(
+            bands=context.bands,
+            band_ids=[str(b) for b in band_ids],
+            entered_band_id=None if entered_band_id is None else str(entered_band_id),
+            new_depth_m=new_depth_m,
+            soil=context.soil,
+            admixtures=context.admixtures,
+            depth_m=context.depth_m,
+            qc_mpa=context.qc_mpa,
+            min_thickness_m=context.min_thickness_m,
+            statistic=context.statistic,
+        )
+        self._log_plan("absorb", plan)
         return plan
 
     def _log_plan(self, kind: str, plan: BandEditPlan) -> None:
