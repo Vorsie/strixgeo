@@ -38,6 +38,17 @@ export interface UseSectionsResult {
   focusedContactIds: readonly string[]
   visibleSections: CrossSectionResponse[]
   /**
+   * Whether the section list for the open project has landed (the auto-load
+   * settled, with a list or with a failure). False from every project
+   * transition until then. The Build buttons wait for it: a build fired
+   * before the list arrives sees no sections and would be refused as if
+   * the engineer had accepted nothing (owner 2026-09-26, "if i click build
+   * litho model too quickly, it says nothing to build"). Optional so the
+   * hand-built context fixtures that predate it keep their shape; a
+   * consumer treats absence as loaded.
+   */
+  sectionsLoaded?: boolean
+  /**
    * The CRS new sections will be created in: the project's
    * ``default_horizontal_epsg`` when set, else the first imported
    * investigation's ``epsg``, else ``null`` (no CRS anywhere — section
@@ -382,6 +393,7 @@ export function useSections({
   setSelectedBoreholeId: (id: string | null) => void
 }): UseSectionsResult {
   const [sections, setSections] = useState<CrossSectionResponse[]>([])
+  const [sectionsLoaded, setSectionsLoaded] = useState(false)
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
   // Slice 2 (#55): which model the editor renders. Defaults to geological —
   // zero regression. Session-only (not persisted to .gmproj).
@@ -513,6 +525,11 @@ export function useSections({
     } catch (err) {
       log.error('section', 'refreshList failed', err)
       toast('error', t('sections.toast.loadFailed'))
+    } finally {
+      // Landed either way: after a failure the list is honestly empty and
+      // the load-failed toast has said why, so the Build gate lifts rather
+      // than holding the button hostage to a fetch that will not come back.
+      setSectionsLoaded(true)
     }
   }, [project])
 
@@ -536,6 +553,7 @@ export function useSections({
   useEffect(() => {
     // Clear immediately on every project transition (including A→B switches).
     setSections([])
+    setSectionsLoaded(false)
     // Ghost tie suggestions are ephemeral + geometry-specific to the project
     // they were computed from; drop them so project A's ghosts never paint
     // over project B's map.
@@ -1056,6 +1074,7 @@ export function useSections({
     drawingSection,
     focusedContactIds,
     visibleSections,
+    sectionsLoaded,
     effectiveHorizontalEpsg,
     // The clamped axis — never a litho/geotech axis whose model is absent.
     sectionModelAxis: effectiveSectionModelAxis,
