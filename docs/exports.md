@@ -26,7 +26,7 @@ The single `BaseExporter` ABC was split into **three shape-correct ABCs** by inp
 | ABC (`infrastructure/exporters/`) | Input contract | Concrete exporters |
 |---|---|---|
 | `ProjectExporter` | `GroundModelSnapshot` (project-wide) | `PlaxisExporter` (3D) |
-| `SectionExporter` | `SectionSnapshot` (formation picks) | `DxfSectionExporter`, `PlaxisSectionExporter` |
+| `SectionExporter` | `SectionSnapshot` (formation picks) — `DxfSectionExporter.export` also takes the drawn `SectionPolygonSet` and the CPT `SectionCptTrace`s (owner 2026-09-26: the section DXF looks like the litho fill in the app: outline + see-through solid hatch per region on the unit's layer, qc/Rf curves on the app's scales via `cpt_trace_scale`) | `DxfSectionExporter`, `PlaxisSectionExporter` |
 | `SectionGeometryExporter` | `SectionPolygonSet` (closed fill) | `DStabilityExporter`, `DSheetPilingExporter` |
 
 `DxfFenceExporter` deliberately stays **outside** the hierarchy — a fence panel is pre-triangulated client geometry, not a snapshot — so it inherits `GroundModelLogger` directly and takes a `FencePanelSource` Protocol. It is one exporter of that shape, so no fourth ABC is minted (the "don't pre-abstract" counterweight).
