@@ -122,7 +122,7 @@ import { resolveDeviceIdentity } from './deviceIdentity'
 import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
 import { installE2eDialogStubs, installE2eShellStubs } from './e2eDialogs'
 import { registerPrototypeIpc } from './prototypeIpc'
-import { checkForUpdatesOnLaunch, configureUpdater } from './updaterService'
+import { checkForUpdatesOnLaunch, configureUpdater, replayLastUpdaterEvent } from './updaterService'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
@@ -1036,6 +1036,11 @@ function createWindow(): void {
   // discard everything done since the reload.
   win.webContents.on('did-finish-load', () => {
     quitHandshake.noteRendererAlive()
+    // The launch update check usually answers before this document had
+    // loaded, so its event reached nobody (owner 2026-09-26: no prompt on
+    // startup, a manual check worked). Hand the latched answer to the renderer
+    // that exists now.
+    replayLastUpdaterEvent()
     // A working renderer again — re-arm the once-only crash reload (H3(d)) so a
     // future, unrelated crash is also recovered.
     rendererReloadedAfterCrash = false
