@@ -66,7 +66,8 @@ GET    /projects/{project_id}/sections — List every section for a project, ord
 GET    /projects/{project_id}/sections/{section_id} — Fetch a single section by id. 404 when missing or not in this project.
 PATCH  /projects/{project_id}/sections/{section_id} — Partial update — only fields present in the body are written.
 DELETE /projects/{project_id}/sections/{section_id} — Delete a section. Polylines drawn on it (when the editor lands)
-GET    /projects/{project_id}/sections/{section_id}/export/dxf — Export the section's drawn geological model to a DXF file.
+GET    /projects/{project_id}/sections/{section_id}/export/dxf — Export the section's contact lines and column lines to a DXF file (the 0.1.x shape, kept).
+POST   /projects/{project_id}/sections/{section_id}/export/dxf — The same DXF plus the drawn fill (a closed outline and a see-through solid hatch per region on its unit's layer) and the CPT qc / Rf curves on the app's scales; the body carries the drawn partition like D-Stability.
 GET    /projects/{project_id}/sections/{section_id}/export/pdf — Export the section as a PDF project report (debt #52 slice 1).
 GET    /projects/{project_id}/sections/{section_id}/export/plaxis2d — Export the section's drawn geology as a runnable Plaxis 2D script.
 POST   /projects/{project_id}/sections/{section_id}/export/dstability — Export the section's drawn geometry as a D-Stability ``.stix``.
