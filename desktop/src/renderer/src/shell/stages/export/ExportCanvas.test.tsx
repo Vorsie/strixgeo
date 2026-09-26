@@ -16,12 +16,19 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import ExportCanvas from './ExportCanvas'
 import { buildSectionExportPartition } from '../sections/buildSectionExportPartition'
+import { downloadSectionExport } from '../sections/downloadSectionExport'
 
 // The D-Series cards assemble the section's drawn partition before any save
 // dialog; a null partition means "nothing drawn on this level". Mocked so the
 // refusal path can be driven without the fill engine.
 vi.mock('../sections/buildSectionExportPartition', () => ({
   buildSectionExportPartition: vi.fn(),
+}))
+
+// The file-write leg (save dialog → bytes → write) is Electron-side; mocked so
+// a card's request can be asserted without a dialog.
+vi.mock('../sections/downloadSectionExport', () => ({
+  downloadSectionExport: vi.fn().mockResolvedValue(undefined),
 }))
 
 const noopAsync = (): Promise<void> => Promise.resolve()
@@ -426,6 +433,17 @@ const HUB_SECTION = {
 } as unknown as ShellContextValue['sections']['sections'][number]
 
 /** Every model level active + a chosen section — the fully-ready hub. */
+// A minimal drawn partition: what ``buildSectionExportPartition`` resolves with
+// when the section has a fill on the axis.
+const DRAWN_PARTITION = {
+  start_x: 0,
+  start_y: 0,
+  end_x: 100,
+  end_y: 0,
+  columns: [],
+  regions: [],
+}
+
 function readyCtx(): ShellContextValue {
   const ctx = makeStubContext()
   ctx.geoModel.activeGeologicalModel = ACTIVE_MODEL
@@ -473,22 +491,54 @@ describe('the Export hub (installer #35)', () => {
     expect(screen.queryByTestId('export-canvas-litho-fence')).toBeNull()
   })
 
-  it('Cross-section DXF routes the model level the picker is on (audit 2026-08-02)', () => {
+  it('Cross-section DXF routes the model level the picker is on (audit 2026-08-02)', async () => {
+    // Owner 2026-09-26: the DXF looks like the litho fill in the app, so the
+    // card ships the drawn partition of the axis the picker is on — the
+    // geotech axis, FRAMED on the litho model, exactly as D-Stability does.
+    vi.mocked(buildSectionExportPartition).mockResolvedValue(DRAWN_PARTITION as never)
     const ctx = readyCtx()
-    const exportDxf = vi.fn().mockResolvedValue(undefined)
-    ctx.coordinator.handleExportSectionDxf = exportDxf
     ctx.sections.sectionModelAxis = 'geotechnical' // the jump preselected geotech
     renderCanvas(ctx)
     fireEvent.click(screen.getByTestId('export-canvas-dxf'))
+    await vi.waitFor(() => {
+      expect(downloadSectionExport).toHaveBeenCalled()
+    })
     // Geotech axis → the geotech model id, never the geological one.
-    expect(exportDxf).toHaveBeenCalledWith(
-      'proj-1',
-      'sec-1',
-      'Quay 7',
-      'geotech-1',
-      expect.any(Function),
+    expect(buildSectionExportPartition).toHaveBeenCalledWith(
+      expect.objectContaining({ modelId: 'geotech-1', frameModelId: 'litho-1' }),
     )
-    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    const spec = vi.mocked(downloadSectionExport).mock.calls.at(-1)?.[0]
+    expect(spec?.extension).toBe('dxf')
+    expect(spec?.sectionName).toBe('Quay 7')
+  })
+
+  it('Cross-section DXF on the stratigraphy axis posts no partition (no litho fill there)', async () => {
+    vi.mocked(buildSectionExportPartition).mockClear()
+    const ctx = readyCtx()
+    ctx.sections.sectionModelAxis = 'geological'
+    renderCanvas(ctx)
+    fireEvent.click(screen.getByTestId('export-canvas-dxf'))
+    await vi.waitFor(() => {
+      expect(downloadSectionExport).toHaveBeenCalled()
+    })
+    expect(buildSectionExportPartition).not.toHaveBeenCalled()
+    expect(vi.mocked(downloadSectionExport).mock.calls.at(-1)?.[0].extension).toBe('dxf')
+  })
+
+  it('Cross-section DXF on a litho axis with nothing drawn refuses with a warning', async () => {
+    vi.mocked(buildSectionExportPartition).mockResolvedValue(null as never)
+    vi.mocked(downloadSectionExport).mockClear()
+    const ctx = readyCtx()
+    ctx.sections.sectionModelAxis = 'lithostratigraphic'
+    renderCanvas(ctx)
+    fireEvent.click(screen.getByTestId('export-canvas-dxf'))
+    await vi.waitFor(() => {
+      expect(ctx.toasts.toast).toHaveBeenCalled()
+    })
+    const [kind, message] = vi.mocked(ctx.toasts.toast).mock.calls.at(-1) as [string, string]
+    expect(kind).toBe('warning')
+    expect(message).toContain('Nothing to export')
+    expect(downloadSectionExport).not.toHaveBeenCalled()
   })
 
   it('Plaxis 3D calls the model-wide bus handler', () => {
