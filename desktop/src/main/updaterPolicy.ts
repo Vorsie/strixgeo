@@ -53,6 +53,34 @@ export function shouldAutoCheckOnLaunch(isPackaged: boolean): boolean {
   return isPackaged
 }
 
+
+
+/**
+ * Whether a latched updater event is worth replaying to a renderer that has
+ * just finished loading.
+ *
+ * The launch check runs the moment the window exists, and the feed can answer
+ * before the renderer has loaded and subscribed — the "available" event then
+ * reached nobody (owner 2026-09-26: no prompt on startup, a manual check
+ * worked). The service latches the last event and replays it on
+ * ``did-finish-load``. Only phases that ask something of the engineer are
+ * replayed: an offer, a finished download, or a failure. Transient and calm
+ * phases are not, or every reload would re-toast "you are up to date".
+ *
+ * Parameters
+ * ----------
+ * event : { phase: string }
+ *     The latched event (only its phase matters here).
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True for ``available``, ``downloaded`` and ``error``.
+ */
+export function shouldReplayOnLoad(event: { phase: string }): boolean {
+  return event.phase === 'available' || event.phase === 'downloaded' || event.phase === 'error'
+}
+
 /**
  * Whether an update may be installed automatically when the app quits.
  *
