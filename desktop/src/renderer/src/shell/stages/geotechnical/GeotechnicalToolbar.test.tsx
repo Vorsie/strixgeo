@@ -280,3 +280,15 @@ describe('GeotechnicalToolbar (Task 4 — geotech 3D Build verb)', () => {
     expect(screen.getByTestId('geotech-stale-litho-chip').textContent).toContain('1')
   })
 })
+
+
+describe('GeotechnicalToolbar waits for the section list (owner 2026-09-26)', () => {
+  it('GT12 — Build model is disabled with a loading hint while the section list has not landed', () => {
+    const ctx = makeCtx()
+    ctx.sections = { ...ctx.sections, sectionsLoaded: false }
+    renderToolbar(ctx)
+    const btn = screen.getByTestId('geotech-build-model-button') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.title).toMatch(/loading/i)
+  })
+})
