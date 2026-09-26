@@ -35,6 +35,7 @@ import {
   autoInstallOnQuit,
   classifyUpdaterError,
   shouldAutoCheckOnLaunch,
+  shouldReplayOnLoad,
   summariseUpdateInfo,
   type UpdateAvailableNotice,
   type UpdaterErrorReason,
@@ -100,9 +101,31 @@ function updaterErrorEvent(err: Error): UpdaterEvent {
 let targetWindow: BrowserWindow | null = null
 let wired = false
 
-/** Push one event to the renderer, if a window is attached. */
+/**
+ * The last event pushed, so a renderer that loads AFTER the launch check has
+ * answered still learns what it said (owner 2026-09-26: no prompt on startup,
+ * a manual check worked). See {@link replayLastUpdaterEvent}.
+ */
+let lastEvent: UpdaterEvent | null = null
+
+/** Push one event to the renderer, if a window is attached; remember it. */
 function emit(event: UpdaterEvent): void {
+  lastEvent = event
   targetWindow?.webContents.send(UPDATER_EVENT_CHANNEL, event)
+}
+
+/**
+ * Re-send the last updater event to the attached window.
+ *
+ * Called from the window's ``did-finish-load``: the launch check fires as soon
+ * as the window exists, and the feed usually answers before the document has
+ * loaded and the renderer has subscribed, so the first send went to nobody.
+ * Only phases that ask something of the engineer are replayed
+ * ({@link shouldReplayOnLoad}); a reload never re-toasts a calm result.
+ */
+export function replayLastUpdaterEvent(): void {
+  if (lastEvent === null || !shouldReplayOnLoad(lastEvent)) return
+  targetWindow?.webContents.send(UPDATER_EVENT_CHANNEL, lastEvent)
 }
 
 /**
