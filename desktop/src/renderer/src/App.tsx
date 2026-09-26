@@ -1133,7 +1133,9 @@ export default function App() {
           log.debug('section', 'exportDxf cancelled at save dialog')
           return
         }
-        const bytes = await api.section.exportDxf(projectId, sectionId, modelId)
+        // No fill on this path: the Export hub posts the drawn partition itself
+        // (useExportHub.runSectionDxf); this handler draws lines + curves.
+        const bytes = await api.section.exportDxf(projectId, sectionId, modelId, null)
         await window.electron.writeExportFile(dialogPath, bytes)
         log.success(
           'section',
