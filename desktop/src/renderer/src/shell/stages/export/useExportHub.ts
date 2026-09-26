@@ -6,6 +6,9 @@
 // toolbar and 3-D stages used, so what the hub writes is byte-identical to what
 // those verbs wrote:
 //   * section DXF / Plaxis 2D → the shell bus handlers (``handleExportSection*``);
+//   * Cross-section DXF → the same partition path as D-Series (owner 2026-09-26:
+//     the DXF looks like the litho fill in the app), ``null`` on the
+//     stratigraphy axis, which has no litho partition;
 //   * D-Stability / D-Sheet → ``sectionExportPartitionArgs`` +
 //     ``buildSectionExportPartition`` + ``downloadSectionExport`` + ``api.section``;
 //   * the PDF sheet → the same ``SheetPreviewDialog`` the toolbar opened;
@@ -23,6 +26,7 @@ import { useShell } from '../../ShellContext'
 import { useT } from '../../../i18n/translate'
 import type { SectionModelAxis } from '../../../hooks/useSections'
 import type { CrossSectionResponse } from '../../../api/client'
+import type { SectionPartitionInput } from '../../../utils/buildVoxelRequest'
 import { nadColoredFormations } from '../../../utils/nadClasses'
 import { buildProjectFencePanels } from '../shared/makeProjectFenceBuilder'
 import { exportFenceDxf } from '../shared/exportFenceDxf'
@@ -90,7 +94,7 @@ export function useExportHub(): ExportHubResult {
     project,
     geoModel: { activeGeologicalModel, handleExportModelPlaxis3d },
     sections: { visibleSections, selectedSectionId, sectionModelAxis },
-    coordinator: { handleExportSectionDxf, handleExportSectionPlaxis2d },
+    coordinator: { handleExportSectionPlaxis2d },
     toasts: { toast },
     bedOverrides,
   } = shell
@@ -189,18 +193,44 @@ export function useExportHub(): ExportHubResult {
       if (section === null || axisModel === null || busy !== null) return
       setBusy('section-dxf')
       try {
-        await handleExportSectionDxf(
-          projectId,
-          section.id,
-          section.name,
-          axisModel.id,
-          recordSaved('section-dxf'),
-        )
+        // The litho and geotech axes ship the fill they draw (owner
+        // 2026-09-26: "it should literally look like litho fill in app"),
+        // assembled the same way the D-Series exports assemble it, BEFORE the
+        // save dialog. The stratigraphy axis has no litho partition: it posts
+        // none and gets the contact-line drawing plus the CPT curves.
+        let partition: SectionPartitionInput | null = null
+        if (axis !== 'geological') {
+          const args = sectionExportPartitionArgs(ctx, section, axis, 'section-export-dxf')
+          if (args === null) return
+          try {
+            partition = await buildSectionExportPartition(args)
+          } catch (err) {
+            toast('error', err instanceof Error ? err.message : t('sections.export.readFailed'))
+            return
+          }
+          if (partition === null) {
+            toast('warning', t('sections.export.nothingDrawn', { level: axisLevelLabel(axis) }))
+            return
+          }
+        }
+        const modelId = axisModel.id
+        const posted = partition
+        await downloadSectionExport({
+          sectionName: section.name,
+          extension: 'dxf',
+          filterLabel: t('sections.export.dxfFilter'),
+          successMessage: t('sections.export.dxfSuccess'),
+          failureMessage: t('sections.export.dxfFailure'),
+          logLabel: 'exportDxf',
+          toast,
+          onSaved: recordSaved('section-dxf'),
+          fetchBytes: () => api.section.exportDxf(projectId, section.id, modelId, posted),
+        })
       } finally {
         setBusy(null)
       }
     },
-    [ctx, section, busy, projectId, handleExportSectionDxf, recordSaved],
+    [ctx, section, busy, projectId, toast, t, axisLevelLabel, recordSaved],
   )
 
   const runPlaxis3d = useCallback(async (): Promise<void> => {
