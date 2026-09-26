@@ -17,10 +17,13 @@ parameters-stay-blank rule) is pinned by the unit suite in
 
 from __future__ import annotations
 
+import io
 import json
 import zipfile
 from io import BytesIO
+from uuid import UUID
 
+import ezdxf
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -294,3 +297,83 @@ async def test_dseries6_a_section_in_another_project_is_not_exportable(
     )
 
     assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# DXF with the fill (owner 2026-09-26: "it should literally look like litho
+# fill in app if i export a litho fill")
+# ---------------------------------------------------------------------------
+
+
+async def test_dxf_fill1_the_posted_partition_becomes_hatches_and_the_cpt_series_a_curve(
+    seeded_dseries_section: dict, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """One HATCH per drawn region on the unit's layer, one qc polyline per CPT with a series."""
+    from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+
+    first_cpt = UUID(seeded_dseries_section["partition"]["columns"][0]["investigation_id"])
+    db_session.add(
+        CptSeriesOrm(
+            cpt_id=first_cpt,
+            depths_m=[0.0, 1.0, 2.0],
+            qc_mpa=[2.0, 8.0, 20.0],
+            fs_mpa=None,
+            u2_mpa=None,
+            rf_pct=[1.0, 2.0, 3.0],
+            q_total_mpa=None,
+            rf_source=None,
+        )
+    )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{seeded_dseries_section['project_id']}/sections/"
+        f"{seeded_dseries_section['section_id']}/export/dxf"
+        f"?model_id={seeded_dseries_section['geotech_model_id']}",
+        json={"partition": seeded_dseries_section["partition"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/dxf")
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    msp = doc.modelspace()
+    hatches = list(msp.query("HATCH"))
+    assert len(hatches) == 2
+    assert sorted(h.dxf.layer.split(" - ")[0] for h in hatches) == [
+        "GeoModel-NAD-06_ZAND",
+        "GeoModel-NAD-21_KLEI",
+    ]
+    qc = list(msp.query("LWPOLYLINE[layer=='Investigations-CPT-qc']"))
+    assert len(qc) == 1
+    # The CPT-1 column has no series, so no second curve.
+    assert len(list(msp.query("LWPOLYLINE[layer=='Investigations-CPT-Rf']"))) == 1
+
+
+async def test_dxf_fill2_the_old_get_still_answers_the_contact_lines_only(
+    seeded_dseries_section: dict, async_client: AsyncClient
+) -> None:
+    """Additive API: the GET a 0.1.x client calls keeps working, without a fill."""
+    resp = await async_client.get(
+        f"/projects/{seeded_dseries_section['project_id']}/sections/"
+        f"{seeded_dseries_section['section_id']}/export/dxf"
+        f"?model_id={seeded_dseries_section['geotech_model_id']}"
+    )
+    assert resp.status_code == 200, resp.text
+    # The app-id table names HATCHBACKGROUNDCOLOR, so count entities, not bytes.
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    assert not list(doc.modelspace().query("HATCH"))
+
+
+async def test_dxf_fill3_no_partition_posts_the_line_drawing_with_the_curves(
+    seeded_dseries_section: dict, async_client: AsyncClient
+) -> None:
+    """The stratigraphy axis has no litho partition: it posts none and still gets a DXF."""
+    resp = await async_client.post(
+        f"/projects/{seeded_dseries_section['project_id']}/sections/"
+        f"{seeded_dseries_section['section_id']}/export/dxf"
+        f"?model_id={seeded_dseries_section['geotech_model_id']}",
+        json={},
+    )
+    assert resp.status_code == 200, resp.text
+    # The app-id table names HATCHBACKGROUNDCOLOR, so count entities, not bytes.
+    doc = ezdxf.read(io.StringIO(resp.content.decode("utf-8")))
+    assert not list(doc.modelspace().query("HATCH"))
