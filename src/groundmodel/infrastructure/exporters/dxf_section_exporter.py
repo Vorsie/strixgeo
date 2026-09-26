@@ -75,7 +75,7 @@ What the DXF intentionally does NOT carry yet
 from __future__ import annotations
 
 import io
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -88,7 +88,31 @@ if TYPE_CHECKING:
     import ezdxf
     from ezdxf.colors import RGB
 
-from groundmodel.application.section_snapshot import SectionFormation, SectionSnapshot
+from groundmodel.application.section_cpt_trace import SectionCptTrace
+from groundmodel.application.section_polygon_set import SectionPolygonSet, SectionPolygonUnit
+from groundmodel.application.section_snapshot import (
+    SectionFormation,
+    SectionSnapshot,
+)
+from groundmodel.infrastructure.exporters.cpt_trace_scale import qc_full_scale_mpa
+from groundmodel.infrastructure.exporters.cpt_trace_scale_constants import (
+    CPT_BAND_HALF_WIDTH_M,
+    CPT_BAND_MIN_HALF_WIDTH_M,
+    CPT_BAND_NEIGHBOUR_FRACTION,
+    CPT_GRID_ACI,
+    CPT_GRID_LAYER,
+    CPT_LABEL_HEIGHT,
+    CPT_LABEL_HEIGHT_FRACTION,
+    CPT_LABEL_LIFT_M,
+    CPT_LABEL_MIN_HEIGHT,
+    CPT_QC_LAYER,
+    CPT_RF_LAYER,
+    CPT_RF_RGB,
+    FILL_TRANSPARENCY,
+    QC_GRID_MPA,
+    RF_FULL_SCALE_PCT,
+    RF_GRID_PCT,
+)
 from groundmodel.infrastructure.exporters.dxf_layer_style import style_layer
 from groundmodel.infrastructure.exporters.dxf_text_safety import strip_dxf_line_breaks
 from groundmodel.infrastructure.exporters.section_exporter import SectionExporter
@@ -128,13 +152,26 @@ class DxfSectionExporter(SectionExporter):
         """Initialise with the standard module-named logger."""
         super().__init__(__name__)
 
-    def export(self, snapshot: SectionSnapshot) -> bytes:
+    def export(
+        self,
+        snapshot: SectionSnapshot,
+        fill: SectionPolygonSet | None = None,
+        cpt_traces: Sequence[SectionCptTrace] = (),
+    ) -> bytes:
         """Build the DXF and return the serialised bytes.
 
         Parameters
         ----------
         snapshot : SectionSnapshot
             Materialised section geometry.
+        fill : SectionPolygonSet | None
+            The section's drawn fill (owner 2026-09-26: a DXF of a litho
+            fill "should literally look like litho fill in app"). Each
+            region becomes a closed outline plus a solid hatch on its
+            unit's layer. ``None`` (the legacy GET) draws contacts only.
+        cpt_traces : Sequence[SectionCptTrace]
+            The stored qc / Rf series of the section's CPT columns; each
+            becomes the curves the app draws in the column band.
 
         Returns
         -------
@@ -155,11 +192,19 @@ class DxfSectionExporter(SectionExporter):
         doc.header["$PROJECTNAME"] = snapshot.project_name[:255]
 
         layer_by_formation_id = self._setup_layers(doc, snapshot)
+        fill_units = self._setup_fill_layers(doc, fill, layer_by_formation_id, snapshot)
+        # The fill goes first: entity order is draw order in CAD, and the
+        # column lines, contacts and curves must stay readable over it.
+        drawn_regions = self._draw_fill(msp, fill, layer_by_formation_id, snapshot)
         self._draw_investigation_columns(msp, snapshot)
         dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(
             msp, snapshot, layer_by_formation_id
         )
-        self._draw_title_block(msp, snapshot, layer_by_formation_id)
+        drawn_cpts = 0
+        if cpt_traces:
+            self._setup_cpt_layers(doc)
+            drawn_cpts = self._draw_cpt_traces(msp, snapshot, cpt_traces)
+        self._draw_title_block(msp, snapshot, layer_by_formation_id, fill_units, fill, cpt_traces)
 
         # ezdxf writes to a text stream; we wrap in StringIO and
         # encode to UTF-8 for the FastAPI byte-stream response.
@@ -200,7 +245,8 @@ class DxfSectionExporter(SectionExporter):
             f"[nad-named {named}, soil-tagged {with_soil}], "
             f"{drawn_contacts}/{len(snapshot.contacts)} contacts drawn, "
             f"{dropped_total} dropped [{dropped_no_level} no-level, "
-            f"{dropped_no_formation} no-formation])"
+            f"{dropped_no_formation} no-formation], "
+            f"{drawn_regions} fill region(s), {drawn_cpts} CPT curve column(s))"
         )
         return payload
 
@@ -406,6 +452,277 @@ class DxfSectionExporter(SectionExporter):
         return dropped_no_level, dropped_no_formation
 
     # ------------------------------------------------------------------
+    # The drawn fill — one outline + one solid hatch per region.
+    # ------------------------------------------------------------------
+
+    def _setup_fill_layers(
+        self,
+        doc: ezdxf.document.Drawing,
+        fill: SectionPolygonSet | None,
+        layer_by_formation_id: dict[UUID, str],
+        snapshot: SectionSnapshot,
+    ) -> tuple[SectionPolygonUnit, ...]:
+        """Register a layer for every fill unit the contact snapshot did not carry.
+
+        A litho fill can draw a unit that has no formation-pick contact on
+        this section (a lens from a neighbouring test); it gets the same
+        layer naming as every other unit so it is not the odd one out in CAD.
+
+        Parameters
+        ----------
+        doc : ezdxf.document.Drawing
+            The drawing whose layer table is extended.
+        fill : SectionPolygonSet | None
+            The drawn fill; ``None`` registers nothing.
+        layer_by_formation_id : dict[UUID, str]
+            ``formation_id -> layer name``; extended in place.
+        snapshot : SectionSnapshot
+            For the identity in the collision warning.
+
+        Returns
+        -------
+        tuple[SectionPolygonUnit, ...]
+            The fill's units, for the mapping table.
+        """
+        if fill is None:
+            return ()
+        for unit in fill.units:
+            if unit.formation_id in layer_by_formation_id:
+                continue
+            identifier = naming_identifier(
+                nad_class=unit.nad_class, litho_main_soil_code=unit.litho_main_soil_code
+            )
+            body = (
+                unit.name
+                if identifier is None
+                else f"{identifier}{UNIT_ID_NAME_SEPARATOR}{unit.name}"
+            )
+            layer_name = _formation_layer_name(body)
+            if doc.layers.has_entry(layer_name):
+                layer_name = _disambiguated_layer_name(
+                    layer_name, unit.formation_id, doc.layers.has_entry
+                )
+                self.warning(
+                    f"DXF layer name collision on fill unit {unit.name!r} "
+                    f"(formation_id={unit.formation_id}); exporting it as {layer_name!r}. "
+                    f"project_id={snapshot.project_id} section_id={snapshot.section_id}"
+                )
+            layer = doc.layers.add(name=layer_name)
+            layer_by_formation_id[unit.formation_id] = layer_name
+            rgb = _parse_hex_color(unit.color)
+            if rgb is not None:
+                style_layer(layer, rgb)
+            description = f"Unit '{unit.name}'"
+            if unit.nad_class is not None:
+                description += f" | NAD class {unit.nad_class}"
+            if unit.litho_main_soil_code:
+                description += f" | soil {unit.litho_main_soil_code}"
+            layer.description = strip_dxf_line_breaks(description)
+        return fill.units
+
+    def _draw_fill(  # type: ignore[no-untyped-def]
+        self,
+        msp,
+        fill: SectionPolygonSet | None,
+        layer_by_formation_id: dict[UUID, str],
+        snapshot: SectionSnapshot,
+    ) -> int:
+        """Emit each drawn region as a closed LWPOLYLINE plus a solid HATCH.
+
+        The hatch carries the unit's true colour and is see-through
+        (``FILL_TRANSPARENCY``) so the lines drawn after it stay readable —
+        the app draws its bands at 0.55 opacity for the same reason.
+
+        Parameters
+        ----------
+        msp
+            The ezdxf modelspace to draw into.
+        fill : SectionPolygonSet | None
+            The drawn fill; ``None`` draws nothing.
+        layer_by_formation_id : dict[UUID, str]
+            ``formation_id -> layer name`` (contacts + fill units).
+        snapshot : SectionSnapshot
+            For the identity in the log line.
+
+        Returns
+        -------
+        int
+            Regions drawn.
+        """
+        if fill is None:
+            return 0
+        colour_by_id = {unit.formation_id: _parse_hex_color(unit.color) for unit in fill.units}
+        drawn = 0
+        skipped = 0
+        for polygon in fill.polygons:
+            layer_name = layer_by_formation_id.get(polygon.formation_id)
+            points = [(float(x), float(y)) for x, y in polygon.points]
+            if layer_name is None or len(points) < 3:
+                skipped += 1
+                continue
+            msp.add_lwpolyline(points, close=True, dxfattribs={"layer": layer_name})
+            hatch = msp.add_hatch(dxfattribs={"layer": layer_name})
+            hatch.paths.add_polyline_path(points, is_closed=True)
+            rgb = colour_by_id.get(polygon.formation_id)
+            hatch.set_solid_fill(color=7, rgb=rgb)
+            hatch.transparency = FILL_TRANSPARENCY
+            drawn += 1
+        if skipped:
+            self.warning(
+                f"DXF section export skipped {skipped} fill region(s) with no layer or under "
+                f"three points; section_id={snapshot.section_id}"
+            )
+        self.debug(f"DXF section export drew {drawn} fill region(s) on {len(fill.units)} unit(s)")
+        return drawn
+
+    # ------------------------------------------------------------------
+    # CPT curves — qc to the right of the column axis, Rf to the left.
+    # ------------------------------------------------------------------
+
+    def _setup_cpt_layers(self, doc: ezdxf.document.Drawing) -> None:
+        """Register the three curve layers: qc (column colour), Rf (orange), scale (grey)."""
+        if not doc.layers.has_entry(CPT_QC_LAYER):
+            doc.layers.add(name=CPT_QC_LAYER).color = 7
+        if not doc.layers.has_entry(CPT_RF_LAYER):
+            style_layer(doc.layers.add(name=CPT_RF_LAYER), CPT_RF_RGB)
+        if not doc.layers.has_entry(CPT_GRID_LAYER):
+            doc.layers.add(name=CPT_GRID_LAYER).color = CPT_GRID_ACI
+
+    def _draw_cpt_traces(  # type: ignore[no-untyped-def]
+        self,
+        msp,
+        snapshot: SectionSnapshot,
+        cpt_traces: Sequence[SectionCptTrace],
+    ) -> int:
+        """Emit the app's column band per CPT that has a stored series.
+
+        Same conventions as the section on screen (``CptDataColumn``): qc reads
+        rightward from the column axis on the section-wide full scale
+        (:func:`qc_full_scale_mpa`), Rf leftward on 0..10 %, values off scale
+        clamp to the band edge, a missing sample breaks the curve, and the
+        2 / 10 MPa and 2 / 4 % gridlines run the band's height with their
+        labels hanging below it as vertical text.
+        The band half-width is ``CPT_BAND_HALF_WIDTH_M`` clamped to a fraction
+        of the distance to the nearest neighbouring column.
+
+        Parameters
+        ----------
+        msp
+            The ezdxf modelspace to draw into.
+        snapshot : SectionSnapshot
+            The projected columns — position, surface and kind.
+        cpt_traces : Sequence[SectionCptTrace]
+            The stored series, keyed by investigation id.
+
+        Returns
+        -------
+        int
+            CPT columns that got curves.
+        """
+        # deferred: keeps ezdxf off the API boot path (see the module imports).
+        from ezdxf.enums import TextEntityAlignment
+
+        by_id = {trace.investigation_id: trace for trace in cpt_traces}
+        columns = [
+            inv
+            for inv in snapshot.investigations
+            if inv.kind == "cpt" and inv.investigation_id in by_id
+        ]
+        if not columns:
+            return 0
+        scale = qc_full_scale_mpa([by_id[inv.investigation_id].qc_mpa for inv in columns])
+        alongs = [inv.along_distance_m for inv in snapshot.investigations]
+        drawn = 0
+        for inv in columns:
+            trace = by_id[inv.investigation_id]
+            if not trace.depths_m:
+                continue
+            axis = inv.along_distance_m
+            others = [abs(a - axis) for a in alongs if a != axis]
+            half = CPT_BAND_HALF_WIDTH_M
+            if others:
+                half = min(half, CPT_BAND_NEIGHBOUR_FRACTION * min(others))
+            half = max(half, CPT_BAND_MIN_HALF_WIDTH_M)
+            surface = inv.surface_elevation_m if inv.surface_elevation_m is not None else 0.0
+            bottom = surface - max(trace.depths_m)
+            # Gridlines + labels, the app's positions.
+            marks: list[tuple[float, str]] = []
+            for mpa in QC_GRID_MPA:
+                if scale > mpa:
+                    marks.append((axis + (mpa / scale) * half, f"{mpa:g}"))
+            marks.append((axis + half, f"{scale:g} MPa"))
+            if trace.rf_pct is not None:  # a CPTM has no sleeve: no Rf side
+                for pct in RF_GRID_PCT:
+                    marks.append((axis - (pct / RF_FULL_SCALE_PCT) * half, f"{pct:g}%"))
+            # Labels hang BELOW the band as vertical text (a y-axis label's
+            # orientation): above it they would collide with the column name,
+            # and side by side they overlap once the band is a few metres wide.
+            label_height = max(
+                CPT_LABEL_MIN_HEIGHT, min(CPT_LABEL_HEIGHT, half * CPT_LABEL_HEIGHT_FRACTION)
+            )
+            for x, label in marks:
+                msp.add_line(
+                    start=(x, surface), end=(x, bottom), dxfattribs={"layer": CPT_GRID_LAYER}
+                )
+                msp.add_text(
+                    label,
+                    dxfattribs={"layer": CPT_GRID_LAYER, "height": label_height, "rotation": 90},
+                ).set_placement((x, bottom - CPT_LABEL_LIFT_M), align=TextEntityAlignment.RIGHT)
+            self._draw_curve(
+                msp, trace.depths_m, trace.qc_mpa, axis, half, scale, 1, surface, CPT_QC_LAYER
+            )
+            if trace.rf_pct is not None:
+                self._draw_curve(
+                    msp,
+                    trace.depths_m,
+                    trace.rf_pct,
+                    axis,
+                    half,
+                    RF_FULL_SCALE_PCT,
+                    -1,
+                    surface,
+                    CPT_RF_LAYER,
+                )
+            drawn += 1
+        self.debug(
+            f"DXF section export drew CPT curves on {drawn} column(s), qc scale {scale:g} MPa"
+        )
+        return drawn
+
+    @staticmethod
+    def _draw_curve(  # type: ignore[no-untyped-def]
+        msp,
+        depths_m: Sequence[float],
+        values: Sequence[float | None],
+        axis_x: float,
+        half_width: float,
+        full_scale: float,
+        direction: int,
+        surface: float,
+        layer: str,
+    ) -> None:
+        """One channel as LWPOLYLINEs: a run per stretch of present samples.
+
+        Mirrors the renderer's ``curvePath``: a value maps to
+        ``axis + direction * clamp(v / full_scale, 0, 1) * half_width`` at
+        ``surface - depth``; ``None`` lifts the pen.
+        """
+        run: list[tuple[float, float]] = []
+
+        def flush() -> None:
+            if len(run) >= 2:
+                msp.add_lwpolyline(list(run), dxfattribs={"layer": layer})
+            run.clear()
+
+        for depth, value in zip(depths_m, values, strict=False):
+            if value is None:
+                flush()
+                continue
+            rel = max(0.0, min(1.0, float(value) / full_scale))
+            run.append((axis_x + direction * rel * half_width, surface - float(depth)))
+        flush()
+
+    # ------------------------------------------------------------------
     # Title block — bottom-left text annotation.
     # ------------------------------------------------------------------
 
@@ -414,6 +731,9 @@ class DxfSectionExporter(SectionExporter):
         msp,
         snapshot: SectionSnapshot,
         layer_by_formation_id: dict[UUID, str],
+        fill_units: Sequence[SectionPolygonUnit] = (),
+        fill: SectionPolygonSet | None = None,
+        cpt_traces: Sequence[SectionCptTrace] = (),
     ) -> None:
         """Bottom-left TEXT entity carrying project + section identity.
 
@@ -447,6 +767,16 @@ class DxfSectionExporter(SectionExporter):
         for c in snapshot.contacts:
             if c.level_m is not None:
                 lowest = min(lowest, c.level_m)
+        if fill is not None:
+            for polygon in fill.polygons:
+                for _x, y in polygon.points:
+                    lowest = min(lowest, y)
+        surface_by_id = {
+            i.investigation_id: i.surface_elevation_m or 0.0 for i in snapshot.investigations
+        }
+        for trace in cpt_traces:
+            if trace.depths_m and trace.investigation_id in surface_by_id:
+                lowest = min(lowest, surface_by_id[trace.investigation_id] - max(trace.depths_m))
 
         anchor_y = lowest - 5.0
         title_lines = [
@@ -467,7 +797,7 @@ class DxfSectionExporter(SectionExporter):
             )
 
         mapping_lines = format_mapping_table(
-            _mapping_rows(snapshot, layer_by_formation_id),
+            _mapping_rows(snapshot, layer_by_formation_id, fill_units),
             label_heading=MAPPING_TABLE_DXF_LAYER_HEADING,
         )
         if mapping_lines:
@@ -527,7 +857,9 @@ def _layer_body(formation: SectionFormation) -> str:
 
 
 def _mapping_rows(
-    snapshot: SectionSnapshot, layer_by_formation_id: dict[UUID, str]
+    snapshot: SectionSnapshot,
+    layer_by_formation_id: dict[UUID, str],
+    fill_units: Sequence[SectionPolygonUnit] = (),
 ) -> list[UnitMappingRow]:
     """Build the mapping-table rows for the units the drawing carries.
 
@@ -541,6 +873,9 @@ def _mapping_rows(
         Materialised section geometry.
     layer_by_formation_id : dict[UUID, str]
         ``formation_id -> layer name`` from ``_setup_layers``.
+    fill_units : Sequence[SectionPolygonUnit]
+        Units the drawn fill references; the ones the snapshot does not
+        carry are appended after the snapshot's rows.
 
     Returns
     -------
@@ -549,12 +884,14 @@ def _mapping_rows(
         formation list the exporter emitted.
     """
     rows: list[UnitMappingRow] = []
+    listed: set[UUID] = set()
     for f in snapshot.formations:
         if f.nad_class is None and not f.litho_main_soil_code:
             continue
         layer_name = layer_by_formation_id.get(f.formation_id)
         if layer_name is None:
             continue
+        listed.add(f.formation_id)
         rows.append(
             UnitMappingRow(
                 export_label=layer_name,
@@ -563,6 +900,24 @@ def _mapping_rows(
                 display_name=f.name,
                 formation_id=f.formation_id,
                 absorbed=f.absorbed_unit_names,
+            )
+        )
+    for unit in fill_units:
+        if unit.formation_id in listed:
+            continue
+        if unit.nad_class is None and not unit.litho_main_soil_code:
+            continue
+        layer_name = layer_by_formation_id.get(unit.formation_id)
+        if layer_name is None:
+            continue
+        rows.append(
+            UnitMappingRow(
+                export_label=layer_name,
+                nad_class=unit.nad_class,
+                soil_code=unit.litho_main_soil_code,
+                display_name=unit.name,
+                formation_id=unit.formation_id,
+                absorbed=(),
             )
         )
     return rows
