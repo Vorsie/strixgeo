@@ -408,3 +408,62 @@ describe('useSections manifest discard guard (L5)', () => {
     expect(result.current.visibleSections.length).toBe(0)
   })
 })
+
+
+describe('useSections says whether the section list has landed', () => {
+  // Owner 2026-09-26: "if i click build litho model too quickly, it says
+  // nothing to build... which is misleading". The Build button turned on as
+  // soon as the litho contacts had loaded, which can be before the section
+  // list has — and a build with no sections is refused as if the engineer
+  // had accepted nothing. The list's own loaded state is the gate.
+  it('SL1 — sectionsLoaded is false until the auto-load resolves, then true', async () => {
+    let release: (v: unknown[]) => void = () => {}
+    mockSectionList.mockReturnValue(new Promise(resolve => (release = resolve)))
+    const { args } = makeArgs({ ready: true })
+    const { result } = renderHook(() => useSections(args))
+
+    expect(result.current.sectionsLoaded).toBe(false)
+
+    await act(async () => {
+      release([makeSection('sec-1')])
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.sectionsLoaded).toBe(true)
+  })
+
+  it('SL2 — a failed list load still counts as landed: the list is honestly empty', async () => {
+    mockSectionList.mockRejectedValue(new Error('boom'))
+    const { args } = makeArgs({ ready: true })
+    const { result } = renderHook(() => useSections(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.sectionsLoaded).toBe(true)
+  })
+
+  it('SL3 — switching project drops back to not loaded until the new list lands', async () => {
+    mockSectionList.mockResolvedValue([makeSection('sec-1')])
+    let projectArg: { id: string; name: string; default_horizontal_epsg: number | null } | null =
+      { id: 'proj-1', name: 'Test', default_horizontal_epsg: 31370 }
+    const { args } = makeArgs({ ready: true, project: projectArg })
+    const { result, rerender } = renderHook(() =>
+      useSections({ ...args, project: projectArg, ready: true }),
+    )
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.sectionsLoaded).toBe(true)
+
+    let release: (v: unknown[]) => void = () => {}
+    mockSectionList.mockReturnValue(new Promise(resolve => (release = resolve)))
+    projectArg = { id: 'proj-2', name: 'Other', default_horizontal_epsg: 31370 }
+    rerender()
+    expect(result.current.sectionsLoaded).toBe(false)
+
+    await act(async () => {
+      release([])
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.sectionsLoaded).toBe(true)
+  })
+})
