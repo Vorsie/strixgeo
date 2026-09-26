@@ -32,6 +32,9 @@ from groundmodel.api.schemas.project.cross_section import (
     CrossSectionResponse,
     CrossSectionUpdateRequest,
 )
+from groundmodel.api.schemas.project.section_dxf_export_request import (
+    SectionDxfExportRequest,
+)
 from groundmodel.api.schemas.project.section_geometry_export_request import (
     SectionGeometryExportRequest,
 )
@@ -39,6 +42,7 @@ from groundmodel.application.batch_create_sections import BatchCreateSections
 from groundmodel.application.build_section_polygons import BuildSectionPolygons
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
 from groundmodel.application.export_artifact import ExportArtifact
+from groundmodel.application.section_cpt_trace import SectionCptTrace
 from groundmodel.application.section_membership import (
     load_section_member_investigation_ids,
     stale_surfaces_if_membership_changed,
@@ -54,6 +58,7 @@ from groundmodel.infrastructure.codelists.horizontal_crs import (
     is_supported_section_crs,
 )
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
@@ -556,6 +561,122 @@ async def export_section_dxf(
         session, project_id, section_id, model_id, thin_units=thin_units
     )
     payload = DxfSectionExporter().export(snapshot)
+    return export_response(
+        ExportArtifact.build(
+            content=payload,
+            name=snapshot.section_name,
+            fallback="section",
+            suffix=".dxf",
+            media_type="application/dxf",
+        )
+    )
+
+
+async def _load_cpt_traces(
+    session: AsyncSession, project_id: UUID, snapshot: SectionSnapshot
+) -> list[SectionCptTrace]:
+    """The stored qc / Rf series of the snapshot's CPT columns, for the curves.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active database session.
+    project_id : UUID
+        Project scope guard on the series read.
+    snapshot : SectionSnapshot
+        Its ``cpt`` investigations are the columns that can carry a curve.
+
+    Returns
+    -------
+    list[SectionCptTrace]
+        One trace per CPT that has a series; a CPT without one draws no curve.
+    """
+    cpt_ids = [inv.investigation_id for inv in snapshot.investigations if inv.kind == "cpt"]
+    if not cpt_ids:
+        return []
+    rows = await CptRepository(session).get_many_with_series(cpt_ids, app_project_id=project_id)
+    traces: list[SectionCptTrace] = []
+    for cpt in rows:
+        series = cpt.series
+        if series is None or not series.depths_m:
+            continue
+        traces.append(
+            SectionCptTrace(
+                investigation_id=cpt.id,
+                depths_m=tuple(series.depths_m),
+                qc_mpa=tuple(series.qc_mpa),
+                rf_pct=None if series.rf_pct is None else tuple(series.rf_pct),
+            )
+        )
+    logger.info(f"DXF export: {len(traces)} of {len(cpt_ids)} CPT column(s) carry a series")
+    return traces
+
+
+@router.post("/{section_id}/export/dxf")
+async def export_section_dxf_with_fill(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    request: SectionDxfExportRequest,
+    thin_units: bool = Query(default=True),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export the section as DXF WITH its drawn fill and the CPT curves.
+
+    Owner 2026-09-26: a DXF of a litho fill *"should literally look like litho
+    fill in app"*. A POST, like D-Stability, because the fill is computed in
+    the renderer and travels in the body (the same partition the voxel build
+    sends). On top of everything the GET writes (contact polylines, column
+    lines, title block, mapping table), each drawn region becomes a closed
+    outline plus a solid see-through hatch on its unit's layer, and each CPT
+    column with a stored series gets its qc and Rf curves on the app's scales.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export. Must belong to ``project_id``.
+    model_id : UUID
+        Which model's units the fill is drawn on (the axis the engineer is on).
+    request : SectionDxfExportRequest
+        The section's drawn partition fill, or none for the line drawing
+        plus the curves (the stratigraphy axis has no litho partition).
+    thin_units : bool
+        Same-NAD thinning of the contact snapshot (debt #104b), default on.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    Response
+        ``application/dxf`` body with a ``Content-Disposition`` filename.
+
+    Raises
+    ------
+    HTTPException(404)
+        When section / model / project resolution fails.
+    HTTPException(400)
+        When the section carries a non-metric CRS.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/sections/{section_id}/export/dxf "
+        f"(model={model_id}, "
+        f"regions={'none' if request.partition is None else len(request.partition.regions)}, "
+        f"thin_units={thin_units})"
+    )
+    snapshot = await _build_export_snapshot(
+        session, project_id, section_id, model_id, thin_units=thin_units
+    )
+    fill = (
+        None
+        if request.partition is None
+        else await BuildSectionPolygons(session).execute(
+            snapshot=snapshot, partition=request.partition.to_domain()
+        )
+    )
+    traces = await _load_cpt_traces(session, project_id, snapshot)
+    payload = DxfSectionExporter().export(snapshot, fill=fill, cpt_traces=traces)
     return export_response(
         ExportArtifact.build(
             content=payload,
