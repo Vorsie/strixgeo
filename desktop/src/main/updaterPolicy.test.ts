@@ -15,6 +15,7 @@ import {
   autoInstallOnQuit,
   classifyUpdaterError,
   shouldAutoCheckOnLaunch,
+  shouldReplayOnLoad,
   summariseUpdateInfo,
 } from './updaterPolicy'
 
@@ -22,6 +23,28 @@ describe('updaterPolicy', () => {
   it('auto-checks on launch ONLY when the app is packaged', () => {
     expect(shouldAutoCheckOnLaunch(true)).toBe(true)
     expect(shouldAutoCheckOnLaunch(false)).toBe(false)
+  })
+
+
+  // Owner 2026-09-26: "when launching release, i had to manually click check for
+  // updates, i didn't get prompted on startup". The launch check fires as soon
+  // as the window exists, and the feed answers before the renderer has loaded
+  // and subscribed — so the "available" event went to nobody. The service now
+  // latches the last event and replays it when a document finishes loading;
+  // only the phases that ask something of the engineer are worth replaying.
+  it('RP1 — an update on offer or downloaded is replayed to a renderer that loads later', () => {
+    expect(shouldReplayOnLoad({ phase: 'available' })).toBe(true)
+    expect(shouldReplayOnLoad({ phase: 'downloaded' })).toBe(true)
+  })
+
+  it('RP2 — transient or calm phases are not replayed: a reload must not re-toast them', () => {
+    for (const phase of ['idle', 'checking', 'not-available', 'no-release', 'downloading', 'disabled'] as const) {
+      expect(shouldReplayOnLoad({ phase }), phase).toBe(false)
+    }
+  })
+
+  it('RP3 — a failure is replayed too: the engineer must learn the check could not run', () => {
+    expect(shouldReplayOnLoad({ phase: 'error' })).toBe(true)
   })
 
   it('H6 — never auto-installs an update on quit for an UNSIGNED build', () => {
