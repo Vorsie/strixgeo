@@ -77,7 +77,7 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
       geotechVoxelBuildState,
       cancelGeotechBuild,
     },
-    sections: { selectedSectionId },
+    sections: { selectedSectionId, sectionsLoaded },
     coordinator: { setExportDeepLinkTarget },
   } = useShell()
 
@@ -96,6 +96,9 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
   // Gate Build on geotech band presence: with zero geotech layers the voxel
   // builder has nothing to project. The tooltip directs to the Sections stage.
   const hasGeotechBands = geotechLayers.length > 0
+  // Same gate as the Lithology toolbar (owner 2026-09-26): the section list
+  // may land after the bands; a build fired before it sees no sections.
+  const sectionsReady = sectionsLoaded ?? true
 
   const buildModelLabel = preflight.busy
     ? t('geotech.subdividing')
@@ -142,13 +145,15 @@ export default function GeotechnicalToolbar(): JSX.Element | null {
           icon={<Box size={13} />}
           label={buildModelLabel}
           onClick={preflight.pressBuild}
-          disabled={geotechSolidsBuilding || preflight.busy || !hasGeotechBands}
+          disabled={geotechSolidsBuilding || preflight.busy || !hasGeotechBands || !sectionsReady}
           busy={geotechSolidsBuilding || preflight.busy}
-          amber={hasStaleGeotechSolid && hasGeotechBands}
+          amber={hasStaleGeotechSolid && hasGeotechBands && sectionsReady}
           testid="geotech-build-model-button"
           title={
             !hasGeotechBands
               ? t('geotech.buildNoBands')
+              : !sectionsReady
+                ? t('litho.buildSectionsLoading')
               : preflight.busy
                 ? t('geotech.buildSubdividingTitle')
                 : geotechSolidsBuilding
