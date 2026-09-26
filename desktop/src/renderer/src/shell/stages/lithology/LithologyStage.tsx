@@ -60,7 +60,7 @@ function LithologyToolbar(): JSX.Element | null {
       cancelLithoBuild,
       voxelBuildState,
     },
-    sections: { selectedSectionId },
+    sections: { selectedSectionId, sectionsLoaded },
     coordinator: { setExportDeepLinkTarget },
   } = useShell()
   // Unconditional hook — above the ``!activeLithoModel`` early return.
@@ -72,6 +72,10 @@ function LithologyToolbar(): JSX.Element | null {
   // builder has nothing to work with. The tooltip directs to the
   // cross-section view as the place to accept contacts first.
   const hasLithoContacts = lithoContacts.length > 0
+  // The section list can land AFTER the contacts (owner 2026-09-26: a fast
+  // click after opening a project got "nothing to build"). Until it has,
+  // the button is not offered rather than refusing after the click.
+  const sectionsReady = sectionsLoaded ?? true
 
   // While a background build job runs, the Build button becomes an inline
   // progress bar with a Cancel (debt #282).
@@ -93,12 +97,14 @@ function LithologyToolbar(): JSX.Element | null {
           // module ref assembles the per-section partition payload (the source of
           // truth); startLithoBuild runs it as a cancellable background job.
           onClick={() => void startLithoBuild(lithoVoxelRequestCallback.current ?? undefined)}
-          disabled={!hasLithoContacts}
-          amber={hasStaleLithoSolid && hasLithoContacts}
+          disabled={!hasLithoContacts || !sectionsReady}
+          amber={hasStaleLithoSolid && hasLithoContacts && sectionsReady}
           testid="litho-build-model-button"
           title={
             !hasLithoContacts
               ? t('litho.buildNoContacts')
+              : !sectionsReady
+                ? t('litho.buildSectionsLoading')
               : hasStaleLithoSolid
                 ? t('litho.solidsStale')
                 : t('litho.buildSolidsTitle')
