@@ -164,6 +164,10 @@ the blocking wiring lives in `App.tsx` above the workspace early-returns.
   Restart & install; informational phases (up to date / disabled / error) show a
   dismissable line.
 - Launch check runs from `app.whenReady` after the window exists (no-op in dev).
+  Its answer usually lands before the document has loaded, so the service
+  latches the last event and replays it on `did-finish-load` — only
+  `available`, `downloaded` and `error` (`shouldReplayOnLoad`), never a calm
+  result a reload would re-toast (owner 2026-09-26: no prompt on startup).
 - **The feed is now real config** (senior review SHOULD-FIX 3): `package.json`'s
   `build.publish` names GitHub Releases on the PUBLIC releases-only repo
   `Vorsie/strixgeo-releases`, `releaseType: draft`. `electron-builder` generates
