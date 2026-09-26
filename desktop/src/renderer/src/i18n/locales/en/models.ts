@@ -325,6 +325,7 @@ export const MODELS = {
   'litho.buildingSolids': 'Building watertight body solids…',
   'litho.solidsStale': 'One or more body solids are stale. Click to rebuild',
   'litho.buildSolidsTitle': 'Build the 3-D body solids from accepted contacts',
+  'litho.buildSectionsLoading': 'The cross-sections are still loading. Build is available in a moment',
   // Background 3-D build (debt #282): phase labels for the progress bar + the
   // Cancel affordances. Phase keys are looked up by the backend phase name.
   'litho.building3dModel': 'Building 3-D model…',
