@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { BASEMAP_SOURCES } from './basemapSources'
+import { BASEMAP_SOURCES, readBasemapId } from './basemapSources'
 
 /**
  * The walker's seed-2579495321 replay (2026-09-23) logged 16 OSM tile requests
@@ -13,12 +13,13 @@ describe('basemap zoom limits', () => {
     expect(osm?.maxZoom).toBe(19)
   })
 
-  it('the other sources keep their unclamped zoom (no limit declared)', () => {
-    // Near miss: only OSM answers 400 past 19. The Esri, CARTO and Geopunt
-    // sources zoom as deep as before; a cap there is a separate decision.
+  it('the sources whose deepest level was never probed keep their unclamped zoom', () => {
+    // Near miss: only OSM answers 400 past 19, and only the two Esri gray
+    // canvases were probed to a blank tile past 16. Satellite, World Topo and
+    // Geopunt zoom as deep as before; a cap there is a separate decision.
     for (const source of BASEMAP_SOURCES) {
-      if (source.id === 'osm') continue
-      expect(source.maxZoom).toBeUndefined()
+      if (['osm', 'esri_light_gray', 'esri_dark_gray'].includes(source.id)) continue
+      expect(source.maxZoom, source.id).toBeUndefined()
     }
   })
 })
@@ -49,5 +50,46 @@ describe('basemap extents', () => {
       if (source.id.startsWith('geopunt_')) continue
       expect(source.bounds, source.id).toBeUndefined()
     }
+  })
+})
+
+
+/**
+ * Owner 2026-09-26: "one bug for the CARTO basemaps, i get an API key required".
+ * basemaps.cartocdn.com now answers every tile request with a 256 px
+ * "API KEY REQUIRED" placeholder, status 200, image/png — so no gate saw it.
+ * The two CARTO entries are replaced by Esri's free light and dark gray
+ * canvases, and a choice saved under the old ids keeps working.
+ */
+describe('no basemap needs an API key', () => {
+  it('BM1 — no source asks cartocdn for tiles any more', () => {
+    for (const source of BASEMAP_SOURCES) {
+      expect(source.url, source.id).not.toContain('cartocdn')
+      expect(source.overlay?.url ?? '', source.id).not.toContain('cartocdn')
+    }
+  })
+
+  it('BM2 — the light and dark gray canvases take their place, in Esri tile order', () => {
+    const light = BASEMAP_SOURCES.find(s => s.id === 'esri_light_gray')
+    const dark = BASEMAP_SOURCES.find(s => s.id === 'esri_dark_gray')
+    expect(light?.url).toContain('World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}')
+    expect(dark?.url).toContain('World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}')
+    // Past level 16 the canvases answer a blank placeholder tile (probed 2026-09-26).
+    expect(light?.maxZoom).toBe(16)
+    expect(dark?.maxZoom).toBe(16)
+  })
+
+  it('BM3 — a basemap saved under a CARTO id reads as its gray replacement', () => {
+    window.localStorage.setItem('groundmodel.map.basemap', 'carto_voyager')
+    expect(readBasemapId(false)).toBe('esri_light_gray')
+    window.localStorage.setItem('groundmodel.map.basemap', 'carto_dark')
+    expect(readBasemapId(true)).toBe('esri_dark_gray')
+    window.localStorage.removeItem('groundmodel.map.basemap')
+  })
+
+  it('BM4 — an unknown saved id still falls back to the first-run default', () => {
+    window.localStorage.setItem('groundmodel.map.basemap', 'no_such_basemap')
+    expect(readBasemapId(false)).toBe('osm')
+    window.localStorage.removeItem('groundmodel.map.basemap')
   })
 })
