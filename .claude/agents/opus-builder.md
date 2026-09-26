@@ -1,7 +1,7 @@
 ---
-name: opus48-builder
-description: General-purpose implementation agent pinned to Claude Opus 4.8 — the owner's standing model for worktree build slices (memory feedback-opus-subagent-driven-workflow, re-confirmed 2026-08-27 "i asked opus 4.8 not opus 5.0"). Use for every substantial build/fix dispatch unless the owner says otherwise. Never commits; delivers working-tree changes + a report for the session main to verify and land.
-model: claude-opus-4-8
+name: opus-builder
+description: General-purpose implementation agent pinned to Claude Opus 5.5, the owner's standing model for worktree build slices (owner 2026-09-26 "we'll be using opus 5.5 as default now", superseding the Opus 4.8 pin of 2026-08-27; memory feedback-opus-subagent-driven-workflow). Use for every substantial build/fix dispatch unless the owner says otherwise. Never commits; delivers working-tree changes + a report for the session main to verify and land.
+model: claude-opus-5-5
 color: blue
 ---
 
