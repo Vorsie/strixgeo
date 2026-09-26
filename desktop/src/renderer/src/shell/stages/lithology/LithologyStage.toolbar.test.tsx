@@ -692,3 +692,64 @@ describe('the Lithology spine badge reports a stale 3-D model', () => {
     expect(result.current.badgeIntent).toBe('neutral')
   })
 })
+
+
+describe('LithologyToolbar waits for the section list (owner 2026-09-26)', () => {
+  // "If i click build litho model too quickly, it says nothing to build...
+  // which is misleading." With contacts loaded but the section list still on
+  // its way, the button is not offered rather than refusing after the click.
+  it('BM4b — Build model is disabled with a loading hint while the section list has not landed', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel(), lithoContacts: [
+        {
+          id: 'c1',
+          model_id: 'litho-1',
+          formation_id: 'f1',
+          borehole_id: 'b1',
+          cpt_id: null,
+          synthetic_x: null,
+          synthetic_y: null,
+          synthetic_elevation_m: null,
+          depth_top_m: 1,
+          source: 'manual_pick',
+          confidence: 'medium',
+          observation_id: null,
+          observation_layer_id: null,
+          notes: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ] })
+    ctx.sections = { ...ctx.sections, sectionsLoaded: false }
+    renderToolbar(ctx)
+    const btn = screen.getByTestId('litho-build-model-button') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.title).toMatch(/loading/i)
+  })
+
+  it('BM4c — once the list has landed the button is offered again', () => {
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel(), lithoContacts: [
+        {
+          id: 'c1',
+          model_id: 'litho-1',
+          formation_id: 'f1',
+          borehole_id: 'b1',
+          cpt_id: null,
+          synthetic_x: null,
+          synthetic_y: null,
+          synthetic_elevation_m: null,
+          depth_top_m: 1,
+          source: 'manual_pick',
+          confidence: 'medium',
+          observation_id: null,
+          observation_layer_id: null,
+          notes: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ] })
+    ctx.sections = { ...ctx.sections, sectionsLoaded: true }
+    renderToolbar(ctx)
+    const btn = screen.getByTestId('litho-build-model-button') as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+  })
+})
