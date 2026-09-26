@@ -219,10 +219,27 @@ export const sectionClient = {
   delete: (projectId: string, sectionId: string): Promise<void> =>
     del(`/projects/${projectId}/sections/${sectionId}`),
 
-  // Download the section's DXF export as raw bytes (byte-pipe
-  // contract — see `getBytes`).
-  exportDxf: (projectId: string, sectionId: string, modelId: string): Promise<ArrayBuffer> =>
-    getBytes(`/projects/${projectId}/sections/${sectionId}/export/dxf?model_id=${modelId}`),
+  /**
+   * Download the section's DXF as raw bytes (byte-pipe contract, see
+   * `postBytes`).
+   *
+   * A POST since 2026-09-26 (owner: a DXF of a litho fill "should literally
+   * look like litho fill in app"): the drawn partition travels in the body,
+   * the same ``SectionPartitionInput`` the voxel build and D-Stability send,
+   * and the backend draws each region as an outline plus a solid hatch on
+   * the unit's layer and adds the CPT qc / Rf curves. ``null`` on the
+   * stratigraphy axis, which has no litho partition: the line drawing plus
+   * the curves.
+   */
+  exportDxf: (
+    projectId: string,
+    sectionId: string,
+    modelId: string,
+    partition: SectionPartitionInput | null,
+  ): Promise<ArrayBuffer> =>
+    postBytes(`/projects/${projectId}/sections/${sectionId}/export/dxf?model_id=${modelId}`, {
+      partition,
+    }),
 
   // Download the section's Plaxis 2D plxscripting script as raw
   // bytes (debt #29). Same byte-pipe contract as exportDxf.
