@@ -157,13 +157,26 @@ one run; `edgedEnclosedLens.extractPerGapEnclosedLenses` (ruling 8v) then record
 silt lens toward S3 with the clay lenses nested inside it, and `splitHostIntoRawPieces` cut the clay
 host at those nested clay intervals — phantom clay pieces exactly where the silt is (*"the fuk is
 happening here ... these wrong lens fills"*). Now: the raw make-up of a merged unit rides on the
-unit itself (`UnitGeom.rawPieces`), so the 8v path splits a pulled run into its raw pieces too
-(each a lens toward the untied gaps), restricts the lenses nested inside it to the TIED gaps (there
-they are the matrix's own material), and `lensIntervalsInHost` takes the gap index and ignores a
-lens not emitted in that gap. Toward S3: a clay band with three silt lenses hugging S8; toward S10:
-unchanged (the silt bands, the inner clays lens). Pinned in `partitionFillV2/ownerTestS8Alternation.test.ts`
-(fixture `__fixtures__/owner_test_s8_alternation_2026-09-23.json`, S10 / S8 / S3); CS1 golden
-byte-identical.
+unit itself (`UnitGeom.rawPieces`), so the 8v path splits a pulled run into its raw pieces, and
+`lensIntervalsInHost` takes the gap index and ignores a lens that does not cut the host in that gap.
+
+**Its tied side (owner 2026-09-27, the same comb toward S10: *"the silt lenses get a clay lens/wedge
+to the left"*).** Only the TOP silt piece is tied toward S10 (2.78 ↔ S10's silt 2.40). So the run
+comes apart in EVERY gap, each raw piece classified on its own ties (plain 2/1/0, 8r): a piece is a
+lens in each gap where it is untied (`emitGaps` per piece), and where it is tied it keeps its own
+termination (`EnclosedLens.tiedGaps` — the host's raw split cuts it out, `rawUnitSplit.cutsHostInGap`,
+and the sweep draws it, `tiedRawPiece`). The clay lenses nested inside the run are the clay host's own
+material in every gap and are never emitted. The clay around the comb carries
+`UnitGeom.wrapsCameApartRun`: inside it the onlaps' flood wedges carry the host clay instead of the
+facing read (8n), and the tied piece's onlap skips the 8m same-litho check — its facing is silt, but
+under its flank lies its own clay host, so skipping would leave it unbounded. Toward S3: a clay band
+with three silt lenses hugging S8; toward S10: the clay host, S8's top silt and S10's silt each
+onlapping to the halfway point of their shared tie, S8's two untied silts as lenses hugging S8, S10's
+untied sand and silt as lenses/onlaps at their own level. Pinned in
+`partitionFillV2/ownerTestS8Alternation.test.ts` (fixture `__fixtures__/owner_test_s8_alternation_2026-09-23.json`,
+S10 / S8 / S3) and `partitionFillV2/ownerTestS8TiedSide.test.ts` (fixture
+`__fixtures__/owner_test_s8_tied_side_2026-09-27.json`, the whole section, gap S10 → S8); only that gap
+of the section changes; CS1 golden byte-identical.
 
 ## Same-litho enclosed lens is one mass (owner ruling 2, 2026-09-07)
 
