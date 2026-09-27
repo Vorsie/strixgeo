@@ -168,7 +168,9 @@ class DxfSectionExporter(SectionExporter):
             The section's drawn fill (owner 2026-09-26: a DXF of a litho
             fill "should literally look like litho fill in app"). Each
             region becomes a closed outline plus a solid hatch on its
-            unit's layer. ``None`` (the legacy GET) draws contacts only.
+            unit's layer, and the pick-to-pick contact lines are NOT drawn
+            (the outlines carry the boundaries). ``None`` (the legacy GET, the
+            stratigraphy axis) draws the contact lines instead.
         cpt_traces : Sequence[SectionCptTrace]
             The stored qc / Rf series of the section's CPT columns; each
             becomes the curves the app draws in the column band.
@@ -197,9 +199,16 @@ class DxfSectionExporter(SectionExporter):
         # column lines, contacts and curves must stay readable over it.
         drawn_regions = self._draw_fill(msp, fill, layer_by_formation_id, snapshot)
         self._draw_investigation_columns(msp, snapshot)
-        dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(
-            msp, snapshot, layer_by_formation_id
-        )
+        # The pick-to-pick straight lines are the LINE drawing's geometry: with
+        # a fill the hatched regions carry every boundary, and those lines cut
+        # across them regardless of the correlations the engineer drew (owner
+        # 2026-09-27: "those are not correlations I drew"). Fill present: skip.
+        if fill is None:
+            dropped_no_level, dropped_no_formation = self._draw_formation_surfaces(
+                msp, snapshot, layer_by_formation_id
+            )
+        else:
+            dropped_no_level, dropped_no_formation = 0, 0
         drawn_cpts = 0
         if cpt_traces:
             self._setup_cpt_layers(doc)
@@ -221,7 +230,11 @@ class DxfSectionExporter(SectionExporter):
         #   - no-formation means a contact referenced a formation that vanished
         #     between snapshot assembly and export (shouldn't happen in one
         #     transaction) — genuinely anomalous, so THAT gets a WARNING.
-        drawn_contacts = len(snapshot.contacts) - dropped_no_level - dropped_no_formation
+        drawn_contacts = (
+            0
+            if fill is not None
+            else len(snapshot.contacts) - dropped_no_level - dropped_no_formation
+        )
         dropped_total = dropped_no_level + dropped_no_formation
         if dropped_no_formation:
             self.warning(
