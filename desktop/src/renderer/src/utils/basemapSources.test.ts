@@ -13,12 +13,25 @@ describe('basemap zoom limits', () => {
     expect(osm?.maxZoom).toBe(19)
   })
 
+  it('both Geopunt sources stop at level 21, the last level of GoogleMapsVL', () => {
+    // The 0.1.4 walker (seed 1992030692, 2026-09-27) asked Geopunt for 201
+    // tiles at TILEMATRIX=22 and got 400 for every one: the GoogleMapsVL tile
+    // matrix set in the WMTS capabilities ends at 21. Same defect class as the
+    // OSM cap above; the overlay (grb_sel) shares the set, so the cap on the
+    // source covers both layers.
+    for (const id of ['geopunt_ortho', 'geopunt_hybrid']) {
+      const source = BASEMAP_SOURCES.find(s => s.id === id)
+      expect(source?.maxZoom, id).toBe(21)
+    }
+  })
+
   it('the sources whose deepest level was never probed keep their unclamped zoom', () => {
-    // Near miss: only OSM answers 400 past 19, and only the two Esri gray
-    // canvases were probed to a blank tile past 16. Satellite, World Topo and
-    // Geopunt zoom as deep as before; a cap there is a separate decision.
+    // Near miss: only OSM answers 400 past 19, the two Esri gray canvases
+    // were probed to a blank tile past 16, and Geopunt's tile set ends at 21.
+    // Satellite and World Topo zoom as deep as before; a cap there is a
+    // separate decision.
     for (const source of BASEMAP_SOURCES) {
-      if (['osm', 'esri_light_gray', 'esri_dark_gray'].includes(source.id)) continue
+      if (['osm', 'esri_light_gray', 'esri_dark_gray', 'geopunt_ortho', 'geopunt_hybrid'].includes(source.id)) continue
       expect(source.maxZoom, source.id).toBeUndefined()
     }
   })
