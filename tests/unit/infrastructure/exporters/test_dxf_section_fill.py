@@ -132,11 +132,12 @@ def test_f1_each_region_is_an_outline_plus_a_solid_hatch_on_its_units_layer() ->
     layer = "GeoModel-NAD-06_ZAND - Zand"
     outlines = list(msp.query(f"LWPOLYLINE[layer=='{layer}']"))
     assert len(outlines) == 1 and outlines[0].closed
-    assert [tuple(p[:2]) for p in outlines[0].get_points()] == [
-        (10.0, 12.0),
-        (60.0, 11.5),
-        (60.0, 5.5),
+    # The union may start the ring at another corner; the corner SET is the region.
+    assert sorted(tuple(float(v) for v in p[:2]) for p in outlines[0].get_points()) == [
         (10.0, 6.0),
+        (10.0, 12.0),
+        (60.0, 5.5),
+        (60.0, 11.5),
     ]
     hatches = list(msp.query(f"HATCH[layer=='{layer}']"))
     assert len(hatches) == 1
@@ -218,6 +219,44 @@ def test_f4_with_a_fill_the_contact_to_contact_lines_are_not_drawn() -> None:
     assert [pl.closed for pl in doc.modelspace().query("LWPOLYLINE[layer=='GeoModel-Zand']")] == [
         False
     ]
+
+
+def test_f5_touching_regions_of_one_unit_are_one_body_with_no_seam_line() -> None:
+    """Two clay regions that share an edge print as ONE outline and ONE hatch.
+
+    Owner 2026-09-27 on the CS1 DXF, right of S8: "the constructor lines for
+    the clay lenses are still there... it was merged into the clay body, so
+    the lines disappear. that is fine in the app." The app hides the seam by
+    colour; a DXF outline per region prints it. Per unit, touching regions
+    are unioned before drawing.
+    """
+    clay = uuid4()
+    unit = SectionPolygonUnit(clay, "Klei", None, "KLEI", "#8899aa", 1)
+    band = SectionPolygon(clay, ((10.0, 6.0), (60.0, 5.5), (60.0, -2.5), (10.0, -2.0)), 0)
+    # A clay "lens" that was merged into the band: shares the edge along x=10..40
+    # at the band's top, and pokes 2 m above it.
+    bump = SectionPolygon(clay, ((10.0, 8.0), (40.0, 5.7), (10.0, 6.0)), 0)
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill([unit], [band, bump])))
+    msp = doc.modelspace()
+    assert len(list(msp.query("HATCH[layer=='GeoModel-Klei']"))) == 1
+    outlines = list(msp.query("LWPOLYLINE[layer=='GeoModel-Klei']"))
+    assert len(outlines) == 1 and outlines[0].closed
+    # One ring whose area is the band plus the bump: the union, not one of them.
+    from shapely.geometry import Polygon
+
+    ring = Polygon([tuple(float(v) for v in p[:2]) for p in outlines[0].get_points()])
+    expected = Polygon(band.points).area + Polygon(bump.points).area
+    assert abs(ring.area - expected) < 1e-6
+
+
+def test_f6_two_separate_bodies_of_one_unit_stay_two_hatches() -> None:
+    """Union never glues regions that do not touch: two sand bodies stay two."""
+    sand = uuid4()
+    unit = SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0)
+    top = SectionPolygon(sand, ((10.0, 12.0), (60.0, 11.5), (60.0, 9.5), (10.0, 10.0)), 0)
+    deep = SectionPolygon(sand, ((10.0, -6.0), (60.0, -6.5), (60.0, -9.0), (10.0, -8.5)), 0)
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill([unit], [top, deep])))
+    assert len(list(doc.modelspace().query("HATCH[layer=='GeoModel-Zand']"))) == 2
 
 
 # ---------------------------------------------------------------------------
