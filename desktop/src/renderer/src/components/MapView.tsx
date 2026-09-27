@@ -714,6 +714,7 @@ export default function MapView({
             url={basemap.overlay.url}
             attribution={basemap.overlay.attribution}
             pane="basemap-overlay"
+            {...(basemap.maxZoom !== undefined ? { maxZoom: basemap.maxZoom } : {})}
             {...(basemap.bounds !== undefined ? { bounds: basemap.bounds } : {})}
           />
         )}
