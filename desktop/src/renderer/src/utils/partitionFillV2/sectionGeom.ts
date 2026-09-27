@@ -115,6 +115,12 @@ export interface UnitGeom {
    * 2026-09-23) — by the section-wide walk and by the per-gap edged path alike.
    */
   rawPieces?: readonly UnitGeom[]
+  /**
+   * Set on the two units that wrap a merged run which came apart on the per-gap edged path (the
+   * clay around S8's clay/silt comb, owner 2026-09-27): the comb's host. Its terminations flood
+   * with its own litho (``tiedRawPiece.combHostOf``). Absent everywhere else.
+   */
+  wrapsCameApartRun?: boolean
 }
 
 /** One column: real along-section x + its gap-free, elevation-space unit stack. */
@@ -153,6 +159,15 @@ export interface EnclosedLens {
    * ``emitEnclosedLensCurves`` and ``collectEnclosedLensDiamonds``.
    */
   emitGaps?: ReadonlySet<number>
+  /**
+   * The adjacent gaps where this lens is a raw piece of a merged run that came apart AND is itself
+   * tied there (the per-gap edged path, owner 2026-09-27 — S8's top silt 2.78..2.13, tied to S10's
+   * silt, inside S8's clay comb). In such a gap the piece is neither a lens nor host material: the
+   * host's raw split cuts it out (``rawUnitSplit``) and the sweep draws its own 2/1/0 termination
+   * from its own ties (``emitTerminationSweep``). ``undefined`` everywhere else (every ordinary lens,
+   * and the single edged minority of ruling 8v, whose tied gap keeps its band by construction).
+   */
+  tiedGaps?: ReadonlySet<number>
 }
 
 /**
