@@ -59,6 +59,7 @@ import { type LensLabel } from './emitLenses'
 import { type TerminationPlan } from './terminationPlan'
 import { splitHostIntoRawPieces } from './rawUnitSplit'
 import { type ColumnGeom, type SectionInput, type UnitGeom } from './sectionGeom'
+import { combHostOf, tiedPieceCorr, tiedPiecesInHost } from './tiedRawPiece'
 import { type InputCurve } from './types'
 import { LENS_PINCH_FRACTION, type LensApexOverride } from '../sectionPartition'
 
@@ -408,7 +409,21 @@ function emitSideSweep(
       diamonds,
       overrides,
       detourDiamonds,
+      combHostOf(col.units[ui], false),
     )
+    }
+    // A TIED raw piece of a merged run that came apart (owner 2026-09-27, S8's top silt toward S10):
+    // the host's raw split cut it out above, and it terminates on its OWN ties (plain 2/1/0). Its
+    // host wraps it, so the onlap floods with the host (``combHost``), never the facing litho.
+    for (const el of tiedPiecesInHost(col, col.units[ui], gapIndex)) {
+      const pu = el.lens
+      if (pu.topElev <= facingTD - ELEV_EPS) continue // sub-TD: ``emitSubTdLenses``' job
+      const pe = tiedPieceCorr(pu, side, gapIndex, activeTies)
+      drawTermination(
+        pu, ui, pe.corr, pe.topTied, pe.baseTied, pe.topTie, pe.baseTie, pe.topTied, pe.baseTied,
+        side, colX, facingX, gapIndex, col, facing, activeTies, lensLabels, nextId, nextFloodId, out,
+        diamonds, overrides, detourDiamonds, combHostOf(col.units[ui], true),
+      )
     }
   }
 }
