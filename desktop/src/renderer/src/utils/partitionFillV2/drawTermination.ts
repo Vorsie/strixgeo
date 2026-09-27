@@ -65,6 +65,7 @@ import { type LensLabel } from './emitLenses'
 import { emitFloodWedge } from './emitFloodWedge'
 import { lensEnclosingMatrix } from './lensEnclosure'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
+import { type CombHost } from './tiedRawPiece'
 import { type InputCurve, type Point } from './types'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
@@ -242,6 +243,13 @@ export function tiedContactSide(topTied: boolean, baseTied: boolean): 'top' | 'b
  *     Curve-id allocators (``term`` / ``floodsw``).
  * out : InputCurve[]
  *     Curve accumulator.
+ * combHost : CombHost, optional
+ *     Set only inside a clay/silt COMB whose merged run came apart (owner 2026-09-27, S8 toward
+ *     S10 — ``tiedRawPiece``). The comb's host wraps everything terminating here, so the onlap's
+ *     flood wedge carries the host's label (``matrix``) instead of the facing column's read (8n),
+ *     and a TIED raw piece of the run (``ownTie``) always onlaps: the 8m same-litho skip's premise
+ *     — the facing same litho floods on through — fails under it (its own host lies below its
+ *     flank), so skipping would leave it unbounded.
  */
 export function drawTermination(
   u: UnitGeom,
@@ -267,6 +275,7 @@ export function drawTermination(
   diamonds?: Corr0Diamond[],
   overrides?: ReadonlyMap<string, LensApexOverride>,
   detourDiamonds?: readonly Corr0Diamond[],
+  combHost?: CombHost,
 ): boolean {
   if (corr === 2) return false // band member / first-unit band — given line art (bandc)
   const iu: IntervalUnit = { unit: u, topElev: u.topElev, baseElev: u.baseElev }
@@ -348,14 +357,23 @@ export function drawTermination(
   // now demoted to corr-0 in the sweep (``emitTerminationSweep`` ``isForcedLens``) so it draws a LENS
   // and NEVER reaches this corr-1 draw. The 8m same-litho skip is therefore UNCONDITIONAL again — no
   // flooded corr-1 unit gets here to be rescued by an onlap (the old ``forceOnlapUnits`` bypass).
-  if (matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) {
+  // A tied raw piece inside a comb host (``combHost.ownTie``) always onlaps: under its flank lies
+  // its own column's host, not the facing same litho, so the skip would leave it unbounded.
+  if (!combHost?.ownTie && matchedFacingSameLitho(u.formationId, tieSide, facingTiedElev, facing)) {
     return false
   }
   // DIFFERENT litho → onlap the tie (tip 0.5 riding the exact far endpoint, never absent). A
   // free-draw override (``overrides``) moves that tip to the drawn apex; the arrangement re-closes.
   // ``bentTiePoints`` (session 109) rides the onlap apex onto the BENT host tie when a matched-contact
   // bend deformed it; undefined otherwise (straight-chord, byte-identical).
-  return emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides, bentTiePoints, detourDiamonds)
+  const floodStart = out.length
+  const emitted = emitOnlap(iu, baseIsTied, facingTiedElev, tiedElev, colX, facingX, side, gapIndex, col, facing, activeTies, u, lensLabels, nextId, nextFloodId, out, diamonds, overrides, bentTiePoints, detourDiamonds)
+  if (combHost !== undefined) {
+    // The flood wedge past the tip reads the FACING column (8n); inside a comb that read lands on
+    // whatever the facing column holds at that level. The space is the comb host's: relabel it.
+    for (let i = floodStart; i < out.length; i++) if (out[i].id.startsWith('floodsw')) lensLabels.set(out[i].id, combHost.matrix)
+  }
+  return emitted
 }
 
 /**
