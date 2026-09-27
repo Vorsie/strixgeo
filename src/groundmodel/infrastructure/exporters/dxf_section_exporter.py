@@ -88,6 +88,10 @@ if TYPE_CHECKING:
     import ezdxf
     from ezdxf.colors import RGB
 
+from shapely import set_precision
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.ops import unary_union
+
 from groundmodel.application.section_cpt_trace import SectionCptTrace
 from groundmodel.application.section_polygon_set import SectionPolygonSet, SectionPolygonUnit
 from groundmodel.application.section_snapshot import (
@@ -109,6 +113,7 @@ from groundmodel.infrastructure.exporters.cpt_trace_scale_constants import (
     CPT_RF_LAYER,
     CPT_RF_RGB,
     FILL_TRANSPARENCY,
+    FILL_UNION_GRID_M,
     QC_GRID_MPA,
     RF_FULL_SCALE_PCT,
     RF_GRID_PCT,
@@ -540,7 +545,7 @@ class DxfSectionExporter(SectionExporter):
         layer_by_formation_id: dict[UUID, str],
         snapshot: SectionSnapshot,
     ) -> int:
-        """Emit each drawn region as a closed LWPOLYLINE plus a solid HATCH.
+        """Emit each unit body (unioned touching regions) as outline + solid HATCH.
 
         The hatch carries the unit's true colour and is see-through
         (``FILL_TRANSPARENCY``) so the lines drawn after it stay readable —
@@ -560,32 +565,60 @@ class DxfSectionExporter(SectionExporter):
         Returns
         -------
         int
-            Regions drawn.
+            Bodies drawn (touching regions of one unit count once).
         """
         if fill is None:
             return 0
         colour_by_id = {unit.formation_id: _parse_hex_color(unit.color) for unit in fill.units}
-        drawn = 0
+        # Touching regions of one unit are ONE body on paper: the app hides the
+        # seam between a merged lens and its band by colour, a DXF outline per
+        # region would print it (owner 2026-09-27: "it was merged into the clay
+        # body, so the lines disappear"). Union per unit, then draw each body.
+        by_unit: dict[UUID, list[Polygon]] = {}
         skipped = 0
         for polygon in fill.polygons:
-            layer_name = layer_by_formation_id.get(polygon.formation_id)
             points = [(float(x), float(y)) for x, y in polygon.points]
-            if layer_name is None or len(points) < 3:
+            if polygon.formation_id not in layer_by_formation_id or len(points) < 3:
                 skipped += 1
                 continue
-            msp.add_lwpolyline(points, close=True, dxfattribs={"layer": layer_name})
-            hatch = msp.add_hatch(dxfattribs={"layer": layer_name})
-            hatch.paths.add_polyline_path(points, is_closed=True)
-            rgb = colour_by_id.get(polygon.formation_id)
-            hatch.set_solid_fill(color=7, rgb=rgb)
-            hatch.transparency = FILL_TRANSPARENCY
-            drawn += 1
+            # Snap to a 0.1 mm grid first: a merged lens shares its seam vertices
+            # with the band only up to float noise, and a hairline gap would
+            # keep the two apart in the union.
+            shape = set_precision(Polygon(points), FILL_UNION_GRID_M).buffer(0)
+            if shape.is_empty:
+                skipped += 1
+                continue
+            by_unit.setdefault(polygon.formation_id, []).append(shape)
+        drawn = 0
+        for formation_id, shapes in by_unit.items():
+            layer_name = layer_by_formation_id[formation_id]
+            rgb = colour_by_id.get(formation_id)
+            merged = unary_union(shapes)
+            bodies = list(merged.geoms) if isinstance(merged, MultiPolygon) else [merged]
+            for body in bodies:
+                if not isinstance(body, Polygon) or body.is_empty:
+                    continue
+                rings = [list(body.exterior.coords)[:-1]] + [
+                    list(ring.coords)[:-1] for ring in body.interiors
+                ]
+                hatch = msp.add_hatch(dxfattribs={"layer": layer_name})
+                for ring in rings:
+                    msp.add_lwpolyline(ring, close=True, dxfattribs={"layer": layer_name})
+                    hatch.paths.add_polyline_path(ring, is_closed=True)
+                # Style 1 ("outer") fills between the outer ring and the next
+                # ring inward, so a body with a hole stays open at the hole.
+                hatch.set_solid_fill(color=7, style=1, rgb=rgb)
+                hatch.transparency = FILL_TRANSPARENCY
+                drawn += 1
         if skipped:
             self.warning(
-                f"DXF section export skipped {skipped} fill region(s) with no layer or under "
-                f"three points; section_id={snapshot.section_id}"
+                f"DXF section export skipped {skipped} fill region(s) with no layer, under "
+                f"three points or degenerate; section_id={snapshot.section_id}"
             )
-        self.debug(f"DXF section export drew {drawn} fill region(s) on {len(fill.units)} unit(s)")
+        self.debug(
+            f"DXF section export drew {drawn} fill body(ies) from {len(fill.polygons)} region(s) "
+            f"on {len(by_unit)} unit(s)"
+        )
         return drawn
 
     # ------------------------------------------------------------------
