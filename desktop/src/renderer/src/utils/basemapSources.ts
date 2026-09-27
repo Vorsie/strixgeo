@@ -117,6 +117,10 @@ const GEOPUNT_ORTHO_URL =
 // The extent both Geopunt layers declare in their WMTS capabilities
 // (ows:WGS84BoundingBox of omwrgbmrvl and grb_sel, read 2026-09-25). A tile
 // row south of it at level 9 answered 400 in the walker's seed-667388193 run.
+// The last level of Geopunt's GoogleMapsVL tile matrix set (WMTS capabilities,
+// read 2026-09-27); the orthophoto and the GRB overlay share it.
+const GEOPUNT_MAX_ZOOM = 21
+
 const FLANDERS_BOUNDS: readonly [[number, number], [number, number]] = [
   [50.685, 2.53],
   [51.52, 5.92],
@@ -198,6 +202,9 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     label: 'Luchtfoto (Geopunt)',
     url: GEOPUNT_ORTHO_URL,
     bounds: FLANDERS_BOUNDS,
+    // GoogleMapsVL ends at level 21 (WMTS capabilities); level 22 answers 400
+    // for every tile (the 0.1.4 walker, 201 findings, 2026-09-27).
+    maxZoom: GEOPUNT_MAX_ZOOM,
     attribution: GEOPUNT_ATTRIBUTION,
     loadingBg: '#1a1a1a',
   },
@@ -209,6 +216,7 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     label: 'Luchtfoto + GRB (Geopunt)',
     url: GEOPUNT_ORTHO_URL,
     bounds: FLANDERS_BOUNDS,
+    maxZoom: GEOPUNT_MAX_ZOOM,
     attribution: GEOPUNT_ATTRIBUTION,
     loadingBg: '#1a1a1a',
     overlay: {
