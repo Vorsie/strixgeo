@@ -230,26 +230,47 @@ export function extractPerGapEnclosedLenses(
         // from raw pieces around lenses of the MATRIX formation (the inner clays pulled as lenses in
         // silt, the silts merged into one run). Toward the emit gaps that run is a lens in the matrix
         // and comes apart into its raw pieces — each a lens at its own level — while the lenses
-        // nested inside it are the matrix's own material there: they are emitted only where the run
-        // bands (the tied gaps). Toward the tied gaps nothing changes. Without this the run was one
-        // silt diamond cut by nested clay lenses, and the host's raw split cut at those nested
-        // intervals — phantom clay pieces exactly where the silt is.
+        // nested inside it are the matrix's own material. Without this the run was one silt diamond
+        // cut by nested clay lenses, and the host's raw split cut at those nested intervals —
+        // phantom clay pieces exactly where the silt is.
+        // THE TIED SIDE (owner 2026-09-27, the same comb toward S10: *"the silt lenses get a clay
+        // lens/wedge to the left"*). The run is tied toward S10 through ONE raw piece only — its top
+        // silt (2.78 <-> S10's silt 2.40); the other silt pieces carry no tie anywhere. So the run
+        // comes apart in EVERY gap, not only the untied ones (plain 2/1/0 counts each raw piece's own
+        // ties, ruling 8r "the lines before the merge"): a piece is a lens in each gap where IT is
+        // un-tied, and in a gap where it is tied it keeps its own termination (``tiedGaps`` — the
+        // sweep draws it, the host's raw split cuts it out). The lenses nested inside the run are the
+        // matrix's own material in every gap — clay inside clay — and are never emitted (an empty
+        // ``emitGaps``; they keep their raw id for the column seeds). A single edged minority (no raw
+        // pieces, the S22 sand) keeps exactly its old emit gaps and its tied-gap band by construction.
         const pieces = lens.rawPieces ?? [lens]
+        const cameApart = lens.rawPieces !== undefined
         for (const el of columns[ci].enclosedLenses) {
           if (
             el.matrixFormationId === lens.formationId &&
             el.lens.topElev <= lens.topElev + TIE_CONTACT_SNAP_M &&
             el.lens.baseElev >= lens.baseElev - TIE_CONTACT_SNAP_M
           ) {
-            el.emitGaps = new Set(tiedGaps.filter((g) => el.emitGaps === undefined || el.emitGaps.has(g)))
+            el.emitGaps = new Set<number>()
           }
         }
         for (const piece of pieces) {
+          const pieceUntied = adjGaps.filter((g) => untiedInGap(piece, g))
+          const pieceTied = adjGaps.filter((g) => !pieceUntied.includes(g))
           columns[ci].enclosedLenses.push({
             lens: { ...piece },
             matrixFormationId: above.formationId,
-            emitGaps: new Set(emitGaps),
+            emitGaps: new Set(
+              pieceUntied.filter((g) => piece.topElev > facingTd(g) + TIE_CONTACT_SNAP_M && matrixBandsInGap(g)),
+            ),
+            ...(cameApart && pieceTied.length > 0 ? { tiedGaps: new Set(pieceTied) } : {}),
           })
+        }
+        if (cameApart) {
+          // The clay above and below the comb is its host: whatever terminates inside it (the tied
+          // piece's onlap, the host's own pieces) floods with the host, not with the facing read.
+          above.wrapsCameApartRun = true
+          below.wrapsCameApartRun = true
         }
         above.baseElev = lens.baseElev
         units.splice(k, 1) // remove ONLY the lens; ``below`` survives at k with its ties intact
