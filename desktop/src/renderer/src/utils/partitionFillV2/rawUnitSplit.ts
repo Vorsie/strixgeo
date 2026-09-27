@@ -74,11 +74,21 @@ export interface RawSubPiece {
 }
 
 /**
+ * Whether an enclosed lens cuts its host in ``gapIndex``: it is emitted there as a lens, or it is a
+ * raw piece TIED there (``tiedGaps``, owner 2026-09-27 — S8's top silt toward S10), which is its own
+ * unit in that gap and draws its own termination (``emitTerminationSweep``). Any other lens is host
+ * material in this gap.
+ */
+export function cutsHostInGap(el: EnclosedLens, gapIndex: number): boolean {
+  return el.emitGaps === undefined || el.emitGaps.has(gapIndex) || (el.tiedGaps?.has(gapIndex) ?? false)
+}
+
+/**
  * The enclosed-lens intervals of ``col`` that fall strictly INSIDE the host unit's span — the split
  * points. Sorted shallow→deep (higher elevation first). A host that contains none is not split.
- * A lens restricted to OTHER gaps (``emitGaps``, ruling 8v) does not cut the host in ``gapIndex``:
- * its interval is host material in this gap (stacked lenses, owner 2026-09-23 — the inner clays of
- * S8's comb are lenses toward S10, where the silt bands, and clay-band material toward S3).
+ * A lens restricted to OTHER gaps (``emitGaps``, ruling 8v) and not tied there does not cut the host
+ * in ``gapIndex``: its interval is host material in this gap (stacked lenses, owner 2026-09-23 — the
+ * inner clays of S8's comb are clay-host material toward both of its neighbours).
  */
 function lensIntervalsInHost(
   host: UnitGeom,
@@ -88,7 +98,7 @@ function lensIntervalsInHost(
   const hostHi = Math.max(host.topElev, host.baseElev)
   const hostLo = Math.min(host.topElev, host.baseElev)
   return enclosedLenses
-    .filter((el) => gapIndex === undefined || el.emitGaps === undefined || el.emitGaps.has(gapIndex))
+    .filter((el) => gapIndex === undefined || cutsHostInGap(el, gapIndex))
     .map((el) => ({
       elHi: Math.max(el.lens.topElev, el.lens.baseElev),
       elLo: Math.min(el.lens.topElev, el.lens.baseElev),
