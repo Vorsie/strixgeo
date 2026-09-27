@@ -29,6 +29,7 @@ from groundmodel.application.section_polygon_set import (
 )
 from groundmodel.application.section_snapshot import (
     SectionFormation,
+    SectionFormationContact,
     SectionInvestigationProjection,
     SectionSnapshot,
 )
@@ -183,6 +184,40 @@ def test_f3_the_fill_is_drawn_under_the_lines() -> None:
     doc = _parse(DxfSectionExporter().export(snap, fill=_fill([unit], [region])))
     kinds = [e.dxftype() for e in doc.modelspace()]
     assert kinds.index("HATCH") < kinds.index("LINE")
+
+
+def test_f4_with_a_fill_the_contact_to_contact_lines_are_not_drawn() -> None:
+    """The fill's outlines carry every boundary; pick-to-pick lines are not the section.
+
+    Owner 2026-09-27 on a DXF of CS1: "what are those weird lines in the dxf,
+    those are not correlations I drew, nor are they the stratigraphical
+    backdrop". They were the line drawing's per-unit polylines joining a
+    unit's picks at consecutive columns, cutting across the hatched regions.
+    """
+    sand = uuid4()
+    c1, c2 = _cpt("CPT-1", 10.0, 12.0, 8.0), _cpt("CPT-2", 60.0, 12.0, 8.0)
+    contacts = [
+        SectionFormationContact(uuid4(), sand, c1.investigation_id, 10.0, 0.0, 12.0),
+        SectionFormationContact(uuid4(), sand, c2.investigation_id, 60.0, 2.0, 10.0),
+    ]
+    snap = _snapshot(
+        investigations=[c1, c2],
+        formations=[
+            SectionFormation(sand, "Zand", None, "#ffcc00", 0, litho_main_soil_code="ZAND")
+        ],
+    )
+    snap.contacts.extend(contacts)
+    unit = SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0)
+    region = SectionPolygon(sand, ((10.0, 12.0), (60.0, 10.0), (60.0, 5.0), (10.0, 6.0)), 0)
+    doc = _parse(DxfSectionExporter().export(snap, fill=_fill([unit], [region])))
+    on_unit_layer = list(doc.modelspace().query("LWPOLYLINE[layer=='GeoModel-Zand']"))
+    # Only the region's closed outline; no open pick-to-pick line.
+    assert [pl.closed for pl in on_unit_layer] == [True]
+    # Without a fill (the stratigraphy axis, the legacy GET) the line stays.
+    doc = _parse(DxfSectionExporter().export(snap))
+    assert [pl.closed for pl in doc.modelspace().query("LWPOLYLINE[layer=='GeoModel-Zand']")] == [
+        False
+    ]
 
 
 # ---------------------------------------------------------------------------
