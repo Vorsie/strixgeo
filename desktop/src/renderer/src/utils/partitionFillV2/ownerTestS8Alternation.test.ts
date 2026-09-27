@@ -136,15 +136,31 @@ describe('S8 toward GEO-19/100-S3 (gap 1, S8 on the left): a clay band with thre
   })
 })
 
-describe('S8 toward GEO-08/118-S10 (gap 0, S8 on the right): unchanged, the silt bands and the inner clays lens', () => {
+// The tied side (owner 2026-09-27, *"the silt lenses get a clay lens/wedge to the left"*): toward
+// S10 the clay is the comb's host too — only the top silt is tied there, and it onlaps to the
+// halfway point of its tie. The full-section pin is ownerTestS8TiedSide.test.ts; this is the same
+// reading on the three-column extract.
+describe('S8 toward GEO-08/118-S10 (gap 0, S8 on the right): the inner clays are the host, the untied silts lens', () => {
   const inGap = (): SectionRegion[] => regions.filter((r) => r.gapIndex === 0)
 
-  it('each inner clay is a lens at its own level hugging S8', () => {
+  it('each inner clay reads clay next to S8 and on into the gap, never a lens or wedge', () => {
     for (const u of CLAYS) {
       const mid = (u.top + u.base) / 2
       expect(formationsAt(inGap(), 0.95, mid), `next to S8 z=${mid.toFixed(2)}`).toEqual(['KLEI'])
-      expect(formationsAt(inGap(), 0.3, mid), `far from S8 z=${mid.toFixed(2)}`).not.toContain('KLEI')
+      expect(formationsAt(inGap(), 0.6, mid), `half way z=${mid.toFixed(2)}`).toEqual(['KLEI'])
     }
+  })
+
+  it('the two untied silts are lenses hugging S8; the tied top silt reaches the halfway point only', () => {
+    for (const u of SILTS.slice(1)) {
+      const mid = (u.top + u.base) / 2
+      expect(formationsAt(inGap(), 0.95, mid), `next to S8 z=${mid.toFixed(2)}`).toEqual(['SILT'])
+      expect(formationsAt(inGap(), 0.4, mid), `past the lens tip z=${mid.toFixed(2)}`).not.toContain('SILT')
+    }
+    const top = SILTS[0]
+    const own = inGap().filter((r) => (r.layerIds ?? []).includes(top.layerId))
+    expect(own.length, 'the tied silt is drawn as its own unit').toBeGreaterThan(0)
+    expect(Math.min(...own.flatMap((r) => r.polygon.map((p) => p.fraction)))).toBeGreaterThan(0.5 - 1e-3)
   })
 
   it('no two lithologies overlap anywhere in the gap', () => {
