@@ -52,3 +52,8 @@ CPT_LABEL_LIFT_M = 0.3
 # The fill hatches are see-through so the contact lines and curves on top stay
 # readable — the app draws its bands at 0.55 opacity for the same reason.
 FILL_TRANSPARENCY = 0.35
+
+# Touching regions of one unit are unioned into one body before drawing; the
+# vertices are snapped to this grid first so float noise on a shared seam cannot
+# keep two regions apart (0.1 mm, far below the 1 mm depth grain).
+FILL_UNION_GRID_M = 1e-4
