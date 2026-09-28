@@ -100,7 +100,10 @@ export default function GeotechBuildPreflightDialog({
       onCancel={onCancel}
       labelledBy="geotech-build-preflight-title"
       busy={busy}
-      cardClassName="w-[32rem]"
+      // Capped to the viewport: with most of a project still unsubdivided the
+      // list runs to dozens of rows (owner 2026-09-28, "the screen is too big,
+      // it isn't even scrollable"); the list scrolls, the buttons stay in reach.
+      cardClassName="w-[32rem] max-h-[90vh] overflow-hidden flex flex-col"
       testid="geotech-build-preflight-dialog"
     >
       <div className="p-5">
@@ -117,7 +120,7 @@ export default function GeotechBuildPreflightDialog({
           <p className="mb-2">
             {one ? t('geotech.preflightBodyOne') : t('geotech.preflightBodyMany')}
           </p>
-          <ul className="space-y-1.5">
+          <ul className="max-h-[50vh] space-y-1.5 overflow-y-auto pr-1">
             {tests.map(test => (
               <li key={test.investigationId}>
                 <button
