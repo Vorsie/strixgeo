@@ -100,9 +100,11 @@ from groundmodel.application.section_snapshot import (
 )
 from groundmodel.infrastructure.exporters.cpt_trace_scale import qc_full_scale_mpa
 from groundmodel.infrastructure.exporters.cpt_trace_scale_constants import (
+    BODY_INDEX_HEADING,
+    BODY_LABEL_ACI,
+    BODY_LABEL_HEIGHT,
+    BODY_LABEL_LAYER,
     CPT_BAND_HALF_WIDTH_M,
-    CPT_BAND_MIN_HALF_WIDTH_M,
-    CPT_BAND_NEIGHBOUR_FRACTION,
     CPT_GRID_ACI,
     CPT_GRID_LAYER,
     CPT_LABEL_HEIGHT,
@@ -202,7 +204,8 @@ class DxfSectionExporter(SectionExporter):
         fill_units = self._setup_fill_layers(doc, fill, layer_by_formation_id, snapshot)
         # The fill goes first: entity order is draw order in CAD, and the
         # column lines, contacts and curves must stay readable over it.
-        drawn_regions = self._draw_fill(msp, fill, layer_by_formation_id, snapshot)
+        bodies = self._draw_fill(msp, fill, layer_by_formation_id, snapshot)
+        drawn_regions = len(bodies)
         self._draw_investigation_columns(msp, snapshot)
         # The pick-to-pick straight lines are the LINE drawing's geometry: with
         # a fill the hatched regions carry every boundary, and those lines cut
@@ -218,7 +221,9 @@ class DxfSectionExporter(SectionExporter):
         if cpt_traces:
             self._setup_cpt_layers(doc)
             drawn_cpts = self._draw_cpt_traces(msp, snapshot, cpt_traces)
-        self._draw_title_block(msp, snapshot, layer_by_formation_id, fill_units, fill, cpt_traces)
+        self._draw_title_block(
+            msp, snapshot, layer_by_formation_id, fill_units, fill, cpt_traces, bodies
+        )
 
         # ezdxf writes to a text stream; we wrap in StringIO and
         # encode to UTF-8 for the FastAPI byte-stream response.
@@ -504,6 +509,8 @@ class DxfSectionExporter(SectionExporter):
         """
         if fill is None:
             return ()
+        if not doc.layers.has_entry(BODY_LABEL_LAYER):
+            doc.layers.add(name=BODY_LABEL_LAYER).color = BODY_LABEL_ACI
         for unit in fill.units:
             if unit.formation_id in layer_by_formation_id:
                 continue
@@ -544,7 +551,7 @@ class DxfSectionExporter(SectionExporter):
         fill: SectionPolygonSet | None,
         layer_by_formation_id: dict[UUID, str],
         snapshot: SectionSnapshot,
-    ) -> int:
+    ) -> list[tuple[int, str]]:
         """Emit each unit body (unioned touching regions) as outline + solid HATCH.
 
         The hatch carries the unit's true colour and is see-through
@@ -564,11 +571,16 @@ class DxfSectionExporter(SectionExporter):
 
         Returns
         -------
-        int
-            Bodies drawn (touching regions of one unit count once).
+        list[tuple[int, str]]
+            ``(index, layer name)`` per body drawn (touching regions of one
+            unit count once), numbered top-down by the body's highest point,
+            ties left to right; the title block lists them in that order.
         """
         if fill is None:
-            return 0
+            return []
+        # deferred: keeps ezdxf off the API boot path (see the module imports).
+        from ezdxf.enums import TextEntityAlignment
+
         colour_by_id = {unit.formation_id: _parse_hex_color(unit.color) for unit in fill.units}
         # Touching regions of one unit are ONE body on paper: the app hides the
         # seam between a merged lens and its band by colour, a DXF outline per
@@ -590,6 +602,7 @@ class DxfSectionExporter(SectionExporter):
                 continue
             by_unit.setdefault(polygon.formation_id, []).append(shape)
         drawn = 0
+        drawn_shapes: list[tuple[Polygon, str]] = []
         for formation_id, shapes in by_unit.items():
             layer_name = layer_by_formation_id[formation_id]
             rgb = colour_by_id.get(formation_id)
@@ -610,6 +623,23 @@ class DxfSectionExporter(SectionExporter):
                 hatch.set_solid_fill(color=7, style=1, rgb=rgb)
                 hatch.transparency = FILL_TRANSPARENCY
                 drawn += 1
+                drawn_shapes.append((body, layer_name))
+        # Number the bodies the way a CAD user reads a section: top-down by each
+        # body's highest point, ties left to right by its leftmost point. The
+        # draw order above is by unit (every sand body, then every clay body),
+        # which would scatter the numbers up and down the drawing.
+        drawn_shapes.sort(key=lambda item: (-item[0].bounds[3], item[0].bounds[0]))
+        drawn_bodies: list[tuple[int, str]] = []
+        for index, (body, layer_name) in enumerate(drawn_shapes, start=1):
+            # The label sits inside its body (representative_point is always
+            # inside, a centroid is not for a crescent), on its own layer so
+            # the labels switch off in one go.
+            label_at = body.representative_point()
+            msp.add_text(
+                str(index),
+                dxfattribs={"layer": BODY_LABEL_LAYER, "height": BODY_LABEL_HEIGHT},
+            ).set_placement((label_at.x, label_at.y), align=TextEntityAlignment.MIDDLE_CENTER)
+            drawn_bodies.append((index, layer_name))
         if skipped:
             self.warning(
                 f"DXF section export skipped {skipped} fill region(s) with no layer, under "
@@ -619,7 +649,7 @@ class DxfSectionExporter(SectionExporter):
             f"DXF section export drew {drawn} fill body(ies) from {len(fill.polygons)} region(s) "
             f"on {len(by_unit)} unit(s)"
         )
-        return drawn
+        return drawn_bodies
 
     # ------------------------------------------------------------------
     # CPT curves — qc to the right of the column axis, Rf to the left.
@@ -648,8 +678,8 @@ class DxfSectionExporter(SectionExporter):
         clamp to the band edge, a missing sample breaks the curve, and the
         2 / 10 MPa and 2 / 4 % gridlines run the band's height with their
         labels hanging below it as vertical text.
-        The band half-width is ``CPT_BAND_HALF_WIDTH_M`` clamped to a fraction
-        of the distance to the nearest neighbouring column.
+        The band half-width is ``CPT_BAND_HALF_WIDTH_M`` at every test (the
+        app draws every band the same width and lets close tests overlap).
 
         Parameters
         ----------
@@ -677,18 +707,13 @@ class DxfSectionExporter(SectionExporter):
         if not columns:
             return 0
         scale = qc_full_scale_mpa([by_id[inv.investigation_id].qc_mpa for inv in columns])
-        alongs = [inv.along_distance_m for inv in snapshot.investigations]
         drawn = 0
         for inv in columns:
             trace = by_id[inv.investigation_id]
             if not trace.depths_m:
                 continue
             axis = inv.along_distance_m
-            others = [abs(a - axis) for a in alongs if a != axis]
             half = CPT_BAND_HALF_WIDTH_M
-            if others:
-                half = min(half, CPT_BAND_NEIGHBOUR_FRACTION * min(others))
-            half = max(half, CPT_BAND_MIN_HALF_WIDTH_M)
             surface = inv.surface_elevation_m if inv.surface_elevation_m is not None else 0.0
             bottom = surface - max(trace.depths_m)
             # Gridlines + labels, the app's positions.
@@ -780,6 +805,7 @@ class DxfSectionExporter(SectionExporter):
         fill_units: Sequence[SectionPolygonUnit] = (),
         fill: SectionPolygonSet | None = None,
         cpt_traces: Sequence[SectionCptTrace] = (),
+        bodies: Sequence[tuple[int, str]] = (),
     ) -> None:
         """Bottom-left TEXT entity carrying project + section identity.
 
@@ -842,6 +868,10 @@ class DxfSectionExporter(SectionExporter):
                 f"NB: {len(no_z)} column(s) lack surface elevation; drawn at indicative position"
             )
 
+        if bodies:
+            title_lines.append("")
+            title_lines.append(BODY_INDEX_HEADING)
+            title_lines.extend(f"{index} {layer_name}" for index, layer_name in bodies)
         mapping_lines = format_mapping_table(
             _mapping_rows(snapshot, layer_by_formation_id, fill_units),
             label_heading=MAPPING_TABLE_DXF_LAYER_HEADING,
