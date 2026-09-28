@@ -27,12 +27,10 @@ QC_GRID_MPA: tuple[float, ...] = (2.0, 10.0)
 RF_GRID_PCT: tuple[float, ...] = (2.0, 4.0)
 
 # The band half-width in section metres. On screen the band is pixels scaled
-# with zoom; a DXF has no zoom, so it is a fixed width clamped to a fraction of
-# the distance to the nearest neighbouring column, exactly so two close tests
-# never overprint each other's curves.
+# with zoom; a DXF has no zoom, so it is a fixed width. The SAME at every test
+# (owner 2026-09-28: "cpt column width is not constant in the dxf"): two tests
+# closer than 8 m overprint each other's bands, as they do on screen.
 CPT_BAND_HALF_WIDTH_M = 4.0
-CPT_BAND_NEIGHBOUR_FRACTION = 0.45
-CPT_BAND_MIN_HALF_WIDTH_M = 0.5
 
 # Layers the curves land on. Separate from ``Investigations`` so a CAD user can
 # hide the curves and keep the column lines.
@@ -57,3 +55,11 @@ FILL_TRANSPARENCY = 0.35
 # vertices are snapped to this grid first so float noise on a shared seam cannot
 # keep two regions apart (0.1 mm, far below the 1 mm depth grain).
 FILL_UNION_GRID_M = 1e-4
+
+# Every drawn body gets its index (1..N top-down, then left to right) as a TEXT
+# on this layer, so a CAD user can match a hatch to the body index list in the
+# title block and switch the labels off in one go (owner 2026-09-28).
+BODY_LABEL_LAYER = "GeoModel-Labels"
+BODY_LABEL_HEIGHT = 0.6
+BODY_LABEL_ACI = 7
+BODY_INDEX_HEADING = "BODY INDEX (label -> layer)"
