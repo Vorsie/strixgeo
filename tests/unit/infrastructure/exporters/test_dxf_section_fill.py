@@ -34,6 +34,7 @@ from groundmodel.application.section_snapshot import (
     SectionSnapshot,
 )
 from groundmodel.infrastructure.exporters.cpt_trace_scale_constants import (
+    BODY_LABEL_LAYER,
     CPT_GRID_LAYER,
     CPT_QC_LAYER,
     CPT_RF_LAYER,
@@ -259,6 +260,73 @@ def test_f6_two_separate_bodies_of_one_unit_stay_two_hatches() -> None:
     assert len(list(doc.modelspace().query("HATCH[layer=='GeoModel-Zand']"))) == 2
 
 
+def test_l1_every_drawn_body_gets_an_index_label_on_the_labels_layer() -> None:
+    """Owner 2026-09-28: "number the printed layers with an enumerate and put that
+    index on the layer as visual aid? (make it a separate label layer per body
+    that can be turned off in dxf)". One TEXT per body on one layer of its own;
+    the title block lists index -> unit layer. The numbers read the way a CAD
+    user reads a section: top-down, then left to right. The deep sand body is 3
+    although it belongs to the same unit as the top sand, because the clay lies
+    between them.
+    """
+    sand, clay = uuid4(), uuid4()
+    units = [
+        SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0),
+        SectionPolygonUnit(clay, "Klei", None, "KLEI", "#8899aa", 1),
+    ]
+    top = SectionPolygon(sand, ((10.0, 12.0), (60.0, 11.5), (60.0, 9.5), (10.0, 10.0)), 0)
+    mid = SectionPolygon(clay, ((10.0, 10.0), (60.0, 9.5), (60.0, 2.0), (10.0, 2.5)), 0)
+    deep = SectionPolygon(sand, ((10.0, 2.5), (60.0, 2.0), (60.0, -5.0), (10.0, -4.0)), 0)
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill(units, [top, mid, deep])))
+    msp = doc.modelspace()
+    labels = list(msp.query(f"TEXT[layer=='{BODY_LABEL_LAYER}']"))
+    assert sorted(e.dxf.text for e in labels) == ["1", "2", "3"]
+    # Each label sits inside its own body.
+    from shapely.geometry import Point, Polygon
+
+    bodies = {"1": top, "2": mid, "3": deep}
+    for e in labels:
+        x, y = e.dxf.insert.x, e.dxf.insert.y
+        assert Polygon(bodies[e.dxf.text].points).contains(Point(x, y)), e.dxf.text
+    # The title block says which body is which.
+    texts = [e.dxf.text for e in msp.query("TEXT") if e.dxf.layer != BODY_LABEL_LAYER]
+    assert any("BODY INDEX" in t for t in texts)
+    assert any(t.startswith("1 ") and "GeoModel-Zand" in t for t in texts)
+    assert any(t.startswith("2 ") and "GeoModel-Klei" in t for t in texts)
+
+
+def test_l3_two_bodies_at_the_same_top_are_numbered_left_to_right() -> None:
+    """Top-down, then left to right: at the same top the left body gets the lower index.
+
+    The right body comes first in the fill (and its unit first), so the draw
+    order alone would number it 1.
+    """
+    sand, clay = uuid4(), uuid4()
+    units = [
+        SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0),
+        SectionPolygonUnit(clay, "Klei", None, "KLEI", "#8899aa", 1),
+    ]
+    right = SectionPolygon(sand, ((40.0, 12.0), (60.0, 12.0), (60.0, 5.0), (40.0, 5.0)), 0)
+    left = SectionPolygon(clay, ((10.0, 12.0), (30.0, 12.0), (30.0, 5.0), (10.0, 5.0)), 0)
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill(units, [right, left])))
+    msp = doc.modelspace()
+    label_x = {e.dxf.text: e.dxf.insert.x for e in msp.query(f"TEXT[layer=='{BODY_LABEL_LAYER}']")}
+    assert set(label_x) == {"1", "2"}
+    assert label_x["1"] < 30.0 and label_x["2"] > 40.0
+    texts = [e.dxf.text for e in msp.query("TEXT") if e.dxf.layer != BODY_LABEL_LAYER]
+    assert any(t.startswith("1 ") and "GeoModel-Klei" in t for t in texts)
+    assert any(t.startswith("2 ") and "GeoModel-Zand" in t for t in texts)
+
+
+def test_l2_no_fill_means_no_labels_layer_and_no_index_list() -> None:
+    """The legacy line drawing stays as it was."""
+    doc = _parse(
+        DxfSectionExporter().export(_snapshot(investigations=[_cpt("CPT-1", 10.0, 12.0, 2.0)]))
+    )
+    assert BODY_LABEL_LAYER not in {layer.dxf.name for layer in doc.layers}
+    assert not any("BODY INDEX" in e.dxf.text for e in doc.modelspace().query("TEXT"))
+
+
 # ---------------------------------------------------------------------------
 # The CPT curves
 # ---------------------------------------------------------------------------
@@ -286,16 +354,21 @@ def test_t1_qc_reads_to_the_right_of_the_column_and_rf_to_the_left_on_the_apps_s
     assert rf_pts == [(10.0, 12.0), (8.0, 11.0), (6.0, 10.0)]
 
 
-def test_t2_the_band_narrows_next_to_a_close_neighbour_and_a_value_off_scale_is_clamped() -> None:
-    """The band narrows next to a close neighbour and an off-scale value clamps to the edge."""
+def test_t2_the_band_is_the_same_width_at_every_test_and_off_scale_values_clamp() -> None:
+    """Every CPT band is 4 m wide, a close neighbour or not (owner 2026-09-28).
+
+    Owner on the first 0.1.4 DXF: "cpt column width is not constant in the
+    dxf". The app draws every band the same width and lets close tests
+    overlap; the DXF does the same now. An off-scale value clamps to the edge.
+    """
     cpt = _cpt("CPT-1", 10.0, 12.0, 1.0)
     trace = SectionCptTrace(cpt.investigation_id, (0.0, 1.0), (80.0, 80.0), None)
-    # Neighbour 4 m away → half-width 45 % of 4 m = 1.8 m.
+    # Neighbour 4 m away: the band stays 4 m half-width all the same.
     snap = _snapshot(investigations=[cpt, _cpt("CPT-2", 14.0, 12.0, 1.0)])
     doc = _parse(DxfSectionExporter().export(snap, cpt_traces=[trace]))
     qc = list(doc.modelspace().query(f"LWPOLYLINE[layer=='{CPT_QC_LAYER}']"))
     xs = {round(p[0], 6) for p in qc[0].get_points()}
-    assert xs == {11.8}  # 80 MPa on a 40 MPa scale sits on the band's right edge
+    assert xs == {14.0}  # 80 MPa on a 40 MPa scale sits on the band's right edge, 4 m out
     assert not list(doc.modelspace().query(f"LWPOLYLINE[layer=='{CPT_RF_LAYER}']"))
 
 
