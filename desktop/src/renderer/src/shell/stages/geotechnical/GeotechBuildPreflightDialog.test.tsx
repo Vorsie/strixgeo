@@ -111,6 +111,25 @@ describe('GeotechBuildPreflightDialog', () => {
     )
   })
 
+  it('BD9 — with many unbanded tests the list scrolls inside the card instead of growing past the window', () => {
+    // Owner 2026-09-28 on testproject_dev, Build geotech model with most tests
+    // still unsubdivided: "the screen is too big, it isn't even scrollable
+    // this should never happen". The card is capped to the viewport and the
+    // test list is the part that scrolls; the buttons stay reachable.
+    const many: UnbandedTest[] = Array.from({ length: 40 }, (_, i) => ({
+      ...B12,
+      investigationId: `inv-${i}`,
+      name: `GEO-08/118-S${i}`,
+    }))
+    renderDialog({ tests: many })
+    const list = screen.getByRole('list')
+    expect(list.className).toMatch(/overflow-y-auto/)
+    expect(list.className).toMatch(/max-h-/)
+    const card = screen.getByTestId('geotech-build-preflight-dialog')
+    expect(card.className).toMatch(/max-h-\[9\dvh\]/)
+    expect(screen.getByRole('button', { name: /Build without|Bouwen zonder/ })).toBeTruthy()
+  })
+
   it('BD8 — closed renders nothing at all', () => {
     renderDialog({ open: false })
     expect(screen.queryByTestId('geotech-build-preflight-dialog')).toBeNull()
