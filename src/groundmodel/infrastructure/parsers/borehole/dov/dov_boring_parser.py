@@ -210,6 +210,29 @@ class DovBoringParser(GroundModelLogger):
             )
             raise ParseError(f"DOV boring XML for '{name}': missing <boring> element")
 
+        return self.parse_boring_element(boring_elem, name)
+
+    def parse_boring_element(self, boring_elem: ET.Element, name: str = "") -> BoreholeParseResult:
+        """Parse one already-parsed ``<boring>`` element into a ``BoreholeParseResult``.
+
+        The body of :meth:`parse` after the document-level checks. Split out so
+        a caller holding a document with SEVERAL ``<boring>`` children (a DOV
+        export saved to a local file, see ``DovBoringFileParser``) can parse
+        each one without re-serialising it — the bbox import keeps calling
+        :meth:`parse` and sees no change.
+
+        Parameters
+        ----------
+        boring_elem : Element
+            A ``<boring>`` element from a document parsed with defusedxml.
+        name : str
+            Fallback display name and log label (see :meth:`parse`).
+
+        Returns
+        -------
+        BoreholeParseResult
+            Borehole header + drill segments + field log + validation issues.
+        """
         issues: list[ValidationIssue] = []
 
         borehole = self._parse_header(boring_elem, name, issues)
