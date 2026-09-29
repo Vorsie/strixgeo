@@ -21,6 +21,7 @@ import ViewTab from '../../../components/ui/ViewTab'
 import { buildContactOverlays, filterContactOverlays } from '../../../utils/contactOverlays'
 import { useContactOverlayVisibility } from '../../../hooks/useContactOverlayVisibility'
 import { useT } from '../../../i18n/translate'
+import { useBoreholeTrackEdits } from '../../../hooks/useBoreholeTrackEdits'
 
 /**
  * Center canvas for the Data stage.
@@ -43,6 +44,8 @@ import { useT } from '../../../i18n/translate'
 export default function DataCanvas(): JSX.Element {
   const t = useT()
   const {
+    project,
+    undo,
     visibleCpts,
     visibleBoreholes,
     // Bed overrides (owner ruling 2026-09-06) — optional on the bus; the Data
@@ -59,6 +62,7 @@ export default function DataCanvas(): JSX.Element {
       handleBboxDrawn,
       handlePatchCptElevation,
       handlePatchBoreholeElevation,
+      loadBoreholeDetail,
       pendingCptPins,
     },
     coordinator: {
@@ -72,6 +76,7 @@ export default function DataCanvas(): JSX.Element {
       marqueeSelectedIds,
       setMarqueeSelectedIds,
       hoveredTestId,
+      markMutated,
     },
     mapState: {
       hiddenCptTypes,
@@ -131,6 +136,22 @@ export default function DataCanvas(): JSX.Element {
   // Per-user stratigraphic / lithological boundary switches (owner
   // 2026-10-04); the overlays below drop the switched-off source.
   const contactOverlayVisibility = useContactOverlayVisibility()
+
+  // Borehole Tracks panel (owner 2026-09-29): add / change / delete a track.
+  // The undo push + mutated mark are read lazily (only on a save) so a stage
+  // test bus without them still renders.
+  const pushTrackUndo = useCallback((cmd: Parameters<typeof undo.push>[0]) => undo.push(cmd), [undo])
+  const markTrackMutated = useCallback(() => markMutated(), [markMutated])
+  const reloadBoreholeDetail = useCallback(
+    (id: string) => loadBoreholeDetail(id, { force: true }),
+    [loadBoreholeDetail],
+  )
+  const trackEditing = useBoreholeTrackEdits({
+    projectId: project?.id ?? null,
+    pushUndo: pushTrackUndo,
+    markMutated: markTrackMutated,
+    reloadBoreholeDetail,
+  })
 
   // Faded depth-context overlay for the detail pane — every formation
   // contact (geology) and litho contact anchored at the selected
@@ -284,6 +305,7 @@ export default function DataCanvas(): JSX.Element {
               contactOverlays={boreholeContactOverlays}
               contactOverlayVisibility={contactOverlayVisibility.visibility}
               onToggleContactOverlay={contactOverlayVisibility.toggle}
+              trackEditing={trackEditing}
             />
           ) : (
             <LoadingState label={t('data.canvas.loadingBorehole')} />
