@@ -292,7 +292,9 @@ export interface UseInvestigationDataResult {
   refreshBoreholeList: () => Promise<void>
   loadCptDetail: (id: string) => Promise<void>
   loadChart: (id: string) => Promise<void>
-  loadBoreholeDetail: (id: string) => Promise<void>
+  /** Load one borehole's detail into the cache; ``force`` refetches a cached
+   *  entry (after a track edit, 2026-09-29). */
+  loadBoreholeDetail: (id: string, opts?: { force?: boolean }) => Promise<void>
   cancelBboxDraw: () => void
   // Hide / restore
   unhideCpts: (ids: Iterable<string>) => void
@@ -612,9 +614,9 @@ export function useInvestigationData({
   )
 
   const loadBoreholeDetail = useCallback(
-    async (id: string) => {
+    async (id: string, opts?: { force?: boolean }) => {
       if (!project) return
-      if (boreholeDetailMap.has(id)) return
+      if (boreholeDetailMap.has(id) && !opts?.force) return
       const generation = loadGenerationRef.current
       try {
         const detail = await api.borehole.get(id, project.id)
