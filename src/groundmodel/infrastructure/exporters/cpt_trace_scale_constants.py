@@ -51,10 +51,17 @@ CPT_LABEL_LIFT_M = 0.3
 # readable — the app draws its bands at 0.55 opacity for the same reason.
 FILL_TRANSPARENCY = 0.35
 
-# Touching regions of one unit are unioned into one body before drawing; the
-# vertices are snapped to this grid first so float noise on a shared seam cannot
-# keep two regions apart (0.1 mm, far below the 1 mm depth grain).
-FILL_UNION_GRID_M = 1e-4
+# Touching regions of one body and unit are unioned before drawing; the vertices
+# are snapped to this grid first. 1 mm is the 2-D fill engine's own grid (its
+# arrangement and its output elevations are snapped to 1 mm), so the snap drops
+# no information the engine had. It is what joins one body across a column: the
+# engine's face edge on a column vertical sits at the column ROUNDED to the
+# millimetre, while the neighbouring gap is clipped at the exact column, so the
+# two parts of one body stand up to 0.5 mm apart (section "test", 2026-09-29:
+# 0.06 to 0.50 mm at every column; the old 0.1 mm snap kept 112 parts apart that
+# a 1 mm snap joins into 31). The union runs per body id, so a wider snap can
+# never glue two different bodies together.
+FILL_UNION_GRID_M = 1e-3
 
 # Every drawn body gets its index (1..N top-down, then left to right) as a TEXT
 # on this layer, so a CAD user can match a hatch to the body index list in the
