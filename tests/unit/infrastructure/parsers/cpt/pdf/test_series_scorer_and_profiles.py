@@ -62,3 +62,22 @@ def test_points_flagged_excluded_do_not_count() -> None:
 def test_the_registry_picks_the_profile_from_the_text_layer(text: str, name: str) -> None:
     """The registry picks the profile from the text layer."""
     assert LayoutProfileRegistry.default().match(text).name == name
+
+
+def test_a_gap_in_the_sounding_is_left_out_of_the_score() -> None:
+    """A gap in the sounding (rods added, "K" on the sheet) is not scored.
+
+    Both the GEF and the sheet have no scans between 10.0 and 10.5 m. Before
+    the gap qc is 50 MPa, above the 32 MPa axis, so the sheet shows it clipped
+    at 32; after the gap qc is 1 MPa. Scored straight across the gap, the two
+    different endpoints would count as a large "error" at depths nobody
+    measured.
+    """
+    below = np.arange(0.02, 10.0, 0.02)
+    above = np.arange(10.5, 20.0, 0.02)
+    depth = np.concatenate([below, above])
+    ref_v = np.where(depth < 10.0, 50.0, 1.0)
+    test_v = np.where(depth < 10.0, 32.0, 1.0)
+    clipped = depth < 10.0
+    score = SeriesScorer().score(depth, ref_v, depth, test_v, exclude=clipped)
+    assert score.max_abs < 1e-6
