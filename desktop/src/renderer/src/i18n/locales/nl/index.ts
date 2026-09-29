@@ -35,6 +35,7 @@ import { SECTIONS_NL } from './sections'
 import { SETTINGS_NL } from './settings'
 import { SHEET_NL } from './sheet'
 import { TUTORIAL_NL } from './tutorial'
+import { TRACKS_NL } from './tracks'
 
 /** The composed Dutch catalogue. */
 export const NL: Partial<Messages> = {
@@ -49,6 +50,7 @@ export const NL: Partial<Messages> = {
   ...PANELS_NL,
   ...LAUNCH_NL,
   ...TUTORIAL_NL,
+  ...TRACKS_NL,
 }
 
 /** Per-surface modules, kept addressable so the parity test can report which
@@ -65,4 +67,5 @@ export const NL_MODULES = {
   panels: PANELS_NL,
   launch: LAUNCH_NL,
   tutorial: TUTORIAL_NL,
+  tracks: TRACKS_NL,
 } as const
