@@ -150,6 +150,54 @@ grain-size ~7.9 s (small payloads, no per-item XML → ~7× faster per item than
 deep CPTs). Endpoint: ``POST /borehole/import-dov`` (sync) + ``POST
 /borehole/import-dov/stream`` (SSE async).
 
+**Local XML file import** (`DovBoringFileParser` → `ImportBoreholeFile`,
+``POST /borehole/import``, desktop *Import boreholes (DOV XML)…*):
+a file saved from DOV has the same `dov-schema` vocabulary as the per-permkey
+download but holds ONE OR SEVERAL `<boring>` elements plus an
+`<interpretaties>` block with EVERY interpretation of every boring (each
+stream element names its boring by identificatie; a stream can repeat — two
+`lithologischebeschrijving` for one boring is common in old records). The
+file parser reuses `DovBoringParser.parse_boring_element` and
+`DovInterpretationParser.parse_stream_element` per element, names each
+borehole by its `alternatieve_naam/naam` (the VO survey number,
+e.g. `GEO-25/110-B1`) while `identificatie` stays the `test_id`, and uses
+the lithological description with the MOST layers (listed first, the others
+imported as further observations). Stream tag → type: the tags seen on real
+files (`lithologischebeschrijving`, `informelestratigrafie`,
+`formelestratigrafie`, `gecodeerdelithologie`) plus the other four derived
+by DOV's naming rule (`DOV_FILE_STREAM_TAGS`); an unknown tag is flagged,
+never dropped silently. Samples (`monster`) in a file are NOT imported.
+
+Every boring carries import flags (`ValidationIssue`s, each message naming
+the boring; a flag never refuses a boring):
+
+| Code | Level | Raised when |
+|---|---|---|
+| `FILE_HOLDS_MANY_BORINGS` | info | the file holds more than one boring (count) |
+| `NAME_FROM_ALTERNATIVE` | info | the display name is the alternative name (which, and its type) |
+| `NO_LITHOLOGICAL_DESCRIPTION` | warning | no `lithologischebeschrijving` for the boring |
+| `MULTIPLE_LITHOLOGICAL_DESCRIPTIONS` | info | more than one description (count, which is used) |
+| `STRATIGRAPHY_PRESENT` | info | a formal / informal / other stratigraphy stream (layer count) |
+| `RELIABILITY_NOT_GOOD` | warning | a position, elevation or interpretation `betrouwbaarheid` other than `goed` |
+| `ELEVATION_ZERO` | warning | Z = 0.00 m TAW, with the `metadata_hoogtebepaling` method (0 m is kept as real) |
+| `NO_FIELD_LOG` | info | no colour / moisture / consistency rows in `<details>` |
+| `DRILLMASTER_UNKNOWN` | info | `boormeester/naam` is `Onbekend` or absent |
+| `PURPOSE_NOT_GEOTECHNICAL` | info | `doel` is not `Geotechnisch onderzoek` |
+| `REMARK_PRESENT` | info | an `opmerking/tekst` (quoted, whitespace collapsed, 200 chars max) |
+| `ATTACHMENT_PRESENT` | info | a `bijlage` (title + url) |
+| `DEPTH_MISMATCH` | warning | `diepte_tot` differs by > 5 mm from the deepest drill segment or the used description |
+| `DATE_IN_FUTURE` | warning | `datum_aanvang` after today |
+| `GROUNDWATER_ASSUMED` | info | an `aangenomengrondwaterstand` (assumed level; not imported as the water table) |
+| `START_DEPTH_NOT_ZERO` | warning | `diepte_van` is not 0 |
+| `LITHOLOGY_GAPS_OR_OVERLAPS` | warning | the used description does not start at 0 or has gaps / overlaps |
+| `UNKNOWN_INTERPRETATION_STREAM` | warning | an interpretation tag with no known type (not imported) |
+| `INTERPRETATION_WITHOUT_BORING` | warning | file level: an interpretation names a boring the file does not hold |
+| `DUPLICATE_BORING_IN_FILE` | warning | the same identificatie twice in one file (second dropped) |
+| `NOT_IMPORTED` | error | a NEW boring without a usable position was not persisted |
+
+The parsers' own codes (`INVALID_INTERVAL`, `NO_COORDINATES`, …) ride in the
+same list. Re-import consent: see `docs/api.md`.
+
 **Virtuele Boring** (`virtuele_boring_client.py`):
 DOV's per-point subsurface model API. ``GET /dov/virtuele-boring/lagenmodellen``
 lists 12 available layered models (g3dv3_F, hcovv2_H/S/B, OMAv1.1, …).
