@@ -8,6 +8,7 @@
  * @module clients/borehole
  */
 import { _base, del, get, patch, post, put } from './shared'
+import { _base, detailMessage, fetchTracked, get, patch, post } from './shared'
 
 // ---------------------------------------------------------------------------
 // Borehole / sample / lab-test types — mirrors the FastAPI schemas in
@@ -280,6 +281,82 @@ export interface ElevationPatchBody {
 }
 
 // ---------------------------------------------------------------------------
+// Local DOV borehole XML import — ``POST /borehole/import``
+// ---------------------------------------------------------------------------
+
+/** One parse finding / import flag, as the backend sends it. */
+export interface ImportFlag {
+  level: 'error' | 'warning' | 'info' | string
+  code: string
+  message: string
+  rows: number[]
+}
+
+/** What happened to one boring of an imported DOV XML file. */
+export interface ImportedBoring {
+  /** New or refreshed borehole id; null when the boring was not imported. */
+  borehole_id: string | null
+  /** DOV alternative name when present, else the identificatie. */
+  name: string
+  /** DOV identificatie, the dedup key. */
+  test_id: string
+  has_errors: boolean
+  /** Every flag for this boring; each message names the boring. */
+  issues: ImportFlag[]
+  refreshed: boolean
+  imported: boolean
+}
+
+/** Response from ``POST /borehole/import``. */
+export interface ImportBoreholeFileResponse {
+  boreholes: ImportedBoring[]
+  /** Findings that belong to no single boring. */
+  file_issues: ImportFlag[]
+}
+
+/** The old-vs-new numbers one boring's replacement is decided on. */
+export interface BoreholeRefreshDiff {
+  boreholeId: string
+  name: string
+  testId: string
+  oldTotalDepthM: number | null
+  newTotalDepthM: number | null
+  oldNLithoLayers: number
+  newNLithoLayers: number
+  /** Issue counts from the FRESH parse. */
+  nErrors: number
+  nWarnings: number
+}
+
+/** Thrown when ``POST /borehole/import`` would overwrite boreholes already in
+ * the project. Nothing was written: the backend is asking. The file is
+ * re-posted with ``confirmRefresh`` if the engineer agrees. */
+export class BoreholeRefreshConfirmationRequiredError extends Error {
+  diffs: BoreholeRefreshDiff[]
+  constructor(diffs: BoreholeRefreshDiff[]) {
+    super(`${diffs.length} borehole(s) already in this project`)
+    this.name = 'BoreholeRefreshConfirmationRequiredError'
+    this.diffs = diffs
+  }
+}
+
+/** Map one backend diff row (snake_case) to the renderer's shape. */
+function toRefreshDiff(raw: Record<string, unknown>): BoreholeRefreshDiff {
+  const num = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+  return {
+    boreholeId: String(raw.borehole_id ?? ''),
+    name: String(raw.name ?? ''),
+    testId: String(raw.test_id ?? ''),
+    oldTotalDepthM: num(raw.old_total_depth_m),
+    newTotalDepthM: num(raw.new_total_depth_m),
+    oldNLithoLayers: num(raw.old_n_litho_layers) ?? 0,
+    newNLithoLayers: num(raw.new_n_litho_layers) ?? 0,
+    nErrors: num(raw.n_errors) ?? 0,
+    nWarnings: num(raw.n_warnings) ?? 0,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Borehole API surface — ``api.borehole``
 // ---------------------------------------------------------------------------
 
@@ -372,5 +449,33 @@ export const boreholeClient = {
   ): Promise<BoreholeTrackResetResponse> => {
     const track = trackId === null ? '' : `&track_id=${encodeURIComponent(trackId)}`
     return post(`/borehole/${id}/tracks/reset-dov?project_id=${projectId}${track}`)
+  // A local DOV borehole XML file (one or several borings). ``confirmRefresh``
+  // carries the engineer's answer to the replace-these-boreholes dialog: left
+  // false, a file whose borings are already in the project writes NOTHING and
+  // throws BoreholeRefreshConfirmationRequiredError with one diff per boring
+  // (the CPT re-import rule, docs/ux.md "Reversible vs irreversible").
+  importFile: async (
+    filePath: string,
+    projectId?: string,
+    confirmRefresh = false,
+  ): Promise<ImportBoreholeFileResponse> => {
+    // Read via IPC: fetch('file://') is blocked in the renderer sandbox.
+    const buffer: Uint8Array = await window.electron.readFile(filePath)
+    const fileName = filePath.split(/[\\/]/).pop() ?? 'upload.xml'
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(buffer)]), fileName)
+    if (projectId) form.append('project_id', projectId)
+    if (confirmRefresh) form.append('confirm_refresh', 'true')
+    const res = await fetchTracked(`${_base}/borehole/import`, { method: 'POST', body: form })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail = body.detail
+      if (res.status === 409 && detail?.code === 'borehole_refresh_confirmation_required') {
+        const diffs = Array.isArray(detail.diffs) ? detail.diffs : []
+        throw new BoreholeRefreshConfirmationRequiredError(diffs.map(toRefreshDiff))
+      }
+      throw new Error(detailMessage(detail) ?? `Import failed: ${res.status}`)
+    }
+    return res.json()
   },
 }
