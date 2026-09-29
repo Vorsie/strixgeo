@@ -51,6 +51,9 @@ export interface UseShellContextValueArgs {
   handleImportCpt: ShellContextValue['investigations']['handleImportCpt']
   handleImportDov: ShellContextValue['investigations']['handleImportDov']
   handleImportBoreholeDov: ShellContextValue['investigations']['handleImportBoreholeDov']
+  // Optional like its bus field (partial shells omit it); App always passes it,
+  // so the auto-derived dep array keeps a stable length.
+  handleImportBoreholeXml?: ShellContextValue['investigations']['handleImportBoreholeXml']
   handleBboxDrawn: ShellContextValue['investigations']['handleBboxDrawn']
   pendingCptPins: ShellContextValue['investigations']['pendingCptPins']
   visibleCpts: ShellContextValue['visibleCpts']
@@ -213,7 +216,7 @@ export function useShellContextValue(
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
-    handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, sections,
+    handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
@@ -301,6 +304,7 @@ export function useShellContextValue(
       handleImportCpt,
       handleImportDov,
       handleImportBoreholeDov,
+      handleImportBoreholeXml,
       handleBboxDrawn,
       pendingCptPins,
     },
