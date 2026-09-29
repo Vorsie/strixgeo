@@ -1,0 +1,771 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://boring.kern.schemas.dov.vlaanderen.be" targetNamespace="http://boring.kern.schemas.dov.vlaanderen.be" elementFormDefault="unqualified" attributeFormDefault="unqualified" version="1.00">
+    <xs:simpleType name="DoelEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke doelen van een boring</xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Exploratie minerale bronnen">
+                <xs:annotation>
+                    <xs:documentation>Exploratie minerale bronnen - INSPIRE-naam: exploration and exploitation of raw material</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploitatie minerale bronnen">
+                <xs:annotation>
+                    <xs:documentation>Exploitatie minerale bronnen - INSPIRE-naam: exploration and exploitation of raw material</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploratie energie bronnen">
+                <xs:annotation>
+                    <xs:documentation>Exploratie energie bronnen - INSPIRE-naam: exploration and exploitation of energy resources</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploitatie energie bronnen">
+                <xs:annotation>
+                    <xs:documentation>Exploitatie energie bronnen - INSPIRE-naam: exploration and exploitation of energy resources</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geothermie">
+                <xs:annotation>
+                    <xs:documentation>Geothermie - INSPIRE-naam: geothermal energy, geothermal heat exchangers</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Berging">
+                <xs:annotation>
+                    <xs:documentation>Berging (vb CO2) - INSPIRE-naam: disposal</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploratie ondergrondse opslag">
+                <xs:annotation>
+                    <xs:documentation>Exploratie ondergrondse opslag - INSPIRE-naam: exploration of natural underground storage space</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning">
+                <xs:annotation>
+                    <xs:documentation>Grondwaterwinning - INSPIRE-naam: water supply</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geofysisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Geofysisch onderzoek - INSPIRE-naam: geophysical survey</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geologisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>geologisch onderzoek - INSPIRE-naam: geological survey</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Hydrogeologisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Hydrogeologisch onderzoek - INSPIRE-naam: hydrogeological survey, water management</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Geotechnisch onderzoek - INSPIRE-naam: geotechnical survey, construction site characterization</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geochemisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Geochemisch onderzoek - INSPIRE-naam: geochemical survey, analyses</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterkwaliteit monitoring">
+                <xs:annotation>
+                    <xs:documentation>Grondwaterkwaliteit monitoring - INSPIRE-naam: water quality monitoring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterkwantiteit monitoring">
+                <xs:annotation>
+                    <xs:documentation>Grondwaterkwantiteit monitoring - INSPIRE-naam: groundwater level monitoring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwatermonitoring">
+                <xs:annotation>
+                    <xs:documentation>Grondwatermonitoring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>            
+            <xs:enumeration value="Monitoring vervuilde sites">
+                <xs:annotation>
+                    <xs:documentation>Monitoring vervuilde sites - INSPIRE-naam: environmental monitoring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Drainage en bemaling">
+                <xs:annotation>
+                    <xs:documentation>Drainage en bemaling - INSPIRE-naam: dewatering</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Sanering">
+                <xs:annotation>
+                    <xs:documentation>Sanering - INSPIRE-naam: remediation</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Infiltratie">
+                <xs:annotation>
+                    <xs:documentation>Infiltratie - INSPIRE-naam: recharge</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Kathodische bescherming">
+                <xs:annotation>
+                    <xs:documentation>Kathodische bescherming</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Begassing, thermische reiniging">
+                <xs:annotation>
+                    <xs:documentation>Begassing, thermische reiniging - INSPIRE-naam: thermal cleaning</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Archeologisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Archeologisch onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bodemkundig onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Bodemkundig onderzoek - INSPIRE-naam: pedological survey</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploratie diepe geothermie">
+                <xs:annotation>
+                    <xs:documentation>Exploratie diepe geothermie - INSPIRE-naam: geothermal energy</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Exploitatie diepe geothermie">
+                <xs:annotation>
+                    <xs:documentation>Exploitatie diepe geothermie - INSPIRE-naam: geothermal energy</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondverzet">
+                <xs:annotation>
+                    <xs:documentation>Grondverzet</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="ErkenningEnumType">
+        <xs:annotation>
+            <xs:documentation>
+Erkenningstype zoals gedefinieerd in VLAREL, artikel 6, 7°: conform versie die van kracht is sedert 01/10/2019 - https://navigator.emis.vito.be/mijn-navigator?woId=35992&amp;woLang=nl&amp;woVersion=2021-01-09
+Boorbedrijf met betrekking tot een of meer van de volgende disciplines, waarbij de boringen die uitgevoerd worden in het kader van het Bodemdecreet en de uitvoeringsbesluiten ervan, funderingsboringen, draineringen, handboringen en horizontale boringen voor zover die niet vergunningsplichtig zijn, worden uitgesloten van het toepassingsgebied van deze disciplines:
+1) bemalingen
+2) andere grondwaterwinningen: andere grondwaterwinningen dan de grondwaterwinningen, vermeld in punt 1);
+3) stabiliteitsboringen en geotechnische boringen, met uitzondering van stabiliteitsboringen en geotechnische boringen als vermeld in rubriek 55.2 en 55.3 van de indelingslijst, vermeld in artikel 5.2.1, § 1, van het decreet Milieubeleid;
+4) verticale boringen :
+    a) verticale boringen als vermeld in rubriek 55.1 van bijlage 1 bij titel II van het VLAREM, met uitzondering van de boringen, vermeld in punt 3);
+    b) boringen die vallen onder de uitzondering, vermeld in rubriek 55.1 van bijlage 1 bij titel II van het VLAREM, met uitzondering van de boringen, vermeld in punt 3);
+5) andere boringen: andere boringen dan de boringen, vermeld in punt 1) tot en met 4)
+De houders van een erkenning in een van de disciplines zijn ook erkend voor de aanleg, wijziging en verbouwing van peilputten.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="a">
+                <xs:annotation>
+                    <xs:documentation>Vlarel D1: Bemalingen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="b">
+                <xs:annotation>
+                    <xs:documentation>Vlarel D2: Andere grondwaterwinningen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="c">
+                <xs:annotation>
+                    <xs:documentation>Vlarel D3: Stabiliteitsboringen en geotechnische boringen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="d">
+                <xs:annotation>
+                    <xs:documentation>Vlarel D4: Verticale boringen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="e">
+                <xs:annotation>
+                    <xs:documentation>Vlarel D5: Andere boringen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="f">
+                <xs:annotation>
+                    <xs:documentation>Niet van toepassing (buiten scope VLAREL boorbedrijven boringen)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="AlternatieveBenamingEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke instanties die een alternatieve naam kunnen toekennen.</xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="KBIN-BGD">
+                <xs:annotation>
+                    <xs:documentation>Koninklijk Belgisch Instituut voor Natuurwetenschappen - Belgische Geologische Dienst</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="OPDRACHTGEVER">
+                <xs:annotation>
+                    <xs:documentation>opdrachtgever</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="ALBON">
+                <xs:annotation>
+                    <xs:documentation>DOV partner VO - LNE - afdeling ALBON</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="UGGB">
+                <xs:annotation>
+                    <xs:documentation>Universiteit Gent - Vakgroep Geologie en Bodemkunde</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="TGO">
+                <xs:annotation>
+                    <xs:documentation>Laboratorium voor Toegepaste Geologie en Hydrogeologie</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="RUG">
+                <xs:annotation>
+                    <xs:documentation>Rijksuniversiteit Gent</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="TNO">
+                <xs:annotation>
+                    <xs:documentation>Nederlandse Organisatie voor toegepast-natuurwetenschappelijk onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="VO - Afdeling Geotechniek">
+                <xs:annotation>
+                    <xs:documentation>VO - Afdeling Geotechniek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="VO - Vlaams Planbureau voor Omgeving">
+                <xs:annotation>
+                    <xs:documentation>VO - Vlaams Planbureau voor Omgeving</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="VUB">
+                <xs:annotation>
+                    <xs:documentation>Vrije Universiteit Brussel</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="ANRE">
+                <xs:annotation>
+                    <xs:documentation>ANRE - afdeling Natuurlijke Rijkdommen en Energie</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="UITVOERDER">
+                <xs:annotation>
+                    <xs:documentation>uitvoerder</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="RGD">
+                <xs:annotation>
+                    <xs:documentation>Rijks Geologische Dienst</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="NITG">
+                <xs:annotation>
+                    <xs:documentation>Nederlands Instituut voor Toegepaste Geowetenschappen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="KOEN">
+                <xs:annotation>
+                    <xs:documentation>Kenniscentrum Ondergrondse Energiebronnen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="onbekend">
+                <xs:annotation>
+                    <xs:documentation>onbekend</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aquafin">
+                <xs:annotation>
+                    <xs:documentation>Aquafin NV</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="KB">
+                <xs:annotation>
+                    <xs:documentation>Kempen Boring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="KUL">
+                <xs:annotation>
+                    <xs:documentation>Katholieke Universiteit Leuven</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="LVV">
+                <xs:annotation>
+                    <xs:documentation>Labo Van Vooren</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="KS">
+                <xs:annotation>
+                    <xs:documentation>Kempische Steenkoolmijnen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="DG">
+                <xs:annotation>
+                    <xs:documentation>Distrigas</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="AMINAL">
+                <xs:annotation>
+                    <xs:documentation>AMINAL</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="NIRAS">
+                <xs:annotation>
+                    <xs:documentation>Nationale Instelling voor Radioactief Afval en verrijkte Splijtstoffen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="GSC">
+                <xs:annotation>
+                    <xs:documentation>Geological Survey Company</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="RIG">
+                <xs:annotation>
+                    <xs:documentation>Rijksinstituut Grondmechanica</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="VMM">
+                <xs:annotation>
+                    <xs:documentation>Vlaamse Milieumaatschappij</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="UGent">
+                <xs:annotation>
+                    <xs:documentation>Universiteit Gent</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Stad Gent">
+                <xs:annotation>
+                    <xs:documentation>Stad Gent</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="VITO">
+                <xs:annotation>
+                    <xs:documentation>Vlaams Instituut voor technologisch onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="SCK">
+                <xs:annotation>
+                    <xs:documentation>Studiecentrum voor kernenergie</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="PIDPA">
+                <xs:annotation>
+                    <xs:documentation>Provinciale Intercommunale Drinkwatermaatschappij der Provincie Antwerpen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Sibelco">
+                <xs:annotation>
+                    <xs:documentation>Sibelco</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="OVAM">
+                <xs:annotation>
+                    <xs:documentation>Openbare Vlaamse Afvalstoffen Maatschappij</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boorbedrijf">
+                <xs:annotation>
+                    <xs:documentation>boorbedrijf</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="BoormethodeEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke uitvoeringsmethodes van de boring
+            </xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="onbekend"/>
+            <xs:enumeration value="droge boring"/>
+            <xs:enumeration value="lepelboring"/>
+            <xs:enumeration value="pulsboring"/>
+            <xs:enumeration value="spiraalboring"/>
+            <xs:enumeration value="gestoken boring"/>
+            <xs:enumeration value="spoelboring"/>
+            <xs:enumeration value="zuigboring"/>
+            <xs:enumeration value="kernboring"/>
+            <xs:enumeration value="rollerbit"/>
+            <xs:enumeration value="luchthamer"/>
+            <xs:enumeration value="avegaarboring"/>
+            <xs:enumeration value="ramkernboring"/>
+            <xs:enumeration value="slagboring"/>
+            <xs:enumeration value="spade"/>
+            <xs:enumeration value="trilboring"/>
+            <xs:enumeration value="edelmanboring"/>
+            <xs:enumeration value="omgek. spoelboring"/>
+            <xs:enumeration value="handboring"/>
+            <xs:enumeration value="graafmachine"/>
+            <xs:enumeration value="ramguts"/>
+            <xs:enumeration value="geen boring"/>
+            <xs:enumeration value="meerdere technieken"/>
+            <xs:enumeration value="luchthevelboren of air-lift boren"/>
+            <xs:enumeration value="lansen"/>
+            <xs:enumeration value="roto-sonische boring"/>
+            <xs:enumeration value="diagrafieboring"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="BoringConsistentieEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke consistenties van de monsters van een boring
+            </xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="zeer slap"/>
+            <xs:enumeration value="slap"/>
+            <xs:enumeration value="plastisch"/>
+            <xs:enumeration value="matig vast"/>
+            <xs:enumeration value="vast"/>
+            <xs:enumeration value="hard"/>
+            <xs:enumeration value="versteend"/>
+            <xs:enumeration value="korrelig"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="BoringVochtgehalteEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke vochtgehaltes van de monsters van een boring
+            </xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="droog"/>
+            <xs:enumeration value="weinig vochtig"/>
+            <xs:enumeration value="vochtig"/>
+            <xs:enumeration value="zeer vochtig"/>
+            <xs:enumeration value="verzadigd"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="MateriaalBekistingEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke materialen waaruit de bekisting van de boring opgebouwd is
+            </xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="onbekend"/>
+            <xs:enumeration value="PVC"/>
+            <xs:enumeration value="roestvrij staal"/>
+            <xs:enumeration value="gegalvaniseerd staal"/>
+            <xs:enumeration value="staal, zonder verdere precisering"/>
+            <xs:enumeration value="inox, zonder verdere precisering"/>
+            <xs:enumeration value="polyethyleen"/>
+            <xs:enumeration value="beton"/>
+            <xs:enumeration value="HDPE"/>
+            <xs:enumeration value="straatpot"/>
+            <xs:enumeration value="metselwerk"/>
+            <xs:enumeration value="geen filterbuis aanwezig"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--
+select '<xs:enumeration value="'||korte_naam||'"><xs:annotation><xs:documentation>'||beschrijving||'</xs:documentation></xs:annotation></xs:enumeration>' from boring.lut_boring_type;
+en daarna nog kleiner en groter dan tekens vervangen
+-->    
+    <xs:simpleType name="BoringtypeEnumType">
+        <xs:annotation>
+            <xs:documentation>lijst van mogelijke boring types</xs:documentation>
+        </xs:annotation>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Bemaling">
+                <xs:annotation>
+                    <xs:documentation>Bemaling</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - permanent - exploitatie van terreinen">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een permanente bemaling voor de exploitatie van bedrijfsterreinen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - permanent - exploitatie van gebouwen">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een permanente bemaling voor exploitatie van gebouwen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - permanent - exploitatie van tunnels">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een permanente bemaling voor exploitatie van tunnels voor openbare wegen of openbaar vervoer</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - permanent - waterbeheersing van mijnverzakkingsgebieden">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een permanente bemaling voor waterbeheersing van mijnverzakkingsgebieden</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - tijdelijk - realisatie van werken">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een tijdelijke bemaling voor realisatie van werken</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling - tijdelijk - realisatie van nutsvoorzieningen">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een tijdelijke bemaling voor realisatie van nutsvoorzieningen </xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling i.h.k.v. bodemsanering - mitigatie">
+                <xs:annotation>
+                    <xs:documentation>Bemaling i.h.k.v.bodemsanering - mitigatie</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling i.h.k.v. bodemsanering - sanering">
+                <xs:annotation>
+                    <xs:documentation>Bemaling i.h.k.v. bodemsanering - sanering</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Bemaling i.h.k.v. bodemsanering - grondwaterverlaging">
+                <xs:annotation>
+                    <xs:documentation>Boring voor de aanleg van een bemaling met oog op het onttrekken van niet verontreinigd grondwater noodzakelijk voor de verwezenlijking van de graafwerken</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning met ondergrondse beluchting">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning met ondergrondse beluchting</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning voor bedrijfsgebonden toepassingen">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning voor bedrijfsgebonden toepassingen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning voor huishoudelijke toepassingen">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning voor huishoudelijke toepassingen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwaterwinning voor openbare watervoorziening">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning voor openbare watervoorziening</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor kunstmatig aanvullen van grondwater">
+                <xs:annotation>
+                    <xs:documentation>Boring voor kunstmatig aanvullen van grondwater</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Koude-warmteopslag (KWO, WKO, ATES)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor thermische energieopslag in watervoerende laag (KWO, WKO, ATES)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Grondwateronttrekking incl drijflaagverwijdering (bodemsanering)">
+                <xs:annotation>
+                    <xs:documentation>Grondwateronttrekking incl drijflaagverwijdering (bodemsanering)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor herinfiltratie van opgepompt grondwater (bodemsanering)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor herinfiltratie van opgepompt grondwater (bodemsanering)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - (dis)continue monstername">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring met continue en discontinue monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - peilfilters">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van peilfilters met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - waterspanningsmeters">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van waterspanningsmeters met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - gronddrukmeters">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van gronddrukmeters met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - inclinometers">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van  inclinometers met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - extensometers">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van extensometers met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Geotechnische boring - ander instrumentarium">
+                <xs:annotation>
+                    <xs:documentation>Geotechnische boring voor de plaatsing van ander geotechnisch instrumentarium met of zonder monstername</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&lt;100m) in verband met opslag kernafval">
+                <xs:annotation>
+                    <xs:documentation>Boring i.h.k.v. een vergunning voor de ondergrondse berging van radioactief afval</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor archeologisch onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Boring voor archeologisch onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor bodemkundig onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Boring voor bodemkundig onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor inbouw van een seismometer">
+                <xs:annotation>
+                    <xs:documentation>Boring voor inbouw van een seismometer</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor kathodische bescherming">
+                <xs:annotation>
+                    <xs:documentation>Boring voor kathodische bescherming</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Thermische energieopslag in boorgat (BEO, bodemlus, BTES)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor thermische energieopslag in boorgat (BEO, bodemlus, BTES)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (geologisch)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (geologisch)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (hydrogeologisch)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (hydrogeologisch)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (geofysisch)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (geofysisch)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (geochemisch)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (geochemisch)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (prospectie delfstoffen)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (in kader van prospectie delfstoffen)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor verkennend onderzoek (bodemverontreiniging) (milieuboring)">
+                <xs:annotation>
+                    <xs:documentation>Boring voor verkennend onderzoek (in kader van bodemdecreet) (milieuboring)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) louter voor verkennend en wetenschappelijk onderzoek">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m louter voor verkennend en wetenschappelijk onderzoek</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een opsporingsvergunning voor koolwaterstoffen">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m in het kader van een opsporingsvergunning voor koolwaterstoffen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een winningsvergunning voor koolwaterstoffen">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een winningsvergunning voor koolwaterstoffen</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een opsporingsvergunning voor koolstofdioxideopslag">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een opsporingsvergunning voor koolstofdioxideopslag</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een opslagvergunning voor koolstofdioxide">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een opslagvergunning voor koolstofdioxide</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een opsporingsvergunning voor aardwarmte">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een opsporingsvergunning voor aardwarmte</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een winningsvergunning voor aardwarmte">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een winningsvergunning voor aardwarmte</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een opsporingsvergunning voor het opslaan van gas">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een opsporingsvergunning van ondergrondse bergruimten in situ bestemd voor het opslaan van gas</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;500m) i.h.k.v. een exploitatievergunning  voor het opslaan van gas">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 500m i.h.k.v. een exploitatievergunning van ondergrondse bergruimten in situ bestemd voor het opslaan van gas</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring (d&gt;100m) in verband met opslag kernafval">
+                <xs:annotation>
+                    <xs:documentation>Boring dieper dan 100m in het kader van een vergunning voor de ondergrondse berging van radioactief afval</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring voor proefpomping, pompproef of bemalingsproef">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een grondwaterwinning voor proefpomping, pompproef of bemalingsproef</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aanleg peilput">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een peilput</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aanleg peilput - milieuvoorwaarden exploitatie inrichting">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een peilput in het kader van milieuvoorwaarden voor de exploitatie van een inrichting</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aanleg peilput - bodem- en grondwateranalyses">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een peilput voor bodem- en grondwateranalyses</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aanleg peilput - bodemverontreinining">
+                <xs:annotation>
+                    <xs:documentation>Boring voor aanleg van een peilput (in kader van bodemdecreet) (milieuboring)</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Opvullen van een boring of een grondwaterwinning">
+                <xs:annotation>
+                    <xs:documentation>Opvullen van een boring of een grondwaterwinning</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring i.h.k.v. grondverzet">
+                <xs:annotation>
+                    <xs:documentation>Boring i.h.k.v. grondverzet</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Aanleg peilput - Grondverzet">
+                <xs:annotation>
+                    <xs:documentation>Aanleg peilput - Grondverzet</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Boring i.h.k.v. Certificaat van Herkomst">
+                <xs:annotation>
+                    <xs:documentation>Boring i.h.k.v. Certificaat van Herkomst</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Historische geologische boring">
+                <xs:annotation>
+                    <xs:documentation>Historische geologische boring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+            <xs:enumeration value="Historische hydrogeologische boring">
+                <xs:annotation>
+                    <xs:documentation>Historische hydrogeologische boring</xs:documentation>
+                </xs:annotation>
+            </xs:enumeration>
+        </xs:restriction>
+    </xs:simpleType>
+</xs:schema>
