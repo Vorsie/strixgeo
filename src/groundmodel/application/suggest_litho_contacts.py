@@ -30,6 +30,7 @@ from groundmodel.domain.services.litho_segmentation import (
     segment_borehole,
     segment_cpt,
 )
+from groundmodel.domain.services.track_preference import preferred_track
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -272,13 +273,15 @@ class SuggestLithoContacts(GroundModelLogger):
         if borehole is None:
             raise InvestigationNotFoundError(borehole_id, "Borehole")
 
-        # Select the best available lithology observation stream.
+        # Select the best available lithology observation stream: the first
+        # kind in priority order that has a layered track; within a kind the
+        # shared track-preference rule picks (manual, then newest edited, then
+        # today's date order) so a hand-typed track feeds the suggester.
         best_obs: ObservationOrm | None = None
         for obs_type in _LITHO_OBSERVATION_PRIORITY:
-            for obs in borehole.observations:
-                if obs.observation_type == obs_type and obs.layers:
-                    best_obs = obs
-                    break
+            best_obs = preferred_track(
+                borehole.observations, obs_type, require=lambda o: bool(o.layers)
+            )
             if best_obs is not None:
                 break
 
