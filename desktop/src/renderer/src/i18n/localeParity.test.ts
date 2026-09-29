@@ -44,6 +44,10 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'export.dSheetPiling',
   'export.title', // "Exports" is the plural used in BE Dutch too
   'sections.toolbar.export',
+  // Borehole Tracks panel (2026-09-29): DOV is the data provider's name, and
+  // "Top (m)" is the depth column's word in BE Dutch as well.
+  'tracks.badge.dov',
+  'tracks.editor.top',
   // ⋯ More menu headings: "Model" and "Export" are the same words in BE Dutch.
   // The third heading, sections.moreGroup.section, becomes "Profiel" and is NOT
   // here. The Export heading matches the bar's own Export dropdown above it.
