@@ -33,6 +33,7 @@ POST   /cpt/plot-batch — Batch the per-CPT plot endpoint into one round-trip.
 **Borehole — `borehole.py` (mounted at `/borehole`)**
 
 ```
+POST   /borehole/import — Import a LOCAL DOV borehole XML file (one or several borings, all interpretations, import flags); consented refresh-on-reimport.
 POST   /borehole/import-dov — Import boreholes from DOV within a WGS84 bounding box.
 POST   /borehole/import-dov/stream — Spawn a borehole DOV import as a background task and return its job-id.
 GET    /borehole/import-dov/stream/{job_id} — Drain the SSE event queue for a running borehole DOV import job.
@@ -340,6 +341,33 @@ TIN/solid caches flipped to stale. That write is irreversible, so it is
 
 The legacy `409` whose body carries only `cpt_id` + `message` is reachable
 only when a caller opts out with `ImportCpt.persist(refresh_existing=False)`.
+
+Re-import semantics for `POST /borehole/import` (a local DOV `dov-schema`
+XML file, `.xml` only, 50 MiB cap → `413`, unreadable / no `<boring>` →
+`400`) follow the CPT rule, per FILE: a boring whose DOV identificatie is
+already in the project (`project_id = "DOV"` + `test_id`, the same key the
+bbox import stores) is refreshed in place — same `borehole_id`, header values
+the file carries, drill segments + field log replaced, each interpretation
+whose DOV permkey matches a stored observation replaced in place (the
+observation id survives; its layers are new rows), other interpretations
+added, stored observations the file does not carry kept, a manual collar
+elevation kept, the TIN/solid caches staled:
+
+* any duplicate, no `confirm_refresh` → `409` with
+  `detail.code = "borehole_refresh_confirmation_required"` and
+  `detail.diffs[]` (per boring: `borehole_id`, `name`, `test_id`,
+  `old_/new_total_depth_m`, `old_/new_n_litho_layers`, `n_errors`,
+  `n_warnings`). **Nothing from the file is written.**
+* duplicates + `confirm_refresh=true` → `200`; those borings carry
+  `refreshed: true`.
+* only new borings → `201`.
+* a duplicate whose fresh parse has ERROR-level issues → `422` with
+  `detail.code = "borehole_refresh_refused"`, even when confirmed.
+
+The body is `{boreholes: [{borehole_id, name, test_id, has_errors, issues,
+refreshed, imported}], file_issues}`; a NEW boring without a usable position
+is not persisted (`imported: false`, `borehole_id: null`, a `NOT_IMPORTED`
+error) while its siblings are. One commit per file.
 
 DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
 ground-surface build `POST .../ground-surface/build`) answer `422` naming the
