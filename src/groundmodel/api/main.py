@@ -22,6 +22,7 @@ from groundmodel.api.local_client_token_middleware import LocalClientTokenMiddle
 from groundmodel.api.routers import (
     bed_override,
     borehole,
+    borehole_tracks,
     codelists,
     cpt,
     cross_section,
@@ -518,6 +519,8 @@ def create_app(environment: str | None = None) -> FastAPI:
 
     app.include_router(cpt.router)
     app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
+    # Hand-edited tracks (owner 2026-09-29) - own module, same /borehole prefix.
+    app.include_router(borehole_tracks.router, prefix="/borehole", tags=["borehole"])
     app.include_router(project.router)
     app.include_router(geology.router)
     app.include_router(cross_section.router)
