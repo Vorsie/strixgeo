@@ -142,3 +142,44 @@ def test_frame_rect_round_trip() -> None:
     """Frame rect round trip."""
     frame = FrameRect(1.0, 2.0, 3.0, 4.0)
     assert FrameRect.from_dict(frame.to_dict()) == frame
+
+
+def test_the_plotters_clip_edge_crossing_is_not_taken_for_a_scan() -> None:
+    """Where the curve leaves the panel the plotter adds a vertex that is no scan.
+
+    CAMZ-001 sounding 66 at 30.96 m, 77b at 32.44 m: between a scan at 28 MPa
+    and one beyond 32 MPa the sheet draws a vertex on the 32 MPa edge crossing
+    (30.57 MPa at 30.964 m); the GEF has no such row. Every vertex kept must be
+    a drawn scan.
+    """
+    doc = synth.synthetic_cpt_pdf(synth.SyntheticPageSpec(clip_crossings=True))
+    page = doc[0]
+    profile = LayoutProfileRegistry.default().match(page.get_text())
+    cal = VectorAxisCalibrator(profile).calibrate(page, page_number=1)
+    qc = VectorCurveExtractor().extract(page, cal).curves[PanelKind.QC]
+    truth = np.asarray(synth.truth_depths())
+    nearest = np.min(np.abs(qc.depth_m[:, None] - truth[None, :]), axis=1)
+    assert len(qc.depth_m) == len(truth)
+    assert nearest.max() < 0.002
+
+
+def test_a_continuation_sheet_finds_its_sounding_across_a_sheet_in_between() -> None:
+    """A continuation joins its own sounding even when another sheet sits between.
+
+    CAMZ-001 prints sounding 68 on p. 214, then a repeat of sounding 66's first
+    sheet on p. 215, then 68's continuation on p. 216. The continuation belongs
+    to 68; the repeated sheet of 66 is a duplicate, not a second sounding 66.
+    """
+    merged = _merge_continuations(
+        [
+            _sheet("66", 210, 3.70, 0.0, 33.5),
+            _sheet("66", 211, 3.70, 33.2, 33.9),
+            _sheet("68", 214, 3.65, 0.0, 33.5),
+            _sheet("66", 215, 3.70, 0.0, 33.5),  # the same first sheet again
+            _sheet("68", 216, 3.65, 32.6, 34.4),
+        ]
+    )
+    assert [(s.sounding_id, s.page_numbers) for s in merged] == [
+        ("66", (210, 211)),
+        ("68", (214, 216)),
+    ]
