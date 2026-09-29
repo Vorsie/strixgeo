@@ -14,7 +14,7 @@ or the ``__init__`` package-marker rule:
   numba carve-out;
 * ``infrastructure/parsers`` — every non-``__init__`` module;
 * ``domain/services`` **top level** (excluding the ``voxel_litho`` subtree, which
-  has its own check) — every engine-class module is compiled, minus five
+  has its own check) — every engine-class module is compiled, minus eight
   recorded source carve-outs (data-shape/token declarations + two rollback
   services outside the owner's engine scope).
 
@@ -55,7 +55,7 @@ _VOXEL_LITHO = "groundmodel/domain/services/voxel_litho"
 _PARSERS = "groundmodel/infrastructure/parsers"
 _DOMAIN_SERVICES = "groundmodel/domain/services"
 
-# The five top-level domain/services modules that ship as SOURCE (each recorded
+# The eight top-level domain/services modules that ship as SOURCE (each recorded
 # in SOURCE_CARVEOUTS with a reason). Named here so promoting any to
 # COMPILED_MODULES -- or adding a sixth source module -- forces an edit to this
 # test in the same commit; it cannot silently drift either way.
@@ -65,6 +65,10 @@ _SOURCE_DOMAIN_SERVICES = {
     "groundmodel.domain.services.detect_body_extents",
     "groundmodel.domain.services.elevation_rollback",
     "groundmodel.domain.services.water_table_rollback",
+    # The borehole track editor's rules (owner 2026-09-29) - CRUD validation.
+    "groundmodel.domain.services.borehole_track_constants",
+    "groundmodel.domain.services.validate_track_intervals",
+    "groundmodel.domain.services.track_preference",
 }
 
 # The dotted prefix of the hand-picked application engine set. application/ is a
@@ -199,7 +203,7 @@ def test_domain_services_subtree_is_fully_classified() -> None:
 
 
 def test_source_domain_services_are_carved_out_not_compiled() -> None:
-    """The five source domain/services modules are recorded, present, and NOT compiled."""
+    """The eight source domain/services modules are recorded, present, and NOT compiled."""
     compiled = set(COMPILED_MODULES)
     for module in _SOURCE_DOMAIN_SERVICES:
         assert module in SOURCE_CARVEOUTS, f"{module} missing a SOURCE_CARVEOUTS reason"
