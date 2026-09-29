@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Double, ForeignKey, Index, String
+from sqlalchemy import DateTime, Double, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -52,6 +53,25 @@ class FieldLogIntervalOrm(Base):
     # (see CLAUDE.md "Data Integrity Rules" and the reference_dov_codelists
     # memory).
     value: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Provenance of the field-log track this row belongs to (one track per
+    # ``kind`` per borehole; every row of a kind shares it; Data Integrity
+    # rule 1). ``"dov"`` for an import, ``"manual"`` for a track created by
+    # hand in the borehole's Tracks panel.
+    # An imported track the engineer edits STAYS ``"dov"`` and gets
+    # ``edited_manually_at`` stamped instead. Values: ``TrackSource``. The
+    # server default covers every pre-existing row (all DOV imports) and an
+    # older bundle that carries no ``source`` key.
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="dov", server_default=text("'dov'")
+    )
+
+    # When the track was last saved from the track editor; NULL for an
+    # untouched import. Drives the "edited by hand" badge and the
+    # newest-edited rank of ``domain/services/track_preference.py``.
+    edited_manually_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "BoreholeOrm", back_populates="field_log_intervals", lazy=RELATIONSHIP_LAZY
