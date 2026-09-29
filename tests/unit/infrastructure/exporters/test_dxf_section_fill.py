@@ -327,6 +327,80 @@ def test_l2_no_fill_means_no_labels_layer_and_no_index_list() -> None:
     assert not any("BODY INDEX" in e.dxf.text for e in doc.modelspace().query("TEXT"))
 
 
+def _index_lines(msp) -> list[str]:  # type: ignore[no-untyped-def]
+    """The title block's BODY INDEX lines: ``<index> <unit layer>``."""
+    return [
+        e.dxf.text
+        for e in msp.query("TEXT")
+        if e.dxf.layer != BODY_LABEL_LAYER and e.dxf.text.split(" ", 1)[0].isdigit()
+    ]
+
+
+def test_l4_one_body_across_two_gaps_gets_one_label_even_when_the_parts_do_not_touch() -> None:
+    """Owner 2026-09-29: "i meant one label per body, now you have one label per body
+    and per gap". One body is ONE resolver body (``body_id``), across every gap it
+    fills. Here its gap-0 part stops 2 mm short of the column, so the geometry does
+    not merge the two parts: two hatches stay (they are the drawing), but the body
+    gets exactly one number, inside its larger part, and one BODY INDEX line.
+    """
+    sand = uuid4()
+    unit = SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0)
+    left = SectionPolygon(
+        sand, ((40.0, 12.0), (59.998, 12.0), (59.998, 8.0), (40.0, 8.0)), 0, body_id="b-sand"
+    )
+    right = SectionPolygon(
+        sand, ((60.0, 12.0), (100.0, 12.0), (100.0, 8.0), (60.0, 8.0)), 1, body_id="b-sand"
+    )
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill([unit], [left, right])))
+    msp = doc.modelspace()
+    assert len(list(msp.query("HATCH[layer=='GeoModel-Zand']"))) == 2
+    labels = list(msp.query(f"TEXT[layer=='{BODY_LABEL_LAYER}']"))
+    assert [e.dxf.text for e in labels] == ["1"]
+    from shapely.geometry import Point, Polygon
+
+    assert Polygon(right.points).contains(Point(labels[0].dxf.insert.x, labels[0].dxf.insert.y))
+    assert _index_lines(msp) == ["1 GeoModel-Zand"]
+
+
+def test_l5_two_bodies_of_one_unit_that_touch_keep_two_labels() -> None:
+    """A body id wins over geometry: two resolver bodies of one unit that share an
+    edge are still two bodies, so they get two numbers and two BODY INDEX lines.
+    """
+    sand = uuid4()
+    unit = SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0)
+    upper = SectionPolygon(
+        sand, ((10.0, 12.0), (60.0, 12.0), (60.0, 8.0), (10.0, 8.0)), 0, body_id="b-upper"
+    )
+    lower = SectionPolygon(
+        sand, ((10.0, 8.0), (60.0, 8.0), (60.0, 2.0), (10.0, 2.0)), 0, body_id="b-lower"
+    )
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill([unit], [upper, lower])))
+    msp = doc.modelspace()
+    labels = {e.dxf.text: e.dxf.insert.y for e in msp.query(f"TEXT[layer=='{BODY_LABEL_LAYER}']")}
+    assert set(labels) == {"1", "2"}
+    # Top-down: the upper body is 1.
+    assert labels["1"] > 8.0 > labels["2"]
+    assert _index_lines(msp) == ["1 GeoModel-Zand", "2 GeoModel-Zand"]
+
+
+def test_f7_a_sub_millimetre_inset_at_a_column_does_not_split_one_body() -> None:
+    """The 2-D engine builds its faces on a 1 mm grid, so a face edge on a column
+    vertical sits at the column rounded to the millimetre, up to 0.5 mm off the
+    column the neighbouring gap is clipped at (section "test", 2026-09-29: 0.06 to
+    0.50 mm at every column). One body of one unit still prints as ONE hatch.
+    """
+    sand = uuid4()
+    unit = SectionPolygonUnit(sand, "Zand", None, "ZAND", "#ffcc00", 0)
+    left = SectionPolygon(
+        sand, ((10.0, 12.0), (59.9996, 12.0), (59.9996, 8.0), (10.0, 8.0)), 0, body_id="b-sand"
+    )
+    right = SectionPolygon(
+        sand, ((60.0, 12.0), (100.0, 12.0), (100.0, 8.0), (60.0, 8.0)), 1, body_id="b-sand"
+    )
+    doc = _parse(DxfSectionExporter().export(_snapshot(), fill=_fill([unit], [left, right])))
+    assert len(list(doc.modelspace().query("HATCH[layer=='GeoModel-Zand']"))) == 1
+
+
 # ---------------------------------------------------------------------------
 # The CPT curves
 # ---------------------------------------------------------------------------
