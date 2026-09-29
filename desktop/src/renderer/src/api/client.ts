@@ -65,6 +65,9 @@ export type {
   WaterContentResponse,
   ScalarLabTestResponse,
   SampleResponse,
+  TrackIntervalBody,
+  TrackIssueResponse,
+  BoreholeTrackResponse,
 } from './clients/borehole'
 
 // ---------------------------------------------------------------------------
