@@ -84,6 +84,9 @@ dev = [
     # the G3Dv3 stratigraphic catalog JSON from the DOV xlsx sources.
     # Not a runtime dep; the JSON is consumed at runtime.
     "openpyxl>=3.1",
+    "pymupdf>=1.28.2",
+    "rapidocr-onnxruntime>=1.4.4",
+    "opencv-python>=5.0.0.93",
 ]
 # compile — the native-compilation toolchain for the packaged tree ONLY.
 # Nuitka translates the engine + parsers to C and builds one .pyd per module so
@@ -160,6 +163,17 @@ ignore_missing_imports = true
 # shapely 2.x ships no py.typed; the DXF exporter unions the fill regions with it.
 [[tool.mypy.overrides]]
 module = ["shapely.*"]
+ignore_missing_imports = true
+
+# PyMuPDF (the PDF CPT digitiser, dev group) is only partly annotated: Page /
+# Rect / Document methods are untyped, so strict mode flags every call. Allow
+# untyped calls inside the digitiser package only; RapidOCR ships no types.
+[[tool.mypy.overrides]]
+module = ["groundmodel.infrastructure.parsers.cpt.pdf.*"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["rapidocr_onnxruntime.*"]
 ignore_missing_imports = true
 
 # asyncpg ships no ``py.typed`` marker (verified 2026-08-27 against 0.29+),
