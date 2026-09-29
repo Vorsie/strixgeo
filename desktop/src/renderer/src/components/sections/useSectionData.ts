@@ -43,6 +43,7 @@ import {
 } from '../../api/client'
 import { log } from '../../utils/log'
 import { fetchBoreholeDetails, fetchCptPlots } from './fetchSectionLogs'
+import { useBoreholeTracksRevision } from '../../hooks/boreholeTracksRevision'
 import { implausibleSectionCoordinates } from '../../utils/sectionCoordinatePlausibility'
 import {
   investigationsOnSection,
@@ -354,6 +355,9 @@ export function useSectionData(
   // Same join-trick as inBufferCptIdsKey — content-stable so the
   // effect doesn't re-fire on every render due to array identity.
   const inBufferBhIdsKey = inBufferBhIds.join(',')
+  // A track saved in a borehole's Tracks panel (2026-09-29) bumps this
+  // revision; the columns refetch so the section draws the new track.
+  const boreholeTracksRevision = useBoreholeTracksRevision()
   useEffect(() => {
     let cancelled = false
     setBoreholeDetails(null)
@@ -390,8 +394,10 @@ export function useSectionData(
     // empty arrays; the join key captures content stably.
     // section.app_project_id is included because it is read inside the
     // effect closure (passed to borehole.get for the scope guard).
+    // boreholeTracksRevision is not read inside; it is listed ON PURPOSE so
+    // a track save elsewhere re-runs the fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section.id, section.app_project_id, inBufferBhIdsKey])
+  }, [section.id, section.app_project_id, inBufferBhIdsKey, boreholeTracksRevision])
 
   return {
     cptChannels,
