@@ -278,6 +278,19 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result",
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_wfs_row",
     "groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row",
+    # Geosys lab exports (oedometer control listing + triaxial raw dump).
+    "groundmodel.infrastructure.parsers.lab.geosys.geosys_constants",
+    "groundmodel.infrastructure.parsers.lab.geosys.geosys_text",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_constants",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_control_listing_parser",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_lab_summary_row",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_header",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_result",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_stage",
+    "groundmodel.infrastructure.parsers.lab.geosys.triaxial_constants",
+    "groundmodel.infrastructure.parsers.lab.geosys.triaxial_dump_result",
+    "groundmodel.infrastructure.parsers.lab.geosys.triaxial_raw_dump_parser",
+    "groundmodel.infrastructure.parsers.lab.geosys.triaxial_specimen",
     # Shared validation package (moved out of cpt/ 2026-09-05; boreholes + lab
     # use it too). The old cpt.validation.* entries stay listed too so the
     # back-compat shims compile alongside these canonical modules.
