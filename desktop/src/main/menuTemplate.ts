@@ -115,7 +115,6 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
           label: menuLabel('importBorehole', language),
           accelerator: 'CmdOrCtrl+Shift+B',
           click: () => send('menu:import-borehole'),
-          enabled: false, // Phase 3
         },
         {
           label: menuLabel('importDmt', language),
