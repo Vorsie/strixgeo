@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,8 +45,14 @@ from groundmodel.api.schemas.borehole.import_borehole_dov_request import (
 from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
     ImportBoreholeDovResponse,
 )
+from groundmodel.api.schemas.borehole.import_borehole_file_response import (
+    ImportBoreholeFileResponse,
+)
+from groundmodel.api.schemas.borehole.imported_boring_schema import ImportedBoringSchema
 from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
+from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
+from groundmodel.application.import_borehole_file import ImportBoreholeFile
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
 from groundmodel.domain.services.track_preference import order_by_track_preference
@@ -44,7 +61,14 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
-from groundmodel.shared.exceptions import DovImportTooLargeError, DuplicateImportJobError
+from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
+from groundmodel.shared.exceptions import (
+    BoreholeRefreshConfirmationRequiredError,
+    BoreholeRefreshRefusedError,
+    DovImportTooLargeError,
+    DuplicateImportJobError,
+    ParseError,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Friendly URL aliases for the ``?include=`` query param. The URL form
@@ -66,6 +90,181 @@ LAB_TEST_INCLUDE_ALIASES: dict[str, str] = {
 logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter()
+
+# Cap on one borehole XML upload. A DOV borehole file is ~10-30 KB (the owner's
+# five: 13-29 KB); 50 MiB is three orders of magnitude past a multi-boring
+# export and still streams through ``tempfile`` without OOM. The outer
+# BodySizeLimitMiddleware caps the envelope at 256 MiB, but ``UploadFile``
+# streams chunk by chunk, so the per-upload guard lives here (as for GEF).
+MAX_BOREHOLE_XML_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _issue_schemas(issues: list[ValidationIssue]) -> list[ValidationIssueSchema]:
+    """Serialise parse / import findings for the response."""
+    return [
+        ValidationIssueSchema(level=i.level.value, code=i.code, message=i.message, rows=i.rows)
+        for i in issues
+    ]
+
+
+@router.post(
+    "/import", response_model=ImportBoreholeFileResponse, status_code=status.HTTP_201_CREATED
+)
+async def import_borehole_file(
+    file: UploadFile,
+    response: Response,
+    project_id: str | None = Form(None),
+    confirm_refresh: bool = Form(False),
+    session: AsyncSession = Depends(get_session),
+) -> ImportBoreholeFileResponse:
+    """Import a LOCAL DOV borehole XML file (one or several borings).
+
+    Every ``<boring>`` becomes a borehole (identity ``project_id="DOV"`` +
+    DOV identificatie, the same key the bbox import uses) with every
+    interpretation the file holds for it, and a list of flags naming
+    everything worth checking. One commit per file.
+
+    A boring already in the project follows the CPT re-import rule — refresh
+    in place (same borehole id), but CONSENTED:
+
+    * duplicate(s) + no ``confirm_refresh`` → **409** with
+      ``code = "borehole_refresh_confirmation_required"`` and ``diffs`` (per
+      boring: old/new total depth, old/new lithology layer count). Nothing is
+      written for the file.
+    * duplicate(s) + ``confirm_refresh=true`` → **200**, those borings
+      ``refreshed=true``.
+    * only new borings → **201**.
+    * a duplicate whose fresh parse has errors → **422** with
+      ``code = "borehole_refresh_refused"``, even when confirmed.
+
+    Parameters
+    ----------
+    file:
+        The uploaded ``.xml`` file.
+    response:
+        Injected so the handler can answer 200 (refreshed) instead of 201.
+    project_id:
+        UUID of the active app-level project. None = unscoped (tests/admin).
+    confirm_refresh:
+        The user has seen the diff and asked for the replacement.
+    session:
+        Database session injected by FastAPI.
+
+    Returns
+    -------
+    ImportBoreholeFileResponse
+        One entry per boring with its flags, plus file-level findings.
+
+    Raises
+    ------
+    HTTPException(400)
+        Wrong suffix, bad ``project_id``, or a file that is not a DOV
+        borehole XML.
+    HTTPException(409)
+        Borings already in the project and the refresh was not confirmed.
+    HTTPException(413)
+        The upload exceeds ``MAX_BOREHOLE_XML_UPLOAD_BYTES``.
+    HTTPException(422)
+        A boring's fresh parse is too broken to replace the stored one.
+    """
+    logger.info(f"POST /borehole/import: project_id={project_id} confirm={confirm_refresh}")
+    logger.debug(f"POST /borehole/import: file={file.filename!r}")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix != ".xml":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type '{suffix}'. Supported: .xml (DOV borehole export)",
+        )
+
+    app_project_uuid: UUID | None = None
+    if project_id:
+        try:
+            app_project_uuid = UUID(project_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid project_id: {project_id!r}",
+            )
+
+    received = 0
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MiB
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > MAX_BOREHOLE_XML_UPLOAD_BYTES:
+                tmp_path = Path(tmp.name)
+                tmp.close()
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "Borehole XML upload exceeds the "
+                        f"{MAX_BOREHOLE_XML_UPLOAD_BYTES // (1024 * 1024)} MiB cap"
+                    ),
+                )
+            tmp.write(chunk)
+        tmp_path = Path(tmp.name)
+
+    try:
+        result = await ImportBoreholeFile(session).execute(
+            tmp_path,
+            app_project_uuid,
+            confirm_refresh=confirm_refresh,
+            file_name=file.filename or tmp_path.name,
+        )
+    except BoreholeRefreshConfirmationRequiredError as exc:
+        logger.info(
+            f"POST /borehole/import: {len(exc.diffs)} refresh(es) await confirmation; "
+            "nothing written"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "borehole_refresh_confirmation_required",
+                "message": str(exc),
+                "diffs": exc.diffs,
+            },
+        )
+    except BoreholeRefreshRefusedError as exc:
+        logger.warning(f"POST /borehole/import: refresh refused ({exc.reason})")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "borehole_refresh_refused",
+                "reason": exc.reason,
+                "message": str(exc),
+            },
+        )
+    except ParseError as exc:
+        logger.warning(f"POST /borehole/import: parse error: {exc}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    if any(b.refreshed for b in result.boreholes):
+        response.status_code = status.HTTP_200_OK
+    logger.info(
+        f"POST /borehole/import: {len(result.boreholes)} boring(s), "
+        f"{sum(1 for b in result.boreholes if b.refreshed)} refreshed, "
+        f"{sum(1 for b in result.boreholes if not b.imported)} skipped"
+    )
+    return ImportBoreholeFileResponse(
+        boreholes=[
+            ImportedBoringSchema(
+                borehole_id=b.borehole_id,
+                name=b.name,
+                test_id=b.test_id,
+                has_errors=b.has_errors,
+                issues=_issue_schemas(b.issues),
+                refreshed=b.refreshed,
+                imported=b.imported,
+            )
+            for b in result.boreholes
+        ],
+        file_issues=_issue_schemas(result.issues),
+    )
 
 
 @router.post("/import-dov", response_model=ImportBoreholeDovResponse)
