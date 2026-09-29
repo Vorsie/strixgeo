@@ -31,6 +31,8 @@ import BackendFailedModal from './components/BackendFailedModal'
 import BackendUnreachableBanner from './components/BackendUnreachableBanner'
 import BackendRestartingBanner from './components/BackendRestartingBanner'
 import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
+import BoreholeRefreshConfirmDialog from './components/BoreholeRefreshConfirmDialog'
+import BoreholeImportReportPanel from './components/BoreholeImportReportPanel'
 import ConfirmDialog from './components/ui/ConfirmDialog'
 import { usePromiseConfirm } from './hooks/usePromiseConfirm'
 import {
@@ -970,6 +972,12 @@ export default function App() {
     cancelRefreshImport,
     handleImportDov,
     handleImportBoreholeDov,
+    handleImportBoreholeXml,
+    boreholeRefreshConfirm,
+    confirmBoreholeRefresh,
+    cancelBoreholeRefresh,
+    boreholeImportReport,
+    closeBoreholeImportReport,
     handleBboxDrawn,
     pendingCptPins,
   } = useInvestigationData({
@@ -992,13 +1000,17 @@ export default function App() {
   // handler now lives in useInvestigationData (post hook-split), so this
   // subscription effect sits here — without it the menu item is silently
   // dead (the keyboard path goes through the Toolbar button, the menu
-  // path needs this). onMenuImportBorehole has never been wired (pre-
-  // existing gap, tracked separately — not restored here so this stays a
-  // faithful behaviour restoration, not a feature add).
+  // path needs this).
   useEffect(() => {
     const off = window.electron.onMenuImportCpt(() => void handleImportCpt())
     return off
   }, [handleImportCpt])
+
+  // File → Import boreholes (DOV XML)… — local DOV borehole XML files.
+  useEffect(() => {
+    const off = window.electron.onMenuImportBorehole(() => void handleImportBoreholeXml?.())
+    return off
+  }, [handleImportBoreholeXml])
 
   // Cross-section state and handlers — sections list, selection, draw
   // mode, focused-contact highlight, and all CRUD. The lifecycle
@@ -1410,7 +1422,7 @@ export default function App() {
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
-    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
+    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn,
     pendingCptPins,
     // visible + geo
     visibleCpts, visibleBoreholes, geo,
@@ -1603,6 +1615,20 @@ export default function App() {
         diff={refreshConfirm?.diff ?? null}
         onConfirm={confirmRefreshImport}
         onCancel={cancelRefreshImport}
+      />
+
+      {/* The same consent for a DOV borehole XML file whose borings are
+          already in the project, then the import report with every flag. */}
+      <BoreholeRefreshConfirmDialog
+        open={boreholeRefreshConfirm !== null}
+        fileName={boreholeRefreshConfirm?.fileName ?? ''}
+        diffs={boreholeRefreshConfirm?.diffs ?? []}
+        onConfirm={confirmBoreholeRefresh}
+        onCancel={cancelBoreholeRefresh}
+      />
+      <BoreholeImportReportPanel
+        report={boreholeImportReport}
+        onClose={closeBoreholeImportReport}
       />
 
       {/* App-level overlays (toasts + the 4 global dialogs) — R5
