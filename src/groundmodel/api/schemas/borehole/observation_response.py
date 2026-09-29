@@ -1,6 +1,6 @@
 """Pydantic schema for one observation (interpretation stream) on a borehole."""
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -29,3 +29,11 @@ class ObservationResponse(BaseModel):
     score_category: str | None
     drill_method_score: str | None
     layers: list[ObservationLayerResponse]
+    # Provenance of the track (Data Integrity rule 1, 2026-09-29). Optional
+    # with defaults so the shape stays additive: ``source`` is ``"dov"`` /
+    # ``"manual"``; ``edited_manually_at`` is set once the track was saved
+    # from the track editor; ``dov_permkey`` is the upstream identity an
+    # edited import keeps.
+    source: str = "dov"
+    edited_manually_at: datetime | None = None
+    dov_permkey: str | None = None
