@@ -50,6 +50,13 @@ export type { CptRefreshDiff } from './clients/cpt'
 // ---------------------------------------------------------------------------
 
 export type { BoreholeAxis } from './clients/borehole'
+export { BoreholeRefreshConfirmationRequiredError } from './clients/borehole'
+export type {
+  BoreholeRefreshDiff,
+  ImportBoreholeFileResponse,
+  ImportedBoring,
+  ImportFlag,
+} from './clients/borehole'
 export type {
   BoreholeListItem,
   BoreholeDetailResponse,
