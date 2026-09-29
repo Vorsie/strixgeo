@@ -38,17 +38,15 @@ from uuid import UUID
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid6 import uuid7
 
 from groundmodel.application.dov_interpretation_dedup import interpretation_dedup_verdict
 from groundmodel.application.dov_interpretation_verdict import DovInterpretationVerdict
+from groundmodel.application.dov_borehole_orm_builders import build_observation_orm
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
 )
 from groundmodel.domain.value_objects.observation_type import ObservationType
-from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
-from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.dov_dedup import (
     deleted_dov_permkeys,
@@ -340,53 +338,6 @@ class ImportInterpretationsDov(GroundModelLogger):
         observations are dropped at this boundary so consumers never see an
         ``Observation`` with zero layers in the DB.
         """
-        observation = parse_result.observation
-        if not observation.layers:
-            return None
-
-        return ObservationOrm(
-            id=observation.id,
-            borehole_id=observation.borehole_id,
-            # WFS row's permkey for the interpretatie; stable upstream
-            # identity used by re-import dedup (refresh-on-duplicate).
-            dov_permkey=row.permkey,
-            observation_type=_observation_type_value(observation.observation_type),
-            author=observation.author,
-            observation_date=observation.observation_date,
-            reliability=observation.reliability,
-            score_category=observation.score_category,
-            drill_method_score=observation.drill_method_score,
-            layers=[
-                ObservationLayerOrm(
-                    id=uuid7(),
-                    top_m=layer.top_m,
-                    base_m=layer.base_m,
-                    color=layer.color,
-                    main_soil_codes=list(layer.main_soil_codes),
-                    description=layer.description,
-                    layer_index=layer.layer_index,
-                    admixtures=[
-                        AdmixtureOrm(
-                            id=uuid7(),
-                            soil_code=adm.soil_code,
-                            amount=adm.amount,
-                            locally=adm.locally,
-                        )
-                        for adm in layer.admixtures
-                    ],
-                )
-                for layer in observation.layers
-            ],
-        )
-
-
-def _observation_type_value(observation_type: ObservationType) -> str:
-    """Return the string value the ORM stores in ``observation.observation_type``.
-
-    The ORM column is plain VARCHAR (per the model docstring — kept VARCHAR so
-    a ninth interpretation type doesn't require an ENUM-evolution migration).
-    The application-layer ``ObservationType`` enum is the authoritative
-    allow-list; we serialise via ``.value`` so a single source of truth lives
-    in the enum definition.
-    """
-    return observation_type.value
+        # The WFS row's permkey for the interpretatie is the stable upstream
+        # identity used by re-import dedup (refresh-on-duplicate).
+        return build_observation_orm(parse_result.observation, row.permkey)
