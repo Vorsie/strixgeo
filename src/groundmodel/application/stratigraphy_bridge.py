@@ -20,6 +20,7 @@ from groundmodel.application.borehole_observation_layers_options import (
     borehole_observation_layers_options,
 )
 from groundmodel.application.formal_code_count import FormalCodeCount
+from groundmodel.domain.services.track_preference import preferred_track
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
     FormalStratigraphyEntry,
@@ -615,16 +616,14 @@ def _find_observation(
     observations: Iterable[ObservationOrm],
     kind: ObservationType,
 ) -> ObservationOrm | None:
-    """Return the first observation of ``kind`` on the borehole, or None.
+    """Return the observation of ``kind`` the stratigraphy consumers use, or None.
 
-    A borehole's observations are unique per type in practice (DOV doesn't
-    ship two formal stratigraphy interpretations for one boring), so "first
-    match" is equivalent to "the match".
+    DOV ships one interpretation per type per boring, but a hand-typed track
+    (owner 2026-09-29) can add a second: the shared track-preference rule
+    picks - the manual one, else the newest edited, else the first in
+    ``observation_date`` order (today's rule).
     """
-    for obs in observations:
-        if obs.observation_type == kind.value:
-            return obs
-    return None
+    return preferred_track(observations, kind.value)
 
 
 def _best_overlap(
