@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import CLIP_CROSSING_STEP_SHARE
+
 
 def monotonic_depth(
     depth: np.ndarray, value: np.ndarray, flags: np.ndarray | None = None
@@ -40,6 +42,45 @@ def monotonic_depth(
             keep[i] = True
             last = di
     return d[keep], v[keep], f[keep]
+
+
+def drop_clip_crossings(
+    depth: np.ndarray, value: np.ndarray, clipped: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Drop the vertices a plotter inserts where the curve crosses the clip edge.
+
+    Where the curve runs from a scan inside the panel to one beyond the axis
+    maximum (or back), the plotting program adds a vertex between the two
+    scans. It is no measurement: the GEF has no row there (CAMZ-001 sounding
+    66 at 30.964 m, 77b at 32.436 m). Such a vertex sits next to a clipped
+    vertex, squeezed between two neighbours that are themselves only about one
+    scan step apart.
+
+    Parameters
+    ----------
+    depth : numpy.ndarray
+        Strictly increasing depths.
+    value : numpy.ndarray
+        Values.
+    clipped : numpy.ndarray
+        Clip flags.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(depth, value, clipped)`` without the inserted vertices.
+    """
+    n = len(depth)
+    if n < 5:
+        return depth, value, clipped
+    step = float(np.median(np.diff(depth)))
+    keep = np.ones(n, dtype=bool)
+    for i in range(1, n - 1):
+        squeezed = depth[i + 1] - depth[i - 1] <= CLIP_CROSSING_STEP_SHARE * step
+        near_clip = clipped[i - 1] or clipped[i] or clipped[i + 1]
+        if squeezed and near_clip and keep[i - 1]:
+            keep[i] = False
+    return depth[keep], value[keep], clipped[keep]
 
 
 def depth_grid(depth_min: float, depth_max: float, step_m: float) -> np.ndarray:
@@ -79,9 +120,10 @@ def resample(
     grid : numpy.ndarray
         Target depths.
     max_gap_m : float or None
-        Grid points further than this from the nearest source vertex become
-        NaN (a gap in the curve stays a gap); None interpolates everywhere
-        inside the source range.
+        Grid points lying between two consecutive source vertices more than
+        this far apart become NaN (a gap in the curve stays a gap, including
+        next to its edges); None interpolates everywhere inside the source
+        range.
 
     Returns
     -------
@@ -95,11 +137,10 @@ def resample(
     out[inside] = np.interp(grid[inside], depth, value)
     if max_gap_m is not None and inside.any():
         idx = np.clip(np.searchsorted(depth, grid[inside]), 1, len(depth) - 1)
-        nearest = np.minimum(
-            np.abs(grid[inside] - depth[idx - 1]), np.abs(depth[idx] - grid[inside])
-        )
+        interval = depth[idx] - depth[idx - 1]
+        on_vertex = np.isclose(grid[inside], depth[idx - 1]) | np.isclose(grid[inside], depth[idx])
         vals = out[inside]
-        vals[nearest > max_gap_m] = np.nan
+        vals[(interval > max_gap_m) & ~on_vertex] = np.nan
         out[inside] = vals
     return out
 
