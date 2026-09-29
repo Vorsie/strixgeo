@@ -87,6 +87,26 @@ class SyntheticPageSpec:
     ground_level: float = 3.0
     extra_lines: list[str] = field(default_factory=list)
     qc_label_shift: float = 0.0
+    clip_crossings: bool = False
+
+
+def _qc_polyline(depths: list[float], clip_crossings: bool) -> list[tuple[float, float]]:
+    """Return the qc polyline; optionally with the plotter's clip-edge crossings.
+
+    A plotting program that clips at the axis maximum inserts an extra vertex
+    where the line from a scan inside the panel to a scan beyond it crosses
+    the edge. That vertex is not a scan.
+    """
+    pts: list[tuple[float, float]] = []
+    prev: float | None = None
+    for d in depths:
+        q = qc_truth(d)
+        if clip_crossings and prev is not None and (qc_truth(prev) < QC_MAX) != (q < QC_MAX):
+            t = (QC_MAX - qc_truth(prev)) / (q - qc_truth(prev))
+            pts.append((x_qc(QC_MAX), y_depth(prev + t * (d - prev))))
+        pts.append((x_qc(q), y_depth(d)))
+        prev = d
+    return pts
 
 
 def draw_cpt_page(doc: pymupdf.Document, spec: SyntheticPageSpec | None = None) -> pymupdf.Page:
@@ -105,7 +125,7 @@ def draw_cpt_page(doc: pymupdf.Document, spec: SyntheticPageSpec | None = None) 
         shape.draw_line((x_fs(0.0), y_depth(m)), (x_fs(FS_MAX), y_depth(m)))
     shape.finish(color=GRID_COLOUR, width=0.5)
     depths = truth_depths()
-    shape.draw_polyline([(x_qc(qc_truth(d)), y_depth(d)) for d in depths])
+    shape.draw_polyline(_qc_polyline(depths, spec.clip_crossings))
     shape.finish(color=QC_COLOUR, width=0.84, closePath=False)
     shape.draw_polyline([(x_fs(fs_truth(d)), y_depth(d)) for d in depths])
     shape.finish(color=FS_COLOUR, width=0.84, closePath=False)
