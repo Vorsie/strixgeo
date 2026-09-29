@@ -205,7 +205,6 @@ class DxfSectionExporter(SectionExporter):
         # The fill goes first: entity order is draw order in CAD, and the
         # column lines, contacts and curves must stay readable over it.
         bodies = self._draw_fill(msp, fill, layer_by_formation_id, snapshot)
-        drawn_regions = len(bodies)
         self._draw_investigation_columns(msp, snapshot)
         # The pick-to-pick straight lines are the LINE drawing's geometry: with
         # a fill the hatched regions carry every boundary, and those lines cut
@@ -269,7 +268,7 @@ class DxfSectionExporter(SectionExporter):
             f"{drawn_contacts}/{len(snapshot.contacts)} contacts drawn, "
             f"{dropped_total} dropped [{dropped_no_level} no-level, "
             f"{dropped_no_formation} no-formation], "
-            f"{drawn_regions} fill region(s), {drawn_cpts} CPT curve column(s))"
+            f"{len(bodies)} labelled fill body(ies), {drawn_cpts} CPT curve column(s))"
         )
         return payload
 
@@ -552,7 +551,14 @@ class DxfSectionExporter(SectionExporter):
         layer_by_formation_id: dict[UUID, str],
         snapshot: SectionSnapshot,
     ) -> list[tuple[int, str]]:
-        """Emit each unit body (unioned touching regions) as outline + solid HATCH.
+        """Emit the fill as outline + solid HATCH per part, and ONE index label per body.
+
+        A body is the resolver body the region carries (``body_id``) and
+        spans every gap it fills (owner 2026-09-29: "one label per body, now
+        you have one label per body and per gap"). Per body and unit the
+        regions are unioned; each resulting part is one outline + hatch. A
+        region without a ``body_id`` falls back to geometry: each unioned
+        part of its unit is a body of its own.
 
         The hatch carries the unit's true colour and is see-through
         (``FILL_TRANSPARENCY``) so the lines drawn after it stay readable —
@@ -572,9 +578,9 @@ class DxfSectionExporter(SectionExporter):
         Returns
         -------
         list[tuple[int, str]]
-            ``(index, layer name)`` per body drawn (touching regions of one
-            unit count once), numbered top-down by the body's highest point,
-            ties left to right; the title block lists them in that order.
+            ``(index, layer name)`` per body, numbered top-down by the body's
+            highest point, ties left to right; the layer is the one of the
+            body's largest part. The title block lists them in that order.
         """
         if fill is None:
             return []
@@ -582,59 +588,80 @@ class DxfSectionExporter(SectionExporter):
         from ezdxf.enums import TextEntityAlignment
 
         colour_by_id = {unit.formation_id: _parse_hex_color(unit.color) for unit in fill.units}
-        # Touching regions of one unit are ONE body on paper: the app hides the
-        # seam between a merged lens and its band by colour, a DXF outline per
-        # region would print it (owner 2026-09-27: "it was merged into the clay
-        # body, so the lines disappear"). Union per unit, then draw each body.
-        by_unit: dict[UUID, list[Polygon]] = {}
+        # Touching regions of one body and unit are ONE shape on paper: the app
+        # hides the seam between a merged lens and its band by colour, a DXF
+        # outline per region would print it (owner 2026-09-27: "it was merged
+        # into the clay body, so the lines disappear"). Union per (body, unit).
+        by_body_unit: dict[tuple[str | None, UUID], list[Polygon]] = {}
         skipped = 0
         for polygon in fill.polygons:
             points = [(float(x), float(y)) for x, y in polygon.points]
             if polygon.formation_id not in layer_by_formation_id or len(points) < 3:
                 skipped += 1
                 continue
-            # Snap to a 0.1 mm grid first: a merged lens shares its seam vertices
-            # with the band only up to float noise, and a hairline gap would
-            # keep the two apart in the union.
+            # Snap to the fill engine's own 1 mm grid first: a region edge on a
+            # column sits at the column rounded to the millimetre while its
+            # neighbour is clipped at the exact column (see FILL_UNION_GRID_M),
+            # and that sliver would keep one body's two gaps apart in the union.
             shape = set_precision(Polygon(points), FILL_UNION_GRID_M).buffer(0)
             if shape.is_empty:
                 skipped += 1
                 continue
-            by_unit.setdefault(polygon.formation_id, []).append(shape)
+            key = (polygon.body_id, polygon.formation_id)
+            by_body_unit.setdefault(key, []).append(shape)
         drawn = 0
-        drawn_shapes: list[tuple[Polygon, str]] = []
-        for formation_id, shapes in by_unit.items():
+        # body key -> [(part, layer name)]; a region without a body id makes each
+        # of its unit's unioned parts a body of its own (keyed by draw order).
+        parts_by_body: dict[tuple[str, object], list[tuple[Polygon, str]]] = {}
+        for (body_id, formation_id), shapes in by_body_unit.items():
             layer_name = layer_by_formation_id[formation_id]
             rgb = colour_by_id.get(formation_id)
             merged = unary_union(shapes)
-            bodies = list(merged.geoms) if isinstance(merged, MultiPolygon) else [merged]
-            for body in bodies:
-                if not isinstance(body, Polygon) or body.is_empty:
+            parts = list(merged.geoms) if isinstance(merged, MultiPolygon) else [merged]
+            for part in parts:
+                if not isinstance(part, Polygon) or part.is_empty:
                     continue
-                rings = [list(body.exterior.coords)[:-1]] + [
-                    list(ring.coords)[:-1] for ring in body.interiors
+                rings = [list(part.exterior.coords)[:-1]] + [
+                    list(ring.coords)[:-1] for ring in part.interiors
                 ]
                 hatch = msp.add_hatch(dxfattribs={"layer": layer_name})
                 for ring in rings:
                     msp.add_lwpolyline(ring, close=True, dxfattribs={"layer": layer_name})
                     hatch.paths.add_polyline_path(ring, is_closed=True)
                 # Style 1 ("outer") fills between the outer ring and the next
-                # ring inward, so a body with a hole stays open at the hole.
+                # ring inward, so a part with a hole stays open at the hole.
                 hatch.set_solid_fill(color=7, style=1, rgb=rgb)
                 hatch.transparency = FILL_TRANSPARENCY
                 drawn += 1
-                drawn_shapes.append((body, layer_name))
+                body_key: tuple[str, object] = (
+                    ("body", body_id) if body_id is not None else ("part", drawn)
+                )
+                parts_by_body.setdefault(body_key, []).append((part, layer_name))
+        # One label per body, at its largest part (representative_point is always
+        # inside, a centroid is not for a crescent). A resolver body can span two
+        # units (a cross-family weld, "one mass one body"); it still gets one
+        # number, listed under the layer of its largest part.
+        labelled: list[tuple[float, float, Polygon, str]] = []
+        multi_unit = 0
+        for body_key, parts in parts_by_body.items():
+            largest, layer_name = max(parts, key=lambda item: item[0].area)
+            layers = {name for _part, name in parts}
+            if len(layers) > 1:
+                multi_unit += 1
+                self.debug(
+                    f"DXF body {body_key[1]} spans {len(layers)} unit layer(s) "
+                    f"{sorted(layers)}; indexed under {layer_name!r} (its largest part)"
+                )
+            top = max(part.bounds[3] for part, _name in parts)
+            left = min(part.bounds[0] for part, _name in parts)
+            labelled.append((top, left, largest, layer_name))
         # Number the bodies the way a CAD user reads a section: top-down by each
         # body's highest point, ties left to right by its leftmost point. The
-        # draw order above is by unit (every sand body, then every clay body),
-        # which would scatter the numbers up and down the drawing.
-        drawn_shapes.sort(key=lambda item: (-item[0].bounds[3], item[0].bounds[0]))
+        # draw order above is by unit, which would scatter the numbers.
+        labelled.sort(key=lambda item: (-item[0], item[1]))
         drawn_bodies: list[tuple[int, str]] = []
-        for index, (body, layer_name) in enumerate(drawn_shapes, start=1):
-            # The label sits inside its body (representative_point is always
-            # inside, a centroid is not for a crescent), on its own layer so
-            # the labels switch off in one go.
-            label_at = body.representative_point()
+        for index, (_top, _left, largest, layer_name) in enumerate(labelled, start=1):
+            label_at = largest.representative_point()
             msp.add_text(
                 str(index),
                 dxfattribs={"layer": BODY_LABEL_LAYER, "height": BODY_LABEL_HEIGHT},
@@ -646,8 +673,10 @@ class DxfSectionExporter(SectionExporter):
                 f"three points or degenerate; section_id={snapshot.section_id}"
             )
         self.debug(
-            f"DXF section export drew {drawn} fill body(ies) from {len(fill.polygons)} region(s) "
-            f"on {len(by_unit)} unit(s)"
+            f"DXF section export drew {drawn} fill part(s) from {len(fill.polygons)} region(s) "
+            f"as {len(drawn_bodies)} labelled body(ies) ({multi_unit} spanning two or more "
+            f"units, {sum(1 for p in fill.polygons if p.body_id is None)} region(s) "
+            f"without a body id)"
         )
         return drawn_bodies
 
