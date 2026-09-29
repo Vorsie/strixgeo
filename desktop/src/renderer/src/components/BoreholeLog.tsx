@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Columns3, Database, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Columns3, Database, ListPlus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
 import type {
   BoreholeDetailResponse,
@@ -23,6 +23,8 @@ import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
 import { useT } from '../i18n/translate'
 import LabTestPanel from './LabTestPanel'
+import BoreholeTracksDialog from './borelog/components/BoreholeTracksDialog'
+import type { BoreholeTrackEditing } from '../hooks/useBoreholeTrackEdits'
 import {
   TOGGLEABLE_TRACK_IDS,
   trackLabel,
@@ -119,6 +121,9 @@ interface Props {
   // switches, and only when ``onToggleContactOverlay`` is wired.
   contactOverlayVisibility?: Readonly<ContactOverlayVisibility>
   onToggleContactOverlay?: (source: ContactOverlay['source']) => void
+  // Add / change / delete tracks by hand (owner 2026-09-29). Optional so
+  // read-only mounts (tests, previews) hide the "Tracks" button.
+  trackEditing?: BoreholeTrackEditing
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -142,6 +147,7 @@ export default function BoreholeLog({
   contactOverlays,
   contactOverlayVisibility = DEFAULT_CONTACT_OVERLAY_VISIBILITY,
   onToggleContactOverlay,
+  trackEditing,
 }: Props): React.ReactElement {
   const t = useT()
   const {
@@ -150,6 +156,8 @@ export default function BoreholeLog({
     status: dovCatalogStatus,
   } = useVirtueleBoringCatalog(onChangeVirtueleBoringOverrideModel !== undefined)
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
+  // Tracks panel (owner 2026-09-29) open/closed.
+  const [tracksOpen, setTracksOpen] = useState(false)
 
   // Vertical zoom — broadcast via PxPerMContext so deeply nested track
   // sub-components don't need prop drilling. ``zoomFactor`` is a multiplier
@@ -390,6 +398,29 @@ export default function BoreholeLog({
         <span className="text-gray-400 dark:text-slate-500 ml-1 tabular-nums">
           {(zoomFactor * 100).toFixed(0)}%
         </span>
+
+        {/* Tracks — add a track by hand or change any track (owner
+            2026-09-29). Opens the modal Tracks panel; hidden on read-only
+            mounts that pass no ``trackEditing``. */}
+        {trackEditing !== undefined && (
+          <button
+            onClick={() => setTracksOpen(true)}
+            title={t('tracks.buttonHint')}
+            data-testid="borelog-tracks-button"
+            className="ml-1 flex items-center gap-1 px-2 h-6 rounded border border-gray-200 dark:border-slate-600 text-[10px] text-gray-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+          >
+            <ListPlus size={11} />
+            {t('tracks.button')}
+          </button>
+        )}
+        {trackEditing !== undefined && (
+          <BoreholeTracksDialog
+            open={tracksOpen}
+            borehole={borehole}
+            editing={trackEditing}
+            onClose={() => setTracksOpen(false)}
+          />
+        )}
 
         {/* Columns dropdown — shows / hides individual tracks.
             The REQUIRED restore path per ux.md reversible-action rule:
