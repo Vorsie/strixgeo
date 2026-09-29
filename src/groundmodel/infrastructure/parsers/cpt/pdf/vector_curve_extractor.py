@@ -23,7 +23,10 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     PDF_POINTS,
     STORED_COLUMN_BY_KIND,
 )
-from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import monotonic_depth
+from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import (
+    drop_clip_crossings,
+    monotonic_depth,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.tick_run_finder import TickRunFinder, parse_number
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_content import VectorPageContent
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_reader import VectorPageReader
@@ -152,7 +155,7 @@ class VectorCurveExtractor(GroundModelLogger):
         value = panel.value_scale.values_at(points[:, 0]) * panel.to_storage_factor
         edge = panel.max_value_edge
         clipped = np.abs(points[:, 0] - edge) <= tol
-        d, v, c = monotonic_depth(depth, value, clipped)
+        d, v, c = drop_clip_crossings(*monotonic_depth(depth, value, clipped))
         return DigitisedCurve(
             kind=panel.kind,
             depth_m=d,
