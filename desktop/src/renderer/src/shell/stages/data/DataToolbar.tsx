@@ -40,6 +40,7 @@ export default function DataToolbar(): JSX.Element {
     handleImportCpt,
     handleImportDov,
     handleImportBoreholeDov,
+    handleImportBoreholeXml,
   } = shell.investigations
   // The guided tutorial's "Open the Import menu" step moves on by itself when
   // the dropdown opens (owner ruling 1, 2026-09-06). Read defensively: a partial
@@ -68,6 +69,18 @@ export default function DataToolbar(): JSX.Element {
       available: true,
       onClick: handleImportBoreholeDov,
     },
+    // Optional on the bus (partial test shells omit it): no handler, no verb,
+    // rather than a verb tagged with a phase it does not belong to.
+    ...(handleImportBoreholeXml
+      ? [
+          {
+            key: 'data.toolbar.importBoreholeXml' as const,
+            testid: 'import-verb-borehole-xml',
+            available: true,
+            onClick: () => void handleImportBoreholeXml(),
+          },
+        ]
+      : []),
     { key: 'data.toolbar.importDmt', testid: 'import-verb-dmt', available: false },
     { key: 'data.toolbar.importLabTest', testid: 'import-verb-lab', available: false },
     { key: 'data.toolbar.importMonitoring', testid: 'import-verb-monitoring', available: false },
