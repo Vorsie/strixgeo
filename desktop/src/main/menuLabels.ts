@@ -90,7 +90,7 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   saveAs: { en: 'Save As…', nl: 'Opslaan als…' },
   closeProject: { en: 'Close Project', nl: 'Project sluiten' },
   importCpt: { en: 'Import CPT…', nl: 'Sondering (CPT) importeren…' },
-  importBorehole: { en: 'Import Borehole…', nl: 'Boring importeren…' },
+  importBorehole: { en: 'Import boreholes (DOV XML)…', nl: 'Boringen importeren (DOV-XML)…' },
   importDmt: { en: 'Import DMT…', nl: 'DMT importeren…' },
   settings: { en: 'Settings…', nl: 'Instellingen…' },
   quit: { en: 'Quit', nl: 'Afsluiten' },
