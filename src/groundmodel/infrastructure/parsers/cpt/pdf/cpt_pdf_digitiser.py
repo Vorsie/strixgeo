@@ -20,6 +20,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     CONTINUATION_OVERLAP_M,
     GARBLED_TEXT_QUALITY,
     RASTER_DPI,
+    REPEAT_START_TOLERANCE_M,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_axis_calibrator import (
     RasterAxisCalibrator,
@@ -114,7 +115,7 @@ class CptPdfDigitiser(GroundModelLogger):
                 ",".join(k.value for k in sounding.curves),
             )
             soundings.append(sounding)
-        merged = _merge_continuations(soundings)
+        merged = _merge_continuations(soundings, self)
         self.success("digitise: %d pages -> %d soundings", len(soundings), len(merged))
         return merged
 
@@ -222,22 +223,84 @@ class CptPdfDigitiser(GroundModelLogger):
         return replace(sounding, calibrations=(calibration,))
 
 
-def _merge_continuations(soundings: list[DigitisedSounding]) -> list[DigitisedSounding]:
-    """Merge consecutive pages that carry the same sounding id (a continuation sheet)."""
+def _merge_continuations(
+    soundings: list[DigitisedSounding], logger: GroundModelLogger | None = None
+) -> list[DigitisedSounding]:
+    """Merge continuation sheets into their sounding; drop repeated sheets.
+
+    A continuation usually follows its first sheet, but a report can print
+    another sheet in between (CAMZ-001: 68 on p. 214, a repeat of 66's first
+    sheet on p. 215, 68's continuation on p. 216). So a sheet with a known id
+    joins the earlier sounding of that id whose depth it continues, and a
+    sheet that starts where that sounding started is a repeat and is dropped.
+
+    Parameters
+    ----------
+    soundings : list of DigitisedSounding
+        One per page, in page order.
+    logger : GroundModelLogger or None
+        Receives a warning per dropped repeat.
+
+    Returns
+    -------
+    list of DigitisedSounding
+        One per sounding, in order of first appearance.
+    """
     merged: list[DigitisedSounding] = []
     for s in soundings:
         last = merged[-1] if merged else None
+        target: int | None = None
         if last is not None and _continues(last, s):
-            merged[-1] = DigitisedSounding(
-                sounding_id=s.sounding_id or last.sounding_id,
-                page_numbers=last.page_numbers + s.page_numbers,
-                calibrations=last.calibrations + s.calibrations,
-                curves=_join_curves(last.curves, s.curves),
-                annotations=last.annotations + s.annotations,
-            )
-        else:
+            target = len(merged) - 1
+        elif s.sounding_id:
+            for i in range(len(merged) - 1, -1, -1):
+                earlier = merged[i]
+                if earlier.sounding_id != s.sounding_id:
+                    continue
+                if _starts_like(earlier, s):
+                    if logger is not None:
+                        logger.warning(
+                            "page %s repeats sounding %s (pages %s): dropped",
+                            s.page_numbers,
+                            s.sounding_id,
+                            earlier.page_numbers,
+                        )
+                    target = -1
+                elif _depth_continues(earlier, s):
+                    target = i
+                break
+        if target is None:
             merged.append(s)
+        elif target >= 0:
+            m = merged[target]
+            merged[target] = DigitisedSounding(
+                sounding_id=s.sounding_id or m.sounding_id,
+                page_numbers=m.page_numbers + s.page_numbers,
+                calibrations=m.calibrations + s.calibrations,
+                curves=_join_curves(m.curves, s.curves),
+                annotations=m.annotations + s.annotations,
+            )
     return merged
+
+
+def _depth_range(s: DigitisedSounding) -> tuple[float, float] | None:
+    """Return the shallowest start and deepest end over a sounding's curves."""
+    curves = [c for c in s.curves.values() if len(c)]
+    if not curves:
+        return None
+    return min(float(c.depth_m[0]) for c in curves), max(float(c.depth_m[-1]) for c in curves)
+
+
+def _depth_continues(earlier: DigitisedSounding, page: DigitisedSounding) -> bool:
+    """Return whether ``page`` starts where ``earlier`` ends (a continuation)."""
+    a, b = _depth_range(earlier), _depth_range(page)
+    return a is not None and b is not None and b[0] >= a[1] - CONTINUATION_OVERLAP_M
+
+
+def _starts_like(earlier: DigitisedSounding, page: DigitisedSounding) -> bool:
+    """Return whether ``page`` starts at the depth ``earlier`` starts (a repeat)."""
+    a, b = _depth_range(earlier), _depth_range(page)
+    return a is not None and b is not None and abs(a[0] - b[0]) <= REPEAT_START_TOLERANCE_M
 
 
 def _continues(last: DigitisedSounding, page: DigitisedSounding) -> bool:
@@ -247,7 +310,7 @@ def _continues(last: DigitisedSounding, page: DigitisedSounding) -> bool:
     ground level and a depth range that starts where the previous one ended.
     """
     if page.sounding_id and last.sounding_id:
-        return page.sounding_id == last.sounding_id
+        return page.sounding_id == last.sounding_id and _depth_continues(last, page)
     ground_a = last.calibrations[-1].ground_level_m
     ground_b = page.calibrations[0].ground_level_m
     if ground_a is None or ground_b is None or abs(ground_a - ground_b) > 0.005:
