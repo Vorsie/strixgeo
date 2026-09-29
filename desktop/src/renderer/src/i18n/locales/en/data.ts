@@ -148,4 +148,35 @@ export const DATA = {
   'data.map.noHillshadeTo': 'to',
   'data.map.noHillshadeBelgiumOr': '(Belgium) or',
   'data.map.noHillshadeNetherlandsIn': '(Netherlands) in',
+  // -------------------------------------------------------------------------
+  // local DOV borehole XML import (useBoreholeXmlImport) — the toolbar verb,
+  // the summary toast fragments, the refresh consent dialog and the import
+  // flags report. The flag MESSAGES come from the backend verbatim (English,
+  // each naming its boring); only the chrome around them is catalogued.
+  // -------------------------------------------------------------------------
+  'data.toolbar.importBoreholeXml': 'Import boreholes (DOV XML)',
+  'data.import.boreholeRefreshedOne': 'Refreshed existing borehole {name} from file',
+  'data.import.flagsToReviewOne': '{n} flag to review',
+  'data.import.flagsToReviewMany': '{n} flags to review',
+  'data.boreholeRefresh.title': 'Replace boreholes already in the project?',
+  'data.boreholeRefresh.body':
+    ' holds borings that are already in this project. Replacing overwrites their drill segments, field log and descriptions; a manual elevation is kept.',
+  'data.boreholeRefresh.borehole': 'Borehole',
+  'data.boreholeRefresh.depth': 'Depth',
+  'data.boreholeRefresh.layers': 'Description layers',
+  'data.boreholeRefresh.replace': 'Replace boreholes',
+  'data.importFlags.title': 'Borehole import report',
+  'data.importFlags.intro':
+    'Everything in these files worth a second look. A flag never blocked an import.',
+  'data.importFlags.noFlags': 'No flags',
+  'data.importFlags.copy': 'Copy report',
+  'data.importFlags.copied': 'Copied',
+  'data.importFlags.refreshed': 'refreshed',
+  'data.importFlags.notImported': 'not imported',
+  'data.importFlags.fileFailed': 'File not imported: {message}',
+  'data.importFlags.fileDeclined': 'Left unchanged: replacement declined',
+  'data.importFlags.fileLevel': 'Whole file',
+  'data.importFlags.levelError': 'Error',
+  'data.importFlags.levelWarning': 'Warning',
+  'data.importFlags.levelInfo': 'Note',
 } as const
