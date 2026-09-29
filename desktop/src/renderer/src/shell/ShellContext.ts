@@ -478,7 +478,16 @@ export interface ShellContextValue {
    *  would oblige every stage test fixture to fabricate values it never uses. */
   investigations: Omit<
     UseInvestigationDataResult,
-    'refreshConfirm' | 'confirmRefreshImport' | 'cancelRefreshImport'
+    | 'refreshConfirm'
+    | 'confirmRefreshImport'
+    | 'cancelRefreshImport'
+    // Same reason: the borehole-XML consent dialog + the import report are
+    // App-level overlays; only the ``handleImportBoreholeXml`` verb rides the bus.
+    | 'boreholeRefreshConfirm'
+    | 'confirmBoreholeRefresh'
+    | 'cancelBoreholeRefresh'
+    | 'boreholeImportReport'
+    | 'closeBoreholeImportReport'
   >
   /**
    * Manifest-filtered, removed-set-filtered CPT list.
