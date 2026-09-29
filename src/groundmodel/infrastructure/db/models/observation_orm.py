@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Date, ForeignKey, Index, String
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -67,6 +67,23 @@ class ObservationOrm(Base):
     reliability: Mapped[str | None] = mapped_column(String(50), nullable=True)
     score_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     drill_method_score: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Provenance of the track (Data Integrity rule 1). ``"dov"`` for an import,
+    # ``"manual"`` for a track created by hand in the borehole's Tracks panel.
+    # An imported track the engineer edits STAYS ``"dov"`` and gets
+    # ``edited_manually_at`` stamped instead. Values: ``TrackSource``. The
+    # server default covers every pre-existing row (all DOV imports) and an
+    # older bundle that carries no ``source`` key.
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="dov", server_default=text("'dov'")
+    )
+
+    # When the track was last saved from the track editor; NULL for an
+    # untouched import. Drives the "edited by hand" badge and the
+    # newest-edited rank of ``domain/services/track_preference.py``.
+    edited_manually_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "BoreholeOrm", back_populates="observations", lazy=RELATIONSHIP_LAZY
