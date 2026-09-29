@@ -216,18 +216,26 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
     "DrillSegmentOrm": frozenset({"base_m", "borehole_id", "id", "method", "top_m"}),
-    "FieldLogIntervalOrm": frozenset({"base_m", "borehole_id", "id", "kind", "top_m", "value"}),
+    # ``source`` + ``edited_manually_at`` (2026-09-29, hand-edited borehole
+    # tracks): portable, ride along. Additive, NO format_version bump - an older
+    # bundle without them restores to the server default (source 'dov', not
+    # edited), which is exactly what every pre-2026-09-29 row was.
+    "FieldLogIntervalOrm": frozenset(
+        {"base_m", "borehole_id", "edited_manually_at", "id", "kind", "source", "top_m", "value"}
+    ),
     "ObservationOrm": frozenset(
         {
             "author",
             "borehole_id",
             "dov_permkey",
             "drill_method_score",
+            "edited_manually_at",
             "id",
             "observation_date",
             "observation_type",
             "reliability",
             "score_category",
+            "source",
         }
     ),
     "ObservationLayerOrm": frozenset(
