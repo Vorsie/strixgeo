@@ -1,0 +1,729 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:dov-schema xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns4="http://kern.schemas.dov.vlaanderen.be" xsi:schemaLocation="http://kern.schemas.dov.vlaanderen.be https://www.dov.vlaanderen.be/xdov/schema/latest/xsd/kern/dov.xsd">
+    <boring>
+        <identificatie>1411-BORGEO2600011-21-04-2026-B1</identificatie>
+        <dataidentifier>
+            <permkey>2026-244773</permkey>
+            <uri>https://www.dov.vlaanderen.be/data/boring/2026-244773</uri>
+        </dataidentifier>
+        <ligging>
+            <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                <gml:pos>136014.22 205977.40 27.47</gml:pos>
+            </gml:Point>
+            <metadata_locatiebepaling>
+                <methode>GPS - RTK FLEPOS (nk 2-3cm)</methode>
+                <uitvoerder>
+                    <naam>Geolab</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+            </metadata_locatiebepaling>
+            <metadata_hoogtebepaling>
+                <methode>GPS - RTK FLEPOS (model hBG18)</methode>
+                <uitvoerder>
+                    <naam>Geolab</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+                <referentiepunt_type>Maaiveld</referentiepunt_type>
+            </metadata_hoogtebepaling>
+            <alternatieve_crs>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                    <gml:pos>136014.22 205977.40 27.47</gml:pos>
+                </gml:Point>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::8370" srsDimension="3">
+                    <gml:pos>636009.76 705975.99 27.47</gml:pos>
+                </gml:Point>
+            </alternatieve_crs>
+        </ligging>
+        <diepte_van>0.00</diepte_van>
+        <diepte_tot>35.00</diepte_tot>
+        <datum_aanvang>2026-04-21</datum_aanvang>
+        <doel>Geotechnisch onderzoek</doel>
+        <boringtype>Geotechnische boring - (dis)continue monstername</boringtype>
+        <wet_kader>
+            <niet_ingedeeld/>
+            <type_erkenning>c</type_erkenning>
+        </wet_kader>
+        <uitvoerder>
+            <naam>Geolab</naam>
+        </uitvoerder>
+        <boormeester>
+            <naam>Van Bendegem</naam>
+            <voornaam>Mitch</voornaam>
+        </boormeester>
+        <opdrachtgever>
+            <naam>AWV - Oost-Vlaanderen</naam>
+        </opdrachtgever>
+        <dataleverancier>
+            <naam>Geolab</naam>
+        </dataleverancier>
+        <boorgatmeting>
+            <uitgevoerd>false</uitgevoerd>
+        </boorgatmeting>
+        <stalen>
+            <bewaard>false</bewaard>
+        </stalen>
+        <details>
+            <boormethode>
+                <van>0.00</van>
+                <tot>0.50</tot>
+                <methode>spade</methode>
+            </boormethode>
+            <boormethode>
+                <van>0.50</van>
+                <tot>2.00</tot>
+                <methode>edelmanboring</methode>
+            </boormethode>
+            <boormethode>
+                <van>2.00</van>
+                <tot>7.00</tot>
+                <methode>avegaarboring</methode>
+            </boormethode>
+            <boormethode>
+                <van>7.00</van>
+                <tot>13.50</tot>
+                <methode>pulsboring</methode>
+            </boormethode>
+            <boormethode>
+                <van>13.50</van>
+                <tot>28.50</tot>
+                <methode>avegaarboring</methode>
+            </boormethode>
+            <boormethode>
+                <van>28.50</van>
+                <tot>35.00</tot>
+                <methode>pulsboring</methode>
+            </boormethode>
+            <boordiameter>
+                <van>2.00</van>
+                <tot>7.00</tot>
+                <diameter>168.00</diameter>
+            </boordiameter>
+            <boordiameter>
+                <van>7.00</van>
+                <tot>13.50</tot>
+                <diameter>168.00</diameter>
+            </boordiameter>
+            <boordiameter>
+                <van>13.50</van>
+                <tot>28.50</tot>
+                <diameter>168.00</diameter>
+            </boordiameter>
+            <boordiameter>
+                <van>28.50</van>
+                <tot>35.00</tot>
+                <diameter>168.00</diameter>
+            </boordiameter>
+            <consistentie>
+                <van>13.50</van>
+                <tot>14.00</tot>
+                <consistentie>plastisch</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>14.00</van>
+                <tot>15.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>15.00</van>
+                <tot>15.50</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>15.50</van>
+                <tot>19.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>19.00</van>
+                <tot>19.50</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>19.50</van>
+                <tot>20.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>20.00</van>
+                <tot>20.50</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>20.50</van>
+                <tot>22.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>22.00</van>
+                <tot>22.50</tot>
+                <consistentie>plastisch</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>22.50</van>
+                <tot>23.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>23.00</van>
+                <tot>23.50</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>23.50</van>
+                <tot>25.00</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>25.00</van>
+                <tot>26.50</tot>
+                <consistentie>plastisch</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>26.50</van>
+                <tot>27.00</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>27.00</van>
+                <tot>27.50</tot>
+                <consistentie>vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>27.50</van>
+                <tot>28.00</tot>
+                <consistentie>matig vast</consistentie>
+            </consistentie>
+            <consistentie>
+                <van>28.00</van>
+                <tot>28.50</tot>
+                <consistentie>plastisch</consistentie>
+            </consistentie>
+            <vochtgehalte>
+                <van>0.00</van>
+                <tot>0.50</tot>
+                <vochtgehalte>weinig vochtig</vochtgehalte>
+            </vochtgehalte>
+            <vochtgehalte>
+                <van>0.50</van>
+                <tot>1.00</tot>
+                <vochtgehalte>vochtig</vochtgehalte>
+            </vochtgehalte>
+            <vochtgehalte>
+                <van>1.00</van>
+                <tot>4.00</tot>
+                <vochtgehalte>weinig vochtig</vochtgehalte>
+            </vochtgehalte>
+            <vochtgehalte>
+                <van>4.00</van>
+                <tot>6.00</tot>
+                <vochtgehalte>vochtig</vochtgehalte>
+            </vochtgehalte>
+            <vochtgehalte>
+                <van>6.00</van>
+                <tot>7.00</tot>
+                <vochtgehalte>zeer vochtig</vochtgehalte>
+            </vochtgehalte>
+            <vochtgehalte>
+                <van>7.00</van>
+                <tot>35.00</tot>
+                <vochtgehalte>verzadigd</vochtgehalte>
+            </vochtgehalte>
+            <kleur>
+                <van>0.00</van>
+                <tot>0.50</tot>
+                <kleur>donkerbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>0.50</van>
+                <tot>1.00</tot>
+                <kleur>donkergrijs</kleur>
+            </kleur>
+            <kleur>
+                <van>1.00</van>
+                <tot>2.50</tot>
+                <kleur>grijsbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>2.50</van>
+                <tot>3.50</tot>
+                <kleur>donkerbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>3.50</van>
+                <tot>4.00</tot>
+                <kleur>grijsbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>4.00</van>
+                <tot>7.00</tot>
+                <kleur>donkerbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>7.00</van>
+                <tot>9.00</tot>
+                <kleur>bruingrijs</kleur>
+            </kleur>
+            <kleur>
+                <van>9.00</van>
+                <tot>9.50</tot>
+                <kleur>groenbruin</kleur>
+            </kleur>
+            <kleur>
+                <van>9.50</van>
+                <tot>12.50</tot>
+                <kleur>donkergroen</kleur>
+            </kleur>
+            <kleur>
+                <van>12.50</van>
+                <tot>13.50</tot>
+                <kleur>groen</kleur>
+            </kleur>
+            <kleur>
+                <van>13.50</van>
+                <tot>14.00</tot>
+                <kleur>groengrijs</kleur>
+            </kleur>
+            <kleur>
+                <van>14.00</van>
+                <tot>35.00</tot>
+                <kleur>bruingrijs</kleur>
+            </kleur>
+            <aangenomengrondwaterstand>
+                <diepte_grondwater>7.00</diepte_grondwater>
+                <datum_opmeting_grondwater>2026-04-21</datum_opmeting_grondwater>
+                <tijdstip_opmeting_grondwater>00:00:00</tijdstip_opmeting_grondwater>
+            </aangenomengrondwaterstand>
+        </details>
+        <alternatieve_naam>
+            <naam>GEO-25/110-B1</naam>
+            <type>VO - Afdeling Geotechniek</type>
+        </alternatieve_naam>
+    </boring>
+    <interpretaties>
+        <informelestratigrafie>
+            <boring>1411-BORGEO2600011-21-04-2026-B1</boring>
+            <dataidentifier>
+                <permkey>2026-410960</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2026-410960</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Scheirlynck</naam>
+                    <voornaam>Victor</voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>Geolab</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2026-04-21</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <laag>
+                <van>0.00</van>
+                <tot>4.00</tot>
+                <beschrijving>Antropogeen tot Quartair</beschrijving>
+            </laag>
+            <laag>
+                <van>4.00</van>
+                <tot>9.00</tot>
+                <beschrijving>Quartair</beschrijving>
+            </laag>
+            <laag>
+                <van>9.00</van>
+                <tot>14.00</tot>
+                <beschrijving>Neogeen: Formatie van Kattendijk</beschrijving>
+            </laag>
+            <laag>
+                <van>14.00</van>
+                <tot>25.00</tot>
+                <beschrijving>Paleogeen: Formatie van Boom - Lid van Putte tot Terhagen</beschrijving>
+            </laag>
+            <laag>
+                <van>25.00</van>
+                <tot>28.50</tot>
+                <beschrijving>Paleogeen: Formatie van Boom - Lid van Belsele-Waas</beschrijving>
+            </laag>
+            <laag>
+                <van>28.50</van>
+                <tot>35.00</tot>
+                <beschrijving>Paleogeen: Formatie van Zelzate - Lid van Ruisbroek</beschrijving>
+            </laag>
+        </informelestratigrafie>
+        <lithologischebeschrijving>
+            <boring>1411-BORGEO2600011-21-04-2026-B1</boring>
+            <dataidentifier>
+                <permkey>2026-410970</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2026-410970</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Scheirlynck</naam>
+                    <voornaam>Victor</voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>Geolab</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2026-04-21</datum>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <kwaliteit>
+                <categorie>zeer goed</categorie>
+                <geschiktheid_boormethode>Gemengd</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>0.00</van>
+                <tot>0.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, veel steenfragmenten (tot 20mm),  plantenresten,  kalkhoudend, donkerbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>0.50</van>
+                <tot>1.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, silthoudend,  kalkhoudend, donkergrijs, vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>1.00</van>
+                <tot>1.50</tot>
+                <beschrijving>fijn zand, zeer weinig siltlensjes,  kalkhoudend, grijsbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>1.50</van>
+                <tot>2.00</tot>
+                <beschrijving>fijn zand, kalkhoudend, grijsbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>2.00</van>
+                <tot>2.50</tot>
+                <beschrijving>fijn zand, kalkhoudend, grijsbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>2.50</van>
+                <tot>3.00</tot>
+                <beschrijving>fijn zand, zeer licht silthoudend, donkerbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>3.00</van>
+                <tot>3.50</tot>
+                <beschrijving>fijn zand, zeer licht silthoudend, donkerbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>3.50</van>
+                <tot>4.00</tot>
+                <beschrijving>fijn zand, licht silthoudend, grijsbruin, weinig vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>4.00</van>
+                <tot>4.50</tot>
+                <beschrijving>fijn zand, licht silthoudend,  potscherf, donkerbruin, vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>4.50</van>
+                <tot>5.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, licht silthoudend, donkerbruin, vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>5.00</van>
+                <tot>5.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, licht silthoudend, donkerbruin, vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>5.50</van>
+                <tot>6.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, licht silthoudend, donkerbruin, vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>6.00</van>
+                <tot>6.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, silthoudend, donkerbruin, zeer vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>6.50</van>
+                <tot>7.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, sterk kleihoudend, donkerbruin, zeer vochtig</beschrijving>
+            </laag>
+            <laag>
+                <van>7.00</van>
+                <tot>7.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, licht kleihoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>7.50</van>
+                <tot>8.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, kleihoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>8.00</van>
+                <tot>8.50</tot>
+                <beschrijving>fijn zand, kleihoudend,  schelpgruis,  kalkhoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>8.50</van>
+                <tot>9.00</tot>
+                <beschrijving>fijn zand, zeer weinig kleilensjes,  licht kalkhoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>9.00</van>
+                <tot>9.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, sterk kleihoudend,  glauconiethoudend, groenbruin, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>9.50</van>
+                <tot>10.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, kleihoudend,  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>10.00</van>
+                <tot>10.50</tot>
+                <beschrijving>zeer fijn tot fijn zand, kleihoudend,  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>10.50</van>
+                <tot>11.00</tot>
+                <beschrijving>zeer fijn tot fijn zand, kleihoudend,  zeer licht fijn grindhoudend (tot 10mm),  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>11.00</van>
+                <tot>11.50</tot>
+                <beschrijving>middelmatig tot fijn zand, zeer licht kleihoudend,  licht fijn grindhoudend (tot 10mm),  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>11.50</van>
+                <tot>12.00</tot>
+                <beschrijving>middelmatig tot fijn zand, weinig kleilensjes,  licht fijn grindhoudend (tot 10mm),  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>12.00</van>
+                <tot>12.50</tot>
+                <beschrijving>middelmatig tot fijn zand, weinig kleilensjes,  glauconiethoudend, donkergroen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>12.50</van>
+                <tot>13.00</tot>
+                <beschrijving>middelmatig tot fijn zand, licht kleihoudend,  zeer licht fijn grindhoudend (tot 10mm),  glauconiethoudend, groen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>13.00</van>
+                <tot>13.50</tot>
+                <beschrijving>fijn zand, sterk kleihoudend,  sterk grindhoudend (tot 20mm),  glauconiethoudend, groen, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>13.50</van>
+                <tot>14.00</tot>
+                <beschrijving>klei, middelmatig tot fijn zandhoudend,  fijn grindhoudend (tot 10mm), plastisch, groengrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>14.00</van>
+                <tot>14.50</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>14.50</van>
+                <tot>15.00</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>15.00</van>
+                <tot>15.50</tot>
+                <beschrijving>klei, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>15.50</van>
+                <tot>16.00</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>16.00</van>
+                <tot>16.50</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>16.50</van>
+                <tot>17.00</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>17.00</van>
+                <tot>17.50</tot>
+                <beschrijving>klei, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>17.50</van>
+                <tot>18.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>18.00</van>
+                <tot>18.50</tot>
+                <beschrijving>klei, marcassiet,  kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>18.50</van>
+                <tot>19.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>19.00</van>
+                <tot>19.50</tot>
+                <beschrijving>klei, septariabrokken,  sterk kalkhoudend, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>19.50</van>
+                <tot>20.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>20.00</van>
+                <tot>20.50</tot>
+                <beschrijving>klei, zeer licht silthoudend,  septariabrokken,  kalkhoudend, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>20.50</van>
+                <tot>21.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>21.00</van>
+                <tot>21.50</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>21.50</van>
+                <tot>22.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>22.00</van>
+                <tot>22.50</tot>
+                <beschrijving>klei, licht silthoudend,  marcassiet,  licht kalkhoudend, plastisch, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>22.50</van>
+                <tot>23.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>23.00</van>
+                <tot>23.50</tot>
+                <beschrijving>klei, zeer licht silthoudend,  licht kalkhoudend, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>23.50</van>
+                <tot>24.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>24.00</van>
+                <tot>24.50</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>24.50</van>
+                <tot>25.00</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>25.00</van>
+                <tot>25.50</tot>
+                <beschrijving>silt, kleihoudend,  zeer fijn zandhoudend,  licht kalkhoudend, plastisch, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>25.50</van>
+                <tot>26.00</tot>
+                <beschrijving>klei, sterk silthoudend,  licht kalkhoudend, plastisch, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>26.00</van>
+                <tot>26.50</tot>
+                <beschrijving>klei, zeer sterk silthoudend,  licht kalkhoudend, plastisch, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>26.50</van>
+                <tot>27.00</tot>
+                <beschrijving>klei, licht silthoudend,  licht kalkhoudend, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>27.00</van>
+                <tot>27.50</tot>
+                <beschrijving>klei, licht kalkhoudend, vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>27.50</van>
+                <tot>28.00</tot>
+                <beschrijving>klei, zeer licht silthoudend,  licht kalkhoudend, matig vast, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>28.00</van>
+                <tot>28.50</tot>
+                <beschrijving>klei, licht silthoudend,  zandsteenbrokken (tot 30mm), plastisch, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>28.50</van>
+                <tot>29.00</tot>
+                <beschrijving>fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>29.00</van>
+                <tot>29.50</tot>
+                <beschrijving>fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>29.50</van>
+                <tot>30.00</tot>
+                <beschrijving>middelmatig tot fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>30.00</van>
+                <tot>30.50</tot>
+                <beschrijving>middelmatig tot fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>30.50</van>
+                <tot>31.00</tot>
+                <beschrijving>middelmatig tot fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>31.00</van>
+                <tot>31.50</tot>
+                <beschrijving>middelmatig tot fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>31.50</van>
+                <tot>32.00</tot>
+                <beschrijving>middelmatig tot fijn zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>32.00</van>
+                <tot>32.50</tot>
+                <beschrijving>middelmatig tot fijn zand, kleihoudend,  licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>32.50</van>
+                <tot>33.00</tot>
+                <beschrijving>middelmatig tot fijn zand, sterk kleihoudend,  licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>33.00</van>
+                <tot>33.50</tot>
+                <beschrijving>middelmatig zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>33.50</van>
+                <tot>34.00</tot>
+                <beschrijving>middelmatig zand, kleilenzen,  licht glauconiethoudend,  kalkhoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>34.00</van>
+                <tot>34.50</tot>
+                <beschrijving>middelmatig zand, weinig kleilensjes,  licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+            <laag>
+                <van>34.50</van>
+                <tot>35.00</tot>
+                <beschrijving>middelmatig zand, licht glauconiethoudend, bruingrijs, verzadigd</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+    </interpretaties>
+</ns4:dov-schema>

@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:dov-schema xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns4="http://kern.schemas.dov.vlaanderen.be" xsi:schemaLocation="http://kern.schemas.dov.vlaanderen.be https://www.dov.vlaanderen.be/xdov/schema/latest/xsd/kern/dov.xsd">
+    <boring>
+        <identificatie>15Abcert019-B2</identificatie>
+        <dataidentifier>
+            <permkey>2006-070034</permkey>
+            <uri>https://www.dov.vlaanderen.be/data/boring/2006-070034</uri>
+        </dataidentifier>
+        <ligging>
+            <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                <gml:pos>26157.00 196700.60 0.00</gml:pos>
+            </gml:Point>
+            <metadata_locatiebepaling>
+                <methode>uit dossier</methode>
+                <uitvoerder>
+                    <naam>VO - ALBON</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+            </metadata_locatiebepaling>
+            <metadata_hoogtebepaling>
+                <methode>uit dossier</methode>
+                <uitvoerder>
+                    <naam>VO - ALBON</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+                <referentiepunt_type>Maaiveld</referentiepunt_type>
+            </metadata_hoogtebepaling>
+            <alternatieve_crs>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                    <gml:pos>26157.00 196700.60 0.00</gml:pos>
+                </gml:Point>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::8370" srsDimension="3">
+                    <gml:pos>526154.32 696685.79 0.00</gml:pos>
+                </gml:Point>
+            </alternatieve_crs>
+        </ligging>
+        <diepte_van>0.00</diepte_van>
+        <diepte_tot>24.00</diepte_tot>
+        <datum_aanvang>2006-06-15</datum_aanvang>
+        <doel>Geochemisch onderzoek</doel>
+        <boringtype>Boring i.h.k.v. Certificaat van Herkomst</boringtype>
+        <wet_kader>
+            <niet_ingedeeld/>
+            <type_erkenning>f</type_erkenning>
+        </wet_kader>
+        <uitvoerder>
+            <naam>Sialtech</naam>
+        </uitvoerder>
+        <boormeester>
+            <naam>Onbekend</naam>
+        </boormeester>
+        <opdrachtgever>
+            <naam>Imvalo N.V.</naam>
+        </opdrachtgever>
+        <dataleverancier>
+            <naam>Clemmens Consult</naam>
+        </dataleverancier>
+        <boorgatmeting>
+            <uitgevoerd>false</uitgevoerd>
+        </boorgatmeting>
+        <stalen>
+            <bewaard>false</bewaard>
+        </stalen>
+        <details>
+            <boormethode>
+                <van>0.00</van>
+                <tot>3.00</tot>
+                <methode>avegaarboring</methode>
+            </boormethode>
+            <boormethode>
+                <van>3.00</van>
+                <tot>24.00</tot>
+                <methode>pulsboring</methode>
+            </boormethode>
+            <aangenomengrondwaterstand>
+                <diepte_grondwater>0.90</diepte_grondwater>
+            </aangenomengrondwaterstand>
+        </details>
+        <opmerking>
+            <tekst> Geen overschrijding NAD                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    </tekst>
+            <auteur>
+                <naam>De Nil</naam>
+                <voornaam>Katrien</voornaam>
+            </auteur>
+            <datum>2009-12-18</datum>
+        </opmerking>
+        <opdracht>15Abcert019</opdracht>
+    </boring>
+    <interpretaties>
+        <formelestratigrafie>
+            <boring>15Abcert019-B2</boring>
+            <dataidentifier>
+                <permkey>2009-102555</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2009-102555</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Van Orsmael</naam>
+                    <voornaam>Joseph</voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>VO - ALBON</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2009-08-04</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <opdracht>15Abcert019</opdracht>
+            <laag>
+                <van>0.00</van>
+                <tot>23.40</tot>
+                <lid1>Q</lid1>
+                <relatie_lid1_lid2>T</relatie_lid1_lid2>
+                <lid2>Q</lid2>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+            </laag>
+            <laag>
+                <van>23.40</van>
+                <tot>24.00</tot>
+                <lid1>KoAa</lid1>
+                <relatie_lid1_lid2>T</relatie_lid1_lid2>
+                <lid2>KoAa</lid2>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+            </laag>
+        </formelestratigrafie>
+        <lithologischebeschrijving>
+            <boring>15Abcert019-B2</boring>
+            <dataidentifier>
+                <permkey>2006-102270</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2006-102270</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Onbekend</naam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>onbekend</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2006-06-15</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <opdracht>15Abcert019</opdracht>
+            <kwaliteit>
+                <categorie>zeer goed</categorie>
+                <geschiktheid_boormethode>Gemengd</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>0.00</van>
+                <tot>0.00</tot>
+                <beschrijving>Akker</beschrijving>
+            </laag>
+            <laag>
+                <van>0.00</van>
+                <tot>0.30</tot>
+                <beschrijving>Klei, matig grindig, matig humeus, sterk plantenhoudend, grijs-bruin. Avegaar</beschrijving>
+            </laag>
+            <laag>
+                <van>0.30</van>
+                <tot>1.00</tot>
+                <beschrijving>Klei, zwak zandig, zwak roesthoudend, lichtgrijs. Avegaar</beschrijving>
+            </laag>
+            <laag>
+                <van>1.00</van>
+                <tot>3.00</tot>
+                <beschrijving>Klei, sterk zandig, zwak roesthoudend, lichtgrijs. Avegaar</beschrijving>
+            </laag>
+            <laag>
+                <van>3.00</van>
+                <tot>7.00</tot>
+                <beschrijving>Zand, zeer fijn, sterk siltig, brokken klei, zwak schelphoudend, lichtgrijs. Pulsboor</beschrijving>
+            </laag>
+            <laag>
+                <van>7.00</van>
+                <tot>8.00</tot>
+                <beschrijving>Klei, matig zandig, zwak schelphoudend, grijs. Pulsboor</beschrijving>
+            </laag>
+            <laag>
+                <van>8.00</van>
+                <tot>22.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs. Pulsboor</beschrijving>
+            </laag>
+            <laag>
+                <van>22.00</van>
+                <tot>23.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, sterk schelphoudend, brokken klei, donkergrijs. Pulsboor</beschrijving>
+            </laag>
+            <laag>
+                <van>23.00</van>
+                <tot>23.40</tot>
+                <beschrijving>Zand, zeer fijn, zwak siltig, zwak grindig, sterk schelphoudend, brokken klei, donkergrijs. Pulsboor</beschrijving>
+            </laag>
+            <laag>
+                <van>24.00</van>
+                <tot>24.00</tot>
+                <beschrijving>Klei, zwak zandig, zwak schelphoudend, donkergrijs. Pulsboor</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+        <lithologischebeschrijving>
+            <boring>15Abcert019-B2</boring>
+            <dataidentifier>
+                <permkey>2006-102269</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2006-102269</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Onbekend</naam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>onbekend</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2006-06-15</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <opdracht>15Abcert019</opdracht>
+            <kwaliteit>
+                <categorie>zeer goed</categorie>
+                <geschiktheid_boormethode>Gemengd</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>2.00</van>
+                <tot>3.00</tot>
+                <beschrijving>Klei, sterk zandig, zwak roesthoudend, lichtgrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>4.00</van>
+                <tot>5.00</tot>
+                <beschrijving>Zand, zeer fijn, sterk siltig, brokken klei, zwak schelphoudend, lichtgrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>6.00</van>
+                <tot>7.00</tot>
+                <beschrijving>Zand, zeer fijn, sterk siltig, brokken klei, zwak schelphoudend, lichtgrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>8.00</van>
+                <tot>9.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>10.00</van>
+                <tot>11.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>12.00</van>
+                <tot>13.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>14.00</van>
+                <tot>15.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>16.00</van>
+                <tot>17.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>18.00</van>
+                <tot>19.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>20.00</van>
+                <tot>21.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, brokken klei, matig schelphoudend, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>22.00</van>
+                <tot>23.00</tot>
+                <beschrijving>Zand, zeer fijn, matig siltig, sterk schelphoudend, brokken klei, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>23.00</van>
+                <tot>23.40</tot>
+                <beschrijving>Zand, zeer fijn, zwak siltig, zwak grindig, sterk schelphoudend, brokken klei, donkergrijs</beschrijving>
+            </laag>
+            <laag>
+                <van>23.40</van>
+                <tot>24.00</tot>
+                <beschrijving>Klei, zwak zandig, zwak schelphoudend, donkergrijs</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+    </interpretaties>
+</ns4:dov-schema>

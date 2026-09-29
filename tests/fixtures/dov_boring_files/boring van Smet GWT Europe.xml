@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:dov-schema xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns4="http://kern.schemas.dov.vlaanderen.be" xsi:schemaLocation="http://kern.schemas.dov.vlaanderen.be https://www.dov.vlaanderen.be/xdov/schema/latest/xsd/kern/dov.xsd">
+    <boring>
+        <identificatie>B/2004-106</identificatie>
+        <dataidentifier>
+            <permkey>2015-004932</permkey>
+            <uri>https://www.dov.vlaanderen.be/data/boring/2015-004932</uri>
+        </dataidentifier>
+        <ligging>
+            <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                <gml:pos>94142.00 213348.00 4.80</gml:pos>
+            </gml:Point>
+            <metadata_locatiebepaling>
+                <methode>uit dossier</methode>
+                <uitvoerder>
+                    <naam>Vlaamse Maatschappij voor Watervoorziening</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+            </metadata_locatiebepaling>
+            <metadata_hoogtebepaling>
+                <methode>uit dossier</methode>
+                <uitvoerder>
+                    <naam>Vlaamse Maatschappij voor Watervoorziening</naam>
+                </uitvoerder>
+                <betrouwbaarheid>goed</betrouwbaarheid>
+                <referentiepunt_type>Maaiveld</referentiepunt_type>
+            </metadata_hoogtebepaling>
+            <alternatieve_crs>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                    <gml:pos>94142.00 213348.00 4.80</gml:pos>
+                </gml:Point>
+                <gml:Point srsName="urn:ogc:def:crs:EPSG::8370" srsDimension="3">
+                    <gml:pos>594136.92 713341.41 4.80</gml:pos>
+                </gml:Point>
+            </alternatieve_crs>
+        </ligging>
+        <gemeente>43014</gemeente>
+        <diepte_van>0.00</diepte_van>
+        <diepte_tot>44.00</diepte_tot>
+        <datum_aanvang>2015-11-24</datum_aanvang>
+        <doel>Grondwaterwinning</doel>
+        <wet_kader>
+            <vlarem_milieuvergunning_of_aktename>
+                <reden>Kenmerk niet gekend bij bulk-datamigratie op 24/06/2025</reden>
+            </vlarem_milieuvergunning_of_aktename>
+            <type_erkenning>f</type_erkenning>
+        </wet_kader>
+        <uitvoerder>
+            <naam>Smet GWT Europe</naam>
+        </uitvoerder>
+        <boormeester>
+            <naam>Janssens</naam>
+            <voornaam>Hugo</voornaam>
+        </boormeester>
+        <opdrachtgever>
+            <naam>Vlaamse Maatschappij voor Watervoorziening (VMW)</naam>
+        </opdrachtgever>
+        <boorgatmeting>
+            <uitgevoerd>false</uitgevoerd>
+        </boorgatmeting>
+        <stalen>
+            <bewaard>false</bewaard>
+        </stalen>
+        <details>
+            <boormethode>
+                <van>0.00</van>
+                <tot>44.00</tot>
+                <methode>zuigboring</methode>
+            </boormethode>
+            <boordiameter>
+                <van>0.00</van>
+                <tot>44.00</tot>
+                <diameter>280.00</diameter>
+            </boordiameter>
+        </details>
+        <alternatieve_naam>
+            <naam>BGD024E0220</naam>
+            <type>KBIN-BGD</type>
+        </alternatieve_naam>
+        <opdracht>BGD_nieuw2017</opdracht>
+        <bijlage>
+            <titel>BGD024e0220</titel>
+            <auteurs>BGD</auteurs>
+            <jaar>2019</jaar>
+            <bijlage_type>BGD-txt</bijlage_type>
+            <url>https://collections.naturalsciences.be/ssh-geology-archives/arch/024e/024e0220.txt</url>
+        </bijlage>
+    </boring>
+    <interpretaties>
+        <informelestratigrafie>
+            <boring>B/2004-106</boring>
+            <dataidentifier>
+                <permkey>2016-318416</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2016-318416</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Dusar</naam>
+                    <voornaam>Michiel</voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>Belgische Geologische Dienst (BGD)</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2016-01-21</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <opdracht>BGD_nieuw2017</opdracht>
+            <laag>
+                <van>0.00</van>
+                <tot>1.00</tot>
+                <beschrijving>Antropogeen</beschrijving>
+            </laag>
+            <laag>
+                <van>1.00</van>
+                <tot>10.00</tot>
+                <beschrijving>Quartair, zand van de Vlaamse Vallei</beschrijving>
+            </laag>
+            <laag>
+                <van>10.00</van>
+                <tot>12.00</tot>
+                <beschrijving>Quartair, venige klei</beschrijving>
+            </laag>
+            <laag>
+                <van>12.00</van>
+                <tot>21.00</tot>
+                <beschrijving>Quartair? (onder Pleistoceen? Of Eemiaan?)</beschrijving>
+            </laag>
+            <laag>
+                <van>21.00</van>
+                <tot>24.00</tot>
+                <beschrijving>Buisputten zand	</beschrijving>
+            </laag>
+            <laag>
+                <van>24.00</van>
+                <tot>27.50</tot>
+                <beschrijving>Zomergem klei</beschrijving>
+            </laag>
+            <laag>
+                <van>27.50</van>
+                <tot>36.00</tot>
+                <beschrijving>Onderdale zand	</beschrijving>
+            </laag>
+            <laag>
+                <van>36.00</van>
+                <tot>39.00</tot>
+                <beschrijving>Ursel klei</beschrijving>
+            </laag>
+            <laag>
+                <van>39.00</van>
+                <tot>45.00</tot>
+                <beschrijving>Wemmel klei</beschrijving>
+            </laag>
+            <laag>
+                <van>45.00</van>
+                <tot>46.00</tot>
+                <beschrijving>Asse zand</beschrijving>
+            </laag>
+        </informelestratigrafie>
+        <lithologischebeschrijving>
+            <boring>B/2004-106</boring>
+            <dataidentifier>
+                <permkey>2016-297561</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2016-297561</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Six S.</naam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>Vlaamse Maatschappij voor Watervoorziening (VMW)</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <betrouwbaarheid>onbekend</betrouwbaarheid>
+            <dataleverancier>
+                <naam>Vlaamse Maatschappij voor Watervoorziening (VMW)</naam>
+            </dataleverancier>
+            <kwaliteit>
+                <categorie>matig</categorie>
+                <geschiktheid_boormethode>Laag</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>0.00</van>
+                <tot>1.00</tot>
+                <beschrijving>organisch rijk bruingrijs lemig fijn zand</beschrijving>
+            </laag>
+            <laag>
+                <van>1.00</van>
+                <tot>27.00</tot>
+                <beschrijving>donkergrijs fijn zand met schelpjes en stukjes zwart hout</beschrijving>
+            </laag>
+            <laag>
+                <van>27.00</van>
+                <tot>40.50</tot>
+                <beschrijving>grijze harde plastische klei</beschrijving>
+            </laag>
+            <laag>
+                <van>40.50</van>
+                <tot>47.00</tot>
+                <beschrijving>donker grijsgroen egaal fijn zand met glauconiet</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+        <lithologischebeschrijving>
+            <boring>B/2004-106</boring>
+            <dataidentifier>
+                <permkey>2016-318414</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2016-318414</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Dusar</naam>
+                    <voornaam>Michiel</voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>Belgische Geologische Dienst (BGD)</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <datum>2016-01-21</datum>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <opdracht>BGD_nieuw2017</opdracht>
+            <kwaliteit>
+                <categorie>zeer goed</categorie>
+                <geschiktheid_boormethode>Laag</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>0.00</van>
+                <tot>1.00</tot>
+                <beschrijving>donkergrijs sterk lemig zand met asfaltgruis</beschrijving>
+            </laag>
+            <laag>
+                <van>1.00</van>
+                <tot>2.00</tot>
+                <beschrijving>bleekgrijs slecht gesorteerd, gemiddeld middelmatig kwartszand (met heldere kwarts), rijk aan fijne verspoelde veenresten</beschrijving>
+            </laag>
+            <laag>
+                <van>2.00</van>
+                <tot>3.00</tot>
+                <beschrijving>zelfde kwartszand, iets beter gesorteerd, overwegend middelmatig, weinig verspoelde veenresten, slibvrij</beschrijving>
+            </laag>
+            <laag>
+                <van>3.00</van>
+                <tot>4.00</tot>
+                <beschrijving>zelfde kwartszand, iets beter gesorteerd, overwegend middelmatig, weinig verspoelde veenresten, slibvrij</beschrijving>
+            </laag>
+            <laag>
+                <van>4.00</van>
+                <tot>5.00</tot>
+                <beschrijving>~zelfde afzetting, maar kwartszand bevat meet fijne zandfractie, sporadische witte gerolde kalkbioklast, blijft slibvrij</beschrijving>
+            </laag>
+            <laag>
+                <van>5.00</van>
+                <tot>6.00</tot>
+                <beschrijving>~idem, nog steeds met grove kwartskorrels; meer zwarte platte veenpartikkels op mm-schaal, ook geleidelijk meer fijne donkere veenpartikels</beschrijving>
+            </laag>
+            <laag>
+                <van>6.00</van>
+                <tot>7.00</tot>
+                <beschrijving>~idem, nog steeds met grove kwartskorrels; meer zwarte platte veenpartikkels op mm-schaal, ook geleidelijk meer fijne donkere veenpartikels</beschrijving>
+            </laag>
+            <laag>
+                <van>7.00</van>
+                <tot>8.00</tot>
+                <beschrijving>zelfde zand, rijker gespikkeld aan venige partikels, zeer licht kleihoudend onder de vorm van kleidrapers (het zand blijft zuiver)</beschrijving>
+            </laag>
+            <laag>
+                <van>8.00</van>
+                <tot>9.00</tot>
+                <beschrijving>~idem, wat minder gespikkeld met veenpartikkels; betrekkelijk weinig grover witte kwartskorrels</beschrijving>
+            </laag>
+            <laag>
+                <van>9.00</van>
+                <tot>10.00</tot>
+                <beschrijving>~zelfde zand, meer lemig, vermengd met slappe bruine lemige klei (mengeling wordt beige-grijs), slibvrij</beschrijving>
+            </laag>
+            <laag>
+                <van>10.00</van>
+                <tot>11.00</tot>
+                <beschrijving>bruingrijs sterk lemig kleihoudend (kleverig) zand, nog heterogeen maar overwegend middelmatig, met grote bruine vezelige houtresten</beschrijving>
+            </laag>
+            <laag>
+                <van>11.00</van>
+                <tot>12.00</tot>
+                <beschrijving>donkergrijsbruine zandrijke, brokkelige klei met vezelige houtresten, ook massief bruin hout [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>12.00</van>
+                <tot>13.00</tot>
+                <beschrijving>facieswijziging: lichtgrijs matig fijn kwartsrijk (nog heldere kwarts) zand (zelden grovere korrels), licht gespikkeld met venige partikels, en talrijke fijne schelpresten van diverse mariene schelpen, zeldzame, gerolde forams; sommige donkere spikkels mogelijk van geoxideerde glauconiet; zeer licht slibhoudend</beschrijving>
+            </laag>
+            <laag>
+                <van>13.00</van>
+                <tot>14.00</tot>
+                <beschrijving>bleekgrijs heterogeen tot grof kwartsrijk zand (heldere kwarts), fijn schelpengruis en meer gerolde nummulieten, ook meer harde veenpartikels tot op mm-schaal, slibvrij [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>14.00</van>
+                <tot>15.00</tot>
+                <beschrijving>zelfde zand, met minder kalkpartikels, evenveel venige partikels of donkere korrels, iets fijner (minder grove korrels), slibvrij</beschrijving>
+            </laag>
+            <laag>
+                <van>15.00</van>
+                <tot>16.00</tot>
+                <beschrijving>terug grover en meer kalkpartikels (zoals 13-14 m)</beschrijving>
+            </laag>
+            <laag>
+                <van>16.00</van>
+                <tot>17.00</tot>
+                <beschrijving>~zelfde zand maar wat meer fijne fractie en ook slibhoudend, met enkele grote zwarte harde lignietbrokken (tot 0.5 cm)</beschrijving>
+            </laag>
+            <laag>
+                <van>17.00</van>
+                <tot>18.00</tot>
+                <beschrijving>idem, meer harde ligniet, wat minder schelpengruis; ook donkere spikkels bestaan uit harde ligniet</beschrijving>
+            </laag>
+            <laag>
+                <van>18.00</van>
+                <tot>19.00</tot>
+                <beschrijving>zelfde zand, terug meer fijne fractie en licht slibhoudend, met fijn schelpengruis; cm-grote platte zwarte lignietbrokken, zand wordt grijziger [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>19.00</van>
+                <tot>20.00</tot>
+                <beschrijving>lichtgrijs matig-fijn slibhoudend kwartszand, donker gespikkeld met lignietpartikels</beschrijving>
+            </laag>
+            <laag>
+                <van>20.00</van>
+                <tot>21.00</tot>
+                <beschrijving>~idem, wat minder slibhoudend; nog zwarte platte lignietplaatjes op mm-schaal</beschrijving>
+            </laag>
+            <laag>
+                <van>21.00</van>
+                <tot>22.00</tot>
+                <beschrijving>facieswijziging naar bruingrijs fijn licht gespikkeld (vol ligniet partikels van fijne korrel fractie) zand, slibhoudend, geen grovere componenten, minieme kleifractie</beschrijving>
+            </laag>
+            <laag>
+                <van>22.00</van>
+                <tot>23.00</tot>
+                <beschrijving>~idem, zelfde zand, slibhoudend	</beschrijving>
+            </laag>
+            <laag>
+                <van>23.00</van>
+                <tot>24.00</tot>
+                <beschrijving>grijsbruin overwegend middelmatig kwartszand, zeer licht kleihoudend maar weinig slibhoudend (in feite slibarm op vergruisde ligniet na), rijk aan verhoute brokjes harde ligniet, ca mm-groot [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>24.00</van>
+                <tot>25.00</tot>
+                <beschrijving>facieswijziging in grijze vaste plastische klei, zandloos</beschrijving>
+            </laag>
+            <laag>
+                <van>25.00</van>
+                <tot>26.00</tot>
+                <beschrijving>zelfde klei, met strepen van wit middelmatig kwartszand (vermoedelijk vulling van bioturbaties)</beschrijving>
+            </laag>
+            <laag>
+                <van>26.00</van>
+                <tot>27.00</tot>
+                <beschrijving>zelfde klei, met schelpfragment [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>27.00</van>
+                <tot>28.00</tot>
+                <beschrijving>zelfde klei, vermengd met onderliggend zand (faciesgrens tussen 27 à 28 m), terug grof slecht gesorteerd kwartszand met heldere kwarts en donkere spikkels, soms ook grof en voornamelijk ligniet</beschrijving>
+            </laag>
+            <laag>
+                <van>28.00</van>
+                <tot>29.00</tot>
+                <beschrijving>zeer weinig materiaal; zand vermengd met klei</beschrijving>
+            </laag>
+            <laag>
+                <van>29.00</van>
+                <tot>30.00</tot>
+                <beschrijving>grijs slecht gesorteerd overwegend middelmatig van fijn tot matig grof, kwartsrijk zand, klei- en slibrijk, met schelpenresten (bros), nog wat donkere ligniet spikkels van verschillende grootte vermoedelijk ook wat geoxideerde glauconietkorrels; met kleibrokjes op mm-schaal</beschrijving>
+            </laag>
+            <laag>
+                <van>30.00</van>
+                <tot>31.00</tot>
+                <beschrijving>hoofdzakelijk lichtgrijs middelmatig goed gesorteerd kwartszand, slibvrij, met fijne, donkere glauconiet spikkels en soms mm-grote lignietfragmenten: weinig fijn schelpengruis maar met gerolde brakwater gastropoden (typer Pyrena), cm-grote platte gerolde lignietfragmenten; ten dele vermengd met fijner en kleiiger zand</beschrijving>
+            </laag>
+            <laag>
+                <van>31.00</van>
+                <tot>32.00</tot>
+                <beschrijving>lichte facieswijziging: bleekgrijs slecht gesorteerd tot grof kwartszand, rijk aan schelpengruis; bijna geen donkere spikkels, zeer licht lemig en daardoor licht verkit bij uitdroging</beschrijving>
+            </laag>
+            <laag>
+                <van>32.00</van>
+                <tot>33.00</tot>
+                <beschrijving>~idem, zeer grof met cm-grote gerolde lignietbrokken [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>33.00</van>
+                <tot>34.00</tot>
+                <beschrijving>lichte facieswijziging: zelfde afzetting maar terug meer fijne fractie; iets minder schelpengruis, iets meer donkere spikkels (glauconiet + ligniet) slibhoudend</beschrijving>
+            </laag>
+            <laag>
+                <van>34.00</van>
+                <tot>35.00</tot>
+                <beschrijving>~idem, wat minder fijne fractie, licht slibhoudend</beschrijving>
+            </laag>
+            <laag>
+                <van>35.00</van>
+                <tot>36.00</tot>
+                <beschrijving>blijft licht grijs heterogeen (van fijn tot grof), licht gespikkeld (max enkele % eerder fijne glauconiet) slibhoudend zand (heldere kwarts) weinig schelpengruis of mm-grote lignietpartikels</beschrijving>
+            </laag>
+            <laag>
+                <van>36.00</van>
+                <tot>37.00</tot>
+                <beschrijving>facieswijziging: vaste grijze klei, sporadisch dikschalig schelpfragment of wit zand streep (bioturbatie-vulling)</beschrijving>
+            </laag>
+            <laag>
+                <van>37.00</van>
+                <tot>38.00</tot>
+                <beschrijving>zelfde klei [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>38.00</van>
+                <tot>39.00</tot>
+                <beschrijving>zelfde klei [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>39.00</van>
+                <tot>40.00</tot>
+                <beschrijving>faciesgrens: zelfde klei vermengd met slappe glauconietrijke klei (matig-fijne glauconiet)</beschrijving>
+            </laag>
+            <laag>
+                <van>40.00</van>
+                <tot>41.00</tot>
+                <beschrijving>(weinig monster) vervloeid grijs kleirijk silt met fijne glauconiet</beschrijving>
+            </laag>
+            <laag>
+                <van>41.00</van>
+                <tot>42.00</tot>
+                <beschrijving>eerder bleekbeigegrijs slappe silterige klei en nog slappere klei vol glauconiet, slecht gesorteerd van zeer fijn tot middelmatig, met schelpengruis waaronder kleine gastropoden [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>42.00</van>
+                <tot>43.00</tot>
+                <beschrijving>hoofdzakelijk grijs zeer slap vervloeiend kleiig silt vol slecht gesorteerde glauconiet (bande noire), met lamellen van slappe grijze klei</beschrijving>
+            </laag>
+            <laag>
+                <van>43.00</van>
+                <tot>44.00</tot>
+                <beschrijving>~idem, sterk vervloeiend, geen kleilamellen meer</beschrijving>
+            </laag>
+            <laag>
+                <van>44.00</van>
+                <tot>45.00</tot>
+                <beschrijving>~idem, sterk vervloeiend, geen kleilamellen meer</beschrijving>
+            </laag>
+            <laag>
+                <van>45.00</van>
+                <tot>46.00</tot>
+                <beschrijving>facieswijziging naar lichtgrijs overwegend zeer fijn zand, kleiig, rijk aan fijne tot middelmatige glauconietkorrels, met kleine nummulieten, slibrijk, met decantatieslib [monster lithotheek]</beschrijving>
+            </laag>
+            <laag>
+                <van>46.00</van>
+                <tot>47.00</tot>
+                <beschrijving>~idem, zand vergrovend tot matig-fijn, ook meer middelmatige glauconiet, minder tot zeldzame kalkbioklasten (nummulieten), blijft kleihoudend rijk aan decantatieslib</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+    </interpretaties>
+</ns4:dov-schema>
