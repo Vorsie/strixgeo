@@ -235,6 +235,43 @@ class DovInterpretationParser(GroundModelLogger):
             self.error(f"DOV interpretation '{name}': empty <{DOV_INTERP_WRAPPER_TAG}>")
             raise ParseError(f"DOV interpretation '{name}': empty <{DOV_INTERP_WRAPPER_TAG}>")
 
+        return self.parse_stream_element(
+            stream_elem, borehole_id=borehole_id, observation_type=observation_type, name=name
+        )
+
+    def parse_stream_element(
+        self,
+        stream_elem: ET.Element,
+        *,
+        borehole_id: UUID,
+        observation_type: ObservationType,
+        name: str = "",
+    ) -> InterpretationParseResult:
+        """Parse one already-parsed stream element (e.g. ``<formelestratigrafie>``).
+
+        The body of :meth:`parse` after the document-level checks. Split out so
+        a caller holding a document with SEVERAL stream elements under one
+        ``<interpretaties>`` (a DOV export saved to a local file carries every
+        interpretation of every boring it holds, see ``DovBoringFileParser``)
+        can parse each one. :meth:`parse` still takes only the first child,
+        so the bbox import sees no change.
+
+        Parameters
+        ----------
+        stream_elem : Element
+            The stream-typed element from a document parsed with defusedxml.
+        borehole_id : UUID
+            UUID the resulting ``Observation`` is attached to.
+        observation_type : ObservationType
+            Which interpretation stream the element carries.
+        name : str
+            Log label (see :meth:`parse`).
+
+        Returns
+        -------
+        InterpretationParseResult
+            ``Observation`` (with layers nested) plus validation issues.
+        """
         self.trace(f"DOV interpretation '{name}': stream element <{stream_elem.tag}>")
 
         issues: list[ValidationIssue] = []
