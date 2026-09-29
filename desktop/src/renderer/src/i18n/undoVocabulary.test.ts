@@ -71,6 +71,9 @@ const COMMAND_KEYS: readonly MessageKey[] = [
   'undo.excludeBoreholeLitho',
   'undo.editCptElevation',
   'undo.editBoreholeElevation',
+  // Borehole tracks (2026-09-29).
+  'undo.addBoreholeTrack',
+  'undo.editBoreholeTrack',
 ]
 
 describe('the undo vocabulary is fully translated', () => {
