@@ -218,9 +218,19 @@ STORED_COLUMN_BY_KIND: dict[PanelKind, str] = {
     PanelKind.U2: "u2_mpa",
 }
 
+# The score leaves out grid points that fall between two scans more than this
+# many grid steps apart, in either series: a gap in the sounding (rods added)
+# is not data. Five steps (0.1 m) tolerates the thinned polylines some sheets
+# draw (CAMZ-005: 0.02-0.08 m between vertices) while a real gap is 0.2-1.3 m.
+SCORE_MAX_GAP_STEPS = 5
+
 # A continuation sheet repeats up to this much depth (m) of the sheet before
 # it (the Van der Straaten continuation starts ~0.3 m above the previous end).
 CONTINUATION_OVERLAP_M = 1.0
+
+# A sheet with a known id that starts within this depth (m) of the earlier
+# sounding of that id is a repeat of its first sheet (CAMZ-001 p. 215).
+REPEAT_START_TOLERANCE_M = 0.1
 
 # The regular depth grid of the resampled output (m). 0.02 m is the scan step
 # of the GEF files the same contractor delivers, so a digitised series lines up
@@ -250,6 +260,10 @@ STROKE_MIN_SATURATION = 0.35
 # A black target (the DOV qc curve) matches dark, unsaturated strokes.
 GREY_STROKE_MAX_SATURATION = 0.25
 DARK_STROKE_MAX_VALUE = 0.35
+
+# A vertex next to a clipped one whose two neighbours are at most this many
+# scan steps apart is the plotter's clip-edge crossing, not a scan.
+CLIP_CROSSING_STEP_SHARE = 1.25
 
 # Consecutive curve segments further apart than this (pt) start a new chain;
 # a chain with at most MIN_CHAIN_VERTICES vertices is a legend arrow or a mark,
