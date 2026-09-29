@@ -38,6 +38,7 @@ from groundmodel.api.schemas.elevation_patch_request import ElevationPatchReques
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
+from groundmodel.domain.services.track_preference import order_by_track_preference
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
@@ -436,7 +437,21 @@ async def get_borehole(
     assert sorted(LAB_TEST_INCLUDE_ALIASES.values()) == sorted(LAB_TEST_RELATIONSHIPS), (
         "Router aliases drifted from repository relationships — update both lists together."
     )
-    return BoreholeDetailResponse.model_validate(borehole)
+    return _detail_response(borehole)
+
+
+def _detail_response(borehole: object) -> BoreholeDetailResponse:
+    """Build the detail response with each kind's preferred track first.
+
+    Consumers that want ONE track of a kind (the section columns, the
+    borelog, ``.find`` on the renderer side) take the first match; ordering
+    the list with the single track-preference helper (manual, then newest
+    edited, then today's date order) makes that first match the right one
+    without a second copy of the rule in TypeScript.
+    """
+    response = BoreholeDetailResponse.model_validate(borehole)
+    response.observations = order_by_track_preference(response.observations)
+    return response
 
 
 @router.post("/detail-batch", response_model=list[BoreholeDetailResponse])
@@ -509,7 +524,7 @@ async def post_borehole_detail_batch(
         include_lab_tests=include_relationships,
         app_project_id=request.app_project_id,
     )
-    out = [BoreholeDetailResponse.model_validate(bh) for bh in boreholes]
+    out = [_detail_response(bh) for bh in boreholes]
     logger.info(f"POST /borehole/detail-batch → {len(out)}/{len(request.ids)} returned")
     return out
 
