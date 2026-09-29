@@ -154,4 +154,32 @@ export const DATA_NL = {
   'data.map.noHillshadeTo': 'in op',
   'data.map.noHillshadeBelgiumOr': '(België) of',
   'data.map.noHillshadeNetherlandsIn': '(Nederland) in',
+  // -------------------------------------------------------------------------
+  // lokale DOV-boring-XML-import (useBoreholeXmlImport).
+  // -------------------------------------------------------------------------
+  'data.toolbar.importBoreholeXml': 'Boringen importeren (DOV-XML)',
+  'data.import.boreholeRefreshedOne': 'Bestaande boring {name} vernieuwd uit bestand',
+  'data.import.flagsToReviewOne': '{n} melding om na te kijken',
+  'data.import.flagsToReviewMany': '{n} meldingen om na te kijken',
+  'data.boreholeRefresh.title': 'Boringen vervangen die al in het project zitten?',
+  'data.boreholeRefresh.body':
+    ' bevat boringen die al in dit project zitten. Vervangen overschrijft hun boortrajecten, veldbeschrijving en beschrijvingen; een handmatige hoogte blijft behouden.',
+  'data.boreholeRefresh.borehole': 'Boring',
+  'data.boreholeRefresh.depth': 'Diepte',
+  'data.boreholeRefresh.layers': 'Beschrijvingslagen',
+  'data.boreholeRefresh.replace': 'Boringen vervangen',
+  'data.importFlags.title': 'Rapport boringimport',
+  'data.importFlags.intro':
+    'Alles in deze bestanden dat een tweede blik verdient. Een melding hield nooit een import tegen.',
+  'data.importFlags.noFlags': 'Geen meldingen',
+  'data.importFlags.copy': 'Rapport kopiëren',
+  'data.importFlags.copied': 'Gekopieerd',
+  'data.importFlags.refreshed': 'vernieuwd',
+  'data.importFlags.notImported': 'niet geïmporteerd',
+  'data.importFlags.fileFailed': 'Bestand niet geïmporteerd: {message}',
+  'data.importFlags.fileDeclined': 'Ongewijzigd gelaten: vervanging geweigerd',
+  'data.importFlags.fileLevel': 'Heel het bestand',
+  'data.importFlags.levelError': 'Fout',
+  'data.importFlags.levelWarning': 'Waarschuwing',
+  'data.importFlags.levelInfo': 'Opmerking',
 } as const
