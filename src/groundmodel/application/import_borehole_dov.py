@@ -20,6 +20,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_borehole_orm_builders import build_borehole_orm
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
 from groundmodel.application.import_interpretations_dov import ImportInterpretationsDov
@@ -29,12 +30,7 @@ from groundmodel.application.import_interpretations_dov_result import (
 from groundmodel.application.import_samples_dov import ImportSamplesDov
 from groundmodel.application.import_samples_dov_result import ImportSamplesDovResult
 from groundmodel.domain.models.borehole.borehole import Borehole
-from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
-from groundmodel.infrastructure.db.models.field_log_interval_orm import (
-    FieldLogIntervalOrm,
-)
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
@@ -572,56 +568,12 @@ class ImportBoreholeDov(GroundModelLogger):
         left ``None``, never overwriting fields the XML did populate.
         """
         bh = self._merge_wfs(result.borehole, wfs_row)
-        return BoreholeOrm(
-            id=uuid7(),
-            name=bh.name,
-            app_project_id=app_project_id,
-            project_id=DOV_PROJECT_ID,
+        return build_borehole_orm(
+            bh,
+            result,
+            borehole_id=uuid7(),
             test_id=wfs_row.test_id,
-            location_x=bh.location_x,
-            location_y=bh.location_y,
-            elevation_m=bh.elevation_m,
-            # DOV imports always stamp the DOV source when Z_mTAW was
-            # present, NONE otherwise. The refresh-on-duplicate path
-            # checks this before overwriting an imported Z so manual
-            # edits survive re-imports (debt #8).
-            elevation_source=(
-                ElevationSource.DOV.value
-                if bh.elevation_m is not None
-                else ElevationSource.NONE.value
-            ),
-            epsg=bh.epsg,
-            z_epsg=bh.z_epsg,
-            location=None,  # PostGIS point — wired in Phase C2 / when the GIS path lands
-            start_date=bh.start_date,
-            drill_method=bh.drill_method,
-            borehole_type=bh.borehole_type,
-            purpose=bh.purpose,
-            municipality=bh.municipality,
-            executor=bh.executor,
-            total_depth_m=bh.total_depth_m,
-            water_table_depth_m=bh.water_table_depth_m,
-            n_drill_segments=len(result.drill_segments),
-            n_field_log_intervals=len(result.field_log),
-            drill_segments=[
-                DrillSegmentOrm(
-                    id=uuid7(),
-                    top_m=seg.top_m,
-                    base_m=seg.base_m,
-                    method=seg.method,
-                )
-                for seg in result.drill_segments
-            ],
-            field_log_intervals=[
-                FieldLogIntervalOrm(
-                    id=uuid7(),
-                    top_m=fl.top_m,
-                    base_m=fl.base_m,
-                    kind=fl.kind.value,
-                    value=fl.value,
-                )
-                for fl in result.field_log
-            ],
+            app_project_id=app_project_id,
         )
 
     @staticmethod
