@@ -112,6 +112,55 @@ class CptRefreshRefusedError(GroundModelError):
         self.reason = reason
 
 
+class BoreholeRefreshConfirmationRequiredError(GroundModelError):
+    """Raised when a borehole file import would overwrite stored boreholes unconfirmed.
+
+    The borehole twin of ``CptRefreshConfirmationRequiredError``: re-importing
+    a DOV borehole XML file whose borings are already in the project replaces
+    their drill segments, field log and interpretations, which has no undo. The
+    import writes NOTHING for the file until the caller re-posts with
+    ``confirm_refresh=true``.
+
+    Parameters
+    ----------
+    diffs : list[dict[str, object]]
+        One entry per boring that would be overwritten, keys:
+        ``borehole_id`` (str), ``name``, ``test_id``, ``old_total_depth_m``,
+        ``new_total_depth_m``, ``old_n_litho_layers``, ``new_n_litho_layers``,
+        ``n_errors``, ``n_warnings`` (the last two from the FRESH parse).
+    """
+
+    def __init__(self, diffs: list[dict[str, object]]) -> None:
+        """Initialise with the per-boring old-vs-new diff."""
+        names = ", ".join(repr(d["name"]) for d in diffs)
+        super().__init__(
+            f"{len(diffs)} boring(s) of this file are already in this project ({names}); "
+            "re-importing replaces their stored data. Confirm to replace."
+        )
+        self.diffs = diffs
+
+
+class BoreholeRefreshRefusedError(GroundModelError):
+    """Raised when a borehole file is too broken to overwrite stored boreholes with.
+
+    Refused regardless of confirmation, like ``CptRefreshRefusedError``: a
+    boring whose fresh parse carries ERROR-level issues (no usable
+    coordinates) must never replace a good stored borehole.
+
+    Parameters
+    ----------
+    reason : str
+        Machine-readable reason (``"parse_errors"``).
+    message : str
+        Human-readable refusal naming the boring and what is wrong.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        """Initialise with the named reason and the human-readable message."""
+        super().__init__(message)
+        self.reason = reason
+
+
 class LithoLayerOverlapError(GroundModelError):
     """Raised when a litho-layer edit would overlap an accepted sibling on its column.
 
