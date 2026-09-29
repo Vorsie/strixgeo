@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 
@@ -432,3 +433,39 @@ class BodyPartitionContentionError(GroundModelError):
         )
         self.operation = operation
         self.model_id = model_id
+
+
+class BoreholeTrackValidationError(DomainValidationError):
+    """Raised when a hand-edited borehole track breaks the track-editor rules.
+
+    Carries the blocking ``errors`` and the non-blocking ``warnings`` of the
+    domain validator (``TrackIssue`` objects: dotted ``loc``, ``code``,
+    ``message``). The router maps it to HTTP 422 with
+    ``code = "borehole_track_invalid"`` and the issues on the wire, so the
+    desktop can point at the offending cell.
+    """
+
+    def __init__(self, errors: tuple[Any, ...], warnings: tuple[Any, ...] = ()) -> None:
+        """Initialise with the blocking errors and the non-blocking warnings."""
+        summary = "; ".join(f"{e.loc}: {e.message}" for e in errors)
+        super().__init__(f"the track was not saved: {summary}")
+        self.errors = errors
+        self.warnings = warnings
+
+
+class BoreholeTrackConflictError(GroundModelError):
+    """Raised when a field-log track of that kind already exists on the borehole.
+
+    Field-log rows have no track grouping of their own, so a borehole carries
+    ONE field-log track per kind (colour / moisture / consistency). Creating a
+    second one is refused; the caller edits the existing track instead. The
+    router maps it to HTTP 409 with ``code = "borehole_track_exists"``.
+    """
+
+    def __init__(self, kind: str, track_id: str) -> None:
+        """Initialise with the conflicting kind and the existing track's id."""
+        super().__init__(
+            f"the borehole already has a {kind!r} field-log track ({track_id}); edit it instead"
+        )
+        self.kind = kind
+        self.track_id = track_id
