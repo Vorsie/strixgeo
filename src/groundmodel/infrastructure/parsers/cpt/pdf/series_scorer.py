@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import DEFAULT_RESAMPLE_STEP_M
+from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
+    DEFAULT_RESAMPLE_STEP_M,
+    SCORE_MAX_GAP_STEPS,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import (
     depth_grid,
     monotonic_depth,
@@ -66,11 +69,15 @@ class SeriesScorer(GroundModelLogger):
         grid = depth_grid(max(rd[0], td[0]), min(rd[-1], td[-1]), step_m)
         if len(grid) < 2:
             raise ValueError("reference and digitised series share no depth range")
-        ref_on_grid = resample(rd, rv, grid)
+        # A grid point inside a gap of either series (rods added, a "K" on
+        # the sheet) was not measured: it is left out instead of scoring the
+        # straight line drawn across the gap.
+        max_gap = SCORE_MAX_GAP_STEPS * step_m
+        ref_on_grid = resample(rd, rv, grid, max_gap)
 
         def errors(shift: float) -> tuple[np.ndarray, int]:
             shifted = td + shift
-            test_on_grid = resample(shifted, tv, grid)
+            test_on_grid = resample(shifted, tv, grid, max_gap)
             bad = nearest_flag(shifted, tx, grid)
             ok = np.isfinite(test_on_grid) & np.isfinite(ref_on_grid) & ~bad
             return (test_on_grid - ref_on_grid)[ok], int(bad.sum())
