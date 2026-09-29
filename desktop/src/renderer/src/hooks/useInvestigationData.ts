@@ -32,6 +32,8 @@ import type { UndoCommand } from './useUndoStack'
 import type { MessageKey } from '../i18n/locales/en'
 import type { DovImportState, PendingPin } from './useDovImportStream'
 import { useDovImportStream } from './useDovImportStream'
+import { useBoreholeXmlImport } from './useBoreholeXmlImport'
+import type { UseBoreholeXmlImportResult } from './useBoreholeXmlImport'
 
 // ---------------------------------------------------------------------------
 // Kind-parameterised hide / restore / elevation helpers (audit 2026-07-12
@@ -327,6 +329,17 @@ export interface UseInvestigationDataResult {
   cancelRefreshImport: () => void
   handleImportDov: () => void
   handleImportBoreholeDov: () => void
+  /** Import boreholes from local DOV XML files (see useBoreholeXmlImport).
+   * Optional on the type so partial stage-test shells need not fabricate it;
+   * the hook always returns it. */
+  handleImportBoreholeXml?: UseBoreholeXmlImportResult['handleImportBoreholeXml']
+  /** Borehole-XML refresh consent: drives the App-level dialog. */
+  boreholeRefreshConfirm: UseBoreholeXmlImportResult['boreholeRefreshConfirm']
+  confirmBoreholeRefresh: () => void
+  cancelBoreholeRefresh: () => void
+  /** Borehole-XML import report: drives the App-level flags panel. */
+  boreholeImportReport: UseBoreholeXmlImportResult['boreholeImportReport']
+  closeBoreholeImportReport: () => void
   handleBboxDrawn: (
     west: number,
     south: number,
@@ -1191,6 +1204,19 @@ export function useInvestigationData({
     resetDovStream()
   }, [resetDovStream])
 
+  // Local DOV borehole XML files: its own hook (the flow + its dialog and
+  // report state), fed the same bookkeeping seams the other imports use.
+  const boreholeXml = useBoreholeXmlImport({
+    project,
+    toast,
+    addToManifest,
+    setSessionImportBoreholeIds,
+    markMutated,
+    unhideBoreholes,
+    refreshBoreholeList,
+    setImporting,
+  })
+
   // Derive pending pins from the running state — only present for CPT imports.
   const pendingCptPins: PendingPin[] =
     dovImportState.status === 'running' && dovImportState.kind === 'cpt'
@@ -1228,6 +1254,12 @@ export function useInvestigationData({
     cancelRefreshImport,
     handleImportDov,
     handleImportBoreholeDov,
+    handleImportBoreholeXml: boreholeXml.handleImportBoreholeXml,
+    boreholeRefreshConfirm: boreholeXml.boreholeRefreshConfirm,
+    confirmBoreholeRefresh: boreholeXml.confirmBoreholeRefresh,
+    cancelBoreholeRefresh: boreholeXml.cancelBoreholeRefresh,
+    boreholeImportReport: boreholeXml.boreholeImportReport,
+    closeBoreholeImportReport: boreholeXml.closeBoreholeImportReport,
     handleBboxDrawn,
     dovImportState,
     resetDovImport,
