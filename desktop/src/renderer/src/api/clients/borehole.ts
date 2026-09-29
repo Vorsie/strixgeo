@@ -7,7 +7,7 @@
  *
  * @module clients/borehole
  */
-import { _base, get, patch, post } from './shared'
+import { _base, del, get, patch, post, put } from './shared'
 
 // ---------------------------------------------------------------------------
 // Borehole / sample / lab-test types — mirrors the FastAPI schemas in
@@ -72,6 +72,13 @@ export interface ObservationResponse {
   score_category: string | null
   drill_method_score: string | null
   layers: ObservationLayerResponse[]
+  /** Provenance (2026-09-29): ``"dov"`` or ``"manual"``. Optional so an
+   *  older backend / fixture without the field reads as an untouched import. */
+  source?: string
+  /** Last save from the track editor; ``null`` for an untouched import. */
+  edited_manually_at?: string | null
+  /** Upstream DOV identity an edited import keeps; ``null`` for a manual track. */
+  dov_permkey?: string | null
 }
 
 /** One drilling segment within a borehole. */
@@ -89,6 +96,46 @@ export interface FieldLogIntervalResponse {
   base_m: number
   kind: string
   value: string | null
+  /** Provenance of the field-log track the row belongs to (2026-09-29). */
+  source?: string
+  edited_manually_at?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Hand-edited tracks (owner 2026-09-29) — ``/borehole/{id}/tracks``.
+// ---------------------------------------------------------------------------
+
+/** One interval of a track, in the ONE shape every kind shares. A field-log
+ *  kind fills ``value``; a coded kind fills ``main_soil_codes`` (+ admixtures,
+ *  colour); every other kind fills ``description``. Raw DOV tokens only. */
+export interface TrackIntervalBody {
+  top_m: number
+  base_m: number
+  value?: string | null
+  description?: string | null
+  color?: string | null
+  main_soil_codes?: string[]
+  admixtures?: AdmixtureResponse[]
+}
+
+/** One validator finding; ``loc`` is the dotted request path. */
+export interface TrackIssueResponse {
+  loc: string
+  code: string
+  message: string
+}
+
+/** A track after a create / replace. ``track_id`` is the observation UUID or
+ *  ``"field_log:<kind>"``. */
+export interface BoreholeTrackResponse {
+  track_id: string
+  kind: string
+  family: 'observation' | 'field_log'
+  source: string
+  edited_manually_at: string | null
+  dov_permkey: string | null
+  intervals: TrackIntervalBody[]
+  warnings: TrackIssueResponse[]
 }
 
 /** Grain-size distribution curve for one sample. */
@@ -278,4 +325,29 @@ export const boreholeClient = {
     body: ElevationPatchBody,
   ): Promise<BoreholeListItem> =>
     patch(`/borehole/${id}/elevation?project_id=${projectId}`, body),
+
+  /** Add a hand-typed track of ``kind`` (stored ``source = "manual"``). */
+  createTrack: (
+    id: string,
+    projectId: string,
+    kind: string,
+    intervals: TrackIntervalBody[],
+  ): Promise<BoreholeTrackResponse> =>
+    post(`/borehole/${id}/tracks?project_id=${projectId}`, { kind, intervals }),
+
+  /** Replace every interval of one track (imported tracks included). */
+  replaceTrack: (
+    id: string,
+    projectId: string,
+    trackId: string,
+    intervals: TrackIntervalBody[],
+  ): Promise<BoreholeTrackResponse> =>
+    put(
+      `/borehole/${id}/tracks/${encodeURIComponent(trackId)}?project_id=${projectId}`,
+      { intervals },
+    ),
+
+  /** Delete one whole track with its intervals (the UI confirms first). */
+  deleteTrack: (id: string, projectId: string, trackId: string): Promise<void> =>
+    del(`/borehole/${id}/tracks/${encodeURIComponent(trackId)}?project_id=${projectId}`),
 }
