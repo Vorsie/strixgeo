@@ -76,7 +76,7 @@ function oedometer(): LabSeriesTest {
     sampling_depth_top_m: 14.5,
     sampling_depth_base_m: 15,
     visual_description: null,
-    source_format: 'geosys_oed_control_listing',
+    source_format: 'oed_control_listing',
     source_file_name: '200568B7-LstSMControleListing.txt',
     source_native_file: null,
     import_issues: [{ level: 'warning', code: 'DIAL_REZERO', message: 'stage 2: dial jumps', rows: [3] }],
