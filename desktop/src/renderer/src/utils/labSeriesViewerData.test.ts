@@ -110,7 +110,7 @@ function oedTest(stages: LabSeriesStage[], labResults: LabSeriesTest['lab_result
     sampling_depth_top_m: null,
     sampling_depth_base_m: null,
     visual_description: null,
-    source_format: 'geosys_oed_control_listing',
+    source_format: 'oed_control_listing',
     source_file_name: 'x.txt',
     source_native_file: null,
     import_issues: [],
