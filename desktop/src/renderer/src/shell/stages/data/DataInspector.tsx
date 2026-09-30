@@ -29,6 +29,7 @@ import {
   Calendar,
   Drill,
   EyeOff,
+  FlaskConical,
   Inbox,
   MapPin,
   Search,
@@ -942,6 +943,13 @@ function BoreholeRow({
   }
 
   const noZ = borehole.elevation_m == null
+  const nLab = borehole.lab_series_count ?? 0
+  const labTests =
+    nLab === 1
+      ? t('data.inspector.labTestsOne')
+      : nLab > 1
+        ? t('data.inspector.labTests', { n: nLab })
+        : null
 
   return (
     <div
@@ -982,6 +990,13 @@ function BoreholeRow({
           {noZ && (
             <span title={t('data.inspector.noSurfaceElevation')}>
               <AlertTriangle size={10} className="text-status-amber shrink-0" />
+            </span>
+          )}
+          {labTests && (
+            // Owner 2026-09-30: "add mechanical test icon to test in the
+            // borehole overview" (raw oedometer / triaxial series).
+            <span title={labTests} aria-label={labTests} role="img" data-testid="borehole-lab-marker">
+              <FlaskConical size={10} className="text-[--color-text-muted] shrink-0" />
             </span>
           )}
         </div>
