@@ -49,6 +49,7 @@ export type MenuLabelId =
   | 'saveAs'
   | 'closeProject'
   | 'importCpt'
+  | 'importCptPdf'
   | 'importBorehole'
   | 'importDmt'
   | 'settings'
@@ -91,6 +92,11 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   closeProject: { en: 'Close Project', nl: 'Project sluiten' },
   importCpt: { en: 'Import CPT…', nl: 'Sondering (CPT) importeren…' },
   importBorehole: { en: 'Import boreholes (DOV XML)…', nl: 'Boringen importeren (DOV-XML)…' },
+  importCptPdf: {
+    en: 'Import CPTs from a PDF Report…',
+    nl: 'Sonderingen uit een pdf-rapport importeren…',
+  },
+  importBorehole: { en: 'Import Borehole…', nl: 'Boring importeren…' },
   importDmt: { en: 'Import DMT…', nl: 'DMT importeren…' },
   settings: { en: 'Settings…', nl: 'Instellingen…' },
   quit: { en: 'Quit', nl: 'Afsluiten' },
