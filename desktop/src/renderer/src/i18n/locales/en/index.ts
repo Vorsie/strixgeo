@@ -31,6 +31,7 @@
 
 import { BED_OVERRIDE } from './bedOverride'
 import { CHROME } from './chrome'
+import { CPT_PDF } from './cptPdf'
 import { DATA } from './data'
 import { IMPORT_FLAGS } from './importFlags'
 import { LAB_SERIES } from './labSeries'
@@ -50,6 +51,7 @@ export const EN = {
   ...CHROME,
   ...DATA,
   ...IMPORT_FLAGS,
+  ...CPT_PDF,
   ...BED_OVERRIDE,
   ...LAB_SERIES,
   ...SETTINGS,
@@ -70,6 +72,7 @@ export const EN_MODULES = {
   chrome: CHROME,
   data: DATA,
   importFlags: IMPORT_FLAGS,
+  cptPdf: CPT_PDF,
   bedOverride: BED_OVERRIDE,
   labSeries: LAB_SERIES,
   settings: SETTINGS,
