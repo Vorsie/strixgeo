@@ -1,0 +1,119 @@
+// Raw lab-series surface — the "Import lab tests (Geosys)" preview dialog, the
+// borehole detail's Lab tests list and the readings viewer (2026-09-29).
+//
+// Part of the English message catalogue — see 'locales/en/index.ts' for the
+// key-naming rules and the domain-canon carve-out. The lab's own column labels
+// (Zetting, Verpl., Druk, e, Cc ...) are NOT here: they are shown verbatim as
+// the lab wrote them.
+
+export const LAB_SERIES = {
+  // Import preview dialog (one file at a time).
+  'labSeries.dialog.title': 'Import lab test: {file}',
+  'labSeries.dialog.progress': 'File {i} of {n}',
+  'labSeries.dialog.loading': 'Reading the file…',
+  'labSeries.dialog.kindOedometer': 'Oedometer',
+  'labSeries.dialog.kindTriaxial': 'Triaxial',
+  'labSeries.dialog.identity': 'As the lab wrote it',
+  'labSeries.dialog.job': 'Job',
+  'labSeries.dialog.labBorehole': 'Borehole',
+  'labSeries.dialog.labSample': 'Sample number',
+  'labSeries.dialog.labInterval': 'Sampling depth',
+  'labSeries.dialog.testType': 'Test type',
+  'labSeries.dialog.specimens': 'Specimens',
+  'labSeries.dialog.specimenLine': '{label}: {stages} stage(s), {readings} readings',
+  'labSeries.dialog.notInFile': 'not in the file',
+  'labSeries.dialog.borehole': 'Borehole in this project',
+  'labSeries.dialog.boreholeUnique': 'Matched by name. Change it if it is wrong.',
+  'labSeries.dialog.boreholeAmbiguous': 'Several boreholes match. Pick one.',
+  'labSeries.dialog.boreholeNone': 'No borehole matches. Pick one.',
+  'labSeries.dialog.pickBorehole': 'Pick a borehole…',
+  'labSeries.dialog.sample': 'Sample',
+  'labSeries.dialog.sampleOverlap': 'This sample overlaps the lab sampling depth.',
+  'labSeries.dialog.sampleNumberMatch': 'This sample carries the lab sample number.',
+  'labSeries.dialog.sampleNone': 'No sample overlaps the lab sampling depth. A new sample will be created.',
+  'labSeries.dialog.sampleOption': '{top} to {base} m',
+  'labSeries.dialog.sampleOptionNumbered': '{top} to {base} m ({number})',
+  'labSeries.dialog.createSample': 'Create a new sample',
+  'labSeries.dialog.newSampleTop': 'Top (m)',
+  'labSeries.dialog.newSampleBase': 'Base (m)',
+  'labSeries.dialog.newSampleNeedsInterval': 'This export names no sampling depth. Enter the interval of the new sample.',
+  'labSeries.dialog.existingSame': 'This file is already imported. Importing it again changes nothing.',
+  'labSeries.dialog.existingChanged': 'A test with this lab identity is already stored. Importing replaces its readings; you will be asked to confirm.',
+  'labSeries.dialog.noTime': 'The triaxial export has no time channel. The readings are stored against the lab point numbers.',
+  'labSeries.dialog.findings': 'Findings ({n})',
+  'labSeries.dialog.noFindings': 'No findings.',
+  'labSeries.dialog.import': 'Import',
+  'labSeries.dialog.skip': 'Skip this file',
+  'labSeries.dialog.cancel': 'Cancel',
+  'labSeries.dialog.readFailed': 'Could not read {file}: {message}',
+
+  // Finding levels (the badge in front of each finding).
+  'labSeries.level.error': 'Error',
+  'labSeries.level.warning': 'Warning',
+  'labSeries.level.info': 'Note',
+
+  // Refresh confirmation (irreversible: Cancel default-focused).
+  'labSeries.refresh.title': 'Replace the stored lab test?',
+  'labSeries.refresh.body': '{file} has the same lab identity as a stored test but other content. Stored: {old} readings; in the file: {new} readings. The stored readings are replaced. This cannot be undone.',
+  'labSeries.refresh.confirm': 'Replace readings',
+
+  // Result toast.
+  'labSeries.toast.summary': 'Lab tests: {imported} imported, {replaced} replaced, {unchanged} unchanged, {skipped} skipped, {failed} failed',
+
+  // Borehole detail: the Lab tests list.
+  'labSeries.section.title': 'Lab tests ({n})',
+  'labSeries.section.loading': 'Loading lab tests…',
+  'labSeries.section.failed': 'Could not load the lab tests.',
+  'labSeries.section.empty': 'No raw lab tests on this borehole. Use Import > Import lab tests (Geosys).',
+  'labSeries.section.sample': 'Sample {top} to {base} m',
+  'labSeries.section.counts': '{specimens} specimen(s), {stages} stage(s), {readings} readings',
+  'labSeries.section.flags': '{warnings} warning(s), {errors} error(s)',
+  'labSeries.section.noFlags': 'No warnings',
+  'labSeries.section.open': 'View readings',
+  'labSeries.section.expand': 'Show lab tests',
+  'labSeries.section.collapse': 'Hide lab tests',
+
+  // Readings viewer.
+  'labSeries.viewer.title': '{kind} {type} on sample {sample}',
+  'labSeries.viewer.close': 'Close',
+  'labSeries.viewer.loading': 'Loading readings…',
+  'labSeries.viewer.failed': 'Could not load the readings.',
+  'labSeries.viewer.source': 'File {file}',
+  'labSeries.viewer.stage': 'Stage',
+  'labSeries.viewer.allStages': 'All stages',
+  'labSeries.viewer.stageOption': 'Stage {n}',
+  'labSeries.viewer.stageOptionStress': 'Stage {n}: {stress} kPa',
+  'labSeries.viewer.settlementLogTime': 'Settlement vs log time (measured)',
+  'labSeries.viewer.strainLogTime': 'Vertical strain delta_h / h0 vs log time (derived by Strix)',
+  'labSeries.viewer.strainLogStress': 'End-of-stage vertical strain vs log stress (derived by Strix)',
+  'labSeries.viewer.eLogStress': 'Void ratio e vs log stress (reported by the lab)',
+  'labSeries.viewer.noStress': 'This export lists no stage stress, so there is no stress axis.',
+  'labSeries.viewer.t0Note': 'The first reading of a stage (t = 0) cannot sit on a log time axis; it is drawn as a marker on the left edge.',
+  'labSeries.viewer.rezeroNote': '{n} dial re-zero duplicate(s) are not drawn.',
+  'labSeries.viewer.deviatorStrain': 'Deviator stress vs axial strain (both lab-derived)',
+  'labSeries.viewer.poreStrain': 'Pore pressure vs axial strain',
+  'labSeries.viewer.volumeStrain': 'Volume change vs axial strain',
+  'labSeries.viewer.noVolume': 'No volume change channel (undrained test).',
+  'labSeries.viewer.specimenLabel': 'Specimen {label}',
+  'labSeries.viewer.noTime': 'No time channel in the triaxial export: the readings are plotted against strain; the lab point numbers are the stored axis.',
+  'labSeries.viewer.reportedByLab': 'Reported by the lab',
+  'labSeries.viewer.reportedNote': 'Listed as the lab reported them. Strix does not use these values in any computation.',
+  'labSeries.viewer.colStage': 'Stage',
+  'labSeries.viewer.colSpecimen': 'Specimen',
+  'labSeries.viewer.colParameter': 'Parameter',
+  'labSeries.viewer.colValue': 'Value',
+  'labSeries.viewer.colUnit': 'Unit',
+  'labSeries.viewer.findings': 'Findings at import ({n})',
+  'labSeries.viewer.noData': 'No readings to draw.',
+
+  // Axis titles.
+  'labSeries.axis.timeMin': 'Time since stage start (min, log)',
+  'labSeries.axis.settlementMm': 'Settlement (mm)',
+  'labSeries.axis.strain': 'Vertical strain (-)',
+  'labSeries.axis.stressKpa': 'Stress (kPa, log)',
+  'labSeries.axis.voidRatio': 'Void ratio e (-)',
+  'labSeries.axis.axialStrainPct': 'Axial strain (%)',
+  'labSeries.axis.deviatorKpa': 'Deviator stress (kPa)',
+  'labSeries.axis.poreKpa': 'Pore pressure (kPa)',
+  'labSeries.axis.volumeCm3': 'Volume change (cm³)',
+} as const
