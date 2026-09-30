@@ -72,6 +72,8 @@ const SLOW_MUTATION_HINTS = [
   // report all run for minutes on a real project as well.
   '/restore',
   '/cpt/import',
+  // Importing a report's soundings persists one CPT each (tens of them).
+  '/cpt/pdf/import',
   'auto-correlate',
   'build-report',
   // The lab import preview may fetch a missing borehole from DOV (with its
