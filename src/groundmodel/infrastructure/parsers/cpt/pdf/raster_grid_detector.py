@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 from groundmodel.infrastructure.parsers.cpt.pdf.frame_rect import FrameRect
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     GRID_PITCH_RELATIVE_TOLERANCE,
     LINE_INK_THRESHOLD,
@@ -65,6 +65,7 @@ class RasterGridDetector(GroundModelLogger):
 def _lines(ink: np.ndarray, vertical: bool, min_len: float) -> np.ndarray:
     """Return ``(pos, start, end)`` of every long straight line in one direction."""
     h, w = ink.shape
+    cv2 = require_cv2()
     if vertical:
         probe = cv2.getStructuringElement(
             cv2.MORPH_RECT, (1, max(15, int(h * LINE_PROBE_FRACTION)))
