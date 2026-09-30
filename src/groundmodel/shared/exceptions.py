@@ -659,3 +659,27 @@ class LabFileFormatNotRecognisedError(ParseError):
         """Initialise with the refused file's name."""
         super().__init__(self.MESSAGE)
         self.file_name = file_name
+
+
+class CptPdfReportNotFoundError(GroundModelError):
+    """Raised when a PDF CPT report is asked for by a sha the store does not hold.
+
+    The import dialog uploads a report once (``POST /cpt/pdf/triage``) and
+    then refers to it by its SHA-256. The triaged report lives in the
+    backend's temporary store and in memory; a restarted backend, another
+    project, or a never-uploaded sha has nothing to answer with. The router
+    maps this to HTTP 404 with ``code = "cpt_pdf_report_unknown"`` so the
+    dialog can ask the user to pick the report again.
+
+    Parameters
+    ----------
+    file_sha : str
+        The sha that was asked for.
+    """
+
+    def __init__(self, file_sha: str) -> None:
+        """Initialise, naming the unknown report."""
+        super().__init__(
+            f"no triaged PDF report {file_sha[:12]}... in this project: open the report again"
+        )
+        self.file_sha = file_sha
