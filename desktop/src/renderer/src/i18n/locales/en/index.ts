@@ -33,6 +33,7 @@ import { BED_OVERRIDE } from './bedOverride'
 import { CHROME } from './chrome'
 import { DATA } from './data'
 import { IMPORT_FLAGS } from './importFlags'
+import { LAB_SERIES } from './labSeries'
 import { LAUNCH } from './launch'
 import { MODELS } from './models'
 import { OUTPUTS } from './outputs'
@@ -50,6 +51,7 @@ export const EN = {
   ...DATA,
   ...IMPORT_FLAGS,
   ...BED_OVERRIDE,
+  ...LAB_SERIES,
   ...SETTINGS,
   ...MODELS,
   ...SECTIONS,
@@ -69,6 +71,7 @@ export const EN_MODULES = {
   data: DATA,
   importFlags: IMPORT_FLAGS,
   bedOverride: BED_OVERRIDE,
+  labSeries: LAB_SERIES,
   settings: SETTINGS,
   models: MODELS,
   sections: SECTIONS,
