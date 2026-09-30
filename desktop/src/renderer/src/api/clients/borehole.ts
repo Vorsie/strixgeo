@@ -138,6 +138,17 @@ export interface BoreholeTrackResponse {
   warnings: TrackIssueResponse[]
 }
 
+/** The answer of a Reset to DOV: the rewritten tracks (manual tracks are kept
+ *  and only counted). */
+export interface BoreholeTrackResetResponse {
+  tracks: BoreholeTrackResponse[]
+  discarded_edits: number
+  kept_manual: number
+}
+
+/** The 409 code of a Reset to DOV with no DOV XML behind it. */
+export const RESET_NO_DOV_SOURCE_CODE = 'borehole_reset_no_dov_source'
+
 /** Grain-size distribution curve for one sample. */
 export interface GrainSizeResponse {
   id: string
@@ -350,4 +361,16 @@ export const boreholeClient = {
   /** Delete one whole track with its intervals (the UI confirms first). */
   deleteTrack: (id: string, projectId: string, trackId: string): Promise<void> =>
     del(`/borehole/${id}/tracks/${encodeURIComponent(trackId)}?project_id=${projectId}`),
+
+  /** Reset the borehole's DOV tracks (or ``trackId`` alone) to what DOV
+   *  published, from the cached DOV XML (owner 2026-09-30). Rejects 409
+   *  ``borehole_reset_no_dov_source`` when the cache holds no XML for it. */
+  resetTracksToDov: (
+    id: string,
+    projectId: string,
+    trackId: string | null,
+  ): Promise<BoreholeTrackResetResponse> => {
+    const track = trackId === null ? '' : `&track_id=${encodeURIComponent(trackId)}`
+    return post(`/borehole/${id}/tracks/reset-dov?project_id=${projectId}${track}`)
+  },
 }
