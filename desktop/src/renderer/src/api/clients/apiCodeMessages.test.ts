@@ -19,6 +19,13 @@ describe('messageForApiCode', () => {
     expect(messageForApiCode('lock_timeout', 'nl')).toMatch(/bezet/i)
   })
 
+  // "DOV is not reachable right now; the predictions will load when it is." —
+  // the Virtuele Boring 503 reads in the app's language, not English.
+  it('translates dov_unreachable (the predictions 503) in both languages', () => {
+    expect(messageForApiCode('dov_unreachable', 'en')).toMatch(/not reachable/i)
+    expect(messageForApiCode('dov_unreachable', 'nl')).toMatch(/niet bereikbaar/i)
+  })
+
   it('leaves unknown or missing codes to the server text', () => {
     expect(messageForApiCode('cpt_refresh_refused')).toBeNull()
     expect(messageForApiCode(undefined)).toBeNull()
