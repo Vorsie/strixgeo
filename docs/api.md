@@ -4,6 +4,8 @@ Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the depre
 
 One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 144 routes across 23 router modules. Conflict semantics that need more than one line follow the catalogue.
 
+One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 145 routes across 23 router modules. Conflict semantics that need more than one line follow the catalogue.
+
 All **Geology** routes are mounted under one parent prefix `/projects/{project_id}/geology` (the `geology` package aggregates 13 sub-routers, debt #40); the paths in that section are shown relative to that prefix. **Borehole** routes are mounted under `/borehole`.
 
 **Project-scope guard:** single-resource by-id endpoints (e.g. `GET /cpt/{cpt_id}`, `GET /borehole/{borehole_id}`, and their `PATCH` / `DELETE` siblings) require a `?project_id` query parameter and answer `404` when the id is not in that project — a cross-project id-enumeration guard (`scope_guard.load_scoped_or_raise`, #166). Every read and write goes through the SQLAlchemy ORM; there is no raw-SQL surface.
@@ -41,6 +43,18 @@ DELETE /lab-series/{test_id} — Delete one lab-series test with its specimens, 
 ```
 
 Both POSTs take a multipart `file` (`.txt` / `.csv` / `.dat`; the export kind is sniffed from the CONTENT, never the name) plus `project_id`. Preview takes an optional `borehole_id` (re-preview against the user's pick) and answers the lab identity, `borehole_candidates` + `borehole_match` (`unique` / `ambiguous` / `none` / `chosen`), the chosen borehole's `samples` + `proposed_sample_id` + `sample_match` (`overlap` / `sample_number` / `none`), `create_sample_default` (the lab interval, or `null` when the export names none), `existing_test` (`{id, sample_id, same_content}`) and every finding. Import takes `borehole_id` and either `sample_id` or `create_sample=true` (+ optional `sample_depth_top_m` / `_base_m`), plus `confirm_refresh`. Answers: **201** new; **200** `unchanged=true` (same identity, same SHA-256: no-op) or `refreshed=true` (same test id, readings replaced); **409** `code = "lab_series_refresh_confirmation_required"` + `test_id`, `old_/new_n_specimens`, `old_/new_n_readings`, `old_/new_source_file_name` (nothing written); **422** `lab_series_refresh_refused` (the fresh parse has ERROR findings — never overwrites, even confirmed) or `sample_not_on_borehole` / `sample_choice_required` / `sample_interval_required`; **404** borehole / sample not in the project; **400** `code = "lab_file_format_not_recognised"` (+ `message` "… Contact the StrixGeo dev team to have it added.", `file_name`) for a format Strix does not read, a plain 400 for a supported format the parser refuses; **413** over 50 MiB. Preview `dov_lookup` (additive, 2026-09-30): when no project borehole matches `<job>-<borehole>` the preview fetches it from DOV into the project and answers `{status: "fetched" | "not_found" | "unreachable", borehole_name, borehole_id}` (fetched = proposed; the other two propose nothing, never a 500) — the one write a preview makes. Identity = (kind, lab test type, lab job, lab sample number) within the project. Channel `provenance`: `measured` / `lab_derived` (the lab software's column) / `derived` (Strix: the oedometer vertical strain, with `formula` + `derivation_inputs`); `lab_results` are `lab_reported`, never inputs. Format reference: [parsers-lab.md](parsers-lab.md). DELETE (2026-10-04) answers **204** and cascades the whole tree (the sample stays; the borehole's `lab_series_count` follows, being a live count); **404** when the test is not in the project (unknown id, or a test on another project's borehole: the scope runs test → sample → borehole → project). Irreversible: the desktop confirms first (Cancel focused, "Delete lab test"), marks the project dirty so the next save writes a bundle without the test. Preview **409** `code = "lab_borehole_conflict"` + `borehole_name` (or `null`) is translated by the desktop (`apiCodeMessages.ts`).
+
+
+**CPT from a PDF report — `cpt_pdf.py`** (registered before `cpt.py`; the
+pipeline is in [parsers-cpt-pdf.md](parsers-cpt-pdf.md))
+
+```
+POST   /cpt/pdf/triage — Spool a PDF report and triage it as a background job.
+GET    /cpt/pdf/triage/{job_id} — Drain the SSE progress stream of a triage job.
+GET    /cpt/pdf/page/{file_sha}/{page_number}.png — Return one page of a stored report as a PNG (the triage list's thumbnails).
+POST   /cpt/pdf/digitise — Read one sounding through the calibration the user settled on.
+POST   /cpt/pdf/import — Import the ticked soundings, one CPT each, through the GEF import's door.
+```
 
 **Borehole — `borehole.py` (mounted at `/borehole`)**
 
@@ -389,6 +403,30 @@ error) while its siblings are. One commit per file. Every issue is
 desktop renders the finding in the interface language
 (`desktop/.../utils/importFlagText.ts`); a client that ignores `params` keeps
 showing `message`. `POST /cpt/import` issues carry the same field.
+
+PDF report import (`/cpt/pdf/*`): the report is uploaded ONCE
+(`POST /cpt/pdf/triage`, multipart `file` + `project_id`, 200 MiB cap →
+`413`, non-PDF bytes → `400`) and answered `202 {job_id, file_sha}`; every
+later call names it by that SHA-256 and the project. The job stream ends
+with `{"type": "done", "result": <digest>}` (campaign soundings with
+header + warnings, unknown-origin soundings, `dropped` sheets,
+`desk_study_ids`, `ocr_available`) or `{"type": "error", ...}`. A report
+that is not (or no longer) triaged in this backend process answers `404`
+`detail.code = "cpt_pdf_report_unknown"`; an unlisted sounding `404`
+`cpt_pdf_sounding_unknown`; a malformed calibration dict `422`
+`cpt_pdf_calibration_invalid`. `POST /cpt/pdf/import`
+(`{project_id, file_sha, sounding_ids[], calibrations?: {id: [PageCalibration]},
+headers?: {id: {x, y, epsg, ground_level_m, test_date}}, confirm_refresh}`)
+answers `200` with one result per sounding — a batch cannot be one status
+code: `imported`, `refreshed` (consented), `confirmation_required` (already
+in the project: **nothing written**, `code =
+"cpt_refresh_confirmation_required"` + the same diff as the GEF 409; the
+client asks one sounding at a time and re-posts the agreed ones with
+`confirm_refresh: true`), `refused` (`pdf_no_xy` — the sheet printed no
+position and none was typed; `cpt_refresh_refused`;
+`pdf_sounding_not_offered` — a desk-study id), or `failed`. Each sounding
+commits on its own. `GET /cpt/{cpt_id}` carries the additive
+`import_provenance` (null for GEF / DOV).
 
 DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
 ground-surface build `POST .../ground-surface/build`) answer `422` naming the
