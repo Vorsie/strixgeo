@@ -340,6 +340,9 @@ export interface UseInvestigationDataResult {
   /** Borehole-XML import report: drives the App-level flags panel. */
   boreholeImportReport: UseBoreholeXmlImportResult['boreholeImportReport']
   closeBoreholeImportReport: () => void
+  /** Show boreholes another import wrote into the project (the lab import's
+   *  DOV fetch). Optional so partial test shells may omit it. */
+  adoptImportedBoreholes?: (ids: string[]) => Promise<void>
   handleBboxDrawn: (
     west: number,
     south: number,
@@ -1216,6 +1219,21 @@ export function useInvestigationData({
     refreshBoreholeList,
     setImporting,
   })
+  // A borehole another import wrote into the project (the lab import preview
+  // fetches a missing borehole from DOV, owner 2026-09-30) joins the list the
+  // way a bbox import's does: unhidden, in the manifest, marked imported since
+  // the last save, and the list re-fetched so its row appears.
+  const adoptImportedBoreholes = useCallback(
+    async (ids: string[]): Promise<void> => {
+      if (ids.length === 0) return
+      unhideBoreholes(ids)
+      addToManifest('borehole', ids)
+      addAllToSet(setSessionImportBoreholeIds, ids)
+      log.info('borehole', `adopted ${ids.length} borehole(s) written by another import`)
+      await refreshBoreholeList()
+    },
+    [unhideBoreholes, addToManifest, setSessionImportBoreholeIds, refreshBoreholeList],
+  )
 
   // Derive pending pins from the running state — only present for CPT imports.
   const pendingCptPins: PendingPin[] =
@@ -1264,5 +1282,6 @@ export function useInvestigationData({
     dovImportState,
     resetDovImport,
     pendingCptPins,
+    adoptImportedBoreholes,
   }
 }
