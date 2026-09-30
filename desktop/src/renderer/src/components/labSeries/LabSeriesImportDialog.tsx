@@ -1,4 +1,4 @@
-// "Import lab tests (Geosys)" — one preview per picked file, then the import.
+// "Import lab tests" — one preview per picked file, then the import.
 //
 // Owner Q4 (2026-09-29): "ask user, to double check, there should be a sample;
 // if no, default create one; overlapping depths, yes same sample". So for each
@@ -10,10 +10,19 @@
 //
 // Replacing a stored test is irreversible: a ConfirmDialog with Cancel
 // focused and an action-named button (docs/ux.md), only on the 409.
+//
+// Owner 2026-09-30: a file whose format Strix does not read is listed (with
+// "contact the StrixGeo dev team") and the dialog moves on to the next file;
+// a borehole missing from the project is fetched from DOV by the preview and
+// proposed, and DOV without it (or DOV not reachable) is said, naming it.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api, LabSeriesRefreshConfirmationRequiredError } from '../../api/client'
+import {
+  api,
+  LabFileFormatNotRecognisedError,
+  LabSeriesRefreshConfirmationRequiredError,
+} from '../../api/client'
 import type { LabSeriesPreviewResponse, LabSeriesRefreshDiff } from '../../api/client'
 import { useT } from '../../i18n/translate'
 import Button from '../ui/Button'
@@ -30,6 +39,8 @@ export interface LabSeriesImportSummary {
   failed: number
   /** Boreholes whose samples / lab tests changed (to reload their detail). */
   touchedBoreholeIds: string[]
+  /** Boreholes the preview fetched from DOV into the project (a new list row). */
+  dovFetched: { id: string; name: string }[]
 }
 
 interface Props {
@@ -72,7 +83,14 @@ export default function LabSeriesImportDialog({
     skipped: 0,
     failed: 0,
     touchedBoreholeIds: [],
+    dovFetched: [],
   })
+  // Files refused as an unknown format, as shown lines ("{file}: … dev team").
+  const [rejected, setRejected] = useState<string[]>([])
+  // Every file walked and the last one was refused: the list stays until Close.
+  const [done, setDone] = useState<LabSeriesImportSummary | null>(null)
+  // The file whose preview was refused as an unknown format (handled below).
+  const [unknownFormat, setUnknownFormat] = useState<string | null>(null)
   const [preview, setPreview] = useState<LabSeriesPreviewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [boreholeId, setBoreholeId] = useState<string>('')
@@ -96,6 +114,15 @@ export default function LabSeriesImportDialog({
       setError(null)
       try {
         const p = await api.labSeries.preview(filePath, projectId, chosenBorehole)
+        const lookup = p.dov_lookup
+        if (lookup?.status === 'fetched' && lookup.borehole_id) {
+          const fetched = { id: lookup.borehole_id, name: lookup.borehole_name }
+          setSummary(prev =>
+            prev.dovFetched.some(b => b.id === fetched.id)
+              ? prev
+              : { ...prev, dovFetched: [...prev.dovFetched, fetched] },
+          )
+        }
         setPreview(p)
         setBoreholeId(p.proposed_borehole_id ?? chosenBorehole ?? '')
         setSampleChoice(p.proposed_sample_id ?? CREATE)
@@ -103,6 +130,10 @@ export default function LabSeriesImportDialog({
         setBase(m(p.create_sample_default?.depth_base_m))
       } catch (err) {
         setPreview(null)
+        if (err instanceof LabFileFormatNotRecognisedError) {
+          setUnknownFormat(fileName)
+          return
+        }
         setError(
           tRef.current('labSeries.dialog.readFailed', {
             file: fileName,
@@ -120,9 +151,28 @@ export default function LabSeriesImportDialog({
     void loadPreview(null)
   }, [loadPreview])
 
+  // An unknown format: list the file, count it failed and move on. Held in
+  // state (not advanced inside loadPreview) so ``advance`` reads the summary
+  // of this render.
+  useEffect(() => {
+    if (unknownFormat === null) return
+    setUnknownFormat(null)
+    const line = t('labSeries.dialog.formatNotRecognised', { file: unknownFormat })
+    advance({ failed: 1 }, undefined, line)
+    // reason: advance and t are fresh closures per render; the effect must fire
+    // once per refused file, keyed on the refused file's name only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unknownFormat])
+
   /** Record one file's outcome and move to the next (or finish). */
-  function advance(delta: Partial<LabSeriesImportSummary>, touched?: string): void {
+  function advance(
+    delta: Partial<LabSeriesImportSummary>,
+    touched?: string,
+    rejectedLine?: string,
+  ): void {
+    if (rejectedLine) setRejected([...rejected, rejectedLine])
     const next: LabSeriesImportSummary = {
+      ...summary,
       imported: summary.imported + (delta.imported ?? 0),
       replaced: summary.replaced + (delta.replaced ?? 0),
       unchanged: summary.unchanged + (delta.unchanged ?? 0),
@@ -136,8 +186,12 @@ export default function LabSeriesImportDialog({
     setSummary(next)
     setPreview(null)
     setRefresh(null)
-    if (index + 1 >= filePaths.length) onFinished(next)
-    else setIndex(index + 1)
+    setError(null)
+    if (index + 1 < filePaths.length) setIndex(index + 1)
+    // The LAST file refused: its line stays on screen until the user closes
+    // the dialog (an earlier refusal was on screen while the next file ran).
+    else if (rejectedLine) setDone(next)
+    else onFinished(next)
   }
 
   const creating = sampleChoice === CREATE
@@ -173,13 +227,35 @@ export default function LabSeriesImportDialog({
   }
 
   const cancelAll = (): void => {
+    if (done) {
+      onFinished(done)
+      return
+    }
     const rest = filePaths.length - index
     onFinished({ ...summary, skipped: summary.skipped + rest })
   }
 
   const identity = preview?.identity
+  const lookup = preview?.dov_lookup ?? null
+  const dovRefusal =
+    lookup && !boreholeId && (lookup.status === 'not_found' || lookup.status === 'unreachable')
+      ? t(
+          lookup.status === 'unreachable'
+            ? 'labSeries.dialog.dovUnreachable'
+            : 'labSeries.dialog.dovNotFound',
+          { name: lookup.borehole_name },
+        )
+      : null
+  // The picker lists the project's boreholes plus one the preview just
+  // fetched from DOV (not yet in the caller's list).
+  const boreholeOptions = [
+    ...boreholes,
+    ...(preview?.borehole_candidates ?? []).filter(c => !boreholes.some(b => b.id === c.id)),
+  ]
   const boreholeHint =
-    preview?.borehole_match === 'unique'
+    lookup?.status === 'fetched'
+      ? t('labSeries.dialog.dovFetched', { name: lookup.borehole_name })
+      : preview?.borehole_match === 'unique'
       ? t('labSeries.dialog.boreholeUnique')
       : preview?.borehole_match === 'ambiguous'
         ? t('labSeries.dialog.boreholeAmbiguous')
@@ -217,9 +293,23 @@ export default function LabSeriesImportDialog({
             )}
           </div>
           <div className="overflow-y-auto px-4 py-3 space-y-3">
-            {busy && !preview && <p className="text-text-muted">{t('labSeries.dialog.loading')}</p>}
+            {rejected.length > 0 && (
+              <section data-testid="lab-import-rejected">
+                <h3 className="font-semibold mb-0.5">{t('labSeries.dialog.notImported')}</h3>
+                <ul className="space-y-0.5">
+                  {rejected.map((line, k) => (
+                    <li key={k} className="text-status-danger">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {busy && !preview && !done && (
+              <p className="text-text-muted">{t('labSeries.dialog.loading')}</p>
+            )}
             {error && <p className="text-status-danger" role="alert">{error}</p>}
-            {preview && identity && (
+            {preview && identity && !done && (
               <>
                 <section>
                   <h3 className="font-semibold mb-1">
@@ -285,13 +375,24 @@ export default function LabSeriesImportDialog({
                     className="w-full bg-surface-app border border-border-default rounded px-1 py-0.5"
                   >
                     <option value="">{t('labSeries.dialog.pickBorehole')}</option>
-                    {boreholes.map(b => (
+                    {boreholeOptions.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name}
                       </option>
                     ))}
                   </select>
-                  {boreholeHint && <p className="text-text-muted mt-0.5">{boreholeHint}</p>}
+                  {boreholeHint && !dovRefusal && (
+                    <p className="text-text-muted mt-0.5">{boreholeHint}</p>
+                  )}
+                  {dovRefusal && (
+                    <p
+                      className="text-status-danger mt-0.5"
+                      role="alert"
+                      data-testid="lab-import-dov-lookup"
+                    >
+                      {dovRefusal}
+                    </p>
+                  )}
                 </section>
 
                 {boreholeId && (
@@ -378,15 +479,23 @@ export default function LabSeriesImportDialog({
             )}
           </div>
           <div className="flex justify-end gap-2 px-4 py-2 border-t border-border-subtle">
-            <Button onClick={cancelAll} disabled={busy}>
-              {t('labSeries.dialog.cancel')}
-            </Button>
-            <Button onClick={() => advance({ skipped: 1 })} disabled={busy}>
-              {t('labSeries.dialog.skip')}
-            </Button>
-            <Button variant="primary" onClick={() => void doImport(false)} disabled={!canImport}>
-              {t('labSeries.dialog.import')}
-            </Button>
+            {done ? (
+              <Button variant="primary" onClick={cancelAll}>
+                {t('labSeries.dialog.close')}
+              </Button>
+            ) : (
+              <>
+                <Button onClick={cancelAll} disabled={busy}>
+                  {t('labSeries.dialog.cancel')}
+                </Button>
+                <Button onClick={() => advance({ skipped: 1 })} disabled={busy}>
+                  {t('labSeries.dialog.skip')}
+                </Button>
+                <Button variant="primary" onClick={() => void doImport(false)} disabled={!canImport}>
+                  {t('labSeries.dialog.import')}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </Modal>
