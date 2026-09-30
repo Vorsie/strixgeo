@@ -306,6 +306,37 @@ ride in the `.gmproj` bundle, never in localStorage alone.
 - `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
 - `IcZoneLabelsOverlay` — absolute overlay at `bottom: 46` inside the Ic panel; each label is pinned at its zone's x-centre and rotated -55° (`transformOrigin: bottom center`) so they read diagonally upward; uses `IC_ZONE_SHORT` for abbreviated names in narrow zones
 
+## PDF CPT import dialog (`components/cptPdf/`)
+Data → Import → "Import CPTs from a PDF report" (toolbar verb `import-verb-cpt-pdf`,
+File menu `menu:import-cpt-pdf`). `useCptPdfImport` (App level) picks the report
+and books the settled outcomes like every CPT import: one summary toast, new CPTs
+into the manifest + session-import set, a replaced CPT → `markMutated` (never the
+session-import set), list refetch, first CPT selected. The pipeline and the
+owner rulings are in [parsers-cpt-pdf.md](parsers-cpt-pdf.md).
+- `CptPdfImportDialog` — triage progress (`useCptPdfTriage`: upload → SSE job
+  stream via the shared `utils/sseEvents.readSseEvents`, the same reader the DOV
+  import uses) → list → per-sounding calibration → ONE `POST /cpt/pdf/import`.
+  A `confirmation_required` sounding is asked with `CptRefreshConfirmDialog`
+  (Cancel focused, "Replace data"), one at a time; only the agreed ones are
+  re-posted with `confirm_refresh`. Ends on `CptPdfImportReport` (per-sounding
+  status + the digitiser's remarks).
+- `CptPdfTriageList` — campaign soundings with an 80 dpi page thumbnail
+  (`GET /cpt/pdf/page/...png`), all ticked; unknown-origin soundings apart and
+  unticked; a collapsed "Not imported" block naming the desk-study ids once plus
+  the repeated / unread sheets; the "tick reading unavailable" note when the
+  backend has no OCR.
+- `CptPdfCalibrationOverlay` — the backend's overlay PNG (frames cyan, digitised
+  curve orange) with an SVG of draggable frame corners on top; per panel the two
+  tick values of each axis (`NumericInput`), the quantity (`<select>`), and an
+  eyedropper (one-pixel canvas read → curve colour → re-extract). "Re-extract"
+  posts the calibration dicts to `/cpt/pdf/digitise`; the header fields the sheet
+  did not print (X, Y, EPSG default 31370, ground level, date) are typed here.
+  The dict edits are pure functions in `cptPdfCalibrationEdits.ts`; an axis anchor
+  on a dragged frame edge moves with it, one on a tick inside the frame stays.
+- `CptProvenanceTag` — "digitised from <file>, p. <pages>" on the CPT chart for a
+  CPT whose `import_provenance.source` is `pdf-digitised`; `ElevationEditor`
+  labels its Z source "(PDF)".
+
 ## Litho accept flow (Phase 1, #55)
 
 Accept flow wires the Robertson-SBT / borehole suggestion output through to the geological model.
