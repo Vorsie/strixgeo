@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     LINE_INK_THRESHOLD,
     SKEW_COARSE_STEP_DEG,
@@ -43,6 +43,7 @@ class RasterDeskewer(GroundModelLogger):
             The skew; rotating the image by minus this value straightens it.
         """
         ink = (to_gray(image) < LINE_INK_THRESHOLD).astype(np.float32)
+        cv2 = require_cv2()
         scale = min(1.0, SKEW_WORK_MAX_SIDE_PX / max(ink.shape))
         if scale < 1.0:
             ink = np.asarray(
@@ -84,6 +85,7 @@ class RasterDeskewer(GroundModelLogger):
         if abs(skew) < SKEW_FINE_STEP_DEG / 2:
             return image, 0.0
         h, w = image.shape[:2]
+        cv2 = require_cv2()
         m = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), -skew, 1.0)
         border = (255, 255, 255) if image.ndim == 3 else 255
         straight = cv2.warpAffine(image, m, (w, h), flags=cv2.INTER_LINEAR, borderValue=border)
