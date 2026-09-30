@@ -61,6 +61,9 @@ _REFRESHED_COLUMNS: tuple[str, ...] = (
     "stop_criterion",
     "max_depth_m",
     "n_rows",
+    # A re-read sounding's provenance is the fresh reading's (PDF digitiser);
+    # a GEF / DOV refresh writes None, which is what a file import stores.
+    "import_provenance",
 )
 
 # Series columns replaced wholesale on a refresh. The array columns ARE the
@@ -582,6 +585,7 @@ class ImportCpt(GroundModelLogger):
             stop_criterion=h.stop_criterion,
             max_depth_m=max_depth_m(df),
             n_rows=len(df),
+            import_provenance=result.import_provenance,
             series=CptSeriesOrm(
                 cpt_id=cpt_id,
                 depths_m=df["depth_m"].to_list(),
