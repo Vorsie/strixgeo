@@ -216,6 +216,27 @@ export type {
 export { DuplicateContactError } from './clients/geology'
 
 // ---------------------------------------------------------------------------
+// Raw lab-series domain (Geosys oedometer / triaxial readings)
+// ---------------------------------------------------------------------------
+
+export type {
+  LabSeriesIssue,
+  LabSeriesIdentity,
+  LabSeriesPreviewSample,
+  LabSeriesPreviewResponse,
+  LabSeriesImportResponse,
+  LabSeriesImportTarget,
+  LabSeriesRefreshDiff,
+  LabSeriesChannel,
+  LabSeriesStage,
+  LabSeriesSpecimen,
+  LabSeriesLabResult,
+  LabSeriesTest,
+  LabSeriesTestSummary,
+} from './clients/labSeries'
+export { LabSeriesRefreshConfirmationRequiredError } from './clients/labSeries'
+
+// ---------------------------------------------------------------------------
 // Codelist / Virtuele Boring domain
 // ---------------------------------------------------------------------------
 
@@ -246,6 +267,7 @@ import { demClient, sectionClient } from './clients/section'
 import { bedOverrideClient } from './clients/bedOverrides'
 import { geologyClient } from './clients/geology'
 import { codelistClient, virtueleboringClient } from './clients/codelist'
+import { labSeriesClient } from './clients/labSeries'
 
 /** Structured API client — use ``api.<domain>.<method>(...)`` at call sites. */
 export const api = {
@@ -259,4 +281,5 @@ export const api = {
   bedOverrides: bedOverrideClient,
   codelists: codelistClient,
   virtueleBoring: virtueleboringClient,
+  labSeries: labSeriesClient,
 }
