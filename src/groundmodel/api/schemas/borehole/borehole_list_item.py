@@ -62,6 +62,11 @@ class BoreholeListItem(BaseModel):
         ``BoreholeOrm`` docstring). The frontend uses them to show
         ``"5 drill segments, 12 field log entries"``-style badges
         without firing a detail fetch per row.
+    lab_series_count:
+        Raw lab tests (oedometer / triaxial series) on the borehole's
+        samples; the Data stage shows a marker when > 0 (owner 2026-09-30).
+        Additive: ``GET /borehole/`` fills it (0 for none); an answer that
+        does not count (the elevation PATCH) leaves it ``None``.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -81,3 +86,4 @@ class BoreholeListItem(BaseModel):
     start_date: date | None
     n_drill_segments: int | None
     n_field_log_intervals: int | None
+    lab_series_count: int | None = None
