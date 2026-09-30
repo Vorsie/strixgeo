@@ -61,7 +61,7 @@ export default function DataToolbar(): JSX.Element {
 
   async function handleImportLabSeries(): Promise<void> {
     const paths = await window.electron.openFiles([
-      { name: 'Lab exports (Geosys)', extensions: ['txt', 'csv', 'dat'] },
+      { name: 'Lab exports', extensions: ['txt', 'csv', 'dat'] },
       { name: 'All Files', extensions: ['*'] },
     ])
     if (paths.length > 0) setLabFiles(paths)
@@ -70,6 +70,7 @@ export default function DataToolbar(): JSX.Element {
   function finishLabImport(summary: LabSeriesImportSummary): void {
     setLabFiles(null)
     const written = summary.imported + summary.replaced
+    const fetched = summary.dovFetched
     shell.toasts.toast(
       summary.failed > 0 && written === 0 ? 'error' : 'success',
       t('labSeries.toast.summary', {
@@ -78,8 +79,17 @@ export default function DataToolbar(): JSX.Element {
         unchanged: summary.unchanged,
         skipped: summary.skipped,
         failed: summary.failed,
-      }),
+      }) +
+        (fetched.length > 0
+          ? `. ${t('labSeries.toast.dovFetched', { names: fetched.map(b => b.name).join(', ') })}`
+          : ''),
     )
+    // A borehole fetched from DOV was written by the preview, even when its
+    // file was then skipped: it joins the list, and the project is dirty.
+    if (fetched.length > 0) {
+      void shell.investigations.adoptImportedBoreholes?.(fetched.map(b => b.id))
+      shell.coordinator?.markMutated?.()
+    }
     if (written === 0) return
     // The import wrote to the database: the project is dirty until File > Save
     // puts the tests into the .strix; a new sample changes the borehole detail.
