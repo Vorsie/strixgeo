@@ -162,3 +162,38 @@ def test_an_unknown_track_kind_is_refused() -> None:
     result = validate_track_intervals("drill_method", [_desc(0.0, 1.0)], total_depth_m=None)
     assert _codes(result.errors) == ["unknown_kind"]
     assert result.errors[0].loc == "kind"
+
+
+# --- owner 2026-09-30: "i want max 3 admixtures in coded lithology" -----------
+
+
+def _coded_with(n_admixtures: int) -> TrackInterval:
+    """A coded-lithology row carrying ``n_admixtures`` admixtures."""
+    return TrackInterval(
+        top_m=0.0,
+        base_m=1.0,
+        main_soil_codes=("Z",),
+        admixtures=tuple(
+            Admixture(soil_code=code, amount="W", locally=False)
+            for code in ("K", "L", "H", "G", "S")[:n_admixtures]
+        ),
+    )
+
+
+def test_a_coded_lithology_row_with_three_admixtures_is_accepted() -> None:
+    """Max 3 admixtures in coded lithology: three is the limit, and allowed."""
+    result = validate_track_intervals("coded_lithology", [_coded_with(3)], total_depth_m=None)
+    assert result.errors == ()
+
+
+def test_a_fourth_admixture_on_a_coded_lithology_row_is_refused() -> None:
+    """Max 3 admixtures in coded lithology: a fourth is refused, with its key path."""
+    result = validate_track_intervals("coded_lithology", [_coded_with(4)], total_depth_m=None)
+    assert _codes(result.errors) == ["too_many_admixtures"]
+    assert result.errors[0].loc == "intervals.0.admixtures"
+
+
+def test_the_admixture_cap_holds_on_the_geotechnical_coding_track_too() -> None:
+    """Both coded kinds carry admixtures; the cap is the same on each."""
+    result = validate_track_intervals("geotechnical_coding", [_coded_with(5)], total_depth_m=None)
+    assert _codes(result.errors) == ["too_many_admixtures"]
