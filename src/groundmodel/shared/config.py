@@ -1,5 +1,6 @@
 """Application settings loaded from environment variables."""
 
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -23,6 +24,11 @@ def _default_dov_cache_dir() -> Path:
 def _default_dem_cache_dir() -> Path:
     """Return the default DEM GeoTIFF tile cache directory under the user's home."""
     return Path.home() / ".groundmodel" / "dem_cache"
+
+
+def _default_cpt_pdf_store_dir() -> Path:
+    """Return the default spool directory for uploaded PDF CPT reports (the OS temp dir)."""
+    return Path(tempfile.gettempdir()) / "strixgeo-cpt-pdf"
 
 
 class Settings(BaseSettings):
@@ -113,6 +119,12 @@ class Settings(BaseSettings):
     # GeoTIFFs for urban extents); 512 MiB accommodates ~50–200 tiles.
     # Overridable via DEM_CACHE_MAX_BYTES (0 disables eviction).
     dem_cache_max_bytes: int = 512 * 1024 * 1024
+    # Where uploaded PDF CPT reports are spooled for the import dialog, one
+    # sub-directory per project, one file per report SHA-256 (so the triage,
+    # the re-extracts and the import read the same bytes without re-uploading
+    # a 50 MB report). A temp location: the stored CPT keeps the provenance,
+    # not the file. Override with CPT_PDF_STORE_DIR.
+    cpt_pdf_store_dir: Path = _default_cpt_pdf_store_dir()
 
     model_config = {"env_file": ".env"}
 
