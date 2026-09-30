@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import DateTime, Double, Index, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -104,6 +106,14 @@ class CptOrm(Base):
     # full series arrays (which can be 10k+ floats per CPT).
     max_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
     n_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # How a CPT that did NOT come from a data file was produced (Data
+    # Integrity rule 1). The PDF digitiser writes ``source = "pdf-digitised"``,
+    # the report file + sha, the pages, the calibration and the digitiser
+    # version; a clipped point's flag and the printed arrow value live here
+    # too (the series arrays have no flag column). NULL for GEF / DOV imports,
+    # whose file is their provenance.
+    import_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
