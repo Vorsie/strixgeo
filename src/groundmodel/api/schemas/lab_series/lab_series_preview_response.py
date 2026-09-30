@@ -15,7 +15,10 @@ class LabSeriesPreviewResponse(BaseModel):
     Mirrors :class:`~groundmodel.application.lab_series_preview.LabSeriesPreview`
     field for field (see there for each field's meaning). ``borehole_match``
     is ``unique`` | ``ambiguous`` | ``none`` | ``chosen``; ``sample_match`` is
-    ``overlap`` | ``sample_number`` | ``none``.
+    ``overlap`` | ``sample_number`` | ``none``. ``dov_lookup`` (additive,
+    2026-09-30) is ``{status, borehole_name, borehole_id}`` with status
+    ``fetched`` | ``not_found`` | ``unreachable`` when the borehole was looked
+    up in DOV, else ``None``.
     """
 
     file_name: str
@@ -34,3 +37,4 @@ class LabSeriesPreviewResponse(BaseModel):
     existing_test: dict[str, Any] | None = None
     issues: list[ValidationIssueSchema] = []
     has_errors: bool = False
+    dov_lookup: dict[str, Any] | None = None
