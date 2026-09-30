@@ -156,3 +156,19 @@ class SampleOrm(Base):
         order_by="ScalarLabTestOrm.id",
         lazy=RELATIONSHIP_LAZY,
     )
+    # Raw lab-series tests (oedometer / triaxial readings; the seventh family).
+    # NOT in the LAB_TEST_FAMILIES registry: that registry assumes a flat leaf
+    # row per family, this one nests test -> specimens -> stages -> channels,
+    # so the bundle serialises it with its own builder and the borehole detail
+    # never eager-loads it (its channel arrays are far too heavy for the
+    # section-open hot path; ``GET /samples/{id}/lab-series`` serves them).
+    # passive_deletes: the FK is ON DELETE CASCADE, so deleting a sample lets
+    # Postgres drop the tree instead of the ORM loading it first.
+    lab_series_tests: Mapped[list[LabSeriesTestOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "LabSeriesTestOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="LabSeriesTestOrm.id",
+        lazy=RELATIONSHIP_LAZY,
+    )
