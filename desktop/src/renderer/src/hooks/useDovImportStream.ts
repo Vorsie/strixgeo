@@ -29,6 +29,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import { messageForApiCode, messageForDetail } from '../api/clients/apiCodeMessages'
 import { log } from '../utils/log'
+import { readSseEvents } from '../utils/sseEvents'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,91 +267,61 @@ export function useDovImportStream(): UseDovImportStreamResult {
           return
         }
 
-        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
-        // Accumulate partial SSE frames across chunk boundaries.
-        let buffer = ''
+        for await (const event of readSseEvents(res.body, raw =>
+          log.warn('dov-stream', `unparseable SSE frame: ${raw}`),
+        )) {
+          if (event.type === 'done') {
+            log.success('dov-stream', `${kind} import done`, event)
+            setState({ status: 'done', kind, result: event as unknown as ImportDonePayload })
+            return
+          }
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += value
+          if (event.type === 'error') {
+            // A guard code (too large, already running) shows in the app's language.
+            const msg =
+              messageForApiCode(event.code as string | undefined) ??
+              (event.message as string | undefined) ??
+              'Import failed'
+            log.error('dov-stream', `server-side error: ${msg}`)
+            setState({ status: 'error', message: msg })
+            return
+          }
 
-          // SSE frames are separated by double newlines. Split on them
-          // and process every complete frame in the current buffer.
-          const parts = buffer.split('\n\n')
-          // The last element may be an incomplete frame — keep it in the
-          // buffer for the next chunk.
-          buffer = parts.pop() ?? ''
+          // Pins event — ``{ type: "pins", items: [...] }``
+          // Fires once after WFS discovery, before any XML download.
+          // Populates pendingPins so the map renders all N investigation
+          // locations immediately; discarded wholesale on "done" when the
+          // real GET /cpt/ list refresh repopulates the real markers.
+          if (event.type === 'pins' && Array.isArray(event.items)) {
+            const pins = event.items as PendingPin[]
+            log.info('dov-stream', `pins event: ${pins.length} pending markers`)
+            setState(prev => {
+              if (prev.status !== 'running') return prev
+              return { ...prev, pendingPins: pins }
+            })
+            continue
+          }
 
-          for (const frame of parts) {
-            // Each frame is ``data: <json>`` — strip the prefix.
-            const dataLine = frame
-              .split('\n')
-              .find(l => l.startsWith('data: '))
-            if (!dataLine) continue
-            const raw = dataLine.slice('data: '.length)
-
-            let event: Record<string, unknown>
-            try {
-              event = JSON.parse(raw) as Record<string, unknown>
-            } catch {
-              log.warn('dov-stream', `unparseable SSE frame: ${raw}`)
-              continue
+          // Progress tick — ``{ phase, done, total }``
+          if (typeof event.phase === 'string') {
+            const tick: ProgressTick = {
+              phase: event.phase as ImportPhase,
+              done: (event.done as number) ?? 0,
+              total: (event.total as number) ?? 0,
             }
-
-            if (event.type === 'done') {
-              log.success('dov-stream', `${kind} import done`, event)
-              setState({ status: 'done', kind, result: event as unknown as ImportDonePayload })
-              return
-            }
-
-            if (event.type === 'error') {
-              // A guard code (too large, already running) shows in the app's language.
-              const msg =
-                messageForApiCode(event.code as string | undefined) ??
-                (event.message as string | undefined) ??
-                'Import failed'
-              log.error('dov-stream', `server-side error: ${msg}`)
-              setState({ status: 'error', message: msg })
-              return
-            }
-
-            // Pins event — ``{ type: "pins", items: [...] }``
-            // Fires once after WFS discovery, before any XML download.
-            // Populates pendingPins so the map renders all N investigation
-            // locations immediately; discarded wholesale on "done" when the
-            // real GET /cpt/ list refresh repopulates the real markers.
-            if (event.type === 'pins' && Array.isArray(event.items)) {
-              const pins = event.items as PendingPin[]
-              log.info('dov-stream', `pins event: ${pins.length} pending markers`)
-              setState(prev => {
-                if (prev.status !== 'running') return prev
-                return { ...prev, pendingPins: pins }
-              })
-              continue
-            }
-
-            // Progress tick — ``{ phase, done, total }``
-            if (typeof event.phase === 'string') {
-              const tick: ProgressTick = {
-                phase: event.phase as ImportPhase,
-                done: (event.done as number) ?? 0,
-                total: (event.total as number) ?? 0,
+            log.debug(
+              'dov-stream',
+              `[${tick.phase}] ${tick.done}/${tick.total}`,
+            )
+            const phaseIdx = PHASE_ORDER.indexOf(tick.phase)
+            setState(prev => {
+              if (prev.status !== 'running') return prev
+              return {
+                ...prev,
+                latest: tick,
+                highestPhaseIndex: Math.max(prev.highestPhaseIndex, phaseIdx),
               }
-              log.debug(
-                'dov-stream',
-                `[${tick.phase}] ${tick.done}/${tick.total}`,
-              )
-              const phaseIdx = PHASE_ORDER.indexOf(tick.phase)
-              setState(prev => {
-                if (prev.status !== 'running') return prev
-                return {
-                  ...prev,
-                  latest: tick,
-                  highestPhaseIndex: Math.max(prev.highestPhaseIndex, phaseIdx),
-                }
-              })
-            }
+            })
           }
         }
 
