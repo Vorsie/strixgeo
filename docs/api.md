@@ -122,6 +122,8 @@ GET    /dov/virtuele-boring/lagenmodellen — Return the list of DOV lagenmodels
 GET    /projects/{project_id}/virtuele-boring/predictions — Return overlay predictions for every investigation in a project.
 ```
 
+DOV being slow or unreachable is a degraded path, never a 500. The predictions sweep skips each (investigation, model) call that fails — a network failure (timeout, reset, refused) or a DOV HTTP error — logs a WARNING, and answers **200** with the data that came back plus `skipped: [{investigation_kind, investigation_id, name, model, reason: "dov_unreachable" | "dov_http_error", detail}]` (additive; `skipped_count` still counts only the non-Lambert-72 / no-coordinate investigations). Only when EVERY call failed for a network reason does it answer **503** with `detail = {code: "dov_unreachable", message: "DOV is not reachable right now; the predictions will load when it is."}`; the desktop treats that code as a degraded overlay (one WARN, no diagnostic, no toast). Any other exception still propagates.
+
 **Geology » Formations — `geology/formations.py`**
 
 ```
