@@ -17,6 +17,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { BoreholeDetailResponse, BoreholeTrackResponse } from '../../../api/client'
+import { ApiError } from '../../../api/clients/shared'
 import type { BoreholeTrackEditing } from '../../../hooks/useBoreholeTrackEdits'
 import { makeFixtureBorehole } from '../../../test/fixtures/borehole'
 import BoreholeTracksDialog from './BoreholeTracksDialog'
@@ -74,6 +75,7 @@ function setup(detail: BoreholeDetailResponse = borehole()) {
   const editing: BoreholeTrackEditing = {
     saveTrack: vi.fn(async () => saved('field_log:moisture')),
     deleteTrack: vi.fn(async () => undefined),
+    resetToDov: vi.fn(async () => ({ tracks: [], discarded_edits: 1, kept_manual: 1 })),
   }
   const onClose = vi.fn()
   render(<BoreholeTracksDialog open borehole={detail} editing={editing} onClose={onClose} />)
@@ -229,5 +231,118 @@ describe('BoreholeTracksDialog — the interval editor', () => {
     addTrack('formal_stratigraphy')
     const unit = screen.getByLabelText('Unit, row 1') as HTMLSelectElement
     expect(within(unit).getByRole('option', { name: 'Bm — Formatie van Boom' })).toBeTruthy()
+  })
+})
+
+// Owner dogfeed 2026-09-30, one block per ask.
+
+/** The fixture with its DOV coded track edited by hand. */
+function editedBorehole(): BoreholeDetailResponse {
+  const bh = borehole()
+  bh.observations[0] = { ...bh.observations[0], edited_manually_at: '2026-09-30T08:00:00Z' }
+  return bh
+}
+
+describe('BoreholeTracksDialog — Reset to DOV ("a per borehole button to reset to dov defaults")', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('asks first, Cancel focused, naming how many edited tracks lose their edits', async () => {
+    const s = setup(editedBorehole())
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to DOV' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Reset to DOV?' })
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(within(dialog).getByText(/1 track edited by hand loses its edits/)).toBeTruthy()
+    expect(s.editing.resetToDov).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset to DOV' }))
+    await waitFor(() => expect(s.editing.resetToDov).toHaveBeenCalledWith(s.detail.id, null))
+  })
+
+  it('Cancel resets nothing', async () => {
+    const s = setup(editedBorehole())
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to DOV' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Reset to DOV?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(s.editing.resetToDov).not.toHaveBeenCalled()
+  })
+
+  it('a DOV track has its own Reset; a manual track has none', async () => {
+    const s = setup(editedBorehole())
+    expect(within(trackRow(/Formal stratigraphy/)).queryByRole('button', { name: 'Reset' })).toBeNull()
+    fireEvent.click(within(trackRow(/Coded lithology/)).getByRole('button', { name: 'Reset' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Reset to DOV?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset to DOV' }))
+    await waitFor(() => expect(s.editing.resetToDov).toHaveBeenCalledWith(s.detail.id, 'obs-litho'))
+  })
+
+  it('no DOV XML in the cache is a notice, not an error', async () => {
+    const s = setup(editedBorehole())
+    ;(s.editing.resetToDov as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError('nothing was reset', 409, {
+        detail: { code: 'borehole_reset_no_dov_source', message: 'nothing was reset', missing: [] },
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to DOV' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Reset to DOV?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reset to DOV' }))
+    const notice = await screen.findByRole('status')
+    expect(notice.textContent).toMatch(/no DOV data to reset to/)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+describe('BoreholeTracksDialog — the reference pane ("see the info that is already there in other tracks")', () => {
+  it('lists the other tracks beside the rows and highlights what overlaps the row being typed', () => {
+    setup()
+    fireEvent.click(within(trackRow(/Coded lithology/)).getByRole('button', { name: 'Edit' }))
+    const pane = screen.getByRole('complementary', { name: 'Other tracks of this borehole' })
+    // The edited track itself is not a reference; the field logs are.
+    expect(within(pane).queryByText(/Coded lithology/)).toBeNull()
+    const grijs = within(pane).getByText('grijs').closest('li') as HTMLElement
+    const bruin = within(pane).getByText('bruin').closest('li') as HTMLElement
+    fireEvent.focus(screen.getByLabelText('Top (m), row 2'))
+    // Row 2 is 1.5-3.2 m: the grey colour interval (1.5-3.2) overlaps, the brown one (0-1.5) does not.
+    expect(grijs.getAttribute('data-overlaps')).toBe('true')
+    expect(bruin.getAttribute('data-overlaps')).toBe('false')
+  })
+})
+
+describe('BoreholeTracksDialog — "Start from" a track ("copy another track as template")', () => {
+  it('a new coded track started from the coded track copies its depths and codes, and stays manual', async () => {
+    const s = setup()
+    fireEvent.change(screen.getByLabelText('Kind of the new track'), { target: { value: 'geotechnical_coding' } })
+    fireEvent.change(screen.getByLabelText('Start from'), { target: { value: 'obs-litho' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add track' }))
+    expect((screen.getByLabelText('Base (m), row 3') as HTMLInputElement).value).toBe('5')
+    expect((screen.getByLabelText('Main soil, row 2') as HTMLSelectElement).value).toBe('KL')
+    fireEvent.click(screen.getByRole('button', { name: 'Save track' }))
+    await waitFor(() => expect(s.editing.saveTrack).toHaveBeenCalledTimes(1))
+    const [, draft] = (s.editing.saveTrack as ReturnType<typeof vi.fn>).mock.calls[0]
+    // trackId null = a create, which the backend stores as source = manual.
+    expect(draft.trackId).toBeNull()
+    expect(draft.intervals.map((i: { base_m: number }) => i.base_m)).toEqual([1.5, 3.2, 5])
+  })
+
+  it('a description started from the coded track copies only the depths', () => {
+    setup()
+    fireEvent.change(screen.getByLabelText('Kind of the new track'), {
+      target: { value: 'lithological_description' },
+    })
+    fireEvent.change(screen.getByLabelText('Start from'), { target: { value: 'obs-litho' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add track' }))
+    expect((screen.getByLabelText('Top (m), row 2') as HTMLInputElement).value).toBe('1.5')
+    expect((screen.getByLabelText('Description, row 2') as HTMLInputElement).value).toBe('')
+  })
+})
+
+describe('BoreholeTracksDialog — max 3 admixtures ("i want max 3 admixtures in coded lithology")', () => {
+  it('never offers a fourth admixture row and says 3 at most', () => {
+    setup()
+    fireEvent.change(screen.getByLabelText('Kind of the new track'), { target: { value: 'coded_lithology' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add track' }))
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(screen.getByRole('button', { name: '+ Add admixture' }))
+    }
+    expect(screen.queryByRole('button', { name: '+ Add admixture' })).toBeNull()
+    expect(screen.getByText('3 at most')).toBeTruthy()
   })
 })
