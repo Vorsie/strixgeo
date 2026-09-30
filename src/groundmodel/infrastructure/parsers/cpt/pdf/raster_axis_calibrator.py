@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 from groundmodel.infrastructure.parsers.cpt.pdf.axis_scale import AxisScale
@@ -12,6 +11,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_constants import 
     UNIT_TO_STORAGE_FACTOR,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader import OcrReader
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.page_calibration import PageCalibration
 from groundmodel.infrastructure.parsers.cpt.pdf.page_word import PageWord
 from groundmodel.infrastructure.parsers.cpt.pdf.panel_calibration import PanelCalibration
@@ -236,6 +236,7 @@ class RasterAxisCalibrator(GroundModelLogger):
         crop = image[int(f.y0) : int(f.y1), int(f.x0) : int(f.x1)]
         if crop.size == 0:
             return None
+        cv2 = require_cv2()
         hsv = cv2.cvtColor(np.ascontiguousarray(crop), cv2.COLOR_RGB2HSV)
         counts: list[tuple[int, PanelKind]] = []
         for kind, colour in self._profile.curve_colours.items():
