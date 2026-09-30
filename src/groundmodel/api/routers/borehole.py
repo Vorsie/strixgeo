@@ -60,6 +60,9 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
     LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
 )
+from groundmodel.infrastructure.db.repositories.lab_series_repository import (
+    LabSeriesRepository,
+)
 from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
 from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
 from groundmodel.shared.exceptions import (
@@ -544,9 +547,16 @@ async def list_boreholes(
 
     repo = BoreholeRepository(session)
     boreholes = await repo.list_all(app_project_uuid)
+    # One grouped count for the whole list (the lab-test marker on each row).
+    lab_counts = await LabSeriesRepository(session).count_tests_by_borehole(app_project_uuid)
     # Pydantic ``from_attributes=True`` config on BoreholeListItem maps the
     # ORM columns by name — no manual field forwarding needed.
-    return [BoreholeListItem.model_validate(b) for b in boreholes]
+    return [
+        BoreholeListItem.model_validate(b).model_copy(
+            update={"lab_series_count": lab_counts.get(b.id, 0)}
+        )
+        for b in boreholes
+    ]
 
 
 @router.get("/{borehole_id}", response_model=BoreholeDetailResponse)
