@@ -111,6 +111,22 @@ export interface VirtueleBoringPredictionsResponse {
   models: string[]
   predictions: VirtueleBoringInvestigationPrediction[]
   skipped_count: number
+  /** Every per-call fetch that failed, with its reason (additive
+   * 2026-09-30; absent from older backends). A partial DOV outage answers
+   * 200 with the data that came back and this list explaining the rest. */
+  skipped?: VirtueleBoringSkippedFetch[]
+}
+
+/** One (investigation, model) fetch that returned nothing, and why. */
+export interface VirtueleBoringSkippedFetch {
+  investigation_kind: 'cpt' | 'borehole'
+  investigation_id: string
+  name: string
+  model: string
+  /** ``dov_unreachable`` = no HTTP answer; ``dov_http_error`` = DOV answered non-2xx. */
+  reason: 'dov_unreachable' | 'dov_http_error'
+  /** Transport-error class (``ReadTimeout``) or ``HTTP <status>``. */
+  detail: string
 }
 
 // ---------------------------------------------------------------------------
