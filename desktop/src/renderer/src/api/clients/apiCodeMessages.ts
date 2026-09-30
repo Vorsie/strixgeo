@@ -11,6 +11,7 @@ const CODE_KEYS = {
   dov_import_already_running: 'api.code.dovImportAlreadyRunning',
   body_partition_locked: 'api.code.bodyPartitionLocked',
   lock_timeout: 'api.code.lockTimeout',
+  dov_unreachable: 'api.code.dovUnreachable',
 } as const
 
 type KnownCode = keyof typeof CODE_KEYS
