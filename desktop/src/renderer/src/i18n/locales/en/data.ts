@@ -13,6 +13,7 @@ export const DATA = {
   'data.toolbar.menuLabel': '{label} actions',
   'data.toolbar.importCptGef': 'Import CPT (.gef)',
   'data.toolbar.importCptDov': 'Import CPT from DOV (draw bbox)',
+  'data.toolbar.importCptPdf': 'Import CPTs from a PDF report',
   'data.toolbar.importBoreholeDov': 'Import Borehole from DOV (draw bbox)',
   'data.toolbar.importDmt': 'Import DMT',
   'data.toolbar.importLabTest': 'Import lab tests',
