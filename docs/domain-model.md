@@ -46,6 +46,27 @@ Geophysical: MASW, Seismic CPT
   validated against a domain rule that needs first-class type safety.
   Adding a new test to the catch-all is one tuple in
   `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS` — no migration, no schema change.
+- **Hand-edited tracks (2026-09-29).** A borehole's tracks are its
+  `Observation` streams plus one field-log track per `FieldLogKind`. The
+  engineer can add any track by hand and change any track, imported ones
+  included (`CreateBoreholeTrack` / `ReplaceBoreholeTrack` /
+  `DeleteBoreholeTrack`). Provenance (Data Integrity rule 1) rides on both
+  tables: `source` = `"dov"` | `"manual"` (`TrackSource`), and
+  `edited_manually_at`. A hand-made track is `manual`; an imported track that
+  is edited STAYS `dov`, keeps its `dov_permkey` and gets `edited_manually_at`,
+  so the UI says "edited by hand". When several tracks of one kind exist, every
+  consumer uses the ONE rule in `domain/services/track_preference.py`: the
+  manual track, else the newest edited, else the first by `observation_date`.
+  **Re-import restores:** a CONSENTED refresh of the borehole from its source
+  (a future XML import branch, a future DOV refresh) must rewrite the imported
+  tracks from the fresh parse (dropping `edited_manually_at`) and leave the
+  manual tracks alone. No such refresh exists today — the DOV bbox import SKIPS
+  an interpretation it already holds (by `dov_permkey`) — so hand edits
+  survive a re-import, while a DELETED DOV observation track comes back on the
+  next DOV import of its area (its permkey is gone); a deleted DOV field-log
+  track does not (field logs of an existing borehole are not re-imported).
+  Build the restore together with the refresh path, never as a silent
+  overwrite.
 
 **Interpretation primitives by model kind (post-A4 Shape A):**
 - Geological models: ``FormationContact`` rows are the boundary-centric
