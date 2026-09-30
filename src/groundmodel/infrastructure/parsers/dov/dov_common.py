@@ -188,6 +188,18 @@ DOV_WGS84_TO_LAMBERT72: Transformer = Transformer.from_crs(
     "EPSG:4326", f"EPSG:{DOV_HORIZONTAL_EPSG}", always_xy=True
 )
 
+# The inverse (Lambert 72 metres -> WGS84 lon, lat): a borehole found by name
+# carries Lambert 72 coordinates, the bbox-shaped child phases take WGS84.
+DOV_LAMBERT72_TO_WGS84: Transformer = Transformer.from_crs(
+    f"EPSG:{DOV_HORIZONTAL_EPSG}", "EPSG:4326", always_xy=True
+)
+
+# Half-width (m) of the box the interpretation / sample phases search around ONE
+# borehole imported by name. Their WFS rows sit on the borehole's own point; 25 m
+# absorbs rounding between layers without reaching far (rows of other boreholes in
+# the box are ignored: those phases attach only to the boreholes they were given).
+DOV_SINGLE_BOREHOLE_BOX_HALF_WIDTH_M = 25.0
+
 
 def cql_bbox_predicate(x1: float, y1: float, x2: float, y2: float) -> str:
     """Return a CQL ``BBOX(geom, ...)`` spatial predicate for a Lambert-72 bbox.
