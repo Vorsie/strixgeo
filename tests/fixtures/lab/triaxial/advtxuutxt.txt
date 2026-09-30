@@ -1,7 +1,7 @@
 Gegevens van het monster
 Opdrachtnummer:				GEO-25/022
-Rapport bij:				Vorsselmans, Robin
-Herkomst en kenmerk:			Merelbeke-Melle, Ringvaart perceel 4
+Rapport bij:				Contact, Placeholder
+Herkomst en kenmerk:			Site placeholder
 Type proef:				UU
 Boringnummer:				B17
 Volgnummer:				N002
