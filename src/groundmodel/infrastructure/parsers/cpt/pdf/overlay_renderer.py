@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cv2
 import numpy as np
 
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.page_calibration import PageCalibration
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     OVERLAY_CURVE_BGR,
@@ -58,6 +58,7 @@ class OverlayRenderer(GroundModelLogger):
         pathlib.Path
             The written file.
         """
+        cv2 = require_cv2()
         canvas = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         factor = 1.0
         if calibration.coordinate_space == PDF_POINTS:
