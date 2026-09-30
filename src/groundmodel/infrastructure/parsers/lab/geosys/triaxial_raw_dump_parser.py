@@ -381,6 +381,19 @@ class TriaxialRawDumpParser(GroundModelLogger):
                     "from the first point; the stress columns are not force / area",
                 )
             )
+        for group, channels in (("measured", s.measured), ("lab-derived", s.lab_derived)):
+            for key, values in channels.items():
+                present = {v for v in values if v is not None}
+                if len(values) > 1 and len(present) == 1:
+                    (value,) = present
+                    result.issues.append(
+                        ValidationIssue(
+                            ValidationLevel.INFO,
+                            "CHANNEL_CONSTANT",
+                            f"{tag}: {group} channel {key} is {value} at all {len(values)} "
+                            "points; the machine probably did not log it (values kept)",
+                        )
+                    )
         disp0 = disp[0] if disp else None
         strain0 = (s.lab_derived.get("axial_strain_pct") or [None])[0]
         if disp0 == 0 and strain0 is not None and abs(strain0) > TX_STRAIN_OFFSET_TOLERANCE_PCT:
