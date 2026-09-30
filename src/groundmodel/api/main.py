@@ -29,6 +29,7 @@ from groundmodel.api.routers import (
     dem,
     geology,
     investigation_review,
+    lab_series,
     project,
     stratigraphy_lumping,
     virtuele_boring,
@@ -526,6 +527,7 @@ def create_app(environment: str | None = None) -> FastAPI:
     app.include_router(cross_section.router)
     app.include_router(bed_override.router)
     app.include_router(investigation_review.router)
+    app.include_router(lab_series.router)
     app.include_router(stratigraphy_lumping.router)
     app.include_router(dem.router)
     app.include_router(codelists.router)
