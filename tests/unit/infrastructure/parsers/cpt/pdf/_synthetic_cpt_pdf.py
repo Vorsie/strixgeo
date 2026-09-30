@@ -88,6 +88,9 @@ class SyntheticPageSpec:
     extra_lines: list[str] = field(default_factory=list)
     qc_label_shift: float = 0.0
     clip_crossings: bool = False
+    x: float | None = None
+    y: float | None = None
+    test_date: str | None = None
 
 
 def _qc_polyline(depths: list[float], clip_crossings: bool) -> list[tuple[float, float]]:
@@ -149,8 +152,18 @@ def draw_cpt_page(doc: pymupdf.Document, spec: SyntheticPageSpec | None = None) 
         f"HOOGTE MAAIVELD : {spec.ground_level:.2f} m TAW",
         *spec.extra_lines,
     ]
+    # Coordinates and date in a second column, as the contractor block prints
+    # them right of the id block (and so the page does not overflow).
+    right: list[str] = []
+    if spec.x is not None and spec.y is not None:
+        right.append(f"X-CO\u00d6RDINAAT (Lambert72) : {spec.x:.2f}")
+        right.append(f"Y-CO\u00d6RDINAAT(Lambert72) : {spec.y:.2f}")
+    if spec.test_date is not None:
+        right.append(f"DATUM : {spec.test_date}")
     for i, line in enumerate(lines):
         page.insert_text((60, 802 + 6 * i), line, fontsize=5)
+    for i, line in enumerate(right):
+        page.insert_text((330, 802 + 6 * i), line, fontsize=5)
     return page
 
 
