@@ -16,6 +16,8 @@ References:
 
 from __future__ import annotations
 
+import re
+
 from groundmodel.domain.value_objects.field_log_kind import FieldLogKind
 from groundmodel.domain.value_objects.observation_type import ObservationType
 
@@ -210,6 +212,14 @@ DOV_BORING_FIELD_LOG_TAGS: dict[str, FieldLogKind] = {
 # and every field-log kind in DOV's schema).
 DOV_BORING_VAN_TAG = "van"
 DOV_BORING_TOT_TAG = "tot"
+
+# Reset to DOV (owner 2026-09-30): a stored borehole keeps its boornummer
+# (``test_id``) but not its boring permkey, which is the cache file name. The
+# boring XML names the boornummer in ``<identificatie>`` - the FIRST child of
+# <boring>, ahead of the long <ligging> block - so reading this many bytes of
+# each cached file is enough to find it without parsing the whole cache.
+DOV_BORING_IDENTIFICATIE_HEAD_BYTES = 4096
+DOV_BORING_IDENTIFICATIE_RE = re.compile(rb"<identificatie>\s*([^<]*?)\s*</identificatie>")
 
 
 # ----------------------------------------------------------------------
