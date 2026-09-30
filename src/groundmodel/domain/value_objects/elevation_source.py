@@ -26,6 +26,10 @@ class ElevationSource(StrEnum):
         No Z is recorded for this row (``elevation_m`` is ``NULL``).
         The default for rows that pre-date this enum's introduction
         — treat as unknown.
+    PDF
+        Surface Z is the ground level printed on a PDF report's CPT sheet
+        ("HOOGTE MAAIVELD"), read by the PDF digitiser (or typed by the
+        user in the import dialog when the sheet printed none).
 
     A ``None`` Python value (column NULL after an old migration) means
     the same as ``NONE``; new rows always carry a non-null enum.
@@ -35,3 +39,4 @@ class ElevationSource(StrEnum):
     GEF = "gef"
     MANUAL = "manual"
     NONE = "none"
+    PDF = "pdf"
