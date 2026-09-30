@@ -1,5 +1,6 @@
 """Pydantic schema for a single CPT detail response."""
 
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -51,6 +52,10 @@ class CptResponse(BaseModel):
         Deepest measurement depth in metres.
     n_rows:
         Number of data rows stored in the series table.
+    import_provenance:
+        How a CPT that did not come from a data file was produced (the PDF
+        digitiser: ``source = "pdf-digitised"``, report file + sha, pages,
+        calibration, digitiser version, clipped points). None for GEF / DOV.
     """
 
     id: UUID
@@ -70,3 +75,4 @@ class CptResponse(BaseModel):
     water_depth_source: str | None = None
     max_depth_m: float | None
     n_rows: int | None
+    import_provenance: dict[str, Any] | None = None
