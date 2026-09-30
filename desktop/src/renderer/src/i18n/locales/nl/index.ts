@@ -26,6 +26,7 @@
 import type { Messages } from '../en'
 import { BED_OVERRIDE_NL } from './bedOverride'
 import { CHROME_NL } from './chrome'
+import { CPT_PDF_NL } from './cptPdf'
 import { DATA_NL } from './data'
 import { IMPORT_FLAGS_NL } from './importFlags'
 import { LAB_SERIES_NL } from './labSeries'
@@ -44,6 +45,7 @@ export const NL: Partial<Messages> = {
   ...CHROME_NL,
   ...DATA_NL,
   ...IMPORT_FLAGS_NL,
+  ...CPT_PDF_NL,
   ...BED_OVERRIDE_NL,
   ...LAB_SERIES_NL,
   ...SETTINGS_NL,
@@ -63,6 +65,7 @@ export const NL_MODULES = {
   chrome: CHROME_NL,
   data: DATA_NL,
   importFlags: IMPORT_FLAGS_NL,
+  cptPdf: CPT_PDF_NL,
   bedOverride: BED_OVERRIDE_NL,
   labSeries: LAB_SERIES_NL,
   settings: SETTINGS_NL,
