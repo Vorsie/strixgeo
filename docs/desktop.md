@@ -287,6 +287,11 @@ ride in the `.gmproj` bundle, never in localStorage alone.
 - Hidden-by-map-filter rows go to the bottom of the list at `opacity-40`, still clickable
 - Footer "N removed · restore all" link undoes everything in the active tab
 
+## Raw lab tests (Geosys import, 2026-09-29)
+- Data stage → Import → **Import lab tests (Geosys)** (`data.toolbar.importLabTest`, DataToolbar): multi-file picker (`.txt/.csv/.dat`), then `components/labSeries/LabSeriesImportDialog` walks the files one by one: `POST /lab-series/preview` (nothing written), the lab identity, the proposed borehole (select; a change re-previews so its samples are offered), the sample radio (proposed overlap, other samples, or "Create a new sample" with editable top/base — required when the export names no depth), every finding, then Import / Skip / Cancel. A 409 refresh opens a ConfirmDialog (Cancel focused, "Replace readings"). On finish: summary toast, `markMutated()` (File → Save writes the tests into the `.strix`), `loadBoreholeDetail` for touched boreholes, `notifyLabSeriesChanged()` (`hooks/useLabSeriesRevision`).
+- BoreholeLog (when given `projectId`) shows `LabSeriesSection` under the log: one row per test (kind, sample interval, specimens / stages / readings, warnings badge), **View readings** opens `LabSeriesViewer` (modal): oedometer = settlement and derived strain vs log time per stage (stage picker; t = 0 reading as a left-edge marker; re-zero duplicates skipped and counted), end-of-stage strain vs log stress, the lab's e vs log stress; triaxial = deviator / pore pressure / volume change vs axial strain per specimen with the "no time channel" note; the "Reported by the lab" table (read-only) and the import findings. Charts: `LabSeriesChart` (own SVG: log x, one y axis, legend, nearest-point tooltip); data prep in `utils/labSeriesViewerData.ts`.
+- i18n: `locales/{en,nl}/labSeries.ts`.
+
 ## CptChart conventions
 - `Y_W = 52` — width constant used for ALL Y-axes (real and ghost) to align plot areas across side-by-side `ComposedChart` panels
 - Ghost axes: `tick={false} axisLine={false} tickLine={false} width={Y_W}` — reserve pixel space without display
