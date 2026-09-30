@@ -15,7 +15,7 @@ export const DATA_NL = {
   'data.toolbar.importCptDov': 'Sondering (CPT) importeren uit DOV (kader tekenen)',
   'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
   'data.toolbar.importDmt': 'DMT importeren',
-  'data.toolbar.importLabTest': 'Labproeven importeren (Geosys)',
+  'data.toolbar.importLabTest': 'Labproeven importeren',
   'data.toolbar.importMonitoring': 'Monitoring importeren',
   'data.toolbar.phaseTag': 'Fase 4',
   'data.canvas.map': 'Kaart',
@@ -126,6 +126,8 @@ export const DATA_NL = {
   // FLAG alt: Geen maaiveldhoogte — "maaiveldpeil" uses the glossary term Peil
   // for elevation; "maaiveldhoogte" is the more common survey word.
   'data.inspector.noSurfaceElevation': 'Geen maaiveldpeil: handmatige Z-invoer nodig',
+  'data.inspector.labTestsOne': '1 labproef',
+  'data.inspector.labTests': '{n} labproeven',
   'data.inspector.removeFromProject': 'Uit project verwijderen',
   'data.inspector.dateRange': 'Datumbereik',
   'data.inspector.clearDateFilter': 'Datumfilter wissen',
