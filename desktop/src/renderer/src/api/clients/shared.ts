@@ -97,9 +97,20 @@ function isSlowMutation(url: string): boolean {
  */
 const DEGRADABLE_GET_PATHS = ['/dov/virtuele-boring/lagenmodellen'] as const
 
+/**
+ * ``detail.code`` values that mark a failed GET as the same degraded state,
+ * whatever the path. The per-project Virtuele Boring predictions sweep answers
+ * 503 ``dov_unreachable`` when DOV answered none of its calls (owner's dev log
+ * 2026-09-27/29: a DOV timeout used to 500 that sweep and log as an ERROR). A
+ * plain 5xx on the same path stays an ERROR: without the code it is a bug.
+ */
+const DEGRADABLE_DETAIL_CODES = ['dov_unreachable'] as const
+
 /** Whether a failed request is a GET to a degradable external-overlay endpoint. */
-function isDegradableGet(method: string, path: string): boolean {
+function isDegradableGet(method: string, path: string, detail?: unknown): boolean {
   if (method.toUpperCase() !== 'GET') return false
+  const code = detailCode(detail)
+  if (code !== undefined && (DEGRADABLE_DETAIL_CODES as readonly string[]).includes(code)) return true
   const clean = stripQuery(path)
   return DEGRADABLE_GET_PATHS.some(p => clean === p)
 }
@@ -421,7 +432,7 @@ export async function request(
     // model first" guard) instead of an opaque "→ 409".
     const detail = await res.json().catch(() => ({}))
     const cleanPath = stripQuery(path)
-    if (isDegradableGet(method, path)) {
+    if (isDegradableGet(method, path, detail.detail)) {
       // Degraded external-overlay state (DOV unreachable): WARN, no
       // diagnostic. See DEGRADABLE_GET_PATHS for the full rationale.
       log.warn('api', method, cleanPath, res.status, detail.detail)
