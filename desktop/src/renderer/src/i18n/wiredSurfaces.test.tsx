@@ -124,8 +124,9 @@ describe('wired surfaces', () => {
     expect(within(menu).getByText('Sondering (CPT) importeren (.gef)')).toBeInTheDocument()
     // "kader tekenen" — the owner's bbox ruling, decisions batch 2026-08-27.
     expect(within(menu).getByText('Boring importeren uit DOV (kader tekenen)')).toBeInTheDocument()
-    // One tag per not-yet-available verb (DMT, lab test, monitoring).
-    expect(within(menu).getAllByText('Fase 4')).toHaveLength(3)
+    // One tag per not-yet-available verb (DMT, monitoring); the lab-test verb
+    // went live with the raw lab import (2026-09-29).
+    expect(within(menu).getAllByText('Fase 4')).toHaveLength(2)
   })
 
   it('WS5 — strings from a NON-i18n source are untouched by the flip', () => {
