@@ -266,3 +266,60 @@ describe('DataInspector windowing (M7b)', () => {
     expect(hoverSpy).toHaveBeenCalledWith('cpt-0')
   })
 })
+
+// Owner dogfeed 2026-09-30: "add mechanical test icon to test in the borehole
+// overview" — a borehole row that carries at least one raw lab test (oedometer /
+// triaxial series) shows a small marker with the count as its tooltip; a
+// borehole without one shows none.
+function boreholeRow(id: string, name: string, labSeriesCount?: number | null) {
+  return {
+    id,
+    name,
+    test_id: name,
+    location_x: 0,
+    location_y: 0,
+    epsg: 31370,
+    elevation_m: 5,
+    z_epsg: 5710,
+    elevation_source: 'dov',
+    drill_method: null,
+    borehole_type: null,
+    total_depth_m: 20,
+    start_date: null,
+    n_drill_segments: 0,
+    n_field_log_intervals: 0,
+    lab_series_count: labSeriesCount,
+  }
+}
+
+describe('DataInspector — lab test marker on borehole rows', () => {
+  function openBoreholeTab(boreholes: ReturnType<typeof boreholeRow>[]): void {
+    render(
+      <ShellContext.Provider
+        value={makeCtx({ visibleBoreholes: boreholes as ShellContextValue['visibleBoreholes'] })}
+      >
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    const bhTab = screen.getAllByRole('tab').find(t => t.textContent?.includes('Borehole'))!
+    fireEvent.click(bhTab)
+  }
+
+  it('LM1 — a borehole with lab tests shows the marker, titled "N lab tests"', () => {
+    openBoreholeTab([boreholeRow('bh-1', 'GEO-25/022-B17', 3)])
+    const marker = screen.getByTestId('borehole-lab-marker')
+    expect(marker).toHaveAttribute('title', '3 lab tests')
+    expect(marker).toHaveAttribute('aria-label', '3 lab tests')
+  })
+
+  it('LM2 — one lab test reads in the singular', () => {
+    openBoreholeTab([boreholeRow('bh-1', 'GEO-25/022-B17', 1)])
+    expect(screen.getByTestId('borehole-lab-marker')).toHaveAttribute('title', '1 lab test')
+  })
+
+  it('LM3 — no lab test (0, or not counted) means no marker', () => {
+    openBoreholeTab([boreholeRow('bh-1', 'GEO-25/022-B1', 0), boreholeRow('bh-2', 'GEO-25/022-B2')])
+    expect(screen.getByText('GEO-25/022-B1')).toBeInTheDocument()
+    expect(screen.queryByTestId('borehole-lab-marker')).toBeNull()
+  })
+})
