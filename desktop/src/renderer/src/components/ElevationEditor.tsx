@@ -58,6 +58,7 @@ interface Props {
 const SOURCE_LABEL: Record<string, string> = {
   dov: 'DOV',
   gef: 'GEF',
+  pdf: 'PDF',
   manual: 'manual',
 }
 
