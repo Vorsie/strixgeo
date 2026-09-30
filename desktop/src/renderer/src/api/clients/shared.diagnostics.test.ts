@@ -103,6 +103,43 @@ describe('degradable external-overlay GETs log a degraded WARN, not an ERROR', (
     expect(captureMock).not.toHaveBeenCalled()
   })
 
+  // Owner's dev log 2026-09-27/29: DOV timing out used to 500 the predictions
+  // sweep, logged as an ERROR "The server failed to complete this request".
+  // The backend now answers 503 ``dov_unreachable`` — an unreachable external
+  // host is degraded, not a bug: WARN, no crash-bundle diagnostic.
+  it('a 503 dov_unreachable on the project predictions GET warns and captures no diagnostic', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(
+        {
+          detail: {
+            code: 'dov_unreachable',
+            message: 'DOV is not reachable right now; the predictions will load when it is.',
+          },
+        },
+        503,
+      ),
+    )
+
+    await request('GET', '/projects/p1/virtuele-boring/predictions?models=g3dv3_F').catch(
+      () => undefined,
+    )
+
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(log.error)).not.toHaveBeenCalled()
+    expect(captureMock).not.toHaveBeenCalled()
+  })
+
+  it('a plain 500 on the project predictions GET is still a bug (ERROR + api-error)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'boom' }, 500))
+
+    await request('GET', '/projects/p1/virtuele-boring/predictions?models=g3dv3_F').catch(
+      () => undefined,
+    )
+
+    expect(vi.mocked(log.error)).toHaveBeenCalledTimes(1)
+    expect(captureMock).toHaveBeenCalledTimes(1)
+  })
+
   it('still logs ERROR + captures api-error for an ordinary GET 502', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'boom' }, 502))
 
