@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from 'react'
 
-import { linearTicks, logTicks, type XY } from '../../utils/labSeriesViewerData'
+import { chartDomain, linearTicks, logTicks, type XY } from '../../utils/labSeriesViewerData'
 
 /** One line (with optional point markers and an optional t = 0 edge marker). */
 export interface ChartSeries {
@@ -70,27 +70,11 @@ export default function LabSeriesChart({
     null,
   )
   const geom = useMemo(() => {
-    const xs = series.flatMap(s => s.points.map(p => p.x)).filter(x => !xLog || x > 0)
-    const ys = series.flatMap(s => [
-      ...s.points.map(p => p.y),
-      ...(s.leftEdgeValue != null ? [s.leftEdgeValue] : []),
-    ])
-    if (xs.length === 0 || ys.length === 0) return null
-    let x0 = Math.min(...xs)
-    let x1 = Math.max(...xs)
-    if (x0 === x1) {
-      x0 = xLog ? x0 / 2 : x0 - 1
-      x1 = xLog ? x1 * 2 : x1 + 1
-    }
-    let y0 = Math.min(...ys)
-    let y1 = Math.max(...ys)
-    if (y0 === y1) {
-      y0 -= 1
-      y1 += 1
-    }
-    const pad = (y1 - y0) * 0.05
-    y0 -= pad
-    y1 += pad
+    // Every drawn reading strictly inside the frame (owner 2026-09-30: "make
+    // sure full trap is visible in plots"); see chartDomain for the margins.
+    const d = chartDomain(series, { xLog })
+    if (!d) return null
+    const { x0, x1, y0, y1 } = d
     const lx0 = Math.log10(x0)
     const lx1 = Math.log10(x1)
     const sx = (x: number): number =>
