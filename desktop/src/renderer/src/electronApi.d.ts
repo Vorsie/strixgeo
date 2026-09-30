@@ -125,6 +125,7 @@ declare global {
       onAppBeforeQuit: (cb: () => void) => () => void
       notifyQuitDecision: (allowed: boolean) => Promise<void>
       onMenuImportCpt: (cb: () => void) => () => void
+      onMenuImportCptPdf: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
       onMenuProjectNew: (cb: () => void) => () => void
       onMenuProjectOpen: (cb: () => void) => () => void
