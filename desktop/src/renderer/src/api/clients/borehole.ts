@@ -41,6 +41,12 @@ export interface BoreholeListItem {
   start_date: string | null
   n_drill_segments: number | null
   n_field_log_intervals: number | null
+  /**
+   * Raw lab tests (oedometer / triaxial series) on the borehole's samples
+   * (additive, 2026-09-30). Absent / null on answers that do not count them
+   * (the elevation PATCH); the list always carries it.
+   */
+  lab_series_count?: number | null
 }
 
 /** One admixture within an observation layer. */
