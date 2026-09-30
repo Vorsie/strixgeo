@@ -43,6 +43,12 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.dialog.skip': 'Dit bestand overslaan',
   'labSeries.dialog.cancel': 'Annuleren',
   'labSeries.dialog.readFailed': 'Kon {file} niet lezen: {message}',
+  'labSeries.dialog.formatNotRecognised': '{file}: Dit bestandsformaat wordt niet herkend. Neem contact op met het StrixGeo-ontwikkelteam om het toe te voegen.',
+  'labSeries.dialog.notImported': 'Niet geïmporteerd',
+  'labSeries.dialog.close': 'Sluiten',
+  'labSeries.dialog.dovFetched': '{name} opgehaald uit DOV.',
+  'labSeries.dialog.dovNotFound': '{name} zit niet in dit project en DOV heeft geen boring met die naam, dus dit bestand wordt niet geïmporteerd. Kies een andere boring in de lijst hierboven, of voeg {name} eerst toe aan het project (importeer ze uit DOV zodra DOV ze publiceert) en importeer dit bestand opnieuw.',
+  'labSeries.dialog.dovUnreachable': 'DOV niet bereikbaar: {name} zit niet in dit project en kon niet in DOV worden opgezocht, dus dit bestand wordt niet geïmporteerd. Kies een andere boring in de lijst hierboven, of controleer het netwerk en importeer dit bestand opnieuw.',
 
   'labSeries.level.error': 'Fout',
   'labSeries.level.warning': 'Waarschuwing',
@@ -53,11 +59,12 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.refresh.confirm': 'Metingen vervangen',
 
   'labSeries.toast.summary': 'Labproeven: {imported} geïmporteerd, {replaced} vervangen, {unchanged} ongewijzigd, {skipped} overgeslagen, {failed} mislukt',
+  'labSeries.toast.dovFetched': 'Boringen opgehaald uit DOV: {names}',
 
   'labSeries.section.title': 'Labproeven ({n})',
   'labSeries.section.loading': 'Labproeven worden geladen…',
   'labSeries.section.failed': 'Kon de labproeven niet laden.',
-  'labSeries.section.empty': 'Geen ruwe labproeven op deze boring. Gebruik Importeren > Labproeven importeren (Geosys).',
+  'labSeries.section.empty': 'Geen ruwe labproeven op deze boring. Gebruik Importeren > Labproeven importeren.',
   'labSeries.section.sample': 'Monster {top} tot {base} m',
   'labSeries.section.counts': '{specimens} proefstuk(ken), {stages} trap(pen), {readings} metingen',
   'labSeries.section.flags': '{warnings} waarschuwing(en), {errors} fout(en)',
