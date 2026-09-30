@@ -112,6 +112,10 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
           click: () => send('menu:import-cpt'),
         },
         {
+          label: menuLabel('importCptPdf', language),
+          click: () => send('menu:import-cpt-pdf'),
+        },
+        {
           label: menuLabel('importBorehole', language),
           accelerator: 'CmdOrCtrl+Shift+B',
           click: () => send('menu:import-borehole'),
