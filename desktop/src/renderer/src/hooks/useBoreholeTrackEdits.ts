@@ -8,6 +8,10 @@
  * docs/ux.md); deleting a whole track is confirmed in the dialog instead and
  * pushes no undo step (an imported track cannot be recreated as DOV data).
  *
+ * Reset to DOV (owner 2026-09-30) rewrites the DOV tracks from the cached DOV
+ * XML. It pushes NO undo step either: the dialog's confirmation is the guard,
+ * and the hand edits it discards are not kept anywhere to restore.
+ *
  * After every change: the borehole detail is refetched (the borelog and the
  * Tracks list redraw), the track revision bumps (an open section refetches its
  * columns), and the project is marked mutated (unsaved marker, File -> Save).
@@ -15,7 +19,11 @@
 import { useCallback } from 'react'
 
 import { api } from '../api/client'
-import type { BoreholeTrackResponse, TrackIntervalBody } from '../api/client'
+import type {
+  BoreholeTrackResetResponse,
+  BoreholeTrackResponse,
+  TrackIntervalBody,
+} from '../api/client'
 import { log } from '../utils/log'
 import { bumpBoreholeTracksRevision } from './boreholeTracksRevision'
 import type { UndoCommand } from './useUndoStack'
@@ -37,12 +45,15 @@ export interface BoreholeTrackEditing {
   saveTrack: (boreholeId: string, draft: TrackSaveDraft) => Promise<BoreholeTrackResponse>
   /** Delete a whole track (the caller has confirmed). */
   deleteTrack: (boreholeId: string, trackId: string) => Promise<void>
+  /** Reset every DOV track (``trackId = null``) or one to DOV (the caller has
+   *  confirmed); rejects with the server error (e.g. the 409 no-source). */
+  resetToDov: (boreholeId: string, trackId: string | null) => Promise<BoreholeTrackResetResponse>
 }
 
 /** The three client calls the hook uses (injectable for tests). */
 export type BoreholeTrackClient = Pick<
   typeof api.borehole,
-  'createTrack' | 'replaceTrack' | 'deleteTrack'
+  'createTrack' | 'replaceTrack' | 'deleteTrack' | 'resetTracksToDov'
 >
 
 interface Args {
@@ -62,7 +73,7 @@ interface Args {
  * @param args.markMutated - Marks the project dirty.
  * @param args.reloadBoreholeDetail - Forced refetch of one borehole's detail.
  * @param args.client - Client override (tests); defaults to ``api.borehole``.
- * @returns ``saveTrack`` and ``deleteTrack``.
+ * @returns ``saveTrack``, ``deleteTrack`` and ``resetToDov``.
  */
 export function useBoreholeTrackEdits({
   projectId,
@@ -147,5 +158,20 @@ export function useBoreholeTrackEdits({
     [c, projectId, settle],
   )
 
-  return { saveTrack, deleteTrack }
+  const resetToDov = useCallback(
+    async (boreholeId: string, trackId: string | null): Promise<BoreholeTrackResetResponse> => {
+      if (!projectId) throw new Error('no active project')
+      const outcome = await c.resetTracksToDov(boreholeId, projectId, trackId)
+      log.info(
+        'borehole',
+        `tracks reset to DOV: ${boreholeId} ${trackId ?? 'all'} -> ${outcome.tracks.length} track(s), ` +
+          `${outcome.discarded_edits} hand edit(s) discarded, ${outcome.kept_manual} manual kept`,
+      )
+      await settle(boreholeId)
+      return outcome
+    },
+    [c, projectId, settle],
+  )
+
+  return { saveTrack, deleteTrack, resetToDov }
 }
