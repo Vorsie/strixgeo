@@ -28,6 +28,7 @@ from groundmodel.api.schemas.virtuele_boring import (
     VirtueleBoringLagenmodelEntry,
     VirtueleBoringLayerResponse,
     VirtueleBoringPredictionsResponse,
+    VirtueleBoringSkippedResponse,
 )
 from groundmodel.application.fetch_virtuele_boring_predictions import (
     FetchVirtueleBoringPredictions,
@@ -38,6 +39,7 @@ from groundmodel.infrastructure.parsers.dov.virtuele_boring_client import (
     VirtueleBoringClient,
     VirtueleBoringFetchError,
 )
+from groundmodel.shared.exceptions import DovUnreachableError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -73,6 +75,12 @@ _MAX_MODELS_PER_REQUEST = 12
 # through — exactly the kind of smuggled control char this gate
 # exists to stop.
 _VALID_MODEL_CODE_RE = re.compile(r"\A[A-Za-z0-9_.\-]{1,50}\Z")
+
+# 503 ``detail`` for the predictions sweep when DOV answered none of its
+# calls. A machine ``code`` so the desktop can translate + treat it as a
+# degraded overlay (WARN, no crash-bundle diagnostic) instead of a bug.
+DOV_UNREACHABLE_CODE = "dov_unreachable"
+DOV_UNREACHABLE_MESSAGE = "DOV is not reachable right now; the predictions will load when it is."
 
 
 @catalog_router.get("/lagenmodellen", response_model=list[VirtueleBoringLagenmodelEntry])
@@ -151,9 +159,11 @@ async def fetch_predictions(
     outside Lambert 72 are counted in ``skipped_count`` but not
     listed in ``predictions`` (no rendering target for them).
 
-    A per-investigation per-model fetch failure is logged at WARNING
-    on the server and surfaces as a missing key in
-    ``predictions_by_model`` — the rest of the sweep still returns.
+    A per-investigation per-model fetch failure (an HTTP error or a
+    network failure: timeout, reset, refused) is logged at WARNING on
+    the server, surfaces as a missing key in ``predictions_by_model``
+    and as an entry in ``skipped`` with its reason — the rest of the
+    sweep still returns (200).
 
     Parameters
     ----------
@@ -179,6 +189,9 @@ async def fetch_predictions(
         When no valid model code is supplied, more than
         ``_MAX_MODELS_PER_REQUEST`` codes are requested, or one or more
         codes fail the lagenmodel-code format gate.
+    HTTPException(503)
+        When EVERY fetch failed for a network reason (DOV unreachable):
+        ``detail = {code: "dov_unreachable", message: ...}``.
     """
     requested = [m.strip() for m in models.split(",") if m.strip()]
     if not requested:
@@ -208,7 +221,15 @@ async def fetch_predictions(
         )
 
     use_case = FetchVirtueleBoringPredictions(session)
-    result = await use_case.execute(project_id, requested)
+    try:
+        result = await use_case.execute(project_id, requested)
+    except DovUnreachableError as err:
+        # The use case already logged the one summary WARNING; an
+        # unreachable external host is degraded, not a server error.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": DOV_UNREACHABLE_CODE, "message": DOV_UNREACHABLE_MESSAGE},
+        ) from err
 
     return VirtueleBoringPredictionsResponse(
         models=result.models,
@@ -237,5 +258,16 @@ async def fetch_predictions(
                 },
             )
             for p in result.predictions
+        ],
+        skipped=[
+            VirtueleBoringSkippedResponse(
+                investigation_kind=s.investigation_kind,
+                investigation_id=s.investigation_id,
+                name=s.name,
+                model=s.model,
+                reason=s.reason,
+                detail=s.detail,
+            )
+            for s in result.skipped
         ],
     )
