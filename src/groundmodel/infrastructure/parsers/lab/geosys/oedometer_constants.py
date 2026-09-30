@@ -82,3 +82,9 @@ OED_HEIGHT_CHAIN_TOLERANCE_MM = 0.002
 OED_REZERO_MIN_JUMP_MM = 0.001
 # Settlement printed to 0.001 mm: "did not move" = below one print step.
 OED_REZERO_MAX_SETTLEMENT_CHANGE_MM = 0.0005
+# A last reading this far (or less) back from the stage's peak settlement is
+# print rounding: settlement is printed to 0.001 mm, and two steps (plus float
+# slack) covers the lab's rounding of both the peak and the final reading. The
+# real files end one step back (20/0569 stage 7: peak -0,026, last -0,025).
+# Further back than this is a real reversal and is reported as a WARNING.
+OED_STEP_BACK_INFO_MAX_MM = 0.0021
