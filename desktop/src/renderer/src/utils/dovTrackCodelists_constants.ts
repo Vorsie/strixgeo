@@ -132,3 +132,11 @@ export const DOV_COLOUR_WORDS_EN: ReadonlyArray<readonly [string, string]> = [
 /** Depth grain of a track interval: 1 mm, mirroring the backend's
  *  `LITHO_LAYER_DEPTH_DECIMALS` (`shared/constants/db_constraints.py`). */
 export const TRACK_DEPTH_DECIMALS = 3
+
+/** Admixtures per interval of a coded track (coded lithology / geotechnical
+ *  coding). Mirrors the backend's `MAX_ADMIXTURES_PER_INTERVAL`
+ *  (`domain/services/borehole_track_constants.py`). Why 3: DOV's own practice
+ *  (no coded layer in the local DOV cache carries more than 3) and the owner's
+ *  ruling 2026-09-30, "i want max 3 admixtures in coded lithology". The editor
+ *  never offers a fourth row. */
+export const MAX_ADMIXTURES_PER_INTERVAL = 3
