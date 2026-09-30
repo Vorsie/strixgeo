@@ -2,7 +2,7 @@
 
 Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the deprecation cycle when fields must be removed or repurposed. The frontend always goes through the API — never directly to domain or DB.
 
-One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 140 routes across 22 router modules. Conflict semantics that need more than one line follow the catalogue.
+One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 144 routes across 23 router modules. Conflict semantics that need more than one line follow the catalogue.
 
 All **Geology** routes are mounted under one parent prefix `/projects/{project_id}/geology` (the `geology` package aggregates 13 sub-routers, debt #40); the paths in that section are shown relative to that prefix. **Borehole** routes are mounted under `/borehole`.
 
@@ -29,6 +29,17 @@ GET    /cpt/{cpt_id}/plot — Return raw depth-series arrays for plotting qc, fs
 GET    /cpt/{cpt_id}/sbt-profile — Return both Robertson SBT classifications per depth point for one CPT.
 POST   /cpt/plot-batch — Batch the per-CPT plot endpoint into one round-trip.
 ```
+
+**Lab series — `lab_series.py`** (raw oedometer / triaxial readings, 2026-09-29)
+
+```
+POST   /lab-series/preview — Parse one lab file and propose where it goes — nothing is written.
+POST   /lab-series/import — Store a lab file's readings on the confirmed (or a new) sample.
+GET    /lab-series — List a borehole's lab-series tests with counts (no readings); ?project_id&borehole_id.
+GET    /samples/{sample_id}/lab-series — Every lab-series test of a sample, with every channel's values; ?project_id.
+```
+
+Both POSTs take a multipart `file` (`.txt` / `.csv` / `.dat`; the export kind is sniffed from the CONTENT, never the name) plus `project_id`. Preview takes an optional `borehole_id` (re-preview against the user's pick) and answers the lab identity, `borehole_candidates` + `borehole_match` (`unique` / `ambiguous` / `none` / `chosen`), the chosen borehole's `samples` + `proposed_sample_id` + `sample_match` (`overlap` / `sample_number` / `none`), `create_sample_default` (the lab interval, or `null` when the export names none), `existing_test` (`{id, sample_id, same_content}`) and every finding. Import takes `borehole_id` and either `sample_id` or `create_sample=true` (+ optional `sample_depth_top_m` / `_base_m`), plus `confirm_refresh`. Answers: **201** new; **200** `unchanged=true` (same identity, same SHA-256: no-op) or `refreshed=true` (same test id, readings replaced); **409** `code = "lab_series_refresh_confirmation_required"` + `test_id`, `old_/new_n_specimens`, `old_/new_n_readings`, `old_/new_source_file_name` (nothing written); **422** `lab_series_refresh_refused` (the fresh parse has ERROR findings — never overwrites, even confirmed) or `sample_not_on_borehole` / `sample_choice_required` / `sample_interval_required`; **404** borehole / sample not in the project; **400** not a supported export; **413** over 50 MiB. Identity = (kind, lab test type, lab job, lab sample number) within the project. Channel `provenance`: `measured` / `lab_derived` (the lab software's column) / `derived` (Strix: the oedometer vertical strain, with `formula` + `derivation_inputs`); `lab_results` are `lab_reported`, never inputs. Format reference: [parsers-lab.md](parsers-lab.md).
 
 **Borehole — `borehole.py` (mounted at `/borehole`)**
 
