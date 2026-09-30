@@ -13,12 +13,14 @@ routers (per the Maintenance Rules: "extract on the second copy" —
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Awaitable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import ARRAY, Text, case, cast, func, text, update
 from sqlalchemy.dialects.postgresql import JSONB
@@ -293,3 +295,50 @@ def litho_layer_write_conflict(exc: IntegrityError, *, overlap_message: str) -> 
             "detail": orig[:400],
         },
     )
+
+
+async def spool_upload(file: UploadFile, *, suffix: str, max_bytes: int, label: str) -> Path:
+    """Stream an upload to a temp file, refusing it past ``max_bytes``.
+
+    Chunked copy with a byte counter so an oversized "lab file" can never be
+    slurped into memory (the same guard ``POST /cpt/import`` carries inline,
+    debt #39). The caller deletes the returned file when done.
+
+    Parameters
+    ----------
+    file : UploadFile
+        The multipart upload.
+    suffix : str
+        Temp-file suffix (the upload's extension).
+    max_bytes : int
+        Largest accepted upload.
+    label : str
+        What the upload is, for the 413 message (``"Lab file"``).
+
+    Returns
+    -------
+    pathlib.Path
+        The temp file holding the upload.
+
+    Raises
+    ------
+    fastapi.HTTPException
+        413 when the upload exceeds ``max_bytes`` (the partial file is removed).
+    """
+    received = 0
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MiB
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > max_bytes:
+                tmp.close()
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"{label} upload exceeds the {max_bytes // (1024 * 1024)} MiB cap",
+                )
+            tmp.write(chunk)
+    return tmp_path
