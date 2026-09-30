@@ -68,6 +68,7 @@ export type {
   TrackIntervalBody,
   TrackIssueResponse,
   BoreholeTrackResponse,
+  BoreholeTrackResetResponse,
 } from './clients/borehole'
 
 // ---------------------------------------------------------------------------
