@@ -1,6 +1,6 @@
 """Turn a parsed raw lab export into a ``LabSeriesTestOrm`` tree (pure, no DB).
 
-One builder for the three exports: the Geosys oedometer control listing and
+One builder for the three exports: the incremental-loading oedometer control listing and
 the newer module's raw dump (both :class:`OedometerListingResult`) and the
 triaxial per-point dump (:class:`TriaxialDumpResult`). The tree is transient;
 the import use case attaches it to a sample and adds it to the session.
@@ -50,20 +50,22 @@ from groundmodel.infrastructure.db.models.lab_series_lab_result_orm import (
 from groundmodel.infrastructure.db.models.lab_series_specimen_orm import LabSeriesSpecimenOrm
 from groundmodel.infrastructure.db.models.lab_series_stage_orm import LabSeriesStageOrm
 from groundmodel.infrastructure.db.models.lab_series_test_orm import LabSeriesTestOrm
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_constants import GEOSYS_FORMAT_TX_DUMP
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_text import parse_geosys_value_unit
-from groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_result import (
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_constants import (
+    LAB_EXPORT_FORMAT_TX_DUMP,
+)
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_text import parse_lab_value_unit
+from groundmodel.infrastructure.parsers.lab.raw_export.oedometer_listing_result import (
     OedometerListingResult,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.oedometer_stage import OedometerStage
-from groundmodel.infrastructure.parsers.lab.geosys.triaxial_constants import (
+from groundmodel.infrastructure.parsers.lab.raw_export.oedometer_stage import OedometerStage
+from groundmodel.infrastructure.parsers.lab.raw_export.triaxial_constants import (
     TX_LAB_DERIVED_CHANNELS,
     TX_MEASURED_CHANNELS,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.triaxial_dump_result import (
+from groundmodel.infrastructure.parsers.lab.raw_export.triaxial_dump_result import (
     TriaxialDumpResult,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.triaxial_specimen import TriaxialSpecimen
+from groundmodel.infrastructure.parsers.lab.raw_export.triaxial_specimen import TriaxialSpecimen
 from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
 
 LabExportResult = OedometerListingResult | TriaxialDumpResult
@@ -299,7 +301,7 @@ def _triaxial_test(result: TriaxialDumpResult, file_name: str, sha256: str) -> L
         sampling_depth_base_m=result.depth_base_m,
         visual_description=result.visual_description,
         test_start_date=None,
-        source_format=GEOSYS_FORMAT_TX_DUMP,
+        source_format=LAB_EXPORT_FORMAT_TX_DUMP,
         source_file_name=file_name,
         source_sha256=sha256,
         source_native_file=None,
@@ -370,7 +372,7 @@ def _triaxial_lab_results(s: TriaxialSpecimen, *, first_order: int) -> list[LabS
     rows: list[LabSeriesLabResultOrm] = []
     for label in TX_BEFORE_AFTER_LABELS:
         for phase, cell in zip(phases, s.raw.get(label) or [], strict=False):
-            number, unit = parse_geosys_value_unit(cell)
+            number, unit = parse_lab_value_unit(cell)
             rows.append(
                 _lab_result(
                     f"{label} ({phase})",
