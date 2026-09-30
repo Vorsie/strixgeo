@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_registry import (
     LayoutProfileRegistry,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader import OcrReader
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import raster_available
 from groundmodel.infrastructure.parsers.cpt.pdf.page_class import PageClass
 from groundmodel.infrastructure.parsers.cpt.pdf.page_evidence import PageEvidence
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
@@ -42,6 +44,11 @@ from groundmodel.infrastructure.parsers.cpt.pdf.raster_grid_detector import Rast
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
 from groundmodel.infrastructure.parsers.cpt.pdf.report_fingerprint import ReportFingerprint
 from groundmodel.infrastructure.parsers.cpt.pdf.report_triage import ReportTriage
+from groundmodel.infrastructure.parsers.cpt.pdf.sheet_header_helpers import (
+    horizontal_epsg,
+    last_number,
+    vertical_epsg,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.sounding_block_reader import SoundingBlockReader
 from groundmodel.infrastructure.parsers.cpt.pdf.tick_run_finder import TickRunFinder, parse_number
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_content import VectorPageContent
@@ -86,9 +93,14 @@ class PageTriage(GroundModelLogger):
         self._block = SoundingBlockReader()
         self._deskewer = RasterDeskewer()
         self._grid = RasterGridDetector()
+        # Image pages skipped because OpenCV is absent (see _raster_panels).
+        self.raster_pages_unread = 0
 
     def classify(
-        self, doc: pymupdf.Document, campaign_codes: tuple[str, ...] | None = None
+        self,
+        doc: pymupdf.Document,
+        campaign_codes: tuple[str, ...] | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> ReportTriage:
         """Return the verdict for every page of ``doc``.
 
@@ -99,6 +111,9 @@ class PageTriage(GroundModelLogger):
         campaign_codes : tuple of str or None
             The campaign codes the report is about; found from the report's
             own text when None.
+        progress : callable or None
+            Called as ``progress(done, total)`` after every page (a long
+            report takes tens of seconds; the import dialog shows the count).
 
         Returns
         -------
@@ -115,6 +130,8 @@ class PageTriage(GroundModelLogger):
             texts.append(content.text)
             evidence = self._measure(page, content)
             measured.append(evidence)
+            if progress is not None:
+                progress(index + 1, total)
             self.debug(
                 "[%d/%d] %s %s",
                 evidence.page_number,
@@ -257,6 +274,7 @@ class PageTriage(GroundModelLogger):
             "project": fields.get("project"),
             "location": fields.get("location"),
             "dov_id": dov.group(0) if dov else None,
+            **_header_fields(fields, text),
         }
         prefix = tuple(notes)
         has_text = len(text.strip()) >= MIN_TEXT_LAYER_CHARS
@@ -387,7 +405,19 @@ class PageTriage(GroundModelLogger):
         return PageEvidence(page_class=PageClass.OTHER, reasons=prefix + ("no class fits",), **base)
 
     def _raster_panels(self, page: pymupdf.Page) -> int:
-        """Return how many graph panels the raster grid detector finds."""
+        """Return how many graph panels the raster grid detector finds.
+
+        Zero when OpenCV (the optional ``pdf-ocr`` extra) is not installed: an
+        image page cannot be looked at then, and is counted in
+        ``raster_pages_unread`` so the caller can say so.
+        """
+        if not raster_available():
+            self.raster_pages_unread += 1
+            self.warning(
+                "page %d: image page not read (raster reading needs the pdf-ocr extra)",
+                page.number + 1,
+            )
+            return 0
         image = render_page(page, RASTER_TRIAGE_DPI)
         straight, _ = self._deskewer.deskew(image)
         grid = self._grid.detect(straight)
@@ -428,6 +458,28 @@ def _campaign_codes(texts: list[str]) -> tuple[str, ...]:
         return ()
     top = per_page.most_common(1)[0][1]
     return tuple(sorted(c for c, n in per_page.items() if n >= 0.5 * top))
+
+
+def _header_fields(fields: dict[str, str], text: str) -> dict[str, object]:
+    """Return the sheet-header evidence: ground level + datum, position + system, date.
+
+    A position is kept only when both X and Y were read AND the page names the
+    coordinate system; otherwise all three stay None (never guessed).
+    """
+    ground = SoundingBlockReader.number(fields.get("ground_level"))
+    x = last_number(fields.get("x"))
+    y = last_number(fields.get("y"))
+    epsg = horizontal_epsg(text) if x is not None and y is not None else None
+    if epsg is None:
+        x = y = None
+    return {
+        "ground_level_m": ground,
+        "z_epsg": vertical_epsg(text) if ground is not None else None,
+        "x": x,
+        "y": y,
+        "epsg": epsg,
+        "test_date": fields.get("date"),
+    }
 
 
 def _with_origin(page: PageEvidence, fingerprint: ReportFingerprint) -> PageEvidence:
