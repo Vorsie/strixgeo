@@ -537,3 +537,75 @@ class BoreholeResetNoDovSourceError(GroundModelError):
         super().__init__(f"nothing was reset: {reason}")
         self.missing = missing
         self.reason = reason
+
+
+class LabSeriesRefreshConfirmationRequiredError(GroundModelError):
+    """Raised when a raw lab import would replace a stored test unconfirmed.
+
+    Same identity (kind, test type, lab job, lab sample number), different
+    file content: replacing the stored readings is IRREVERSIBLE, so the import
+    refuses until the caller re-posts with ``confirm_refresh=true``
+    (docs/ux.md "Reversible vs irreversible"). Carries the diff the dialog
+    shows. The router maps it to 409 ``lab_series_refresh_confirmation_required``.
+
+    Parameters
+    ----------
+    existing_id : UUID
+        The stored test that would be replaced (its id is kept on refresh).
+    diff : dict
+        ``old_/new_n_specimens``, ``old_/new_n_readings``,
+        ``old_/new_source_file_name``, ``n_errors``, ``n_warnings``.
+    """
+
+    def __init__(self, existing_id: UUID, diff: dict[str, object]) -> None:
+        """Initialise with the stored test id and the old-vs-new diff."""
+        super().__init__(
+            f"lab test {existing_id} is already in this project with other content; "
+            "re-importing replaces its stored readings. Confirm to replace."
+        )
+        self.existing_id = existing_id
+        self.diff = diff
+
+
+class LabSeriesRefreshRefusedError(GroundModelError):
+    """Raised when a fresh lab parse is too broken to replace stored readings.
+
+    A file with ERROR-level findings must never overwrite a stored test, even
+    when the user confirmed (the CPT refresh rule). The router maps it to 422
+    ``lab_series_refresh_refused``.
+
+    Parameters
+    ----------
+    reason : str
+        Machine-readable reason (``"parse_errors"``).
+    message : str
+        Human-readable refusal.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        """Initialise with the named reason and the message."""
+        super().__init__(message)
+        self.reason = reason
+
+
+class LabSeriesImportRefusedError(GroundModelError):
+    """Raised when a raw lab import cannot be attached as asked.
+
+    Examples: the chosen sample is not on the chosen borehole; neither a
+    sample nor ``create_sample`` was given; a new sample was asked for but no
+    depth interval is known (the newer oedometer export names none). The
+    router maps it to 422 with ``code``.
+
+    Parameters
+    ----------
+    code : str
+        Machine-readable reason (``"sample_not_on_borehole"``,
+        ``"sample_choice_required"``, ``"sample_interval_required"``).
+    message : str
+        Human-readable refusal.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        """Initialise with the code and the message."""
+        super().__init__(message)
+        self.code = code
