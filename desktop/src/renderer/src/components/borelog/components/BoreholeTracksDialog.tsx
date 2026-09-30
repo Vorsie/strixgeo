@@ -16,20 +16,35 @@
  * Deleting a whole track is IRREVERSIBLE here, so it goes through a
  * ``ConfirmDialog`` (Cancel default-focused, the button reads "Delete track").
  * Adding and editing are undoable (``useBoreholeTrackEdits``).
+ *
+ * Owner dogfeed 2026-09-30:
+ *
+ * * "a per borehole button to reset to dov defaults": **Reset to DOV** for the
+ *   whole borehole, plus **Reset** on every track with a DOV origin. It throws
+ *   away hand edits on DOV tracks and has NO undo, so it is confirmed first
+ *   (Cancel default-focused, "Reset to DOV"), the text naming how many edited
+ *   tracks lose their edits. "No DOV XML in the cache" (409) is a NOTICE, not
+ *   an error: nothing is wrong, there is only nothing to go back to;
+ * * "copy another track as template": **Start from** next to Add track
+ *   pre-fills the new track from an existing one (``rowsFromTemplate``); the
+ *   new track is still a manual one;
+ * * the interval editor shows the borehole's other tracks beside the rows
+ *   (``TrackIntervalEditor`` reference pane).
  */
 import { useMemo, useState } from 'react'
 
 import type { BoreholeDetailResponse, TrackIntervalBody } from '../../../api/client'
+import { RESET_NO_DOV_SOURCE_CODE } from '../../../api/clients/borehole'
+import { apiErrorDetail } from '../../../api/clients/shared'
 import type { BoreholeTrackEditing } from '../../../hooks/useBoreholeTrackEdits'
 import { useFormalStratigraphyCatalog } from '../../../hooks/useFormalStratigraphyCatalog'
-import { useT, type Translator } from '../../../i18n/translate'
-import type { MessageKey } from '../../../i18n/locales/en'
+import { useT } from '../../../i18n/translate'
 import {
-  FIELD_LOG_TRACK_KINDS,
   TRACK_KINDS,
   listBoreholeTracks,
   newRowAfter,
   rowsFromIntervals,
+  rowsFromTemplate,
   rowsToIntervals,
   validateTrackRows,
   type BoreholeTrackSummary,
@@ -41,7 +56,9 @@ import { log } from '../../../utils/log'
 import Button from '../../ui/Button'
 import ConfirmDialog from '../../ui/ConfirmDialog'
 import Modal from '../../ui/Modal'
-import TrackIntervalEditor from './TrackIntervalEditor'
+import ResetToDovConfirm from './ResetToDovConfirm'
+import TrackIntervalEditor, { type ReferenceTrack } from './TrackIntervalEditor'
+import { trackBadgeLabel, trackKindLabel, trackLabel } from './trackLabels'
 
 interface Props {
   open: boolean
@@ -54,17 +71,15 @@ interface EditorState {
   trackId: string | null
   kind: string
   rows: TrackEditorRow[]
-  /** The intervals as loaded (undo target + tokens allowed outside the list). */
+  /** The intervals as loaded (the undo target); ``null`` for a new track. */
   original: TrackIntervalBody[] | null
+  /** Intervals whose tokens stay allowed outside the DOV list: the loaded
+   *  track, or the template a new track was started from (a DOV alias such as
+   *  ZF round-trips instead of blocking the copy). */
+  tokenSource: readonly TrackIntervalBody[]
 }
 
-/** Translated name of a track kind (observation kinds reuse ``borelog.obs.*``). */
-export function trackKindLabel(t: Translator, kind: string): string {
-  if ((FIELD_LOG_TRACK_KINDS as readonly string[]).includes(kind)) {
-    return t(`tracks.kind.${kind}` as MessageKey)
-  }
-  return t(`borelog.obs.${kind}` as MessageKey)
-}
+export { trackKindLabel }
 
 const BADGE_CLASS: Record<TrackBadge, string> = {
   dov: 'border-border-subtle text-text-secondary',
@@ -80,6 +95,11 @@ function errorReason(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** A pending Reset to DOV: the whole borehole (``track = null``) or one track. */
+interface PendingReset {
+  track: BoreholeTrackSummary | null
+}
+
 /**
  * Tracks panel of one borehole.
  *
@@ -92,8 +112,11 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
   const [newKind, setNewKind] = useState<string>(TRACK_KINDS[0])
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<BoreholeTrackSummary | null>(null)
+  const [pendingReset, setPendingReset] = useState<PendingReset | null>(null)
+  const [templateId, setTemplateId] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const presentFieldLogKinds = useMemo(
     () => new Set(tracks.filter(tr => tr.family === 'field_log').map(tr => tr.kind)),
@@ -105,24 +128,48 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     return validateTrackRows(editor.kind, editor.rows, {
       totalDepthM: borehole.total_depth_m,
       allowed: (field: CodelistField) =>
-        allowedTokens(editor.kind, field, { formalUnits, original: editor.original ?? [] }),
+        allowedTokens(editor.kind, field, { formalUnits, original: editor.tokenSource }),
     })
   }, [editor, borehole.total_depth_m, formalUnits])
 
   const options = (field: CodelistField) =>
     editor === null ? null : codelistOptions(editor.kind, field, { formalUnits })
 
+  // The reference pane: every track but the one being edited.
+  const references: ReferenceTrack[] = useMemo(
+    () =>
+      editor === null
+        ? []
+        : tracks
+            .filter(tr => tr.trackId !== editor.trackId)
+            .map(tr => ({ trackId: tr.trackId, label: trackLabel(t, tr), intervals: tr.intervals })),
+    [editor, tracks, t],
+  )
+
+  const dovTracks = tracks.filter(tr => tr.badge !== 'manual')
+
   const startNew = () => {
     setServerError(null)
-    setEditor({ trackId: null, kind: newKind, rows: [newRowAfter([])], original: null })
+    setNotice(null)
+    const template = tracks.find(tr => tr.trackId === templateId)
+    const rows = template ? rowsFromTemplate(newKind, template) : []
+    setEditor({
+      trackId: null,
+      kind: newKind,
+      rows: rows.length > 0 ? rows : [newRowAfter([])],
+      original: null,
+      tokenSource: template?.intervals ?? [],
+    })
   }
   const startEdit = (track: BoreholeTrackSummary) => {
     setServerError(null)
+    setNotice(null)
     setEditor({
       trackId: track.trackId,
       kind: track.kind,
       rows: rowsFromIntervals(track.intervals),
       original: track.intervals,
+      tokenSource: track.intervals,
     })
   }
 
@@ -161,6 +208,30 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     }
   }
 
+  const confirmReset = async () => {
+    if (pendingReset === null) return
+    const trackId = pendingReset.track?.trackId ?? null
+    setBusy(true)
+    setServerError(null)
+    setNotice(null)
+    try {
+      const outcome = await editing.resetToDov(borehole.id, trackId)
+      setNotice(t('tracks.reset.done', { n: outcome.tracks.length }))
+    } catch (err) {
+      if (apiErrorDetail(err)?.code === RESET_NO_DOV_SOURCE_CODE) {
+        // Nothing is wrong: the cache holds no DOV XML for this borehole.
+        log.info('borehole', `reset to DOV: no cached DOV XML for ${borehole.id}`)
+        setNotice(t('tracks.reset.noSource'))
+      } else {
+        log.warn('borehole', `reset to DOV refused for ${borehole.id}`, err)
+        setServerError(t('tracks.reset.failed', { reason: errorReason(err) }))
+      }
+    } finally {
+      setBusy(false)
+      setPendingReset(null)
+    }
+  }
+
   const badgeTitle = (track: BoreholeTrackSummary): string => {
     const date = formatDate(track.editedAt)
     if (track.badge === 'manual') return t('tracks.badge.manualHint', { date })
@@ -195,7 +266,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
                     title={badgeTitle(track)}
                     className={`inline-block rounded border px-1.5 text-[10px] ${BADGE_CLASS[track.badge]}`}
                   >
-                    {t(`tracks.badge.${track.badge}` as MessageKey)}
+                    {trackBadgeLabel(t, track)}
                   </span>
                 </td>
                 <td className="py-1 pr-2 tabular-nums">{track.intervalCount}</td>
@@ -211,6 +282,16 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
                   <Button size="sm" variant="ghost" onClick={() => startEdit(track)}>
                     {t('tracks.edit')}
                   </Button>
+                  {track.badge !== 'manual' && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setPendingReset({ track })}
+                      title={t('tracks.reset.trackHint')}
+                    >
+                      {t('tracks.reset.track')}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" onClick={() => setPendingDelete(track)}>
                     {t('tracks.delete')}
                   </Button>
@@ -236,6 +317,25 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
             )
           })}
         </select>
+        <label className="flex items-center gap-1 text-xs text-text-secondary" title={t('tracks.template.hint')}>
+          {t('tracks.template.label')}
+          <select
+            value={templateId}
+            onChange={e => setTemplateId(e.target.value)}
+            className="h-7 max-w-[16rem] px-1 rounded border border-border-subtle bg-surface-card text-xs text-text-primary"
+          >
+            <option value="">{t('tracks.template.empty')}</option>
+            {tracks.map(tr => (
+              <option key={tr.trackId} value={tr.trackId}>
+                {t('tracks.template.option', {
+                  kind: trackKindLabel(t, tr.kind),
+                  source: trackBadgeLabel(t, tr),
+                  n: tr.intervalCount,
+                })}
+              </option>
+            ))}
+          </select>
+        </label>
         <Button
           size="sm"
           variant="primary"
@@ -246,6 +346,16 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
           {t('tracks.addTrack')}
         </Button>
         <span className="flex-1" />
+        {dovTracks.length > 0 && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setPendingReset({ track: null })}
+            title={t('tracks.reset.buttonHint')}
+          >
+            {t('tracks.reset.button')}
+          </Button>
+        )}
         <Button size="sm" variant="secondary" onClick={onClose}>
           {t('tracks.close')}
         </Button>
@@ -261,6 +371,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
         onRowsChange={rows => setEditor({ ...editor, rows })}
         verdict={verdict}
         options={options}
+        references={references}
       />
       <div className="mt-3 flex items-center justify-end gap-2">
         <Button size="sm" variant="secondary" onClick={() => setEditor(null)} disabled={busy}>
@@ -283,7 +394,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
   return (
     <>
       <Modal
-        open={open && pendingDelete === null}
+        open={open && pendingDelete === null && pendingReset === null}
         onCancel={editor ? () => setEditor(null) : onClose}
         labelledBy={titleId}
         busy={busy}
@@ -301,6 +412,14 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
           {serverError && (
             <p role="alert" className="mb-2 text-xs text-red-600 dark:text-red-400">
               {serverError}
+            </p>
+          )}
+          {notice && (
+            <p
+              role="status"
+              className="mb-2 rounded border border-border-subtle px-2 py-1 text-xs text-text-secondary"
+            >
+              {notice}
             </p>
           )}
           {editor === null ? list : editorView}
@@ -338,6 +457,14 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
         }}
         onCancel={() => setPendingDelete(null)}
         busy={busy}
+      />
+      <ResetToDovConfirm
+        pending={open ? pendingReset : null}
+        dovTracks={dovTracks}
+        boreholeName={borehole.name}
+        busy={busy}
+        onConfirm={() => void confirmReset()}
+        onCancel={() => setPendingReset(null)}
       />
     </>
   )
