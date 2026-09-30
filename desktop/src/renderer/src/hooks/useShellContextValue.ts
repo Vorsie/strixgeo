@@ -54,6 +54,7 @@ export interface UseShellContextValueArgs {
   // Optional like its bus field (partial shells omit it); App always passes it,
   // so the auto-derived dep array keeps a stable length.
   handleImportBoreholeXml?: ShellContextValue['investigations']['handleImportBoreholeXml']
+  handleImportCptPdf?: ShellContextValue['investigations']['handleImportCptPdf']
   handleBboxDrawn: ShellContextValue['investigations']['handleBboxDrawn']
   pendingCptPins: ShellContextValue['investigations']['pendingCptPins']
   // Required KEY (value may be undefined in partial shells): the lab import's
@@ -221,6 +222,7 @@ export function useShellContextValue(
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
     handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, pendingCptPins, adoptImportedBoreholes, visibleCpts, visibleBoreholes, sections,
+    handleImportBoreholeDov, handleImportCptPdf, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
@@ -309,6 +311,7 @@ export function useShellContextValue(
       handleImportDov,
       handleImportBoreholeDov,
       handleImportBoreholeXml,
+      handleImportCptPdf,
       handleBboxDrawn,
       pendingCptPins,
       adoptImportedBoreholes,
