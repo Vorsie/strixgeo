@@ -17,8 +17,8 @@ from groundmodel.application.lab_series_tree_builder import build_lab_series_tes
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import bundle_lab_series as bls
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_export_reader import (
-    GeosysExportReader,
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_reader import (
+    LabExportReader,
 )
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -30,7 +30,7 @@ def _test(relative: str):
     """Build the ORM tree of a fixture."""
     raw = (_LAB / relative).read_bytes()
     return build_lab_series_test(
-        GeosysExportReader().read(raw, source_name=relative),
+        LabExportReader().read(raw, source_name=relative),
         source_file_name=Path(relative).name,
         source_sha256="abc",
     )
