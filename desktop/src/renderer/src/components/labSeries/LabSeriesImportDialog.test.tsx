@@ -1,4 +1,4 @@
-// The "Import lab tests (Geosys)" preview dialog. Owner Q4 (2026-09-29), in
+// The "Import lab tests" preview dialog. Owner Q4 (2026-09-29), in
 // his words: "ask user, to double check, there should be a sample; if no,
 // default create one; overlapping depths, yes same sample" — and "the borehole
 // match itself (name ends with <job>-<borehole>) is shown in the preview and
@@ -25,7 +25,7 @@ vi.mock('../../api/client', async () => {
   }
 })
 
-import { LabSeriesRefreshConfirmationRequiredError } from '../../api/client'
+import { LabFileFormatNotRecognisedError, LabSeriesRefreshConfirmationRequiredError } from '../../api/client'
 import LabSeriesImportDialog from './LabSeriesImportDialog'
 
 const BOREHOLES = [
@@ -37,7 +37,7 @@ function pv(overrides: Partial<LabSeriesPreviewResponse> = {}): LabSeriesPreview
   return {
     file_name: '200568B7-LstSMControleListing.txt',
     kind: 'oedometer',
-    source_format: 'geosys_oed_control_listing',
+    source_format: 'oed_control_listing',
     test_type_token: null,
     identity: {
       job_number: 'GEO-19/122',
@@ -217,5 +217,101 @@ describe('LabSeriesImportDialog', () => {
     preview.mockResolvedValue(pv({ kind: 'triaxial', test_type_token: 'CD' }))
     mount()
     expect(await screen.findByText(/The triaxial export has no time channel/)).toBeInTheDocument()
+  })
+
+  it('an unknown file format is shown for that file and the dialog moves on to the next', async () => {
+    // Owner 2026-09-30: "if file format is not found throw error and tell to
+    // contact strixgeo devteam to have the format added".
+    preview
+      .mockRejectedValueOnce(new LabFileFormatNotRecognisedError('results.txt'))
+      .mockResolvedValue(pv())
+    doImport.mockResolvedValue(IMPORTED)
+    const onFinished = mount(['C:/lab/results.txt', 'C:/lab/200568B7-LstSMControleListing.txt'])
+    expect(await screen.findByText('File 2 of 2')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'results.txt: This file format is not recognised. Contact the StrixGeo dev team to have it added.',
+      ),
+    ).toBeInTheDocument()
+    await screen.findByText('20/0568')
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    await waitFor(() => expect(onFinished).toHaveBeenCalled())
+    expect(onFinished.mock.calls[0][0]).toMatchObject({ imported: 1, failed: 1 })
+  })
+
+  it('a lone unknown file stays on screen until the user closes the dialog', async () => {
+    preview.mockRejectedValue(new LabFileFormatNotRecognisedError('results.txt'))
+    const onFinished = mount(['C:/lab/results.txt'])
+    expect(
+      await screen.findByText(/results\.txt: This file format is not recognised/),
+    ).toBeInTheDocument()
+    expect(onFinished).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onFinished.mock.calls[0][0]).toMatchObject({ failed: 1, imported: 0 })
+  })
+
+  it('a borehole fetched from DOV is proposed and said so, and the report lists it', async () => {
+    // Owner 2026-09-30: "Can't we just auto load from DOV when trying to load a lab tests".
+    preview.mockResolvedValue(
+      pv({
+        borehole_candidates: [{ id: 'bh-dov', name: '1445-GEO-25/022-B17' }],
+        proposed_borehole_id: 'bh-dov',
+        samples: [],
+        proposed_sample_id: null,
+        sample_match: 'none',
+        dov_lookup: { status: 'fetched', borehole_name: '1445-GEO-25/022-B17', borehole_id: 'bh-dov' },
+      }),
+    )
+    doImport.mockResolvedValue({ ...IMPORTED, created_sample: true })
+    const onFinished = mount()
+    expect(await screen.findByText('Fetched 1445-GEO-25/022-B17 from DOV.')).toBeInTheDocument()
+    expect((screen.getByTestId('lab-import-borehole') as HTMLSelectElement).value).toBe('bh-dov')
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    await waitFor(() => expect(onFinished).toHaveBeenCalled())
+    expect(onFinished.mock.calls[0][0]).toMatchObject({
+      imported: 1,
+      dovFetched: [{ id: 'bh-dov', name: '1445-GEO-25/022-B17' }],
+    })
+  })
+
+  it('DOV without the borehole: the error names it and the two ways out; nothing imports', async () => {
+    preview.mockResolvedValue(
+      pv({
+        borehole_candidates: [],
+        borehole_match: 'none',
+        proposed_borehole_id: null,
+        samples: [],
+        proposed_sample_id: null,
+        sample_match: 'none',
+        dov_lookup: { status: 'not_found', borehole_name: 'GEO-25/022-B17', borehole_id: null },
+      }),
+    )
+    mount()
+    const alert = await screen.findByTestId('lab-import-dov-lookup')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert.textContent).toContain('GEO-25/022-B17')
+    expect(alert.textContent).toContain('DOV has no borehole')
+    expect(alert.textContent).toMatch(/pick another borehole/i)
+    expect(alert.textContent).toMatch(/add GEO-25\/022-B17 to the project/)
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled()
+  })
+
+  it('DOV not reachable is worded as such', async () => {
+    preview.mockResolvedValue(
+      pv({
+        borehole_candidates: [],
+        borehole_match: 'none',
+        proposed_borehole_id: null,
+        samples: [],
+        proposed_sample_id: null,
+        sample_match: 'none',
+        dov_lookup: { status: 'unreachable', borehole_name: 'GEO-25/022-B17', borehole_id: null },
+      }),
+    )
+    mount()
+    const alert = await screen.findByTestId('lab-import-dov-lookup')
+    expect(alert.textContent).toContain('DOV not reachable')
+    expect(alert.textContent).toContain('GEO-25/022-B17')
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled()
   })
 })
