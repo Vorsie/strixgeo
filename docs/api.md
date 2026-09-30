@@ -42,6 +42,19 @@ POST   /borehole/detail-batch — Batch the per-borehole detail endpoint into on
 PATCH  /borehole/{borehole_id}/elevation — Update the manually-entered surface elevation for a borehole.
 ```
 
+**Borehole tracks — `borehole_tracks.py` (mounted at `/borehole`, 2026-09-29)** — add a track by hand or change any track, imported ones included. All three require `?project_id` (404 across projects) and commit once.
+
+```
+POST   /borehole/{borehole_id}/tracks — Create a hand-typed track {kind, intervals[]}; 201, stored with source = "manual".
+PUT    /borehole/{borehole_id}/tracks/{track_id} — Replace every interval of one track; an import keeps source = "dov" + dov_permkey and gets edited_manually_at.
+DELETE /borehole/{borehole_id}/tracks/{track_id} — Delete one whole track with its intervals; 204.
+```
+
+* **One shape for both ORM families.** `kind` is an `ObservationType` value (one `observation` row per track, several per kind allowed) or a `FieldLogKind` value (`color` / `moisture` / `consistency`: the `field_log_interval` rows of that kind, ONE track per kind, id `"field_log:<kind>"`). Each interval is `{top_m, base_m, value?, description?, color?, main_soil_codes?, admixtures?[{soil_code, amount, locally}]}`: a field-log kind fills `value`, a coded kind (`coded_lithology`, `geotechnical_coding`) fills `main_soil_codes` (+ admixtures / colour), every other kind fills `description`. Raw DOV tokens only; the desktop picker offers the DOV codelists, the backend does not check them.
+* **Rules** (`domain/services/validate_track_intervals.py`): top < base on the 1 mm grain (`LITHO_LAYER_DEPTH_DECIMALS`), no overlap within a track, the kind's content present → `422` with `detail = {code: "borehole_track_invalid", message, errors[{loc, code, message}], warnings[...]}`, `loc` the dotted request path (`"intervals.3.base_m"`). Gaps and an interval deeper than the borehole's total depth save, reported in the response's `warnings`. A second field-log track of a kind answers `409` `code = "borehole_track_exists"`.
+* **Which track is drawn.** `GET /borehole/{id}` and `POST /borehole/detail-batch` order `observations` so each kind's preferred track comes first (`domain/services/track_preference.py`: manual, else newest edited, else `observation_date` order); the section columns and the borelog take the first of a kind, the backend consumers call `preferred_track`. `ObservationResponse` gains `source`, `edited_manually_at`, `dov_permkey`; `FieldLogIntervalResponse` gains `source`, `edited_manually_at` (all optional, additive).
+* A track edit stales no cache: no stored contact moves (unlike the elevation PATCH) and every observation consumer re-reads on its next run.
+
 **Projects — `project.py`**
 
 ```
