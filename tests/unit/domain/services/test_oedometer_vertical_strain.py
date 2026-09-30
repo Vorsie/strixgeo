@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from groundmodel.domain.services.oedometer_vertical_strain import vertical_strain
-from groundmodel.infrastructure.parsers.lab.geosys.oedometer_control_listing_parser import (
+from groundmodel.infrastructure.parsers.lab.raw_export.oedometer_control_listing_parser import (
     OedometerControlListingParser,
 )
 
