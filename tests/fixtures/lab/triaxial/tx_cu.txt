@@ -1,7 +1,7 @@
 Gegevens van het monster
 Opdrachtnummer:				GEO-19/122
-Rapport bij:				Baerts, Dirk
-Herkomst en kenmerk:			Antwerpen, Tijsmanstunnel
+Rapport bij:				Contact, Placeholder
+Herkomst en kenmerk:			Site placeholder
 Type proef:				CU
 Boringnummer:				B8A
 Volgnummer:				N002
