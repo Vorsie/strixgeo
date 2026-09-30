@@ -28,6 +28,7 @@ import { BED_OVERRIDE_NL } from './bedOverride'
 import { CHROME_NL } from './chrome'
 import { DATA_NL } from './data'
 import { IMPORT_FLAGS_NL } from './importFlags'
+import { LAB_SERIES_NL } from './labSeries'
 import { LAUNCH_NL } from './launch'
 import { MODELS_NL } from './models'
 import { OUTPUTS_NL } from './outputs'
@@ -44,6 +45,7 @@ export const NL: Partial<Messages> = {
   ...DATA_NL,
   ...IMPORT_FLAGS_NL,
   ...BED_OVERRIDE_NL,
+  ...LAB_SERIES_NL,
   ...SETTINGS_NL,
   ...MODELS_NL,
   ...SECTIONS_NL,
@@ -62,6 +64,7 @@ export const NL_MODULES = {
   data: DATA_NL,
   importFlags: IMPORT_FLAGS_NL,
   bedOverride: BED_OVERRIDE_NL,
+  labSeries: LAB_SERIES_NL,
   settings: SETTINGS_NL,
   models: MODELS_NL,
   sections: SECTIONS_NL,
