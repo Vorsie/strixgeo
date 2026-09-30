@@ -74,6 +74,9 @@ const SLOW_MUTATION_HINTS = [
   '/cpt/import',
   'auto-correlate',
   'build-report',
+  // The lab import preview may fetch a missing borehole from DOV (with its
+  // interpretation + sample streams) before it answers.
+  '/lab-series/preview',
 ] as const
 
 /** Whether ``url`` is one of the long-running compute / export mutations. */
