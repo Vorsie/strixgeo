@@ -163,6 +163,7 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
             "epsg",
             "file_date",
             "id",
+            "import_provenance",
             "location",
             "location_x",
             "location_y",
