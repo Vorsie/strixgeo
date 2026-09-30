@@ -65,11 +65,26 @@ metadata editor.
   ``edited_manually_at`` (2026-09-29, additive, no version bump: a file
   written before carries neither key and restores as an untouched DOV
   import); the interpretation arrays
+  observations + layers + admixtures, samples + 6 lab-test families +
+  the optional nested ``lab_series_tests`` — see below)
+  under ``boreholes``; the interpretation arrays
   (``geological_formations``, ``geological_models``); the project-scoped cross-section definitions
   (``cross_sections``); the manual bed-level polygons (``bed_overrides`` —
   owner ruling 2026-09-06; additive, absent in older files, restores to an
   empty list); and per-(project, investigation) decisions
   (``investigation_reviews``).
+* **Raw lab series (2026-09-29, additive, no version bump):** each sample
+  payload may carry ``lab_series_tests: [...]`` — test → ``specimens[]`` →
+  ``stages[]`` (reading axis: ``reading_timestamps`` as ISO strings or
+  ``point_numbers``; ``rezero_indices``) → ``channels[]`` (``series_values``
+  arrays, ``provenance``, ``formula`` / ``derivation_inputs`` on derived
+  channels), plus ``lab_results[]`` (lab-reported). Serialised and restored
+  by ``project_bundle/bundle_lab_series.py`` (attached at the borehole level
+  so the flat sample helpers stay cycle-free); restore caps tests per sample
+  (200), specimens (50), stages (500), channels (64) and drops a channel over
+  200 000 values. A sample without the key restores with no test. An OLDER
+  build opening a newer file drops the key silently (forward-compat loss,
+  accepted as for every additive key).
 * **Per-model litho payload (v4):** each ``geological_models[]`` entry
   carries a nested ``contacts`` array AND a nested ``litho_layers``
   array. Geological models populate ``contacts`` only (boundary-centric
