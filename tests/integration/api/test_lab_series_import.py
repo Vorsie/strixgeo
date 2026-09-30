@@ -21,11 +21,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.import_borehole_dov import ImportBoreholeDov
+from groundmodel.application.import_borehole_dov_by_name_result import (
+    ImportBoreholeDovByNameResult,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.lab_series_test_orm import LabSeriesTestOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
@@ -259,10 +264,55 @@ async def test_a_sample_on_another_project_is_refused(
 async def test_an_unknown_file_is_refused_400(
     async_client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """A text that is none of the raw exports → 400."""
+    """A text that is none of the raw exports → 400, "contact the StrixGeo dev team"."""
     project = await make_project(db_session)
     r = await _post(async_client, "preview", _TX_CD, {"project_id": project.id}, content=b"hello\n")
     assert r.status_code == 400, r.text
+    assert r.json()["detail"]["code"] == "lab_file_format_not_recognised"
+    assert "StrixGeo dev team" in r.json()["detail"]["message"]
+
+
+async def test_a_borehole_missing_from_the_project_is_fetched_from_dov_and_proposed(
+    async_client: AsyncClient, db_session: AsyncSession, monkeypatch
+) -> None:
+    """Owner 2026-09-30 "auto load from DOV": no GEO-25/022-B17 in the project →
+    the preview fetches it (DOV faked: it inserts the borehole the way the real
+    by-name import would) and proposes it, with ``dov_lookup`` saying so."""
+    project = await make_project(db_session)
+    asked: list[str] = []
+
+    async def fake_by_name(self, name, app_project_id=None):
+        asked.append(name)
+        bh = await _borehole(db_session, app_project_id, "1445-GEO-25/022-B17")
+        return ImportBoreholeDovByNameResult(
+            found=True, dov_name="1445-GEO-25/022-B17", borehole_id=bh.id
+        )
+
+    monkeypatch.setattr(ImportBoreholeDov, "execute_by_name", fake_by_name)
+    r = await _post(async_client, "preview", _TX_CD, {"project_id": project.id})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert asked == ["GEO-25/022-B17"]
+    assert body["dov_lookup"]["status"] == "fetched"
+    assert body["dov_lookup"]["borehole_name"] == "1445-GEO-25/022-B17"
+    assert body["proposed_borehole_id"] == body["dov_lookup"]["borehole_id"]
+    assert body["borehole_match"] == "unique"
+
+
+async def test_dov_not_reachable_answers_the_preview_never_a_500(
+    async_client: AsyncClient, db_session: AsyncSession, monkeypatch
+) -> None:
+    """DOV times out → 200, ``dov_lookup.status == "unreachable"``, nothing proposed."""
+    project = await make_project(db_session)
+
+    async def fake_by_name(self, name, app_project_id=None):
+        raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(ImportBoreholeDov, "execute_by_name", fake_by_name)
+    r = await _post(async_client, "preview", _TX_CD, {"project_id": project.id})
+    assert r.status_code == 200, r.text
+    assert r.json()["dov_lookup"]["status"] == "unreachable"
+    assert r.json()["proposed_borehole_id"] is None
 
 
 async def test_the_lab_series_tree_round_trips_through_the_bundle(
@@ -306,3 +356,26 @@ async def test_the_lab_series_tree_round_trips_through_the_bundle(
     )
     assert after.status_code == 200, after.text
     assert after.json() == before.json()
+
+
+async def test_the_borehole_list_counts_the_lab_tests_per_borehole(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Owner 2026-09-30 "add mechanical test icon to test in the borehole
+    overview": ``GET /borehole/`` carries ``lab_series_count`` per row — 1 on
+    the borehole the test was imported onto, 0 on its neighbour."""
+    project = await make_project(db_session)
+    bh = await _borehole(db_session, project.id, "GEO-25/022-B17")
+    other = await _borehole(db_session, project.id, "GEO-25/022-B18")
+    r = await _post(
+        async_client,
+        "import",
+        _TX_CD,
+        {"project_id": project.id, "borehole_id": bh.id, "create_sample": "true"},
+    )
+    assert r.status_code == 201, r.text
+
+    listing = await async_client.get("/borehole/", params={"project_id": str(project.id)})
+    assert listing.status_code == 200, listing.text
+    counts = {row["id"]: row["lab_series_count"] for row in listing.json()}
+    assert counts == {str(bh.id): 1, str(other.id): 0}
