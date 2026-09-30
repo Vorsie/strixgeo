@@ -16,8 +16,12 @@ import type { BoreholeDetailResponse } from '../api/client'
 import { makeFixtureBorehole } from '../test/fixtures/borehole'
 import { allowedTokens } from './dovTrackCodelists'
 import {
+  MAX_ADMIXTURES_PER_INTERVAL,
   listBoreholeTracks,
   newRowAfter,
+  referenceIntervalText,
+  referenceOverlapsRow,
+  rowsFromTemplate,
   rowsFromIntervals,
   rowsToIntervals,
   validateTrackRows,
@@ -247,5 +251,102 @@ describe('editor rows', () => {
     expect(rowsToIntervals('moisture', [row({ top: '0', base: '2', value: 'vochtig' })])).toEqual([
       { top_m: 0, base_m: 2, value: 'vochtig' },
     ])
+  })
+})
+
+describe('the admixture cap (owner 2026-09-30: "i want max 3 admixtures in coded lithology")', () => {
+  const coded = (n: number) =>
+    row({
+      top: '0',
+      base: '1',
+      mainSoil: ['FZ'],
+      admixtures: ['KL', 'LE', 'GL', 'HU'].slice(0, n).map(soil_code => ({ soil_code, amount: 'W', locally: false })),
+    })
+
+  it('three admixtures on a coded row are the limit, and allowed', () => {
+    expect(MAX_ADMIXTURES_PER_INTERVAL).toBe(3)
+    const result = validateTrackRows('coded_lithology', [coded(3)], { totalDepthM: null, allowed: () => null })
+    expect(result.errors).toEqual([])
+  })
+
+  it('a fourth admixture on a coded row is refused, like the backend', () => {
+    const result = validateTrackRows('coded_lithology', [coded(4)], { totalDepthM: null, allowed: () => null })
+    expect(result.errors.map(e => e.code)).toEqual(['too_many_admixtures'])
+    expect(result.errors[0]).toMatchObject({ row: 0, field: 'admixtures' })
+  })
+})
+
+describe('"Start from…" a track as template (owner 2026-09-30: "copy another track as template")', () => {
+  const codedSource = {
+    kind: 'coded_lithology',
+    intervals: [
+      { top_m: 0, base_m: 1.5, color: 'bruin', main_soil_codes: ['FZ'], admixtures: [{ soil_code: 'KL', amount: 'W', locally: false }] },
+      { top_m: 1.5, base_m: 3, color: null, main_soil_codes: ['KL'], admixtures: [] },
+    ],
+  }
+  const descSource = {
+    kind: 'lithological_description',
+    intervals: [
+      { top_m: 0, base_m: 1.5, description: 'fijn zand' },
+      { top_m: 1.5, base_m: 3, description: 'klei' },
+    ],
+  }
+
+  it('a coded track started from a description copies the depths and leaves the codes empty', () => {
+    const rows = rowsFromTemplate('coded_lithology', descSource)
+    expect(rows.map(r => [r.top, r.base])).toEqual([['0', '1.5'], ['1.5', '3']])
+    expect(rows.map(r => r.mainSoil)).toEqual([[''], ['']])
+    expect(rows.map(r => r.description)).toEqual(['', ''])
+  })
+
+  it('a coded track started from another coded track copies the codes too', () => {
+    const rows = rowsFromTemplate('geotechnical_coding', codedSource)
+    expect(rows.map(r => r.mainSoil)).toEqual([['FZ'], ['KL']])
+    expect(rows[0].color).toBe('bruin')
+    expect(rows[0].admixtures).toEqual([{ soil_code: 'KL', amount: 'W', locally: false }])
+  })
+
+  it('a description started from a description copies the text; from a coded track only the depths', () => {
+    expect(rowsFromTemplate('informal_stratigraphy', descSource).map(r => r.description)).toEqual(['fijn zand', 'klei'])
+    expect(rowsFromTemplate('lithological_description', codedSource).map(r => r.description)).toEqual(['', ''])
+  })
+
+  it('a formal stratigraphy never inherits free text (its cells are DOV unit codes)', () => {
+    expect(rowsFromTemplate('formal_stratigraphy', descSource).map(r => r.description)).toEqual(['', ''])
+  })
+
+  it('a colour field log started from a coded track takes the coded colour (the same DOV colour list)', () => {
+    const rows = rowsFromTemplate('color', codedSource)
+    expect(rows.map(r => r.value)).toEqual(['bruin', ''])
+  })
+})
+
+describe('the reference pane (owner 2026-09-30: "see the info that is already there in other tracks")', () => {
+  it('reads an interval as the value, the description, or the compact code', () => {
+    expect(referenceIntervalText({ top_m: 0, base_m: 1, value: 'grijs' })).toBe('grijs')
+    expect(referenceIntervalText({ top_m: 0, base_m: 1, description: 'fijn zand' })).toBe('fijn zand')
+    expect(
+      referenceIntervalText({
+        top_m: 0,
+        base_m: 1,
+        color: 'bruin',
+        main_soil_codes: ['FZ', 'MZ'],
+        admixtures: [{ soil_code: 'KL', amount: 'W', locally: true }],
+      }),
+    ).toBe('FZ/MZ + KL(W, locally) · bruin')
+  })
+
+  it('a reference interval overlaps the row being typed when their depths share a slice', () => {
+    const typed = row({ top: '1.5', base: '3.2' })
+    expect(referenceOverlapsRow({ top_m: 0, base_m: 1.5 }, typed)).toBe(false)
+    expect(referenceOverlapsRow({ top_m: 1.5, base_m: 3.2 }, typed)).toBe(true)
+    expect(referenceOverlapsRow({ top_m: 3, base_m: 5 }, typed)).toBe(true)
+    expect(referenceOverlapsRow({ top_m: 3.2, base_m: 5 }, typed)).toBe(false)
+  })
+
+  it('a row with only a top highlights the interval that contains that depth', () => {
+    const typed = row({ top: '2', base: '' })
+    expect(referenceOverlapsRow({ top_m: 1.5, base_m: 3.2 }, typed)).toBe(true)
+    expect(referenceOverlapsRow({ top_m: 0, base_m: 1.5 }, typed)).toBe(false)
   })
 })
