@@ -69,11 +69,13 @@ Deliberate SOURCE carve-outs, each recorded with its reason in
   test_greedy_mesh.py`` (``test_kernel_compiles_in_numba_nopython_mode``,
   lines 58-77) fails if the kernel ever drops to object-mode, which is exactly
   what compiling it away would cause.
-* five top-level ``domain/services`` modules that ship as SOURCE because they
+* eight top-level ``domain/services`` modules that ship as SOURCE because they
   carry no algorithmic IP (data-shape / token declarations, consistent with
   shipping ``domain/value_objects`` as source) or fall outside the owner's named
   engine scope — ``investigation_kind_constants``, ``litho_body_pick``,
-  ``detect_body_extents``, ``elevation_rollback``, ``water_table_rollback``.
+  ``detect_body_extents``, ``elevation_rollback``, ``water_table_rollback``, and
+  the three borehole-track-editor modules ``borehole_track_constants``,
+  ``validate_track_intervals``, ``track_preference`` (2026-09-29).
   See the per-module reasons in :data:`SOURCE_CARVEOUTS`.
 * every ``__init__.py`` — package markers ship as source. Compiling a package's
   ``__init__`` to a ``.pyd`` breaks the package's importability as a namespace
@@ -87,7 +89,7 @@ Notes
 -----
 The dotted names below were enumerated directly from the ``src/groundmodel``
 tree (voxel_litho ``*.py`` minus greedy_mesh; every top-level ``domain/services``
-``*.py`` minus the five source carve-outs; every non-``__init__`` module under
+``*.py`` minus the eight source carve-outs; every non-``__init__`` module under
 ``infrastructure/parsers``). The ghost directories
 ``infrastructure/parsers/cpt/ags`` and ``infrastructure/parsers/cpt/las`` carry
 no ``.py`` sources yet, so they simply do not appear here — a dotted name only
@@ -127,7 +129,7 @@ _VOXEL_LITHO = [
 # ---------------------------------------------------------------------------
 # The engine — top-level domain/services (everything under domain/services
 # EXCEPT the voxel_litho subpackage above, its own greedy_mesh carve-out, and
-# the five source carve-outs in SOURCE_CARVEOUTS). Grouped by role; alphabetical
+# the eight source carve-outs in SOURCE_CARVEOUTS). Grouped by role; alphabetical
 # within each group. Every module here was verified pure: it imports only
 # stdlib, numpy/scipy, and other domain/services / domain/value_objects /
 # shared/* — nothing from infrastructure/api/application, SQLAlchemy or Pydantic.
@@ -353,12 +355,14 @@ SOURCE_CARVEOUTS: dict[str, str] = {
         "cache beside; compiling it away drops the hotspot to object-mode. "
         "Pinned by tests/unit/domain/services/voxel_litho/test_greedy_mesh.py:58-77."
     ),
-    # Five top-level domain/services modules that ship as SOURCE. The first three
+    # Eight top-level domain/services modules that ship as SOURCE. The first three
     # are data-shape / token declarations (no algorithm to protect — the same
     # rationale that ships every domain/value_objects module as source); the two
     # rollback services carry logic but fall outside the owner's named engine
     # scope (rulings 5-6: partition/fill, voxel builder, NAD classifier, parsers).
-    # All five are PURE (stdlib + domain value_objects only) and could be promoted
+    # The last three are the borehole track editor's rules (2026-09-29), CRUD
+    # validation next to the elevation rollback, not modelling IP.
+    # All eight are PURE (stdlib + domain value_objects only) and could be promoted
     # to COMPILED_MODULES on an owner call — left source, flagged, not invented.
     "groundmodel.domain.services.investigation_kind_constants": (
         "Two domain tokens (KIND_CPT/KIND_BOREHOLE), no algorithmic IP. Imported "
@@ -386,6 +390,21 @@ SOURCE_CARVEOUTS: dict[str, str] = {
     "groundmodel.domain.services.water_table_rollback": (
         "Pure, but outside the named engine scope (rulings 5-6): import-provenance "
         "rollback of the water table, not modelling IP. Owner's call to promote."
+    ),
+    "groundmodel.domain.services.borehole_track_constants": (
+        "Track-editor kind sets + size caps (owner 2026-09-29); token declarations, "
+        "no algorithm. Shipped source like domain/value_objects."
+    ),
+    "groundmodel.domain.services.validate_track_intervals": (
+        "Pure, but outside the named engine scope (rulings 5-6): the hand-edited "
+        "borehole track's interval rules (top < base, no overlap, 1 mm grain) - "
+        "CRUD validation like elevation_rollback, not modelling IP. Owner's call to "
+        "promote."
+    ),
+    "groundmodel.domain.services.track_preference": (
+        "Pure, but outside the named engine scope (rulings 5-6): which track of a "
+        "kind the consumers use (manual > newest edited > date order). A ranking "
+        "rule, not modelling IP. Owner's call to promote."
     ),
     "__init__": (
         "Package __init__ markers ship as source — compiling them breaks package "
