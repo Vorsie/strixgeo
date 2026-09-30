@@ -60,7 +60,11 @@ metadata editor.
   ``project``; every CPT (with series) under ``cpts``; every borehole
   (with its full child tree: drill segments, field log intervals,
   observations + layers + admixtures, samples + 6 lab-test families)
-  under ``boreholes``; the interpretation arrays
+  under ``boreholes``. Each observation and each field-log interval carries
+  its track provenance, ``source`` (``"dov"`` / ``"manual"``) and
+  ``edited_manually_at`` (2026-09-29, additive, no version bump: a file
+  written before carries neither key and restores as an untouched DOV
+  import); the interpretation arrays
   (``geological_formations``, ``geological_models``); the project-scoped cross-section definitions
   (``cross_sections``); the manual bed-level polygons (``bed_overrides`` —
   owner ruling 2026-09-06; additive, absent in older files, restores to an
