@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_conversion import to_depth_below_ground
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_curve import DigitisedCurve
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.page_calibration import PageCalibration
 from groundmodel.infrastructure.parsers.cpt.pdf.panel_calibration import PanelCalibration
 from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
@@ -72,6 +72,7 @@ class RasterCurveExtractor(GroundModelLogger):
         """
         if calibration.coordinate_space != IMAGE_PIXELS:
             raise ValueError("raster extraction needs an image-pixel calibration")
+        cv2 = require_cv2()
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         gray = to_gray(image)
         curves: dict[PanelKind, DigitisedCurve] = {}
@@ -155,6 +156,7 @@ def _curve_mask(hsv: np.ndarray, gray: np.ndarray, panel: PanelCalibration) -> n
     dark = gray < BLACK_CURVE_THRESHOLD
     ink = (gray < LINE_INK_THRESHOLD).astype(np.uint8)
     h, w = ink.shape
+    cv2 = require_cv2()
     vert = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((max(15, h // 8), 1), np.uint8))
     horz = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, max(15, w // 3)), np.uint8))
     both = np.maximum(np.asarray(vert), np.asarray(horz))
