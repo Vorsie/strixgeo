@@ -10,15 +10,18 @@ import pymupdf
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_curve import DigitisedCurve
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
+from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile import LayoutProfile
 from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_registry import (
     LayoutProfileRegistry,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader import OcrReader
+from groundmodel.infrastructure.parsers.cpt.pdf.page_calibration import PageCalibration
 from groundmodel.infrastructure.parsers.cpt.pdf.page_triage import PageTriage
 from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     CONTINUATION_OVERLAP_M,
     GARBLED_TEXT_QUALITY,
+    PDF_POINTS,
     RASTER_DPI,
     REPEAT_START_TOLERANCE_M,
 )
@@ -115,7 +118,7 @@ class CptPdfDigitiser(GroundModelLogger):
                 ",".join(k.value for k in sounding.curves),
             )
             soundings.append(sounding)
-        merged = _merge_continuations(soundings, self)
+        merged = merge_continuations(soundings, self)
         self.success("digitise: %d pages -> %d soundings", len(soundings), len(merged))
         return merged
 
@@ -222,9 +225,107 @@ class CptPdfDigitiser(GroundModelLogger):
         sounding = RasterCurveExtractor().extract(straight, complete)
         return replace(sounding, calibrations=(calibration,))
 
+    def digitise_with_calibration(
+        self, doc: pymupdf.Document, calibration: PageCalibration
+    ) -> DigitisedSounding:
+        """Re-read one page through a given (user-edited) calibration.
 
-def _merge_continuations(
-    soundings: list[DigitisedSounding], logger: GroundModelLogger | None = None
+        The calibration overlay's "Re-extract": the user dragged a frame
+        corner, typed a tick value or picked the curve colour, and the curve is
+        read again through exactly that calibration -- no automatic axis
+        reading is redone, so what the user set is what is used.
+
+        Parameters
+        ----------
+        doc : pymupdf.Document
+            The report.
+        calibration : PageCalibration
+            The page's calibration, in PDF points (vector) or image pixels
+            at ``calibration.dpi`` of the deskewed render (raster).
+
+        Returns
+        -------
+        DigitisedSounding
+            The page's curves, carrying ``calibration``.
+
+        Raises
+        ------
+        ValueError
+            When a raster calibration has no complete panel yet, or the raster
+            engine (the ``pdf-ocr`` extra) is not installed.
+        """
+        page = doc[calibration.page_number - 1]
+        if calibration.coordinate_space == PDF_POINTS:
+            profile = self._profile_named(calibration.profile_name)
+            sounding = VectorCurveExtractor(profile.min_curve_width).extract(page, calibration)
+        else:
+            complete = replace(
+                calibration, panels=tuple(p for p in calibration.panels if p.is_complete)
+            )
+            if not complete.panels:
+                raise ValueError(
+                    f"page {calibration.page_number}: no panel has two tick values per axis yet"
+                )
+            image = render_page(page, round(calibration.dpi or RASTER_DPI))
+            straight, _ = RasterDeskewer().deskew(image)
+            sounding = replace(
+                RasterCurveExtractor().extract(straight, complete), calibrations=(calibration,)
+            )
+        self.info(
+            "page %d re-read through the given calibration: curves %s",
+            calibration.page_number,
+            ",".join(k.value for k in sounding.curves) or "-",
+        )
+        return sounding
+
+    def _profile_named(self, name: str) -> LayoutProfile:
+        """Return the registry profile called ``name`` (generic when unknown)."""
+        for profile in self._registry.profiles:
+            if profile.name == name:
+                return profile
+        return self._registry.match("")
+
+
+def join_sheets(sheets: list[DigitisedSounding]) -> DigitisedSounding:
+    """Fold the sheets of ONE sounding into one sounding, shallowest sheet first.
+
+    Unlike :func:`merge_continuations` this does not decide whether sheets
+    belong together: the caller knows (the sheets of a listed sounding).
+
+    Parameters
+    ----------
+    sheets : list of DigitisedSounding
+        The sheets, one per page, in any order.
+
+    Returns
+    -------
+    DigitisedSounding
+        One sounding; pages, calibrations and annotations in depth order.
+
+    Raises
+    ------
+    ValueError
+        When ``sheets`` is empty.
+    """
+    if not sheets:
+        raise ValueError("no sheets to join")
+    ordered = sorted(sheets, key=lambda s: (_depth_range(s) or (float("inf"), 0.0))[0])
+    joined = ordered[0]
+    for sheet in ordered[1:]:
+        joined = DigitisedSounding(
+            sounding_id=joined.sounding_id or sheet.sounding_id,
+            page_numbers=joined.page_numbers + sheet.page_numbers,
+            calibrations=joined.calibrations + sheet.calibrations,
+            curves=_join_curves(joined.curves, sheet.curves),
+            annotations=joined.annotations + sheet.annotations,
+        )
+    return joined
+
+
+def merge_continuations(
+    soundings: list[DigitisedSounding],
+    logger: GroundModelLogger | None = None,
+    repeats: list[tuple[DigitisedSounding, DigitisedSounding]] | None = None,
 ) -> list[DigitisedSounding]:
     """Merge continuation sheets into their sounding; drop repeated sheets.
 
@@ -232,7 +333,8 @@ def _merge_continuations(
     another sheet in between (CAMZ-001: 68 on p. 214, a repeat of 66's first
     sheet on p. 215, 68's continuation on p. 216). So a sheet with a known id
     joins the earlier sounding of that id whose depth it continues, and a
-    sheet that starts where that sounding started is a repeat and is dropped.
+    sheet that starts where that sounding started is a repeat and is dropped
+    (owner 2026-09-30: "a sheet printed twice is dropped with a notice").
 
     Parameters
     ----------
@@ -240,6 +342,9 @@ def _merge_continuations(
         One per page, in page order.
     logger : GroundModelLogger or None
         Receives a warning per dropped repeat.
+    repeats : list or None
+        When given, receives ``(dropped_sheet, kept_sounding)`` per dropped
+        repeat, so the caller can name it in its notice.
 
     Returns
     -------
@@ -265,6 +370,8 @@ def _merge_continuations(
                             s.sounding_id,
                             earlier.page_numbers,
                         )
+                    if repeats is not None:
+                        repeats.append((s, earlier))
                     target = -1
                 elif _depth_continues(earlier, s):
                     target = i
