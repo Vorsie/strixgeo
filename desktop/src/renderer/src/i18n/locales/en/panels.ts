@@ -101,6 +101,7 @@ export const PANELS = {
   'borelog.noTests': 'no tests',
   'borelog.hideColumnAria': 'Hide {title} column',
   'chart.zMissing': 'Z missing',
+  'chart.pdfDigitised': 'digitised from {file}, p. {pages}',
   // CPT chart run-summary line, legend + recharts axis / tooltip chrome.
   'chart.runSummary': '{type} · {rows} rows · {depth} m',
   'chart.preDrill': 'Pre-drill {depth} m',
