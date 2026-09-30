@@ -68,6 +68,7 @@ export const CHROME_NL = {
   'api.code.dovImportAlreadyRunning': 'Deze DOV-import loopt al.',
   'api.code.bodyPartitionLocked': 'Een andere bewerking op de lichamen loopt nog op dit model. Probeer het zo opnieuw.',
   'api.code.lockTimeout': 'De database was te lang bezet. Probeer het zo opnieuw.',
+  'api.code.dovUnreachable': 'DOV is nu niet bereikbaar; de voorspellingen laden zodra het weer bereikbaar is.',
   'app.backendRestarting': 'Opnieuw verbinden met de backend…',
   'app.quit': 'StrixGeo afsluiten',
   'app.reload': 'StrixGeo herladen',
