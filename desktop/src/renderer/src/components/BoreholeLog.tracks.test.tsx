@@ -20,6 +20,7 @@ describe('BoreholeLog — Tracks button', () => {
     const editing: BoreholeTrackEditing = {
       saveTrack: vi.fn(),
       deleteTrack: vi.fn(),
+      resetToDov: vi.fn(),
     }
     render(<BoreholeLog borehole={makeFixtureBorehole()} trackEditing={editing} />)
     fireEvent.click(screen.getByTestId('borelog-tracks-button'))
