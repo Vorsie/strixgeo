@@ -127,6 +127,8 @@ describe('wired surfaces', () => {
     // One tag per not-yet-available verb (DMT, monitoring); the lab-test verb
     // went live with the raw lab import (2026-09-29).
     expect(within(menu).getAllByText('Fase 4')).toHaveLength(2)
+    // Owner 2026-09-30: a generic lab importer, no program name in the label.
+    expect(within(menu).getByText('Labproeven importeren')).toBeInTheDocument()
   })
 
   it('WS5 — strings from a NON-i18n source are untouched by the flip', () => {
