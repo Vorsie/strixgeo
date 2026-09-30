@@ -609,3 +609,27 @@ class LabSeriesImportRefusedError(GroundModelError):
         """Initialise with the code and the message."""
         super().__init__(message)
         self.code = code
+
+
+class LabFileFormatNotRecognisedError(ParseError):
+    """Raised when a lab file is none of the raw export formats Strix reads.
+
+    Owner ruling 2026-09-30: a generic importer; an unknown format is refused
+    with the request to contact the StrixGeo dev team to have it added. A
+    ``ParseError`` subclass so every existing ``except ParseError`` still
+    catches it; the lab router answers it with 400
+    ``lab_file_format_not_recognised`` (the desktop translates by the code).
+
+    Parameters
+    ----------
+    file_name : str
+        The refused file's name (logs and the per-file error line).
+    """
+
+    CODE = "lab_file_format_not_recognised"
+    MESSAGE = "This file format is not recognised. Contact the StrixGeo dev team to have it added."
+
+    def __init__(self, file_name: str) -> None:
+        """Initialise with the refused file's name."""
+        super().__init__(self.MESSAGE)
+        self.file_name = file_name
