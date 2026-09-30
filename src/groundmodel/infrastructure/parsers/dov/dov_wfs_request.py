@@ -149,9 +149,80 @@ async def wfs_features_json(
     """
     label = label or layer
     params = _build_params(layer=layer, x1=x1, y1=y1, x2=x2, y2=y2, cql_filter=cql_filter)
+    logger.trace(f"DOV {label} WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
+    return await _get_features(http, logger, params, count=count, label=label, backoff=backoff)
+
+
+async def wfs_features_by_attribute(
+    http: httpx.AsyncClient,
+    logger: GroundModelLogger,
+    *,
+    layer: str,
+    cql_filter: str,
+    count: int = DOV_WFS_FEATURE_LIMIT,
+    label: str | None = None,
+    backoff: DovRateLimitState | None = None,
+) -> list[dict[str, Any]]:
+    """Issue a WFS GetFeature filtered by an attribute predicate ONLY (no bbox).
+
+    For a lookup by identity (one borehole by its ``boornummer``) there is no
+    area to search: the whole layer is filtered by the CQL predicate. Verified
+    live 2026-09-30 on ``dov-pub:Boringen`` (``boornummer LIKE '%GEO-19/122-B7'``
+    answers in ~0.3 s over all of Flanders).
+
+    Parameters
+    ----------
+    http : httpx.AsyncClient
+        Shared async HTTP client.
+    logger : GroundModelLogger
+        The calling client's logger (request + response lines).
+    layer : str
+        WFS ``typeNames`` value.
+    cql_filter : str
+        The complete CQL predicate; the caller escapes its string literals.
+    count : int
+        Response size cap.
+    label : str or None
+        Log label (default ``layer``).
+    backoff : DovRateLimitState or None
+        Optional shared rate-limit state.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        The GeoJSON ``features`` list.
+
+    Raises
+    ------
+    httpx.HTTPStatusError
+        On a non-2xx answer (logged with the body first).
+    httpx.RequestError
+        On a network failure (logged first).
+    """
+    label = label or layer
+    params: dict[str, str] = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": layer,
+        "CQL_FILTER": cql_filter,
+    }
+    logger.debug(f"DOV {label} WFS attribute request: {cql_filter}")
+    return await _get_features(http, logger, params, count=count, label=label, backoff=backoff)
+
+
+async def _get_features(
+    http: httpx.AsyncClient,
+    logger: GroundModelLogger,
+    params: dict[str, str],
+    *,
+    count: int,
+    label: str,
+    backoff: DovRateLimitState | None,
+) -> list[dict[str, Any]]:
+    """Send one GeoJSON GetFeature and return its ``features`` (shared tail)."""
     params["outputFormat"] = "application/json"
     params["count"] = str(count)
-    logger.trace(f"DOV {label} WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
 
     t0 = time.perf_counter()
     try:
@@ -169,7 +240,7 @@ async def wfs_features_json(
         resp.raise_for_status()
 
     data = resp.json()
-    features = data.get("features", [])
+    features: list[dict[str, Any]] = data.get("features", [])
     # Response outcome: status + payload size + latency + feature count. Size +
     # latency are the load-bearing "why was this slow" signal (DOV WFS is
     # payload-size-bound); the count catches a truncated / empty result.
