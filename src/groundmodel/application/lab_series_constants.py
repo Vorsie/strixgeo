@@ -7,9 +7,9 @@ can show it as the raw token next to the English presentation label (docs/ux.md
 """
 
 from groundmodel.domain.models.lab.series_provenance import SeriesProvenance
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_constants import (
-    GEOSYS_FORMAT_OED_LISTING,
-    GEOSYS_FORMAT_OED_NEW_RAW,
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_constants import (
+    LAB_EXPORT_FORMAT_OED_LISTING,
+    LAB_EXPORT_FORMAT_OED_NEW_RAW,
 )
 
 # Stage kinds (``lab_series_stage.stage_kind``).
@@ -24,14 +24,14 @@ _LAB_DERIVED = SeriesProvenance.LAB_DERIVED.value
 # it; the listing's settlement bridges a dial re-zero (the dial column does
 # not), which is why both are kept.
 OED_CHANNELS: dict[str, dict[str, tuple[str, str, str]]] = {
-    GEOSYS_FORMAT_OED_LISTING: {
+    LAB_EXPORT_FORMAT_OED_LISTING: {
         "elapsed_min": ("Tijd", "min", _MEASURED),
         # The listing's dial is in gauge units (coefficient in the header).
         "dial_reading": ("Afgelezen verplaatsing", "gauge unit", _MEASURED),
         "settlement_mm": ("Zetting", "mm", _MEASURED),
         "total_settlement_mm": ("Totale zetting", "mm", _MEASURED),
     },
-    GEOSYS_FORMAT_OED_NEW_RAW: {
+    LAB_EXPORT_FORMAT_OED_NEW_RAW: {
         "elapsed_min": ("tijd sinds begin trap (min)", "min", _MEASURED),
         "dial_reading": ("meetwaarde meetklok (mm)", "mm", _MEASURED),
         "settlement_mm": ("vervorming sinds begin van de trap (mm)", "mm", _MEASURED),
@@ -57,7 +57,7 @@ OED_LAB_SUMMARY_FIELDS: tuple[tuple[str, str, str], ...] = (
 )
 
 # Triaxial channel units by canonical key (the dump's header carries no units;
-# these are the units the Geosys TX module writes, per the listings).
+# these are the units the lab's triaxial module writes, per the listings).
 TX_CHANNEL_UNITS: dict[str, str] = {
     "force_n": "N",
     "displacement_um": "µm",
