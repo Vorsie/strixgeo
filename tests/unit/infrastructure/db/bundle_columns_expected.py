@@ -57,6 +57,13 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import GeotechTieTombstoneOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
+from groundmodel.infrastructure.db.models.lab_series_channel_orm import LabSeriesChannelOrm
+from groundmodel.infrastructure.db.models.lab_series_lab_result_orm import (
+    LabSeriesLabResultOrm,
+)
+from groundmodel.infrastructure.db.models.lab_series_specimen_orm import LabSeriesSpecimenOrm
+from groundmodel.infrastructure.db.models.lab_series_stage_orm import LabSeriesStageOrm
+from groundmodel.infrastructure.db.models.lab_series_test_orm import LabSeriesTestOrm
 from groundmodel.infrastructure.db.models.lab_test_family_constants import LAB_TEST_FAMILIES
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -87,6 +94,12 @@ BUNDLE_ARRAY_ORM_CLASSES: dict[str, tuple[type, ...]] = {
         AdmixtureOrm,
         SampleOrm,
         *_LAB_FAMILY_CLASSES,
+        # The raw lab-series family, nested under each sample (2026-09-29).
+        LabSeriesTestOrm,
+        LabSeriesSpecimenOrm,
+        LabSeriesStageOrm,
+        LabSeriesChannelOrm,
+        LabSeriesLabResultOrm,
     ),
     "geological_formations": (GeologicalFormationOrm,),
     "geological_models": (
@@ -565,6 +578,109 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
             "triangles",
             "updated_at",
             "vertices",
+        }
+    ),
+    "LabSeriesTestOrm": frozenset(
+        {
+            "created_at",
+            "id",
+            "import_issues",
+            "kind",
+            "lab_borehole_name",
+            "lab_job_number",
+            "lab_sample_number",
+            "lab_sequence_number",
+            "n_specimens",
+            "sample_id",
+            "sampling_depth_base_m",
+            "sampling_depth_top_m",
+            "source_file_name",
+            "source_format",
+            "source_header",
+            "source_native_file",
+            "source_program_version",
+            "source_sha256",
+            "standard_token",
+            "test_start_date",
+            "test_type_token",
+            "updated_at",
+            "visual_description",
+        }
+    ),
+    "LabSeriesSpecimenOrm": frozenset(
+        {
+            "apparatus_id",
+            "calibration",
+            "consolidation_stress_kpa",
+            "consolidation_volume_change_cm3",
+            "dial_coefficient_mm_per_unit",
+            "dry_mass_g",
+            "failure_description",
+            "grain_density_note",
+            "grain_density_t_m3",
+            "id",
+            "initial_diameter_mm",
+            "initial_height_mm",
+            "initial_water_content_pct",
+            "initial_wet_mass_g",
+            "lever_ratio",
+            "mounting_date",
+            "n_points",
+            "sort_order",
+            "source_header",
+            "specimen_depth_base_m",
+            "specimen_depth_top_m",
+            "specimen_label",
+            "strain_rate_mm_per_min",
+            "test_id",
+        }
+    ),
+    "LabSeriesStageOrm": frozenset(
+        {
+            "direction_token",
+            "hanger_load_kg",
+            "height_at_start_mm",
+            "id",
+            "lab_coefficient",
+            "lab_coefficient_label",
+            "lab_stage_settlement_mm",
+            "n_readings",
+            "point_numbers",
+            "reading_timestamps",
+            "rezero_indices",
+            "specimen_id",
+            "stage_index",
+            "stage_kind",
+            "started_at",
+            "target_stress_kpa",
+        }
+    ),
+    "LabSeriesChannelOrm": frozenset(
+        {
+            "channel_key",
+            "derivation_inputs",
+            "formula",
+            "id",
+            "provenance",
+            "series_values",
+            "sort_order",
+            "source_label",
+            "stage_id",
+            "unit",
+        }
+    ),
+    "LabSeriesLabResultOrm": frozenset(
+        {
+            "id",
+            "parameter",
+            "provenance",
+            "sort_order",
+            "specimen_label",
+            "stage_index",
+            "test_id",
+            "unit",
+            "value_numeric",
+            "value_text",
         }
     ),
 }
