@@ -1,4 +1,4 @@
-# Lab raw-data import — Geosys oedometer + triaxial (BUILT, phase 2)
+# Lab raw-data import — oedometer + triaxial raw exports (BUILT, phase 2)
 
 Status: BUILT (phase 2, 2026-09-29): parsers, schema, import preview + import,
 bundle round-trip, the borehole Lab tests list and the readings viewer. §6
@@ -11,8 +11,10 @@ lab's summary tables. The summary / definitive listings are secondary: identity,
 metadata, cross-checks.
 
 Material: `labformats/qsdf/fileformats/` (scratchpad), three families, exported
-by **Geosys**, the lab software (the listings name the native files
+by the lab's software (the listings name the native files
 `I:\geo\data\<job>\<name>.OCT` / `.TRX` / `.ATT` and the program version).
+Owner ruling 2026-09-30: the program is never named anywhere in Strix; the
+formats are described by what they are.
 
 ---
 
@@ -181,7 +183,7 @@ Oedometer
    compute cv / t50 — they can only come from the raw readings (which is why the
    timestamps must be kept).
 10. Only ~50 readings per stage over 20–98 h: log-spaced then hourly. Whether this
-    is the logger's full record or a thinning by Geosys is unknown.
+    is the logger's full record or a thinning by the lab software is unknown.
 
 Triaxial
 
@@ -246,7 +248,7 @@ lab_series_test                one per imported test, FK sample.id ON DELETE CAS
   sampling_depth_top_m / sampling_depth_base_m  DOUBLE  (lab's, pass-through)
   visual_description  TEXT
   test_start_date     DATE NULL
-  source_format       TEXT  'geosys_oed_control_listing' | 'geosys_tx_dump'
+  source_format       TEXT  'oed_control_listing' | 'tx_point_dump'
   source_file_name    TEXT  the imported file name
   source_sha256       TEXT  content hash (idempotency)
   source_native_file  TEXT  'I:\geo\data\19122\200568B7.OCT'
@@ -366,7 +368,7 @@ no cv / Cc / φ′ computed by Strix.
 
 ## 3. Import entry
 
-* **What the user picks**: one or more FILES in an "Import lab tests (Geosys)"
+* **What the user picks**: one or more FILES in an "Import lab tests"
   dialog. The kind is sniffed from CONTENT (`TRAP :` → oedometer control listing;
   `Identificatiegegevens deelmonster` + `Meetpunt` → triaxial dump), never from the
   extension or the name (`cd.txt` is not unique; `.csv`/`.txt` do not fix the
@@ -401,7 +403,7 @@ no cv / Cc / φ′ computed by Strix.
 
 ## 4. Parsers written in phase 1
 
-`src/groundmodel/infrastructure/parsers/lab/geosys/` (pure, plain dataclasses,
+`src/groundmodel/infrastructure/parsers/lab/raw_export/` (pure, plain dataclasses,
 `ValidationIssue` findings, `GroundModelLogger`):
 
 * `OedometerControlListingParser` → `OedometerListingResult` (header, stages with
