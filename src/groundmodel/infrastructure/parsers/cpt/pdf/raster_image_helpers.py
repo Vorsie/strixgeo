@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 import pymupdf
 
+from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import require_cv2
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     CHROMATIC_SPREAD,
     HUE_TOLERANCE,
@@ -30,7 +30,8 @@ def to_gray(image: np.ndarray) -> np.ndarray:
     """
     if image.ndim == 2:
         return image.astype(np.uint8, copy=False)
-    return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    cv2 = require_cv2()
+    return np.asarray(cv2.cvtColor(image, cv2.COLOR_RGB2GRAY))
 
 
 def render_page(page: pymupdf.Page, dpi: int) -> np.ndarray:
@@ -112,6 +113,7 @@ def hue_mask(hsv: np.ndarray, colour: tuple[float, float, float]) -> np.ndarray:
         Boolean mask.
     """
     rgb = np.array([[[round(c * 255) for c in colour]]], dtype=np.uint8)
+    cv2 = require_cv2()
     target = int(cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[0, 0, 0])
     diff = np.abs(hsv[:, :, 0].astype(int) - target)
     diff = np.minimum(diff, 180 - diff)
