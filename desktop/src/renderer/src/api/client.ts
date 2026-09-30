@@ -216,7 +216,7 @@ export type {
 export { DuplicateContactError } from './clients/geology'
 
 // ---------------------------------------------------------------------------
-// Raw lab-series domain (Geosys oedometer / triaxial readings)
+// Raw lab-series domain (oedometer / triaxial raw readings)
 // ---------------------------------------------------------------------------
 
 export type {
@@ -224,6 +224,7 @@ export type {
   LabSeriesIdentity,
   LabSeriesPreviewSample,
   LabSeriesPreviewResponse,
+  LabSeriesDovLookup,
   LabSeriesImportResponse,
   LabSeriesImportTarget,
   LabSeriesRefreshDiff,
@@ -234,7 +235,10 @@ export type {
   LabSeriesTest,
   LabSeriesTestSummary,
 } from './clients/labSeries'
-export { LabSeriesRefreshConfirmationRequiredError } from './clients/labSeries'
+export {
+  LabFileFormatNotRecognisedError,
+  LabSeriesRefreshConfirmationRequiredError,
+} from './clients/labSeries'
 
 // ---------------------------------------------------------------------------
 // Codelist / Virtuele Boring domain
