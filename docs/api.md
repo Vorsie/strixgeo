@@ -42,13 +42,17 @@ POST   /borehole/detail-batch — Batch the per-borehole detail endpoint into on
 PATCH  /borehole/{borehole_id}/elevation — Update the manually-entered surface elevation for a borehole.
 ```
 
-**Borehole tracks — `borehole_tracks.py` (mounted at `/borehole`, 2026-09-29)** — add a track by hand or change any track, imported ones included. All three require `?project_id` (404 across projects) and commit once.
+**Borehole tracks — `borehole_tracks.py` (mounted at `/borehole`, 2026-09-29)** — add a track by hand or change any track, imported ones included, or reset the DOV tracks to what DOV published. All four require `?project_id` (404 across projects) and commit once.
 
 ```
 POST   /borehole/{borehole_id}/tracks — Create a hand-typed track {kind, intervals[]}; 201, stored with source = "manual".
 PUT    /borehole/{borehole_id}/tracks/{track_id} — Replace every interval of one track; an import keeps source = "dov" + dov_permkey and gets edited_manually_at.
 DELETE /borehole/{borehole_id}/tracks/{track_id} — Delete one whole track with its intervals; 204.
+POST   /borehole/{borehole_id}/tracks/reset-dov[?track_id=] — Reset every DOV track (or one) to the cached DOV XML; 200 {tracks[], discarded_edits, kept_manual}.
 ```
+
+* **Reset to DOV (2026-09-30).** Re-reads the XML the DOV bbox import cached (`<dov_cache_dir>/interpretatie/<dov_permkey>.xml` per observation; the boring XML found in `<dov_cache_dir>/boring/` by its `<identificatie>` = the borehole's boornummer `test_id`, because the boring permkey is not stored on the row), re-parses it with the import's parsers and rewrites the DOV tracks: observations in place (same ids), field logs wholesale (a deleted DOV field-log kind comes back); manual tracks are kept; `edited_manually_at` is cleared. All-or-nothing: a track without cached XML (an XML-file import, a wiped cache, a manual track named by `track_id`) answers `409` `code = "borehole_reset_no_dov_source"` + `missing[]` and writes NOTHING; the desktop shows that as a notice. No undo: the desktop confirms first.
+* **3 admixtures at most** on a coded interval (`MAX_ADMIXTURES_PER_INTERVAL`, owner 2026-09-30): a fourth is a `422` issue `too_many_admixtures` at `intervals.<i>.admixtures`. DOV data written by the import or a reset is not judged by it.
 
 * **One shape for both ORM families.** `kind` is an `ObservationType` value (one `observation` row per track, several per kind allowed) or a `FieldLogKind` value (`color` / `moisture` / `consistency`: the `field_log_interval` rows of that kind, ONE track per kind, id `"field_log:<kind>"`). Each interval is `{top_m, base_m, value?, description?, color?, main_soil_codes?, admixtures?[{soil_code, amount, locally}]}`: a field-log kind fills `value`, a coded kind (`coded_lithology`, `geotechnical_coding`) fills `main_soil_codes` (+ admixtures / colour), every other kind fills `description`. Raw DOV tokens only; the desktop picker offers the DOV codelists, the backend does not check them.
 * **Rules** (`domain/services/validate_track_intervals.py`): top < base on the 1 mm grain (`LITHO_LAYER_DEPTH_DECIMALS`), no overlap within a track, the kind's content present → `422` with `detail = {code: "borehole_track_invalid", message, errors[{loc, code, message}], warnings[...]}`, `loc` the dotted request path (`"intervals.3.base_m"`). Gaps and an interval deeper than the borehole's total depth save, reported in the response's `warnings`. A second field-log track of a kind answers `409` `code = "borehole_track_exists"`.
