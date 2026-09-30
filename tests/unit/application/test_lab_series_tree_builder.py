@@ -25,8 +25,8 @@ from groundmodel.application.lab_series_tree_builder import (
     build_lab_series_test,
     lab_series_identity,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_export_reader import (
-    GeosysExportReader,
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_reader import (
+    LabExportReader,
 )
 
 _LAB = Path(__file__).resolve().parents[2] / "fixtures" / "lab"
@@ -35,7 +35,7 @@ _LAB = Path(__file__).resolve().parents[2] / "fixtures" / "lab"
 def _tree(relative: str):
     """Parse a fixture and build its ORM tree."""
     raw = (_LAB / relative).read_bytes()
-    result = GeosysExportReader().read(raw, source_name=Path(relative).name)
+    result = LabExportReader().read(raw, source_name=Path(relative).name)
     return build_lab_series_test(result, source_file_name=Path(relative).name, source_sha256="x")
 
 
@@ -45,7 +45,7 @@ def _channels(stage) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Oedometer (Geosys control listing)
+# Oedometer (incremental-loading control listing)
 # ---------------------------------------------------------------------------
 
 
@@ -56,7 +56,7 @@ def test_oedometer_listing_becomes_one_specimen_with_one_stage_per_load_step() -
     assert test.lab_sample_number == "20/0568"
     assert test.lab_borehole_name == "B7A"
     assert test.sampling_depth_top_m == pytest.approx(14.5)
-    assert test.source_format == "geosys_oed_control_listing"
+    assert test.source_format == "oed_control_listing"
     assert test.source_native_file == r"I:\geo\data\19122\200568B7.OCT"
     [specimen] = test.specimens
     assert test.n_specimens == 1
@@ -139,7 +139,7 @@ def test_new_module_export_keeps_its_extra_columns_and_dial_in_mm() -> None:
     """The newer module logs the load and two seconds columns per reading —
     each its own measured channel; the dial is in mm; no lab summary."""
     test = _tree("oedometer_new/uit_nieuwemodule.csv")
-    assert test.source_format == "geosys_oed_new_module_raw"
+    assert test.source_format == "oed_new_module_raw"
     assert test.lab_borehole_name is None and test.sampling_depth_top_m is None
     stage = test.specimens[0].stages[0]
     ch = _channels(stage)
@@ -161,7 +161,7 @@ def test_triaxial_dump_becomes_one_shear_stage_per_specimen_on_point_numbers() -
     point numbers (the dump has no time column)."""
     test = _tree("triaxial/tx_cd.txt")
     assert test.kind == "triaxial" and test.test_type_token == "CD"
-    assert test.source_format == "geosys_tx_dump"
+    assert test.source_format == "tx_point_dump"
     assert [s.specimen_label for s in test.specimens] == ["a", "b", "c"]
     assert [s.n_points for s in test.specimens] == [1130, 1139, 1133]
     [stage] = test.specimens[0].stages
@@ -204,5 +204,5 @@ def test_triaxial_before_and_after_values_are_lab_reported() -> None:
 def test_identity_is_kind_test_type_job_and_sample_number() -> None:
     """The re-import key: (kind, test type, lab job, lab sample number)."""
     raw = (_LAB / "triaxial" / "tx_cd.txt").read_bytes()
-    result = GeosysExportReader().read(raw, source_name="tx_cd.txt")
+    result = LabExportReader().read(raw, source_name="tx_cd.txt")
     assert lab_series_identity(result) == ("triaxial", "CD", "GEO-25/022", "25/0389")
