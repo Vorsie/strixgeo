@@ -469,3 +469,22 @@ class BoreholeTrackConflictError(GroundModelError):
         )
         self.kind = kind
         self.track_id = track_id
+
+
+class BoreholeResetNoDovSourceError(GroundModelError):
+    """Raised when a Reset to DOV finds no DOV XML to reset a track to.
+
+    The reset re-reads the XML the DOV bbox import cached (the boring XML by
+    boornummer, each interpretation by its permkey). A borehole imported from
+    an XML file never went through that cache, a wiped cache holds nothing,
+    and a hand-made track has no DOV data behind it at all. The reset is
+    all-or-nothing: when ANY targeted track lacks its XML nothing is changed.
+    The router maps it to HTTP 409 with ``code = "borehole_reset_no_dov_source"``;
+    the desktop shows it as a notice, not an error.
+    """
+
+    def __init__(self, missing: tuple[str, ...], reason: str) -> None:
+        """Initialise with the track ids (or kinds) lacking a source and why."""
+        super().__init__(f"nothing was reset: {reason}")
+        self.missing = missing
+        self.reason = reason
