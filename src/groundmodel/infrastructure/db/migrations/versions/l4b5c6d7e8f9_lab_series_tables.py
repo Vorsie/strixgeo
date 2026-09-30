@@ -5,7 +5,7 @@ Revises: a1b2c3d4e5f7
 Create Date: 2026-09-29 12:00:00.000000
 
 Owner rule (2026-09-28): "geolib uses already processed files, we need to get
-the raw data in the db". The lab's raw exports (the Geosys oedometer control
+the raw data in the db". The lab's raw exports (the oedometer control
 listing, the newer oedometer module's raw dump, the triaxial per-point dumps)
 land in five new tables, a nested family under ``sample``::
 
