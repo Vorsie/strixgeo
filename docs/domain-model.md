@@ -29,7 +29,12 @@ LabTest                      ← performed on a Sample, NOT on a Borehole
 ├── CaCO3Content       (typed: % calcium carbonate by mass)
 ├── OrganicContent     (typed: organic carbon %)
 ├── WaterContent       (typed: w%)
-└── ScalarLabTest      (catch-all: any (parameter, value, unit) tuple; ORM + API only, the unused domain class went 2026-09-22)
+├── ScalarLabTest      (catch-all: any (parameter, value, unit) tuple; ORM + API only, the unused domain class went 2026-09-22)
+└── LabSeriesTest      (typed, nested: raw oedometer / triaxial readings, 2026-09-29)
+    ├── LabSeriesSpecimen   (triaxial a/b/c; the oedometer's one)
+    │   └── LabSeriesStage  (load step / shear; axis = timestamps[] or point_numbers[])
+    │       └── LabSeriesChannel (one DOUBLE PRECISION[] per channel + provenance)
+    └── LabSeriesLabResult  (the lab's reported values: pass-through, never an input)
 
 Monitoring: Piezometer, Inclinometer
 Geophysical: MASW, Seismic CPT
@@ -88,6 +93,19 @@ Geophysical: MASW, Seismic CPT
   through Reset to DOV. A CONSENTED refresh of a held borehole from its source
   (the XML-file import's Replace dialog) is the only path that rewrites
   imported tracks; never a silent overwrite.
+- **LabSeries family** (rule (a): a four-level shape the catch-all cannot hold).
+  One family for both kinds (`LabSeriesKind`: oedometer / triaxial) because the
+  storage shape is identical. Every channel carries `SeriesProvenance`:
+  `measured` (the machine's log), `lab_derived` (the lab software's per-reading
+  column — never shown or exported as a measurement), `derived` (a Strix
+  computation with formula + inputs; today only the oedometer vertical strain
+  epsilon_v = delta_h / h0, `domain/services/oedometer_vertical_strain.py`).
+  The lab's summary values are `lab_reported` rows (owner 2026-09-29: "you can
+  list them but we'll be doing our own interpretations"). Not in the
+  `LAB_TEST_FAMILIES` registry (flat leaf rows only) and never eager-loaded by
+  the borehole detail; the matching rules (borehole name ends with
+  `<job>-<borehole>`; overlapping sample interval = same sample) live in
+  `domain/services/lab_sample_matching.py`. Formats: [parsers-lab.md](parsers-lab.md).
 
 **Interpretation primitives by model kind (post-A4 Shape A):**
 - Geological models: ``FormationContact`` rows are the boundary-centric
