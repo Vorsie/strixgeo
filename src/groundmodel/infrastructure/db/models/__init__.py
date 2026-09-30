@@ -26,6 +26,11 @@ from groundmodel.infrastructure.db.models.geological_model_orm import Geological
 from groundmodel.infrastructure.db.models.geotech_tie_tombstone_orm import GeotechTieTombstoneOrm
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
+from groundmodel.infrastructure.db.models.lab_series_channel_orm import LabSeriesChannelOrm
+from groundmodel.infrastructure.db.models.lab_series_lab_result_orm import LabSeriesLabResultOrm
+from groundmodel.infrastructure.db.models.lab_series_specimen_orm import LabSeriesSpecimenOrm
+from groundmodel.infrastructure.db.models.lab_series_stage_orm import LabSeriesStageOrm
+from groundmodel.infrastructure.db.models.lab_series_test_orm import LabSeriesTestOrm
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_build_generation_orm import (
     LithoBuildGenerationOrm,
@@ -67,6 +72,11 @@ __all__ = [
     "GrainSizeOrm",
     "InvestigationReviewOrm",
     "FormationAbsenceOrm",
+    "LabSeriesChannelOrm",
+    "LabSeriesLabResultOrm",
+    "LabSeriesSpecimenOrm",
+    "LabSeriesStageOrm",
+    "LabSeriesTestOrm",
     "LithoBodySolidOrm",
     "LithoBuildGenerationOrm",
     "LithoContactCorrelationEdgeOrm",
