@@ -17,7 +17,9 @@ import type {
   TrackIntervalBody,
 } from '../api/clients/borehole'
 import type { CodelistField } from './dovTrackCodelists'
-import { TRACK_DEPTH_DECIMALS } from './dovTrackCodelists_constants'
+import { MAX_ADMIXTURES_PER_INTERVAL, TRACK_DEPTH_DECIMALS } from './dovTrackCodelists_constants'
+
+export { MAX_ADMIXTURES_PER_INTERVAL }
 
 /** Which ORM family a track lives in. */
 export type TrackFamily = 'observation' | 'field_log'
@@ -346,6 +348,15 @@ export function validateTrackRows(
       }
       soils.forEach(code => checkToken(index, 'mainSoil', 'mainSoil', code))
       if (r.color.trim() !== '') checkToken(index, 'color', 'colour', r.color.trim())
+      const filled = r.admixtures.filter(a => a.soil_code.trim() !== '').length
+      if (filled > MAX_ADMIXTURES_PER_INTERVAL) {
+        errors.push({
+          row: index,
+          field: 'admixtures',
+          code: 'too_many_admixtures',
+          params: { row: rowNo, n: MAX_ADMIXTURES_PER_INTERVAL },
+        })
+      }
       for (const adm of r.admixtures) {
         if (adm.soil_code.trim() === '') continue
         checkToken(index, 'admixtures', 'admixtureSoil', adm.soil_code.trim())
@@ -379,4 +390,100 @@ export function validateTrackRows(
     }
   }
   return { errors, warnings }
+}
+
+// ---------------------------------------------------------------------------
+// "Start from" a track (owner 2026-09-30: "it would be nice to be able to copy
+// another track as template")
+// ---------------------------------------------------------------------------
+
+/** The track a new one is started from: its kind and its intervals. */
+export interface TrackTemplate {
+  kind: string
+  intervals: readonly TrackIntervalBody[]
+}
+
+/**
+ * Editor rows for a new track of ``kind`` started from ``template``.
+ *
+ * The depths are always copied. The content is copied only where the new kind
+ * carries the same thing, so the rows never start with values the kind's
+ * codelist would refuse:
+ *
+ * * coded <- coded: main soils, colour and admixtures (at most
+ *   ``MAX_ADMIXTURES_PER_INTERVAL``);
+ * * text <- text: the description, except into a formal stratigraphy (its cells
+ *   are DOV unit codes, never free text) unless the template is one too;
+ * * field log <- the same field-log kind: the value; a colour field log <- a
+ *   coded track: the coded colour (both use DOV's colour list);
+ * * everything else: depths only.
+ *
+ * @param kind - Kind of the new track.
+ * @param template - The track to start from.
+ * @returns One editor row per template interval, depth-ordered.
+ */
+export function rowsFromTemplate(kind: string, template: TrackTemplate): TrackEditorRow[] {
+  const target = trackContent(kind)
+  const source = trackContent(template.kind)
+  const sorted = [...template.intervals].sort((a, b) => a.top_m - b.top_m || a.base_m - b.base_m)
+  return sorted.map(i => {
+    const r = emptyRow(String(i.top_m))
+    r.base = String(i.base_m)
+    if (target === 'coded' && source === 'coded') {
+      r.mainSoil = i.main_soil_codes && i.main_soil_codes.length > 0 ? [...i.main_soil_codes] : ['']
+      r.color = i.color ?? ''
+      r.admixtures = (i.admixtures ?? []).slice(0, MAX_ADMIXTURES_PER_INTERVAL).map(a => ({ ...a }))
+    } else if (target === 'text' && source === 'text') {
+      if (kind !== 'formal_stratigraphy' || template.kind === kind) r.description = i.description ?? ''
+    } else if (target === 'value') {
+      if (template.kind === kind) r.value = i.value ?? ''
+      else if (kind === 'color' && source === 'coded') r.value = i.color ?? ''
+    }
+    return r
+  })
+}
+
+// ---------------------------------------------------------------------------
+// The reference pane (owner 2026-09-30: "When adding a coded lithology it
+// would be nice to see the info that is already there in other tracks")
+// ---------------------------------------------------------------------------
+
+/**
+ * One reference interval as a line of text: the field-log value, the
+ * description, or the compact code (``FZ/MZ + KL(W, locally) · bruin``).
+ * Raw DOV tokens: the pane shows what is stored, like the borelog's cells.
+ *
+ * @param interval - A stored interval of another track.
+ * @param locallyWord - The translated word for a local admixture.
+ * @returns The text shown after the depths.
+ */
+export function referenceIntervalText(interval: TrackIntervalBody, locallyWord = 'locally'): string {
+  if (interval.value) return interval.value
+  if (interval.description) return interval.description
+  const soils = (interval.main_soil_codes ?? []).join('/')
+  const admixtures = (interval.admixtures ?? []).map(a => {
+    const qualifiers = [a.amount, a.locally ? locallyWord : ''].filter(q => q !== '')
+    return qualifiers.length > 0 ? `${a.soil_code}(${qualifiers.join(', ')})` : a.soil_code
+  })
+  let text = soils
+  if (admixtures.length > 0) text += ` + ${admixtures.join(', ')}`
+  if (interval.color) text += ` · ${interval.color}`
+  return text
+}
+
+/**
+ * True when a reference interval shares a depth slice with the row being
+ * typed. Touching intervals do not overlap (a 0-1.5 reference is not "at"
+ * a 1.5-3.2 row). A row with only a valid top marks the interval that
+ * contains that depth, so the pane follows the cursor from the first keystroke.
+ *
+ * @param interval - A reference interval.
+ * @param row - The editor row that has the focus.
+ */
+export function referenceOverlapsRow(interval: TrackIntervalBody, row: TrackEditorRow): boolean {
+  const top = parseDepth(row.top)
+  const base = parseDepth(row.base)
+  if (top === null) return false
+  if (base === null || base <= top) return interval.top_m <= top && top < interval.base_m
+  return interval.top_m < base && interval.base_m > top
 }
