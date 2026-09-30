@@ -15,7 +15,7 @@ export const DATA_NL = {
   'data.toolbar.importCptDov': 'Sondering (CPT) importeren uit DOV (kader tekenen)',
   'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
   'data.toolbar.importDmt': 'DMT importeren',
-  'data.toolbar.importLabTest': 'Labproef importeren',
+  'data.toolbar.importLabTest': 'Labproeven importeren (Geosys)',
   'data.toolbar.importMonitoring': 'Monitoring importeren',
   'data.toolbar.phaseTag': 'Fase 4',
   'data.canvas.map': 'Kaart',
