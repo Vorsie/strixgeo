@@ -102,6 +102,32 @@ class DovXmlCache(GroundModelLogger):
             self.warning(f"DOV cache: read failed for {permkey!r}: {exc}")
             return None
 
+    def permkeys(self) -> list[str]:
+        """Return every cached permkey (the ``*.xml`` stems), sorted; [] on a scan error."""
+        try:
+            return sorted(
+                entry.stem
+                for entry in self._dir.iterdir()
+                if entry.is_file() and entry.suffix == ".xml"
+            )
+        except OSError as exc:
+            self.warning(f"DOV cache: listing failed at {self._dir}: {exc}")
+            return []
+
+    def read_head(self, permkey: str, max_bytes: int) -> bytes | None:
+        """Return the first ``max_bytes`` of the cached XML, or None on a miss / read error."""
+        path = self._path_for(permkey)
+        if path is None:
+            return None
+        try:
+            with open(path, "rb") as f:
+                return f.read(max_bytes)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            self.warning(f"DOV cache: head read failed for {permkey!r}: {exc}")
+            return None
+
     def put(self, permkey: str, xml_bytes: bytes) -> None:
         """Atomically write *xml_bytes* to the cache. Silently no-op on failure."""
         path = self._path_for(permkey)
