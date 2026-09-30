@@ -19,7 +19,17 @@ import sys
 # Packages that MUST NOT be imported merely by importing the API entry point.
 # Each is needed only when a specific feature runs (an export, a voxel build, a
 # TIN surface, a plot), never at boot or router registration.
-_FORBIDDEN_AT_BOOT = ("numba", "llvmlite", "geolib", "ezdxf", "matplotlib", "scipy")
+# pymupdf / cv2: the PDF CPT digitiser loads them on the first report opened.
+_FORBIDDEN_AT_BOOT = (
+    "numba",
+    "llvmlite",
+    "geolib",
+    "ezdxf",
+    "matplotlib",
+    "scipy",
+    "pymupdf",
+    "cv2",
+)
 
 
 def test_boot_does_not_import_export_or_compute_libraries() -> None:
