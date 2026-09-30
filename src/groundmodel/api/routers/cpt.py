@@ -630,6 +630,7 @@ def _cpt_response(cpt: CptOrm) -> CptResponse:
         water_depth_source=cpt.water_depth_source,
         max_depth_m=cpt.max_depth_m,
         n_rows=cpt.n_rows,
+        import_provenance=cpt.import_provenance,
     )
 
 
