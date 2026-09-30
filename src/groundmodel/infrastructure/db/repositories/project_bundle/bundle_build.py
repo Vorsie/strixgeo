@@ -55,6 +55,7 @@ from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 from .bundle_collections import assert_bundle_keys_registered
+from .bundle_lab_series import attach_lab_series_payloads, lab_series_eager_load_options
 from .bundle_serialization import (
     _SKIP_COLUMNS,
     _borehole_to_dict,
@@ -151,7 +152,7 @@ async def _build_project_bundle_impl(
     boreholes_stmt = (
         select(BoreholeOrm)
         .where(BoreholeOrm.app_project_id == project.id)
-        .options(*borehole_full_tree_options())
+        .options(*borehole_full_tree_options(), *lab_series_eager_load_options())
     )
     # Geological-model tree. The bundle carries the user's interpretation
     # work (formations + models + every contact) so re-opening the file
@@ -359,7 +360,7 @@ async def _build_project_bundle_impl(
         "format_version": BUNDLE_FORMAT_VERSION,
         "project": _column_to_json(project, _SKIP_COLUMNS),
         "cpts": [_cpt_to_dict(c) for c in cpts],
-        "boreholes": [_borehole_to_dict(b) for b in boreholes],
+        "boreholes": [_borehole_payload(b) for b in boreholes],
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
@@ -429,3 +430,21 @@ async def _build_project_bundle_impl(
         f"+ {len(litho_solids)} litho body solids"
     )
     return bundle
+
+
+def _borehole_payload(borehole: BoreholeOrm) -> dict[str, Any]:
+    """Serialise a borehole and attach each sample's raw lab-series tests.
+
+    Parameters
+    ----------
+    borehole : BoreholeOrm
+        Borehole with the full tree and the lab-series chains loaded.
+
+    Returns
+    -------
+    dict[str, Any]
+        The borehole bundle dict; every sample carries ``lab_series_tests``.
+    """
+    payload = _borehole_to_dict(borehole)
+    attach_lab_series_payloads(payload, borehole)
+    return payload
