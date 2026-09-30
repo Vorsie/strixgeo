@@ -331,6 +331,32 @@ class DovImportTooLargeError(GroundModelError):
         self.limit = limit
 
 
+class DovUnreachableError(GroundModelError):
+    """Raised when DOV answered NONE of a fan-out's calls for a network reason.
+
+    An external service being slow or down is a degraded path, not a server
+    error. A fan-out (e.g. the Virtuele Boring predictions sweep) skips each
+    call that fails with a transport error and returns the rest; only when
+    EVERY call failed that way is there nothing to return, and this is
+    raised. The predictions router maps it to HTTP 503 with ``code =
+    "dov_unreachable"``.
+
+    Parameters
+    ----------
+    failed_calls : int
+        How many calls failed (all of them).
+    error_classes : dict[str, int]
+        Transport-error class name -> count, e.g. ``{"ConnectTimeout": 63}``.
+    """
+
+    def __init__(self, failed_calls: int, error_classes: dict[str, int]) -> None:
+        """Initialise with the failed-call count and the error-class tally."""
+        tally = ", ".join(f"{name} x{count}" for name, count in sorted(error_classes.items()))
+        super().__init__(f"DOV did not answer any of {failed_calls} call(s) ({tally})")
+        self.failed_calls = failed_calls
+        self.error_classes = error_classes
+
+
 class DuplicateImportJobError(GroundModelError):
     """Raised when an import for the same scope is already running.
 
