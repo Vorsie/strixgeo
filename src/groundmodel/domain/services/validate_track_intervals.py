@@ -11,7 +11,9 @@ The rules, as the session main set them for the track editor:
 * an interval deeper than the borehole's total depth - WARN, never block (the
   owner's boreholes sometimes carry descriptions deeper than ``diepte_tot``);
 * each row carries the content its kind needs: a field-log value, a main soil
-  code on a coded-lithology row, text on a description / stratigraphy row.
+  code on a coded-lithology row, text on a description / stratigraphy row;
+* a coded row carries at most ``MAX_ADMIXTURES_PER_INTERVAL`` (3) admixtures
+  (owner 2026-09-30) - BLOCK.
 
 Pure function: no I/O, no logging. The API turns ``errors`` into a 422 whose
 ``loc`` fields are the dotted key paths of the request body.
@@ -25,6 +27,7 @@ from dataclasses import replace
 from groundmodel.domain.services.borehole_track_constants import (
     CODED_TRACK_KINDS,
     FIELD_LOG_TRACK_KINDS,
+    MAX_ADMIXTURES_PER_INTERVAL,
     OBSERVATION_TRACK_KINDS,
 )
 from groundmodel.domain.value_objects.track_interval import TrackInterval
@@ -149,6 +152,13 @@ def _content_issue(kind: str, index: int, interval: TrackInterval) -> TrackIssue
                 f"intervals.{index}.main_soil_codes",
                 "missing_main_soil_code",
                 f"Interval {index} has no main soil code",
+            )
+        if len(interval.admixtures) > MAX_ADMIXTURES_PER_INTERVAL:
+            return TrackIssue(
+                f"intervals.{index}.admixtures",
+                "too_many_admixtures",
+                f"Interval {index} has {len(interval.admixtures)} admixtures; "
+                f"{MAX_ADMIXTURES_PER_INTERVAL} at most",
             )
         return None
     if interval.description is None:
