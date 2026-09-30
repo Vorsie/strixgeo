@@ -31,8 +31,17 @@ FIELD_LOG_TRACK_ID_PREFIX: Final[str] = "field_log:"
 # rows (the same defensive role as the bundle's _MAX_OBSERVATION_LAYERS).
 MAX_TRACK_INTERVALS: Final[int] = 5000
 
-# Admixtures per interval, same defensive role.
+# Admixtures per interval, same defensive role (the request schema's cap on
+# ANY kind; the coded-track rule below is the tighter, owner-set one).
 MAX_TRACK_INTERVAL_ADMIXTURES: Final[int] = 20
+
+# Admixtures per interval of a CODED track (coded lithology / geotechnical
+# coding). Why 3: DOV's own practice codes at most a handful of bijmengingen
+# per layer, and the owner ruled it 2026-09-30 ("i want max 3 admixtures in
+# coded lithology"). The editor never offers a fourth row; the validator
+# refuses one (``too_many_admixtures``). DOV data written by the import or a
+# Reset to DOV is not judged by this rule - it is what DOV sent.
+MAX_ADMIXTURES_PER_INTERVAL: Final[int] = 3
 
 # Main soil codes per interval: DOV's <hoofdnaam> repeats for EQUALLY
 # dominant soils, in practice one or two.
