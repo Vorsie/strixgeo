@@ -52,6 +52,17 @@ class PageEvidence:
         Graph panels found by the raster grid detector (image pages only).
     reasons : tuple of str
         The evidence for the verdict, in words.
+    ground_level_m : float or None
+        The printed ground level ("HOOGTE MAAIVELD 6.02").
+    z_epsg : int or None
+        The vertical datum the sheet names (5710 TAW, 5709 NAP).
+    x, y : float or None
+        The printed coordinates of the sounding; None when not printed.
+    epsg : int or None
+        The coordinate system the sheet names for ``x`` / ``y`` (31370
+        Lambert72, 28992 RD); None when it names none (never guessed).
+    test_date : str or None
+        The printed test date, as printed ("28-2-2024").
     """
 
     page_number: int
@@ -75,3 +86,9 @@ class PageEvidence:
     dov_id: str | None = None
     raster_panels: int = 0
     reasons: tuple[str, ...] = field(default_factory=tuple)
+    ground_level_m: float | None = None
+    z_epsg: int | None = None
+    x: float | None = None
+    y: float | None = None
+    epsg: int | None = None
+    test_date: str | None = None
