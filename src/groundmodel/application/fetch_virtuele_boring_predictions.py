@@ -15,7 +15,15 @@ Design choices
   shouldn't blank the entire overlay. We catch
   ``VirtueleBoringFetchError`` per (investigation, model) pair, log
   the failure, and move on — the response surfaces whatever did
-  succeed.
+  succeed, and ``skipped`` says why each missing pair is missing.
+* **DOV being slow is degraded, not a server error.** A transport
+  failure (``httpx.TransportError``: connect / read timeout, reset,
+  refused, protocol error) on one pair is skipped the same way
+  (owner's dev log 2026-09-27/29: one ``ReadError`` of 63 escaped
+  ``asyncio.gather`` and 500'd the whole overlay). Only when EVERY
+  pair failed for a network reason is there nothing to return: one
+  summary WARNING, then ``DovUnreachableError`` (the router's 503).
+  Any other exception is a bug and propagates.
 * **Bounded fan-out via ``asyncio.Semaphore``.** DOV's per-IP rate
   limit kicks in above ~50 concurrent during peak hours per
   CLAUDE.local.md; we mirror the same ceiling here as for the bulk
@@ -29,10 +37,12 @@ Design choices
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
@@ -51,7 +61,13 @@ from groundmodel.infrastructure.parsers.dov.virtuele_boring_constants import (
 from groundmodel.infrastructure.parsers.dov.virtuele_boring_result import (
     VirtueleBoringLayer,
 )
+from groundmodel.shared.exceptions import DovUnreachableError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# ``SkippedPrediction.reason`` values. ``dov_unreachable`` = the call never
+# got an HTTP answer (transport error); ``dov_http_error`` = DOV answered
+# with a non-2xx status.
+SkipReason = Literal["dov_unreachable", "dov_http_error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +105,36 @@ class InvestigationPrediction:
 
 
 @dataclass(frozen=True, slots=True)
+class SkippedPrediction:
+    """One (investigation, model) fetch that returned nothing, and why.
+
+    Attributes
+    ----------
+    investigation_kind : str
+        ``"cpt"`` or ``"borehole"``.
+    investigation_id : UUID
+        The CPT or Borehole row id.
+    name : str
+        Display label of the investigation (its ``test_id``).
+    model : str
+        The DOV lagenmodel code whose fetch failed.
+    reason : SkipReason
+        ``"dov_unreachable"`` (no HTTP answer) or ``"dov_http_error"``
+        (DOV answered with a non-2xx status).
+    detail : str
+        The transport-error class name (``"ReadTimeout"``) or
+        ``"HTTP <status>"``.
+    """
+
+    investigation_kind: Literal["cpt", "borehole"]
+    investigation_id: UUID
+    name: str
+    model: str
+    reason: SkipReason
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class VirtueleBoringPredictionsResult:
     """Aggregated overlay payload for a project.
 
@@ -108,11 +154,17 @@ class VirtueleBoringPredictionsResult:
         Lambert 72 (or coordinates were missing). Surfaced in the
         response so the UI can show "12 investigations in this
         project don't sit in EPSG:31370 and have no overlay."
+    skipped : list[SkippedPrediction]
+        One entry per (investigation, model) fetch that failed, with
+        the reason, in investigation-then-model order. Separate from
+        ``skipped_count`` (the CRS / coordinate skips, which never
+        reach the network). Empty when every fetch succeeded.
     """
 
     models: list[str]
     predictions: list[InvestigationPrediction]
     skipped_count: int
+    skipped: list[SkippedPrediction] = field(default_factory=list)
 
 
 class FetchVirtueleBoringPredictions(GroundModelLogger):
@@ -150,8 +202,15 @@ class FetchVirtueleBoringPredictions(GroundModelLogger):
         Returns
         -------
         VirtueleBoringPredictionsResult
-            Aggregated payload — per-investigation predictions plus
-            the skip count.
+            Aggregated payload — per-investigation predictions, the
+            CRS skip count, and every failed fetch with its reason.
+
+        Raises
+        ------
+        DovUnreachableError
+            When EVERY (investigation, model) fetch failed with a
+            transport error — DOV is down or unreachable, nothing to
+            return. A partial failure never raises.
         """
         self.info(f"fetch_virtuele_boring_predictions: project={project_id} models={models}")
 
@@ -238,6 +297,9 @@ class FetchVirtueleBoringPredictions(GroundModelLogger):
         per_inv_layers: dict[UUID, dict[str, list[VirtueleBoringLayer]]] = {
             inv_id: {} for (_, inv_id, _, _, _, _) in usable
         }
+        # Keyed by (investigation, model) so the final list can be built
+        # in a stable order regardless of completion order.
+        failures: dict[tuple[UUID, str], SkippedPrediction] = {}
 
         async with make_dov_async_client() as http:
             client = VirtueleBoringClient(http)
@@ -260,6 +322,22 @@ class FetchVirtueleBoringPredictions(GroundModelLogger):
                             f"Virtuele Boring fetch failed for {kind} {inv_id} "
                             f"({name}) model={model}: HTTP {err.status_code}"
                         )
+                        failures[(inv_id, model)] = SkippedPrediction(
+                            kind, inv_id, name, model, "dov_http_error", f"HTTP {err.status_code}"
+                        )
+                        return
+                    except httpx.TransportError as err:
+                        # DOV did not answer (timeout / reset / refused).
+                        # Degraded, not a bug: skip this pair. The WARNING
+                        # is deferred until the sweep ends so an offline
+                        # machine logs ONE summary line, not one per pair.
+                        self.debug(
+                            f"Virtuele Boring transport error for {kind} {inv_id} "
+                            f"({name}) model={model}: {type(err).__name__}: {err}"
+                        )
+                        failures[(inv_id, model)] = SkippedPrediction(
+                            kind, inv_id, name, model, "dov_unreachable", type(err).__name__
+                        )
                         return
                 per_inv_layers[inv_id][model] = result.layers
 
@@ -269,9 +347,32 @@ class FetchVirtueleBoringPredictions(GroundModelLogger):
                 for model in unique_models
             ]
             self.debug(
-                f"dispatching {len(tasks)} Virtuele Boring fetches (parallelism={DOV_VIRTUELE_BORING_PARALLELISM})"
+                f"dispatching {len(tasks)} Virtuele Boring fetches "
+                f"(parallelism={DOV_VIRTUELE_BORING_PARALLELISM})"
             )
             await asyncio.gather(*tasks)
+
+        skipped_fetches = [
+            failures[(inv_id, model)]
+            for (_, inv_id, _, _, _, _) in usable
+            for model in unique_models
+            if (inv_id, model) in failures
+        ]
+        unreachable = [s for s in skipped_fetches if s.reason == "dov_unreachable"]
+        if unreachable and len(unreachable) == len(tasks):
+            error_classes = dict(Counter(s.detail for s in unreachable))
+            self.warning(
+                f"fetch_virtuele_boring_predictions: project={project_id} DOV is "
+                f"unreachable — all {len(tasks)} fetch(es) failed without an answer "
+                f"({error_classes}); no predictions returned"
+            )
+            raise DovUnreachableError(len(tasks), error_classes)
+        for s in unreachable:
+            self.warning(
+                f"Virtuele Boring fetch skipped for {s.investigation_kind} "
+                f"{s.investigation_id} ({s.name}) model={s.model}: DOV did not "
+                f"answer ({s.detail})"
+            )
 
         # Build the final ordered list mirroring the usable[] order
         # (CPTs before boreholes, each in DB-insert order).
@@ -290,8 +391,12 @@ class FetchVirtueleBoringPredictions(GroundModelLogger):
         self.success(
             f"fetch_virtuele_boring_predictions: project={project_id} "
             f"{succeeded}/{len(predictions)} investigation(s) returned data "
-            f"({skipped} skipped, {len(unique_models)} model(s))"
+            f"({skipped} skipped, {len(skipped_fetches)} fetch(es) failed of which "
+            f"{len(unreachable)} unreachable, {len(unique_models)} model(s))"
         )
         return VirtueleBoringPredictionsResult(
-            models=unique_models, predictions=predictions, skipped_count=skipped
+            models=unique_models,
+            predictions=predictions,
+            skipped_count=skipped,
+            skipped=skipped_fetches,
         )
