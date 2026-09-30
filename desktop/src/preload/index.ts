@@ -218,6 +218,7 @@ contextBridge.exposeInMainWorld('electron', {
   // Menu signals — same shape as the existing onMenuImport* helpers but
   // routed through the shared ``onMenuEvent`` factory above.
   onMenuImportCpt: (cb: () => void) => onMenuEvent('menu:import-cpt', cb),
+  onMenuImportCptPdf: (cb: () => void) => onMenuEvent('menu:import-cpt-pdf', cb),
   onMenuImportBorehole: (cb: () => void) => onMenuEvent('menu:import-borehole', cb),
 
   onMenuProjectNew: (cb: () => void) => onMenuEvent('menu:project-new', cb),
