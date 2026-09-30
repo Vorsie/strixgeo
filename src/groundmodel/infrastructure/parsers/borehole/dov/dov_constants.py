@@ -67,6 +67,11 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
 # is not advertised; the plural form is canonical.
 DOV_WFS_BORINGEN_LAYER = "dov-pub:Boringen"
 
+# The Boringen attribute that carries the borehole's name ("boornummer" = borehole
+# number, e.g. "1445-GEO-25/022-B17"); the by-name lookup filters on it.
+# Verified live 2026-09-30 (WFS GetFeature with a CQL ILIKE on it).
+DOV_BORING_NAME_ATTRIBUTE = "boornummer"
+
 # Grondmonsters (soil samples) — used in Phase C for the sample WFS query.
 # One row per sample with depth interval, sample type, instrument, and a link
 # to the per-sample monster XML.
