@@ -58,6 +58,10 @@ from groundmodel.infrastructure.parsers.lab.geosys.geosys_text import (
     parse_geosys_number,
     parse_geosys_value_unit,
 )
+from groundmodel.infrastructure.parsers.lab.geosys.oedometer_checks import (
+    check_oedometer_readings,
+    check_stage_counts,
+)
 from groundmodel.infrastructure.parsers.lab.geosys.oedometer_constants import (
     OED_CHART_MARKER,
     OED_FILENAME_RE,
@@ -88,8 +92,6 @@ from groundmodel.infrastructure.parsers.lab.geosys.oedometer_constants import (
     OED_MOUNTING_DATE_FORMAT,
     OED_READING_FIELD_COUNT,
     OED_READING_RE,
-    OED_REZERO_MAX_SETTLEMENT_CHANGE_MM,
-    OED_REZERO_MIN_JUMP_MM,
     OED_STAGE_FOOTER_RE,
     OED_STAGE_HEADER_RE,
     OED_STRESS_REL_TOLERANCE,
@@ -241,7 +243,12 @@ class OedometerControlListingParser(GroundModelLogger):
             issues=issues,
         )
         self._check_identity(result)
-        self._check_readings(result)
+        check_oedometer_readings(
+            result,
+            dial_to_mm=abs(result.header.dial_coefficient_mm_per_unit or 1.0),
+            logger=self,
+        )
+        check_stage_counts(result)
         self._check_stress(result)
         self._check_height_chain(result)
         n_readings = sum(len(s.elapsed_min) for s in stages)
@@ -333,67 +340,6 @@ class OedometerControlListingParser(GroundModelLogger):
                     f"sampling depth not readable: {h.raw.get(OED_LABEL_DEPTH)!r}",
                 )
             )
-
-    def _check_readings(self, result: OedometerListingResult) -> None:
-        """Flag empty stages, time running backwards, and gauge re-zeros."""
-        coefficient = abs(result.header.dial_coefficient_mm_per_unit or 1.0)
-        for stage in result.stages:
-            n = len(stage.elapsed_min)
-            if n == 0:
-                result.issues.append(
-                    ValidationIssue(
-                        ValidationLevel.WARNING,
-                        "EMPTY_STAGE",
-                        f"stage {stage.stage_number} lists no readings",
-                    )
-                )
-                continue
-            for i in range(1, n):
-                t0, t1 = stage.elapsed_min[i - 1], stage.elapsed_min[i]
-                if t0 is not None and t1 is not None and t1 < t0:
-                    result.issues.append(
-                        ValidationIssue(
-                            ValidationLevel.WARNING,
-                            "ELAPSED_TIME_NOT_MONOTONIC",
-                            f"stage {stage.stage_number}: elapsed time steps back "
-                            f"{t0} → {t1} min at reading {i + 1}",
-                            rows=[i + 1],
-                        )
-                    )
-                if stage.timestamps[i] != stage.timestamps[i - 1]:
-                    continue
-                d0, d1 = stage.dial_readings[i - 1], stage.dial_readings[i]
-                s0, s1 = stage.settlement_mm[i - 1], stage.settlement_mm[i]
-                jump = abs(d1 - d0) * coefficient if d0 is not None and d1 is not None else 0.0
-                moved = abs(s1 - s0) if s0 is not None and s1 is not None else 0.0
-                stamp = stage.timestamps[i].strftime("%d/%m/%Y %H:%M:%S")
-                if jump > OED_REZERO_MIN_JUMP_MM and moved < OED_REZERO_MAX_SETTLEMENT_CHANGE_MM:
-                    self.warning(
-                        "oedometer %s stage %d: dial re-zero %.3f mm at %s",
-                        result.source_name,
-                        stage.stage_number,
-                        jump,
-                        stamp,
-                    )
-                    result.issues.append(
-                        ValidationIssue(
-                            ValidationLevel.WARNING,
-                            "DIAL_REZERO",
-                            f"stage {stage.stage_number}: dial reading jumps {jump:.3f} mm at the "
-                            f"repeated timestamp {stamp} while the settlement does not change "
-                            "(gauge re-zeroed); the settlement column is the continuous series",
-                            rows=[i + 1],
-                        )
-                    )
-                else:
-                    result.issues.append(
-                        ValidationIssue(
-                            ValidationLevel.INFO,
-                            "DUPLICATE_TIMESTAMP",
-                            f"stage {stage.stage_number}: two readings share timestamp {stamp}",
-                            rows=[i + 1],
-                        )
-                    )
 
     def _check_stress(self, result: OedometerListingResult) -> None:
         """Recompute each stage stress from hanger load, lever ratio and area."""
