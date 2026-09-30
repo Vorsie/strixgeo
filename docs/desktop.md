@@ -80,6 +80,14 @@ desktop/src/
     │                            add/edit, detail refetch, markMutated, and a
     │                            hooks/boreholeTracksRevision.ts bump that makes an open
     │                            section refetch its borehole columns).
+    │                            2026-09-30: Reset to DOV (whole borehole + per DOV
+    │                            track; ResetToDovConfirm.tsx, Cancel focused, names how
+    │                            many edited tracks lose their edits, no undo; a 409
+    │                            no-source is a role=status notice), "Start from" a track
+    │                            as template (utils/boreholeTracks.rowsFromTemplate), the
+    │                            editor's read-only reference pane of the other tracks
+    │                            (marks the intervals overlapping the focused row), and
+    │                            max 3 admixtures per coded row (no fourth row offered).
     ├── components/interpretation/
     │   ├── FormationPickerDialog.tsx      Pick an existing geological formation.
     │   ├── LithoCompositionPickerDialog.tsx  Two-tab picker: existing units + new-unit builder.
