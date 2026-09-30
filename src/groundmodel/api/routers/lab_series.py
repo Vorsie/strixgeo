@@ -55,6 +55,7 @@ from groundmodel.infrastructure.db.repositories.lab_series_repository import (
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import (
+    LabFileFormatNotRecognisedError,
     LabSeriesImportRefusedError,
     LabSeriesRefreshConfirmationRequiredError,
     LabSeriesRefreshRefusedError,
@@ -99,7 +100,8 @@ async def preview_lab_series(
     Raises
     ------
     HTTPException
-        400 unsupported / unreadable file; 404 borehole not in the project;
+        400 unreadable file, or ``lab_file_format_not_recognised`` for a
+        format Strix does not read; 404 borehole not in the project;
         413 upload too large.
     """
     logger.info(f"POST /lab-series/preview: file={file.filename!r} project={project_id}")
@@ -108,6 +110,8 @@ async def preview_lab_series(
         preview = await ImportLabSeriesFile(session).preview(
             path, project_id, file_name=file.filename or path.name, borehole_id=borehole_id
         )
+    except LabFileFormatNotRecognisedError as exc:
+        raise _format_not_recognised(exc) from exc
     except ParseError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NotFoundError as exc:
@@ -163,7 +167,8 @@ async def import_lab_series(
     Raises
     ------
     HTTPException
-        400 unsupported file; 404 borehole / sample not in the project;
+        400 unreadable file, or ``lab_file_format_not_recognised``;
+        404 borehole / sample not in the project;
         409 refresh awaits confirmation (nothing written); 413 too large;
         422 sample choice refused or refresh refused (ERROR findings).
     """
@@ -185,6 +190,8 @@ async def import_lab_series(
             sample_depth_base_m=sample_depth_base_m,
             confirm_refresh=confirm_refresh,
         )
+    except LabFileFormatNotRecognisedError as exc:
+        raise _format_not_recognised(exc) from exc
     except ParseError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NotFoundError as exc:
@@ -321,6 +328,15 @@ async def _spool(file: UploadFile) -> Path:
         )
     return await spool_upload(
         file, suffix=suffix, max_bytes=LAB_SERIES_MAX_UPLOAD_BYTES, label="Lab file"
+    )
+
+
+def _format_not_recognised(exc: LabFileFormatNotRecognisedError) -> HTTPException:
+    """400 with the stable code the desktop translates (owner ruling 2026-09-30)."""
+    logger.warning(f"lab file {exc.file_name!r}: format not recognised")
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={"code": exc.CODE, "message": str(exc), "file_name": exc.file_name},
     )
 
 
