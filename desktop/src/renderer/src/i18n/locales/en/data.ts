@@ -15,7 +15,7 @@ export const DATA = {
   'data.toolbar.importCptDov': 'Import CPT from DOV (draw bbox)',
   'data.toolbar.importBoreholeDov': 'Import Borehole from DOV (draw bbox)',
   'data.toolbar.importDmt': 'Import DMT',
-  'data.toolbar.importLabTest': 'Import Lab Test',
+  'data.toolbar.importLabTest': 'Import lab tests (Geosys)',
   'data.toolbar.importMonitoring': 'Import Monitoring',
   'data.toolbar.phaseTag': 'Phase 4',
   'data.canvas.map': 'Map',
