@@ -3,6 +3,8 @@
 Owner 2026-09-29: "i want to be able to add or change any track". A track is
 one observation stream of a borehole (coded lithology, a description, a
 stratigraphy, ...) or one field-log kind (colour / moisture / consistency).
+A fourth route resets the borehole's DOV tracks (or one of them) to what DOV
+published, from the XML the bbox import cached (owner 2026-09-30).
 One API shape for both ORM families: ``kind`` + ``intervals[{top_m, base_m,
 value | description | main_soil_codes + admixtures + color}]``.
 
@@ -32,6 +34,9 @@ from groundmodel.api.schemas.borehole.borehole_track_create_request import (
 from groundmodel.api.schemas.borehole.borehole_track_replace_request import (
     BoreholeTrackReplaceRequest,
 )
+from groundmodel.api.schemas.borehole.borehole_track_reset_response import (
+    BoreholeTrackResetResponse,
+)
 from groundmodel.api.schemas.borehole.borehole_track_response import BoreholeTrackResponse
 from groundmodel.api.schemas.borehole.track_interval_request import TrackIntervalRequest
 from groundmodel.api.schemas.borehole.track_interval_response import TrackIntervalResponse
@@ -40,11 +45,13 @@ from groundmodel.application.borehole_track_snapshot import BoreholeTrackSnapsho
 from groundmodel.application.create_borehole_track import CreateBoreholeTrack
 from groundmodel.application.delete_borehole_track import DeleteBoreholeTrack
 from groundmodel.application.replace_borehole_track import ReplaceBoreholeTrack
+from groundmodel.application.reset_borehole_tracks_to_dov import ResetBoreholeTracksToDov
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.domain.value_objects.track_interval import TrackInterval
 from groundmodel.domain.value_objects.track_issue import TrackIssue
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import (
+    BoreholeResetNoDovSourceError,
     BoreholeTrackConflictError,
     BoreholeTrackValidationError,
     NotFoundError,
@@ -192,6 +199,72 @@ async def create_borehole_track(
         raise _validation_http_error(exc) from exc
     await session.commit()
     return _to_response(snapshot)
+
+
+@router.post("/{borehole_id}/tracks/reset-dov", response_model=BoreholeTrackResetResponse)
+async def reset_borehole_tracks_to_dov(
+    borehole_id: UUID,
+    project_id: UUID,
+    track_id: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> BoreholeTrackResetResponse:
+    """Reset the borehole's DOV tracks (or ``track_id`` alone) to what DOV published.
+
+    Re-reads the DOV XML the bbox import cached and rewrites the DOV tracks from
+    it: observations in place (same ids), field logs wholesale; manual tracks
+    are kept; the "edited by hand" mark is cleared. All-or-nothing. The desktop
+    confirms first; there is no undo.
+
+    Parameters
+    ----------
+    borehole_id : UUID
+        The borehole.
+    project_id : UUID
+        Required project scope guard.
+    track_id : str | None
+        Optional: one track (observation UUID or ``"field_log:<kind>"``).
+    session : AsyncSession
+        Database session.
+
+    Returns
+    -------
+    BoreholeTrackResetResponse
+        The rewritten tracks + how many hand edits were discarded / manual
+        tracks kept.
+
+    Raises
+    ------
+    HTTPException(404)
+        The borehole is not in the project, or carries no such track.
+    HTTPException(409)
+        ``code = "borehole_reset_no_dov_source"``: the cache holds no DOV XML
+        for a targeted track (an XML-file import, a wiped cache, a manual
+        track); ``missing`` lists the tracks. Nothing was changed.
+    """
+    logger.info(f"POST /borehole/{borehole_id}/tracks/reset-dov: track={track_id or 'all'}")
+    try:
+        outcome = await ResetBoreholeTracksToDov(session).execute(
+            project_id=project_id, borehole_id=borehole_id, track_id=track_id
+        )
+    except NotFoundError as exc:
+        logger.warning(f"POST /borehole/{borehole_id}/tracks/reset-dov -> 404: {exc}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except BoreholeResetNoDovSourceError as exc:
+        logger.warning(f"POST /borehole/{borehole_id}/tracks/reset-dov -> 409: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "borehole_reset_no_dov_source",
+                "message": str(exc),
+                "missing": list(exc.missing),
+            },
+        ) from exc
+    await session.commit()
+    return BoreholeTrackResetResponse(
+        tracks=[_to_response(s) for s in outcome.reset],
+        discarded_edits=outcome.discarded_edits,
+        kept_manual=outcome.kept_manual,
+    )
 
 
 @router.put("/{borehole_id}/tracks/{track_id}", response_model=BoreholeTrackResponse)
