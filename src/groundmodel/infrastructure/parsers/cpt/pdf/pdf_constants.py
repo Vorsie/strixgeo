@@ -358,3 +358,90 @@ RASTER_FALLBACK_PANEL_ORDER: tuple[PanelKind, ...] = (PanelKind.QC, PanelKind.FS
 # in cyan, colours no CPT sheet in the two reports uses.
 OVERLAY_CURVE_BGR = (0, 140, 255)
 OVERLAY_FRAME_BGR = (255, 200, 0)
+
+# ---------------------------------------------------------------------------
+# Sheet header (sounding block): position, vertical datum, date
+# ---------------------------------------------------------------------------
+
+# The horizontal system a sheet names next to its coordinates -> EPSG. Only a
+# NAMED system places a sounding: an unnamed one is left for the user to type,
+# never guessed (a Lambert72 X and an RD X are both six-digit metres).
+COORDINATE_SYSTEM_PATTERNS: tuple[tuple[re.Pattern[str], int], ...] = (
+    (re.compile(r"Lambert\s*(?:19)?72|\bL72\b", re.IGNORECASE), 31370),
+    (re.compile(r"Rijksdriehoek|\bRD\b|Amersfoort", re.IGNORECASE), 28992),
+)
+
+# The vertical datum a sheet names for its ground level -> EPSG (TAW = the
+# Belgian "Tweede Algemene Waterpassing", NAP = the Dutch datum).
+VERTICAL_DATUM_PATTERNS: tuple[tuple[re.Pattern[str], int], ...] = (
+    (re.compile(r"\bm?TAW\b", re.IGNORECASE), 5710),
+    (re.compile(r"\bm?NAP\b", re.IGNORECASE), 5709),
+)
+
+# A printed day-month-year date ("28-2-2024", "31/10/2024", "29.01.2024") and
+# an ISO date; anything else is kept raw and not turned into a date.
+DAY_MONTH_YEAR_PATTERN = re.compile(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b")
+ISO_DATE_PATTERN = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+
+# Any number in a field value. A coordinate value is the LAST number: the
+# label's own "(Lambert72)" can leak into the value text ("(Lambert72) : 66980.21").
+FIELD_NUMBER_PATTERN = re.compile(r"[-+−]?\d+(?:[.,]\d+)?")
+
+# Stamped on the provenance of every imported sounding: which digitiser read
+# it. Bump when a change moves digitised values, so a stored CPT says which
+# rules produced it.
+DIGITISER_VERSION = "pdf-digitiser 1.0"
+
+# ---------------------------------------------------------------------------
+# Import (digitised sounding -> stored CPT)
+# ---------------------------------------------------------------------------
+
+# ``import_provenance.source`` of every CPT this digitiser created.
+PDF_PROVENANCE_SOURCE = "pdf-digitised"
+
+# ``import_provenance.depth_source``: what the stored depth is (owner
+# 2026-09-30: an elevation-axis sheet's depth is "derived from plotted
+# elevation" = printed ground level - elevation).
+DEPTH_SOURCE_PLOTTED = "plotted depth"
+DEPTH_SOURCE_ELEVATION = "derived from plotted elevation"
+
+# ``import_provenance.series_sampling`` (owner 2026-09-30: vector vertices ARE
+# the scans and are stored as they are; raster traces are resampled to 0.02 m).
+SAMPLING_VECTOR = "vector vertices (no resampling)"
+SAMPLING_RASTER = "raster trace resampled to 0.02 m"
+
+# A secondary curve's vertex counts as sitting on a qc scan when it is this
+# close in depth (m): half a millimetre, far below the 0.02 m scan step, so
+# only the same scan drawn twice (qc and fs of one GEF row) matches.
+VERTEX_MATCH_TOLERANCE_M = 0.0005
+
+# The GEF-style project id of a sounding whose report carries no campaign code.
+PDF_FALLBACK_PROJECT_ID = "PDF"
+
+# The same overlay colours as PyMuPDF RGB (0..1): the import dialog's overlay
+# is drawn with PyMuPDF alone, so it works without the optional OpenCV.
+OVERLAY_CURVE_RGB = (1.0, 0.55, 0.0)
+OVERLAY_FRAME_RGB = (0.0, 0.78, 1.0)
+# Stroke widths of the overlay in PDF points: thin enough to see the printed
+# curve beside the digitised one, thick enough to stay visible at 80-110 dpi.
+OVERLAY_CURVE_WIDTH_PT = 0.9
+OVERLAY_FRAME_WIDTH_PT = 0.6
+
+# ---------------------------------------------------------------------------
+# Import dialog: report store, upload, rendering
+# ---------------------------------------------------------------------------
+
+# Triaged reports kept in memory (digest + digitised soundings). A report is
+# a few MB of arrays; the user works one report at a time, so four covers a
+# back-and-forth between two reports in two projects.
+MAX_CACHED_PDF_REPORTS = 4
+# Spooled report files kept per project in the temp store; the oldest go.
+MAX_SPOOLED_PDF_REPORTS_PER_PROJECT = 5
+# Largest report accepted for upload: a 300-page scanned report is ~150 MB.
+MAX_PDF_UPLOAD_BYTES = 200 * 1024 * 1024
+# Page thumbnails of the triage list, and the calibration overlay.
+PAGE_THUMBNAIL_DPI = 80
+OVERLAY_DPI = 110
+# Bounds on a requested render resolution (a thumbnail to a zoomed overlay).
+MIN_RENDER_DPI = 24
+MAX_RENDER_DPI = 200
