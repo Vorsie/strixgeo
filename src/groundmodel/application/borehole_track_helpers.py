@@ -175,9 +175,13 @@ def build_field_log_rows(
     intervals: Iterable[TrackInterval],
     *,
     source: str,
-    edited_at: datetime,
+    edited_at: datetime | None,
 ) -> list[FieldLogIntervalOrm]:
-    """Map validated intervals onto fresh ``FieldLogIntervalOrm`` rows of ``kind``."""
+    """Map intervals onto fresh ``FieldLogIntervalOrm`` rows of ``kind``.
+
+    ``edited_at`` is the editor's save stamp; ``None`` for rows a Reset to DOV
+    writes back as DOV published them.
+    """
     return [
         FieldLogIntervalOrm(
             id=uuid7(),
