@@ -57,6 +57,7 @@ export const CHROME = {
   'app.backendFailedTitle': 'StrixGeo failed to start',
   'app.backendUnreachable': 'Backend unreachable',
   // Backend refusal codes an engineer can hit in normal use (api/clients/apiCodeMessages.ts).
+  'api.code.cptPdfReportUnknown': 'This report is no longer open in the app. Pick the PDF again.',
   'api.code.dovImportTooLarge': 'This box holds more records than one import can take. Draw a smaller box.',
   'api.code.dovImportAlreadyRunning': 'This DOV import is already running.',
   'api.code.bodyPartitionLocked': 'Another body operation is still running on this model. Try again in a moment.',
