@@ -31,7 +31,7 @@ export interface CptListItem {
   // "needs Z" badge without a per-row detail fetch.
   elevation_m: number | null
   z_epsg: number | null
-  // Provenance — ``"dov"`` / ``"gef"`` / ``"manual"`` / ``"none"``.
+  // Provenance — ``"dov"`` / ``"gef"`` / ``"pdf"`` / ``"manual"`` / ``"none"``.
   // Used by ElevationEditor to render a tiny "(DOV)" / "(manual)" tag
   // next to the Z value (debt #8).
   elevation_source: string
@@ -62,6 +62,11 @@ export interface CptResponse {
   water_depth_source: string | null
   max_depth_m: number | null
   n_rows: number | null
+  // How a CPT that did not come from a data file was made — the PDF
+  // digitiser's ``source: "pdf-digitised"``, report file, pages, calibration,
+  // digitiser version. Absent / null for GEF and DOV imports. Optional so an
+  // older backend's response still parses.
+  import_provenance?: Record<string, unknown> | null
 }
 
 /** Where the water table a derived profile used came from. */
