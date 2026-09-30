@@ -24,7 +24,9 @@ not tested here.
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import delete, select
@@ -42,6 +44,7 @@ from groundmodel.infrastructure.db.repositories.project_bundle import (
     build_project_bundle,
     restore_project_bundle,
 )
+from groundmodel.shared.config import settings
 
 
 @pytest_asyncio.fixture
@@ -466,3 +469,173 @@ async def test_track_provenance_rides_the_bundle_and_an_old_bundle_restores_as_d
     assert restored_old.observations[0].source == "dov"
     assert restored_old.observations[0].edited_manually_at is None
     assert {r.source for r in restored_old.field_log_intervals} == {"dov"}
+
+
+# --- Reset to DOV (owner 2026-09-30: "a per borehole button to reset to dov
+# defaults") and the 3-admixture cap ("i want max 3 admixtures in coded
+# lithology"). ---------------------------------------------------------------
+
+_DOV_NS = "http://kern.schemas.dov.vlaanderen.be"
+
+# What DOV published for the fixture's coded track (permkey 1990-000123).
+_CODED_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ns4:dov-schema xmlns:ns4="{_DOV_NS}"><interpretaties><gecodeerdelithologie>
+  <boring>kb1d1w-B1</boring><datum>1990-05-01</datum>
+  <laag><van>0.00</van><tot>2.00</tot><hoofdnaam><grondsoort>FZ</grondsoort></hoofdnaam>
+    <bijmenging><plaatselijk>false</plaatselijk><hoeveelheid>W</hoeveelheid>
+      <grondsoort>KL</grondsoort></bijmenging></laag>
+  <laag><van>2.00</van><tot>5.00</tot><hoofdnaam><grondsoort>KL</grondsoort></hoofdnaam></laag>
+</gecodeerdelithologie></interpretaties></ns4:dov-schema>""".encode()
+
+# What DOV published for the fixture's boring (boornummer kb1d1w-B1).
+_BORING_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
+<ns4:dov-schema xmlns:ns4="{_DOV_NS}" xmlns:gml="http://www.opengis.net/gml/3.2"><boring>
+  <identificatie>kb1d1w-B1</identificatie>
+  <dataidentifier><permkey>1990-000001</permkey></dataidentifier>
+  <ligging><gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+    <gml:pos>150000.0 200000.0 10.0</gml:pos></gml:Point></ligging>
+  <diepte_tot>5.00</diepte_tot>
+  <details>
+    <kleur><van>0.00</van><tot>1.50</tot><kleur>groenbruin</kleur></kleur>
+    <kleur><van>1.50</van><tot>5.00</tot><kleur>grijs</kleur></kleur>
+  </details>
+</boring></ns4:dov-schema>""".encode()
+
+
+def _seed_dov_cache(root: Path) -> None:
+    """Write the fixture borehole's DOV XML where the bbox import caches it."""
+    (root / "boring").mkdir(parents=True, exist_ok=True)
+    (root / "interpretatie").mkdir(parents=True, exist_ok=True)
+    (root / "boring" / "1990-000001.xml").write_bytes(_BORING_XML)
+    (root / "interpretatie" / "1990-000123.xml").write_bytes(_CODED_XML)
+
+
+async def test_reset_to_dov_undoes_the_hand_edits_and_keeps_the_manual_track(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edit DOV's coded track + colour log, add a manual track, Reset to DOV.
+
+    The DOV tracks come back as DOV published them (same coded track id, the
+    edit mark cleared); the manual track is kept.
+    """
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)
+    _seed_dov_cache(tmp_path)
+    coded_id = str(dov_borehole["coded_id"])
+    edit = await async_client.put(
+        _url(dov_borehole, f"/{coded_id}"),
+        json={"intervals": [{"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}]},
+    )
+    assert edit.status_code == 200, edit.text
+    edit = await async_client.put(
+        _url(dov_borehole, "/field_log:color"),
+        json={"intervals": [{"top_m": 0.0, "base_m": 5.0, "value": "zwart"}]},
+    )
+    assert edit.status_code == 200, edit.text
+    manual = await async_client.post(
+        _url(dov_borehole),
+        json={
+            "kind": "lithological_description",
+            "intervals": [{"top_m": 0.0, "base_m": 5.0, "description": "zand"}],
+        },
+    )
+    assert manual.status_code == 201, manual.text
+
+    resp = await async_client.post(_url(dov_borehole, "/reset-dov"))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["discarded_edits"] == 2
+    assert body["kept_manual"] == 1
+    assert {t["track_id"] for t in body["tracks"]} == {coded_id, "field_log:color"}
+
+    detail = await _detail(async_client, dov_borehole)
+    by_kind = {o["observation_type"]: o for o in detail["observations"]}
+    coded = by_kind["coded_lithology"]
+    assert coded["id"] == coded_id
+    assert coded["edited_manually_at"] is None
+    assert [la["main_soil_codes"] for la in coded["layers"]] == [["FZ"], ["KL"]]
+    assert by_kind["lithological_description"]["source"] == "manual"
+    colours = sorted(
+        (r["top_m"], r["value"], r["edited_manually_at"])
+        for r in detail["field_log_intervals"]
+        if r["kind"] == "color"
+    )
+    assert colours == [(0.0, "groenbruin", None), (1.5, "grijs", None)]
+
+
+async def test_reset_to_dov_one_track_leaves_the_other_edits(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reset of the colour log alone: the edited coded track keeps its edit."""
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)
+    _seed_dov_cache(tmp_path)
+    coded_id = str(dov_borehole["coded_id"])
+    for suffix, interval in (
+        (f"/{coded_id}", {"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}),
+        ("/field_log:color", {"top_m": 0.0, "base_m": 5.0, "value": "zwart"}),
+    ):
+        edit = await async_client.put(_url(dov_borehole, suffix), json={"intervals": [interval]})
+        assert edit.status_code == 200, edit.text
+
+    resp = await async_client.post(
+        f"/borehole/{dov_borehole['borehole'].id}/tracks/reset-dov"
+        f"?project_id={dov_borehole['project'].id}&track_id=field_log:color"
+    )
+    assert resp.status_code == 200, resp.text
+    assert [t["track_id"] for t in resp.json()["tracks"]] == ["field_log:color"]
+
+    detail = await _detail(async_client, dov_borehole)
+    coded = next(o for o in detail["observations"] if o["id"] == coded_id)
+    assert coded["edited_manually_at"] is not None
+    assert [la["main_soil_codes"] for la in coded["layers"]] == [["GL"]]
+
+
+async def test_reset_to_dov_without_cached_xml_is_a_409_and_changes_nothing(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An XML-file import / a wiped cache: borehole_reset_no_dov_source, the edit stays."""
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)  # an empty cache
+    coded_id = str(dov_borehole["coded_id"])
+    edit = await async_client.put(
+        _url(dov_borehole, f"/{coded_id}"),
+        json={"intervals": [{"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}]},
+    )
+    assert edit.status_code == 200, edit.text
+
+    resp = await async_client.post(_url(dov_borehole, "/reset-dov"))
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "borehole_reset_no_dov_source"
+
+    detail = await _detail(async_client, dov_borehole)
+    coded = next(o for o in detail["observations"] if o["id"] == coded_id)
+    assert [la["main_soil_codes"] for la in coded["layers"]] == [["GL"]]
+
+
+async def test_a_fourth_admixture_on_a_coded_row_is_refused(
+    async_client: AsyncClient, dov_borehole: dict
+) -> None:
+    """Max 3 admixtures in coded lithology: 422 too_many_admixtures at intervals.0.admixtures."""
+    admixtures = [
+        {"soil_code": code, "amount": "W", "locally": False} for code in ("KL", "LE", "GL", "HU")
+    ]
+    resp = await async_client.put(
+        _url(dov_borehole, f"/{dov_borehole['coded_id']}"),
+        json={
+            "intervals": [
+                {"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["FZ"], "admixtures": admixtures}
+            ]
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    errors = resp.json()["detail"]["errors"]
+    assert [(e["loc"], e["code"]) for e in errors] == [
+        ("intervals.0.admixtures", "too_many_admixtures")
+    ]
