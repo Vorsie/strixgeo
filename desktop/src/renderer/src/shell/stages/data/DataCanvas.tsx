@@ -306,6 +306,7 @@ export default function DataCanvas(): JSX.Element {
               contactOverlayVisibility={contactOverlayVisibility.visibility}
               onToggleContactOverlay={contactOverlayVisibility.toggle}
               trackEditing={trackEditing}
+              projectId={project?.id}
             />
           ) : (
             <LoadingState label={t('data.canvas.loadingBorehole')} />
