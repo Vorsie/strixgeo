@@ -1,7 +1,9 @@
-# Lab raw-data import — Phase 1 proposal (Geosys oedometer + triaxial)
+# Lab raw-data import — Geosys oedometer + triaxial (BUILT, phase 2)
 
-Status: PROPOSAL (phase 1: discovery). Nothing here is built past the two pure
-parsers under `src/groundmodel/infrastructure/parsers/lab/geosys/`.
+Status: BUILT (phase 2, 2026-09-29): parsers, schema, import preview + import,
+bundle round-trip, the borehole Lab tests list and the readings viewer. §6
+records the owner's answers and where the build departs from this proposal.
+The format / findings reference is [../parsers-lab.md](../parsers-lab.md).
 
 Owner rule (2026-09-28): "geolib uses already processed files, we need to get the
 raw data in the db". The target is the per-reading measurement series, not the
@@ -29,9 +31,9 @@ by **Geosys**, the lab software (the listings name the native files
 
 ### 1.1 Oedometer (`samendrukking/`)
 
-`old/` holds two tests; **`new/` is EMPTY** (the owner's own library reads a
-"klantenrapport" UTF-8 CSV from a "newer compression module" — we have no sample
-of it).
+`old/` holds two tests; `new/` was empty. The newer module's RAW export was
+found in the owner's own library (geolib_rvo gallery data
+`uit_nieuwemodule.csv`) and is imported too — see parsers-lab.md §2.
 
 | File | Size | What it is |
 |---|---|---|
@@ -95,7 +97,7 @@ Reproduced from the raw data with simple formulas:
 | `250389B1-LstTrxControleListing.csv` / `.txt` | 22 070 B | Control listing, CD, sample 25/0389 (GEO-25/022, B17, N003, 5,00-5,50 m), 3 specimens. Pair identical modulo TAB↔`;`. |
 | `250389B1-LstTrxDefinitieveListing.csv` / `.txt` | 15 401 B | Definitive (report) listing, same test. Pair identical modulo delimiter. |
 | `cd.txt` | 808 KB | **Raw per-point dump of the SAME test** (25/0389 CD): specimens a/b/c, 1130 / 1139 / 1133 points. |
-| `cu.txt` | 518 KB | Raw dump of a DIFFERENT test: CU, sample **20/0670, GEO-19/122 (Antwerpen, Tijsmanstunnel), B8A**, 16,00-16,50 m; specimens a/b, 1132 / 1049 points. **No listing for it in the material.** |
+| `cu.txt` | 518 KB | Raw dump of a DIFFERENT test: CU, sample **20/0670, GEO-19/122, B8A**, 16,00-16,50 m; specimens a/b, 1132 / 1049 points. **No listing for it in the material.** |
 
 **The raw dumps are ONE test each** (one sample, n specimens), not many tests
 concatenated. Structure: `Gegevens van het monster` header (TAB-separated
@@ -157,7 +159,7 @@ points; displacement zero with decimals (`11,7000 µm`); a UU variant (ISO
 
 Oedometer
 
-1. `new/` is empty — no sample of the newer oedometer export.
+1. `new/` was empty — the newer module's raw export came from geolib_rvo instead.
 2. **Gauge re-zero**: 20/0569 stage 10 and stage 13 each carry a repeated
    timestamp where the dial jumps 0.086 mm / 1.669 mm while the settlement column
    does not move. The dial column is therefore NOT a continuous raw series; the
@@ -413,4 +415,38 @@ Not written: `.DAT` parser, results / definitive listing parsers (secondary).
 
 ## 5. Open questions for the owner
 
-See the phase-1 report.
+Answered 2026-09-29 — see §6.
+
+## 6. Owner answers (2026-09-29) and the build
+
+1. "no what we have is what we have, no other exports" — the listings and
+   dumps are the raw data; triaxial readings are stored against point numbers
+   and the UI says there is no time channel.
+2. The newer oedometer export: geolib_rvo's reader is the format spec; third
+   parser `OedometerNewExportParser`, fixture `tests/fixtures/lab/oedometer_new/`.
+3. "don't use default values, you can list them but we'll be doing our own
+   interpretations" — lab summary values are `lab_reported` rows, shown under
+   "Reported by the lab" / "Gerapporteerd door het labo", never inputs.
+4. "ask user, to double check, there should be a sample; if no, default create
+   one; overlapping depths, yes same sample" — the preview proposes; the import
+   attaches or creates.
+5. Default taken: the listing interval is the SAMPLE interval, the .DAT /
+   specimen interval the SPECIMEN interval (no raw export carries the latter).
+6. "yeah remove all names" — `scripts/anonymise_lab_fixtures.py`.
+
+Later additions: the owner's delta_h / h0 vertical strain (the one Strix-derived
+channel, `provenance = 'derived'`); review findings `CHANNEL_CONSTANT`,
+`STAGE_SHORT`, `SETTLEMENT_STEPS_BACK`, and `rezero_indices`.
+
+Where the build departs from §2:
+
+* `lab_series_lab_result` names its place by the lab's own `specimen_label` +
+  `stage_index`, not a specimen FK (the value is the lab's statement; a refresh
+  re-creates the specimen rows).
+* `lab_series_channel.values` is named `series_values` (VALUES is an SQL
+  keyword); it gains `formula` / `derivation_inputs` for derived channels.
+* `lab_series_stage` gains `rezero_indices INT[]`.
+* The refresh identity is (kind, lab test type, lab job, lab sample number)
+  within the project; a refresh keeps the test id and its sample.
+* Not built: the `.DAT`, results and definitive listings (so no φ′ / c′ / B /
+  back pressure yet), the triaxial listing companion pairing.
