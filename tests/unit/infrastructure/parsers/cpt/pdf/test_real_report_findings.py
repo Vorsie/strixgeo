@@ -19,7 +19,7 @@ import numpy as np
 import pymupdf
 import pytest
 
-from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import _merge_continuations
+from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import merge_continuations
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_curve import DigitisedCurve
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
@@ -123,7 +123,7 @@ def _sheet(sid: str | None, page: int, ground: float, d0: float, d1: float) -> D
 
 def test_a_continuation_sheet_without_a_readable_id_joins_the_sheet_before() -> None:
     """A continuation sheet without a readable id joins the sheet before."""
-    merged = _merge_continuations(
+    merged = merge_continuations(
         [
             _sheet("111", 179, 6.21, 0.0, 32.9),
             _sheet(None, 180, 6.21, 32.2, 61.3),  # same ground level, runs on
@@ -170,7 +170,7 @@ def test_a_continuation_sheet_finds_its_sounding_across_a_sheet_in_between() -> 
     sheet on p. 215, then 68's continuation on p. 216. The continuation belongs
     to 68; the repeated sheet of 66 is a duplicate, not a second sounding 66.
     """
-    merged = _merge_continuations(
+    merged = merge_continuations(
         [
             _sheet("66", 210, 3.70, 0.0, 33.5),
             _sheet("66", 211, 3.70, 33.2, 33.9),
