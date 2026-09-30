@@ -146,6 +146,11 @@ _ENGINE_DOMAIN_SERVICES = [
     # answer selects the clean/secondary column — same engine IP as the classifier.
     "groundmodel.domain.services.nad_admixture_choice",
     "groundmodel.domain.services.nad_soil_parameters_constants",
+    # Raw lab readings (2026-09-29): the lab-test -> borehole / sample match and
+    # the oedometer vertical strain delta_h / h0 — pure, pinned by unit tests.
+    "groundmodel.domain.services.lab_sample_matching",
+    "groundmodel.domain.services.oedometer_vertical_strain",
+    "groundmodel.domain.services.oedometer_vertical_strain_constants",
     "groundmodel.domain.services.representative_statistic",
     # Voxel-builder domain deps the compiled voxel_litho package is built on.
     "groundmodel.domain.services.model_domain",
@@ -278,14 +283,19 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result",
     "groundmodel.infrastructure.parsers.lab.dov.grain_size_wfs_row",
     "groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row",
-    # Geosys lab exports (oedometer control listing + triaxial raw dump).
+    # Geosys lab exports (oedometer control listing, the newer oedometer module's
+    # raw dump, triaxial raw dump).
     "groundmodel.infrastructure.parsers.lab.geosys.geosys_constants",
+    "groundmodel.infrastructure.parsers.lab.geosys.geosys_export_reader",
     "groundmodel.infrastructure.parsers.lab.geosys.geosys_text",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_checks",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_constants",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_control_listing_parser",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_lab_summary_row",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_header",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_result",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_new_constants",
+    "groundmodel.infrastructure.parsers.lab.geosys.oedometer_new_export_parser",
     "groundmodel.infrastructure.parsers.lab.geosys.oedometer_stage",
     "groundmodel.infrastructure.parsers.lab.geosys.triaxial_constants",
     "groundmodel.infrastructure.parsers.lab.geosys.triaxial_dump_result",
