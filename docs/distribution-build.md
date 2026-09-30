@@ -140,6 +140,20 @@ appears in a tester's hands rather than at build time:
 The trade is size for correctness: the source that ships is byte-identical to
 what the test suite runs against.
 
+**PyMuPDF (the PDF CPT digitiser) is a runtime dependency** since 2026-09-30:
+a prebuilt `win_amd64` wheel that carries MuPDF as its own native library, so
+it rides into `site-packages` through the same `uv export --no-dev` +
+hash-pinned install as numba's llvmlite — no build step. Its OCR companion
+(RapidOCR + OpenCV) is the optional extra `pdf-ocr`, which `uv export
+--no-dev` leaves out: the packaged app reads vector reports and tells the
+user to type the axis values where OCR would be needed. Every digitiser
+module imports without the extra (the smoke gate imports each compiled
+module). **The first build after this change must re-stage the interpreter
+with `-Force`**: the reuse skip checks only that `python.exe` exists, not
+that `uv.lock` moved, so a reused tree has no PyMuPDF and the smoke gate's
+import of the compiled `cpt.pdf` modules fails (loudly). To ship OCR, add
+`--extra pdf-ocr` to the export and budget ~60 MB (onnxruntime + OpenCV).
+
 ### The compiled subset
 
 Readable source is a leak — owner ruling 2026-08-31: *"the underlying codebase
