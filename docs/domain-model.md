@@ -57,14 +57,24 @@ Geophysical: MASW, Seismic CPT
   so the UI says "edited by hand". When several tracks of one kind exist, every
   consumer uses the ONE rule in `domain/services/track_preference.py`: the
   manual track, else the newest edited, else the first by `observation_date`.
+  **Reset to DOV (2026-09-30)** is the consented restore
+  (`ResetBoreholeTracksToDov`, `borehole_track_dov_reset.py`): it re-reads the
+  DOV XML the bbox import cached (interpretations by `dov_permkey`, the boring
+  by its `<identificatie>` = `test_id`) and rewrites the DOV tracks from the
+  fresh parse — observations in place (same id), field logs wholesale —
+  dropping `edited_manually_at` and leaving the manual tracks alone. It is
+  all-or-nothing: a DOV track with no cached XML refuses the whole reset
+  (`BoreholeResetNoDovSourceError`). A coded interval carries at most
+  `MAX_ADMIXTURES_PER_INTERVAL` (3) admixtures when typed by hand.
   **Re-import restores:** a CONSENTED refresh of the borehole from its source
   (a future XML import branch, a future DOV refresh) must rewrite the imported
   tracks from the fresh parse (dropping `edited_manually_at`) and leave the
-  manual tracks alone. No such refresh exists today — the DOV bbox import SKIPS
+  manual tracks alone. No such automatic refresh exists — the DOV bbox import SKIPS
   an interpretation it already holds (by `dov_permkey`) — so hand edits
   survive a re-import, while a DELETED DOV observation track comes back on the
   next DOV import of its area (its permkey is gone); a deleted DOV field-log
-  track does not (field logs of an existing borehole are not re-imported).
+  track does not come back on an import (field logs of an existing borehole are
+  not re-imported), only through Reset to DOV when the boring XML is cached.
   Build the restore together with the refresh path, never as a silent
   overwrite.
 
