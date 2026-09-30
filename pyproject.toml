@@ -68,6 +68,23 @@ dependencies = [
     # pydantic-extra-types. Version-specific quirks are tabulated in
     # docs/exports.md — re-verify that table on any upgrade.
     "d-geolib>=2.9.1",
+    # PyMuPDF — the PDF CPT digitiser (Data -> Import -> CPTs from a PDF
+    # report). Reads the drawing commands and the text layer of a vector
+    # report; that path needs nothing else. A prebuilt wheel carrying its own
+    # MuPDF DLL, so the embedded-Python installer ships it like numba's
+    # llvmlite (docs/distribution-build.md).
+    "pymupdf>=1.28.2",
+]
+
+# Optional extras. ``pdf-ocr`` — tick-label OCR and scanned / pasted-image
+# pages for the PDF CPT digitiser (owner 2026-09-30: OCR stays OPTIONAL).
+# RapidOCR runs an ONNX model and brings OpenCV; both are imported lazily
+# (``optional_engines``), so without the extra the vector path still works and
+# the UI asks the user to type the axis values.
+[project.optional-dependencies]
+pdf-ocr = [
+    "rapidocr-onnxruntime>=1.4.4",
+    "opencv-python>=5.0.0.93",
 ]
 
 [dependency-groups]
@@ -84,7 +101,8 @@ dev = [
     # the G3Dv3 stratigraphic catalog JSON from the DOV xlsx sources.
     # Not a runtime dep; the JSON is consumed at runtime.
     "openpyxl>=3.1",
-    "pymupdf>=1.28.2",
+    # The pdf-ocr extra's engines, so the digitiser's raster / OCR tests run
+    # in dev and CI (the extra itself is opt-in for the shipped tree).
     "rapidocr-onnxruntime>=1.4.4",
     "opencv-python>=5.0.0.93",
 ]
@@ -165,7 +183,7 @@ ignore_missing_imports = true
 module = ["shapely.*"]
 ignore_missing_imports = true
 
-# PyMuPDF (the PDF CPT digitiser, dev group) is only partly annotated: Page /
+# PyMuPDF (the PDF CPT digitiser, runtime dep) is only partly annotated: Page /
 # Rect / Document methods are untyped, so strict mode flags every call. Allow
 # untyped calls inside the digitiser package only; RapidOCR ships no types.
 [[tool.mypy.overrides]]
