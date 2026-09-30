@@ -3,8 +3,10 @@
 Irreversible from the app's point of view: the desktop asks first (Cancel
 default-focused, "Delete track"). A deleted DOV observation track comes back on
 the next DOV import of its area (the interpretation dedup keys on
-``dov_permkey``, which is gone); a deleted DOV field-log track does not (see
-docs/domain-model.md, "Hand-edited tracks").
+``dov_permkey``, which is gone - so Reset to DOV cannot, it reads by that
+permkey); a deleted DOV field-log track does not come back on an import, only
+through Reset to DOV when the boring XML is cached (see docs/domain-model.md,
+"Hand-edited tracks").
 """
 
 from __future__ import annotations
