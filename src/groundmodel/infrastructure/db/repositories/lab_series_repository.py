@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
@@ -183,6 +183,37 @@ class LabSeriesRepository(GroundModelLogger):
             .order_by(SampleOrm.depth_top_m, LabSeriesTestOrm.id)
         )
         return [(t, s) for t, s in rows]
+
+    async def count_tests_by_borehole(self, project_id: UUID | None) -> dict[UUID, int]:
+        """Return the raw lab-test count of every borehole that has one.
+
+        One grouped query for the whole list (the Data stage's borehole rows
+        show a lab-test marker, owner 2026-09-30), never one per borehole.
+
+        Parameters
+        ----------
+        project_id : UUID or None
+            The app project; ``None`` counts every project (the unscoped
+            list used by tests and admin tools).
+
+        Returns
+        -------
+        dict[UUID, int]
+            ``borehole_id -> number of lab_series_test rows``; boreholes with
+            none are absent.
+        """
+        query = (
+            select(SampleOrm.borehole_id, func.count(LabSeriesTestOrm.id))
+            .join(SampleOrm, SampleOrm.id == LabSeriesTestOrm.sample_id)
+            .group_by(SampleOrm.borehole_id)
+        )
+        if project_id is not None:
+            query = query.join(BoreholeOrm, BoreholeOrm.id == SampleOrm.borehole_id).where(
+                BoreholeOrm.app_project_id == project_id
+            )
+        counts = {bid: int(n) for bid, n in await self._session.execute(query)}
+        self.debug(f"lab-series counts: {len(counts)} borehole(s) carry lab tests")
+        return counts
 
     async def count_readings(self, test_id: UUID) -> tuple[int, int]:
         """Return ``(n_specimens, n_readings)`` of a stored test."""
