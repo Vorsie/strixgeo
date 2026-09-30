@@ -55,6 +55,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # facade) can import it from either location; the canonical definition lives in
 # bundle_build.py.
 from .bundle_build import BundleIntegrityError
+from .bundle_lab_series import attach_lab_series_trees
 from .bundle_restore_drops import BundleRestoreDrops
 from .bundle_restore_litho import (
     _attach_companion_body_links,
@@ -274,15 +275,17 @@ async def _restore_boreholes(
             logger.debug(f"[{i}/{total}] borehole {bh_id} already present — skipped")
             skipped += 1
             continue
-        session.add(
-            _build_borehole(
-                bh_payload,
-                project_id,
-                logger=logger,
-                drops=drops,
-                deferred_sample_body_links=deferred_sample_body_links,
-            )
+        borehole = _build_borehole(
+            bh_payload,
+            project_id,
+            logger=logger,
+            drops=drops,
+            deferred_sample_body_links=deferred_sample_body_links,
         )
+        # The raw lab-series family nests four levels under each sample, so it
+        # is attached here rather than inside the flat sample builder.
+        attach_lab_series_trees(borehole, bh_payload, logger=logger, drops=drops)
+        session.add(borehole)
         new_boreholes += 1
         logger.debug(f"[{i}/{total}] borehole {bh_id} queued for insert")
     logger.info(
