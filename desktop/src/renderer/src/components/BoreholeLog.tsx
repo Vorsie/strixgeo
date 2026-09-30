@@ -25,6 +25,7 @@ import { useT } from '../i18n/translate'
 import LabTestPanel from './LabTestPanel'
 import BoreholeTracksDialog from './borelog/components/BoreholeTracksDialog'
 import type { BoreholeTrackEditing } from '../hooks/useBoreholeTrackEdits'
+import LabSeriesSection from './labSeries/LabSeriesSection'
 import {
   TOGGLEABLE_TRACK_IDS,
   trackLabel,
@@ -124,6 +125,10 @@ interface Props {
   // Add / change / delete tracks by hand (owner 2026-09-29). Optional so
   // read-only mounts (tests, previews) hide the "Tracks" button.
   trackEditing?: BoreholeTrackEditing
+  // Active project id: when given, the raw lab tests (oedometer / triaxial
+  // readings) of this borehole's samples are listed under the log. Optional so
+  // tests and read-only mounts render the log alone.
+  projectId?: string
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -148,6 +153,7 @@ export default function BoreholeLog({
   contactOverlayVisibility = DEFAULT_CONTACT_OVERLAY_VISIBILITY,
   onToggleContactOverlay,
   trackEditing,
+  projectId,
 }: Props): React.ReactElement {
   const t = useT()
   const {
@@ -826,6 +832,7 @@ export default function BoreholeLog({
         )}
       </div>
 
+      {projectId && <LabSeriesSection projectId={projectId} boreholeId={borehole.id} />}
       <Legend borehole={borehole} />
     </div>
     </PxPerMContext.Provider>
