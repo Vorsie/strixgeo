@@ -39,8 +39,10 @@ from typing import Any, TypeVar
 
 import httpx
 
+from groundmodel.domain.services.lab_sample_matching import borehole_name_ends_with
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import BoreholeWfsRow
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
+    DOV_BORING_NAME_ATTRIBUTE,
     DOV_BORING_PROXY_URL_PREFIX,
     DOV_BORING_URL_PREFIX,
     DOV_VERTICAL_EPSG,
@@ -64,6 +66,7 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_float,
 )
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import wfs_features_by_attribute
 from groundmodel.shared.exceptions import DovImportTooLargeError
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 
@@ -180,6 +183,36 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         # Report WFS discovery complete so the UI can show "N boreholes found".
         await fire_progress(progress_cb, "wfs", len(rows), len(rows))
 
+        results = await self.fetch_rows_processed(rows, process, progress_cb=progress_cb)
+        return len(rows), results
+
+    async def fetch_rows_processed(
+        self,
+        rows: list[BoreholeWfsRow],
+        process: ProcessFn[_T],
+        *,
+        progress_cb: ProgressCallback | None = None,
+    ) -> list[tuple[BoreholeWfsRow, _T]]:
+        """Download (or read from cache) each row's boring XML and process it.
+
+        The per-permkey half of :meth:`fetch_bbox_processed`, callable on its
+        own for rows found another way (the by-name lookup). Failures are
+        caught per borehole.
+
+        Parameters
+        ----------
+        rows : list[BoreholeWfsRow]
+            The WFS rows to download.
+        process : ProcessFn[_T]
+            ``process(xml_bytes, test_id)``, typically ``DovBoringParser().parse``.
+        progress_cb : ProgressCallback | None
+            Optional ``("download", done, total)`` ticks.
+
+        Returns
+        -------
+        list[tuple[BoreholeWfsRow, _T]]
+            One pair per borehole downloaded and processed.
+        """
         # Effective parallelism reflects any 429 seen during WFS discovery
         # (which ran just above), so a rate-limited import backs off its own
         # concurrency instead of hammering DOV into more 429s.
@@ -192,7 +225,7 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
         # orchestrator wires ``DovBoringParser().parse`` straight into it).
         # A one-line lambda bridges the two without rippling the change
         # outward.
-        results = await parallel_download_and_process(
+        return await parallel_download_and_process(
             http=self._http,
             cache=self._cache,
             rows=rows,
@@ -206,7 +239,64 @@ class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
             parallelism=effective_parallelism,
             backoff=self._backoff,
         )
-        return len(rows), results
+
+    async def find_by_name(self, name: str) -> BoreholeWfsRow | None:
+        """Look ONE borehole up by its DOV name (``boornummer``), anywhere in Flanders.
+
+        Owner 2026-09-30: a lab test naming a borehole the project does not
+        hold fetches it from DOV. DOV sometimes prefixes the name
+        (``1411-GEO-19/122-B7A`` for the lab's ``GEO-19/122`` + ``B7A``,
+        verified live), so the WFS is asked for names ENDING with ``name``
+        (case-insensitive ``ILIKE``) and the answer is sieved with the same
+        ends-with rule the lab matching uses; a row that IS the name wins over
+        a prefixed twin.
+
+        Parameters
+        ----------
+        name : str
+            The borehole name, e.g. ``GEO-25/022-B17`` (spaces are dropped).
+
+        Returns
+        -------
+        BoreholeWfsRow or None
+            The borehole's WFS row, or ``None`` when DOV has none.
+
+        Raises
+        ------
+        httpx.HTTPStatusError, httpx.RequestError
+            When DOV answers an error or cannot be reached.
+        """
+        wanted = "".join(name.split())
+        # CQL string literal: a single quote is doubled, so a name cannot close
+        # the literal and append its own predicate.
+        literal = wanted.replace("'", "''")
+        features = await wfs_features_by_attribute(
+            self._http,
+            self,
+            layer=self.WFS_LAYER,
+            cql_filter=f"{DOV_BORING_NAME_ATTRIBUTE} ILIKE '%{literal}'",
+            label=f"{self.LAYER_LABEL} by name",
+            backoff=self._backoff,
+        )
+        rows = [
+            row
+            for row in (self._build_wfs_row(f.get("properties", {})) for f in features)
+            if row is not None and borehole_name_ends_with(row.test_id, wanted)
+        ]
+        exact = [r for r in rows if borehole_name_ends_with(wanted, r.test_id)]
+        pool = exact or rows
+        chosen = pool[0] if pool else None
+        self.info(
+            f"DOV borehole by name {wanted!r}: {len(features)} WFS feature(s), "
+            f"{len(rows)} ending with the name -> "
+            f"{chosen.test_id if chosen else 'not on DOV'}"
+        )
+        if len(rows) > 1 and not exact:
+            self.warning(
+                f"DOV borehole by name {wanted!r}: {len(rows)} prefixed matches "
+                f"{[r.test_id for r in rows]}; taking the first"
+            )
+        return chosen
 
     # ------------------------------------------------------------------
     # DovWfsClientBase hooks — typed-row construction + per-client
