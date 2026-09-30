@@ -61,6 +61,7 @@ export const CHROME = {
   'api.code.dovImportAlreadyRunning': 'This DOV import is already running.',
   'api.code.bodyPartitionLocked': 'Another body operation is still running on this model. Try again in a moment.',
   'api.code.lockTimeout': 'The database was busy for too long. Try again in a moment.',
+  'api.code.dovUnreachable': 'DOV is not reachable right now; the predictions will load when it is.',
   'app.backendRestarting': 'Reconnecting to the backend…',
   'app.quit': 'Quit StrixGeo',
   'app.reload': 'Reload StrixGeo',
