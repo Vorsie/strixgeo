@@ -61,6 +61,7 @@ ALEMBIC_UPGRADE_TARGET: Final = "head"
 # Alembic path, which behaves exactly as before — slow, never wrong. Bump this
 # in the SAME commit as any new migration.
 HEAD_REVISION: Final = "l4b5c6d7e8f9"
+HEAD_REVISION: Final = "b7c1d2e3f4a5"
 
 # SQLAlchemy async driver marker. `DATABASE_URL` / `Settings.database_url` are
 # expressed as `postgresql+asyncpg://...` (the form SQLAlchemy's async engine
