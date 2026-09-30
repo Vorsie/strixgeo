@@ -9,6 +9,13 @@ Owner rules (2026-09-28 / 29) this use case carries:
   the borehole (name ends with ``<job>-<borehole>``) and the sample (interval
   overlap) and writes NOTHING; :meth:`execute` attaches to the sample the user
   confirmed, or creates one with the lab's interval.
+* Owner 2026-09-30: "Can't we just auto load from DOV when trying to load a
+  lab tests and throw exception if it can't be found?" — when no project
+  borehole matches, :meth:`preview` asks DOV for ``<job>-<borehole>`` and
+  imports it into the project (the bbox import's building blocks,
+  ``ImportBoreholeDov.execute_by_name``); DOV without it, or DOV not
+  reachable, is said in the preview (``dov_lookup``), never a 500. This is
+  the one write the preview does: the borehole, never the lab test.
 * Re-import refreshes instead of skipping (Idempotency on ingest): the same
   identity with the same bytes is a no-op; with other bytes it replaces the
   stored readings — CONSENTED (409 until ``confirm_refresh``), never with a
@@ -18,13 +25,19 @@ Owner rules (2026-09-28 / 29) this use case carries:
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.import_borehole_dov import ImportBoreholeDov
+from groundmodel.application.import_borehole_dov_by_name_result import (
+    ImportBoreholeDovByNameResult,
+)
 from groundmodel.application.lab_series_import_result import LabSeriesImportResult
 from groundmodel.application.lab_series_preview import LabSeriesPreview
 from groundmodel.application.lab_series_tree_builder import (
@@ -43,11 +56,13 @@ from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.repositories.lab_series_repository import (
     LabSeriesRepository,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_constants import GEOSYS_FORMAT_TX_DUMP
-from groundmodel.infrastructure.parsers.lab.geosys.geosys_export_reader import (
-    GeosysExportReader,
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_constants import (
+    LAB_EXPORT_FORMAT_TX_DUMP,
 )
-from groundmodel.infrastructure.parsers.lab.geosys.oedometer_listing_result import (
+from groundmodel.infrastructure.parsers.lab.raw_export.lab_export_reader import (
+    LabExportReader,
+)
+from groundmodel.infrastructure.parsers.lab.raw_export.oedometer_listing_result import (
     OedometerListingResult,
 )
 from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
@@ -59,15 +74,40 @@ from groundmodel.shared.exceptions import (
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+DovBoreholeFetcher = Callable[[str, UUID], Awaitable[ImportBoreholeDovByNameResult]]
+"""``(name, project_id) -> result``: import one borehole from DOV by name."""
+
 
 class ImportLabSeriesFile(GroundModelLogger):
     """Preview / import one raw lab export into a project's sample."""
 
-    def __init__(self, session: AsyncSession) -> None:
-        """Initialise with the request's session (the caller owns its lifetime)."""
+    def __init__(
+        self, session: AsyncSession, *, dov_borehole_fetcher: DovBoreholeFetcher | None = None
+    ) -> None:
+        """Initialise with the request's session (the caller owns its lifetime).
+
+        Parameters
+        ----------
+        session : AsyncSession
+            The request's session.
+        dov_borehole_fetcher : DovBoreholeFetcher or None
+            Imports one borehole from DOV by name; default
+            ``ImportBoreholeDov(session).execute_by_name`` (tests pass a fake).
+        """
         super().__init__(__name__)
         self._session = session
         self._repo = LabSeriesRepository(session)
+        self._fetch_dov_borehole: DovBoreholeFetcher = (
+            dov_borehole_fetcher or self._import_borehole_from_dov
+        )
+
+    async def _import_borehole_from_dov(
+        self, name: str, project_id: UUID
+    ) -> ImportBoreholeDovByNameResult:
+        """The default DOV fetcher, built only when a lookup is needed."""
+        return await ImportBoreholeDov(self._session).execute_by_name(
+            name, app_project_id=project_id
+        )
 
     # ------------------------------------------------------------------ preview
 
@@ -105,11 +145,17 @@ class ImportLabSeriesFile(GroundModelLogger):
             When the file is none of the supported raw exports.
         NotFoundError
             When ``borehole_id`` is not a borehole of the project.
+
+        Notes
+        -----
+        When no project borehole matches, the borehole is fetched from DOV
+        and written into the project (``dov_lookup``); nothing else is
+        written.
         """
         name = file_name or file_path.name
         raw = file_path.read_bytes()
         self.info(f"lab-series preview: {name!r} ({len(raw)} B) for project {project_id}")
-        result = GeosysExportReader().read(raw, source_name=name)
+        result = LabExportReader().read(raw, source_name=name)
         identity = _identity_dict(result)
         preview = LabSeriesPreview(
             file_name=name,
@@ -136,6 +182,8 @@ class ImportLabSeriesFile(GroundModelLogger):
         elif len(candidates) == 1:
             preview.borehole_match = "unique"
             preview.proposed_borehole_id = candidates[0]
+        elif not candidates and identity["job_number"] and identity["borehole_name"]:
+            await self._fetch_from_dov(preview, identity, project_id)
         else:
             preview.borehole_match = "ambiguous" if candidates else "none"
 
@@ -173,6 +221,46 @@ class ImportLabSeriesFile(GroundModelLogger):
             f"{len(preview.issues)} finding(s)"
         )
         return preview
+
+    async def _fetch_from_dov(
+        self, preview: LabSeriesPreview, identity: dict[str, Any], project_id: UUID
+    ) -> None:
+        """No project borehole matched: ask DOV for ``<job>-<borehole>`` (in place).
+
+        Found → imported into the project and proposed (``borehole_match``
+        ``"unique"``). Not found, or DOV not reachable → ``borehole_match``
+        ``"none"`` and ``dov_lookup`` says why; the user picks a borehole or
+        the file is not imported. A DOV failure is never raised on.
+        """
+        name = "".join(f"{identity['job_number']}-{identity['borehole_name']}".split())
+        preview.borehole_match = "none"
+        self.info(f"lab-series preview: no project borehole ends with {name!r}; asking DOV")
+        try:
+            outcome = await self._fetch_dov_borehole(name, project_id)
+        except (httpx.HTTPError, TimeoutError) as exc:
+            self.warning(f"lab-series preview: DOV not reachable for {name!r}: {exc!r}")
+            preview.dov_lookup = {
+                "status": "unreachable",
+                "borehole_name": name,
+                "borehole_id": None,
+            }
+            return
+        if outcome.borehole_id is None:
+            self.warning(
+                f"lab-series preview: DOV has no borehole {name!r} (found={outcome.found})"
+            )
+            preview.dov_lookup = {"status": "not_found", "borehole_name": name, "borehole_id": None}
+            return
+        bid = str(outcome.borehole_id)
+        self.success(f"lab-series preview: fetched {outcome.dov_name!r} from DOV as {bid}")
+        preview.dov_lookup = {
+            "status": "fetched",
+            "borehole_name": outcome.dov_name,
+            "borehole_id": bid,
+        }
+        preview.borehole_candidates = [{"id": bid, "name": outcome.dov_name}]
+        preview.borehole_match = "unique"
+        preview.proposed_borehole_id = bid
 
     # ------------------------------------------------------------------ execute
 
@@ -237,7 +325,7 @@ class ImportLabSeriesFile(GroundModelLogger):
             f"lab-series import: {name!r} ({len(raw)} B) project {project_id} borehole "
             f"{borehole_id} sample {sample_id} create={create_sample} confirm={confirm_refresh}"
         )
-        result = GeosysExportReader().read(raw, source_name=name)
+        result = LabExportReader().read(raw, source_name=name)
         issues = issues_to_json(result.issues)
         kind = lab_series_identity(result)[0]
 
@@ -425,7 +513,7 @@ def _source_format(result: LabExportResult) -> str:
     """The recognised export's format stamp."""
     if isinstance(result, OedometerListingResult):
         return result.source_format
-    return GEOSYS_FORMAT_TX_DUMP
+    return LAB_EXPORT_FORMAT_TX_DUMP
 
 
 def _identity_dict(result: LabExportResult) -> dict[str, Any]:
