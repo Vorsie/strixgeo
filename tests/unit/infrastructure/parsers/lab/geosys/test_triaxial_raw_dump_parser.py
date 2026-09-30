@@ -256,3 +256,31 @@ def test_a_missing_measuring_point_is_flagged() -> None:
     del lines[first + 5]
     r = TriaxialRawDumpParser().parse_text("\n".join(lines), source_name="t.txt")
     assert "POINT_NUMBER_GAP" in _codes(r)
+
+
+# ---------------------------------------------------------------------------
+# Review finding (2026-09-29): a channel that never changes
+# ---------------------------------------------------------------------------
+
+
+def test_a_channel_that_never_changes_over_a_specimen_is_reported() -> None:
+    """A channel with one value at every point of a specimen probably was not
+    logged by the machine: advtxuutxt specimen a has pore pressure 0,0 at all
+    399 points, advtxcutxt specimen c has cell pressure 1500 and total sigma 3
+    800,28 at all 709 points. Reported as CHANNEL_CONSTANT (INFO) naming the
+    channel and its value; the values themselves are kept."""
+    uu = TriaxialRawDumpParser().parse(_ADV_UU)
+    [hit] = [i for i in uu.issues if i.code == "CHANNEL_CONSTANT"]
+    assert hit.level == ValidationLevel.INFO
+    assert "pore_pressure_kpa" in hit.message and "0.0" in hit.message
+    assert uu.specimens[0].measured["pore_pressure_kpa"] == [0.0] * 399
+    cu = TriaxialRawDumpParser().parse(_ADV_CU)
+    hits = [i for i in cu.issues if i.code == "CHANNEL_CONSTANT"]
+    assert sorted(i.message.split(":")[0] for i in hits) == ["specimen c", "specimen c"]
+    assert any("cell_pressure_kpa" in i.message and "1500.0" in i.message for i in hits)
+    assert any("sigma3_total_kpa" in i.message and "800.28" in i.message for i in hits)
+
+
+def test_channels_that_vary_are_not_reported_constant() -> None:
+    """Near miss: every channel of the TX CD dump varies — no finding."""
+    assert "CHANNEL_CONSTANT" not in _codes(TriaxialRawDumpParser().parse(_CD))
