@@ -76,7 +76,7 @@ def test_source_stamp_names_the_native_lab_file_and_program_version() -> None:
     h = OedometerControlListingParser().parse(_S0568).header
     assert h.source_filename == r"I:\geo\data\19122\200568B7.OCT"
     assert h.program_version == "v2.1.78 (12/10/2022 10:51:47)"
-    assert h.created_mark == "Aangemaakt door doomsso op 2/07/2020 11:10:06"
+    assert h.created_mark == "Aangemaakt door labuser op 2/07/2020 11:10:06"
 
 
 # ---------------------------------------------------------------------------
@@ -264,3 +264,71 @@ def test_elapsed_time_stepping_back_is_flagged() -> None:
     text = _tampered(";-9,412;0,05;0,670;0,670", ";-9,412;9,05;0,670;0,670")
     result = OedometerControlListingParser().parse_text(text, source_name="t.txt")
     assert "ELAPSED_TIME_NOT_MONOTONIC" in _codes(result)
+
+
+# ---------------------------------------------------------------------------
+# Review findings (2026-09-29): short stages, end-of-stage step-back, re-zero
+# duplicates marked so no stored series counts the reading twice
+# ---------------------------------------------------------------------------
+
+
+def test_a_stage_with_fewer_readings_than_the_files_usual_count_is_reported() -> None:
+    """20/0569 stage 2 lists 46 readings where the file's usual count is 50:
+    reported as STAGE_SHORT (INFO), naming the stage and both counts. The
+    re-zero stages (51 readings) are longer, not shorter, and 20/0568 (all 50)
+    has no short stage."""
+    r69 = OedometerControlListingParser().parse(_S0569)
+    short = [i for i in r69.issues if i.code == "STAGE_SHORT"]
+    assert len(short) == 1
+    assert short[0].level == ValidationLevel.INFO
+    assert "stage 2" in short[0].message and "46" in short[0].message and "50" in short[0].message
+    assert "STAGE_SHORT" not in _codes(OedometerControlListingParser().parse(_S0568))
+
+
+def test_a_stage_whose_last_reading_steps_back_one_print_step_is_info() -> None:
+    """20/0569 stage 7 (unloading) swells to -0,026 mm and its last reading
+    reads -0,025: the stage ends one 0,001 mm print step back from its own
+    peak. Print rounding, so SETTLEMENT_STEPS_BACK is INFO, not a warning."""
+    r69 = OedometerControlListingParser().parse(_S0569)
+    hits = [i for i in r69.issues if i.code == "SETTLEMENT_STEPS_BACK"]
+    assert any("stage 7:" in i.message for i in hits)
+    assert all(i.level == ValidationLevel.INFO for i in hits)
+
+
+def test_a_stage_ending_well_back_from_its_peak_is_a_warning() -> None:
+    """Over-shoot guard: a last reading 0,050 mm back from the stage's peak is
+    no print rounding — the same code at WARNING."""
+    text = _S0568.read_bytes().decode("latin-1")
+    stage1_last = ";-9,493;165,33;0,751;0,751"
+    assert stage1_last in text
+    text = text.replace(stage1_last, ";-9,443;165,33;0,701;0,701", 1)
+    result = OedometerControlListingParser().parse_text(text, source_name="t.txt")
+    hits = [
+        i for i in result.issues if i.code == "SETTLEMENT_STEPS_BACK" and "stage 1:" in i.message
+    ]
+    assert hits and hits[0].level == ValidationLevel.WARNING
+
+
+def test_a_loading_stage_ending_on_its_peak_is_not_reported() -> None:
+    """Near miss: 20/0568 stage 1 ends on its largest settlement (0,751 mm)."""
+    r68 = OedometerControlListingParser().parse(_S0568)
+    assert not any(
+        i.code == "SETTLEMENT_STEPS_BACK" and "stage 1:" in i.message for i in r68.issues
+    )
+
+
+def test_the_rezero_duplicate_reading_is_kept_and_marked_on_its_stage() -> None:
+    """The dial re-zero duplicate (stages 10 and 13 of 20/0569 carry 51
+    readings; the extra one repeats the timestamp) is stored as read but its
+    index is marked in ``rezero_indices`` so no series counts it twice, and
+    the DIAL_REZERO message says so."""
+    r69 = OedometerControlListingParser().parse(_S0569)
+    by_number = {s.stage_number: s for s in r69.stages}
+    for number in (10, 13):
+        stage = by_number[number]
+        assert len(stage.elapsed_min) == 51
+        [index] = stage.rezero_indices
+        assert stage.timestamps[index] == stage.timestamps[index - 1]
+    assert all(not s.rezero_indices for n, s in by_number.items() if n not in (10, 13))
+    rezero = [i for i in r69.issues if i.code == "DIAL_REZERO"]
+    assert all("rezero_indices" in i.message or "marked" in i.message for i in rezero)
