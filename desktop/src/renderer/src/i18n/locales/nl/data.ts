@@ -13,6 +13,7 @@ export const DATA_NL = {
   // international literature say CPT. Ruling here propagates to ~30 strings.
   'data.toolbar.importCptGef': 'Sondering (CPT) importeren (.gef)',
   'data.toolbar.importCptDov': 'Sondering (CPT) importeren uit DOV (kader tekenen)',
+  'data.toolbar.importCptPdf': 'Sonderingen uit een pdf-rapport importeren',
   'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
   'data.toolbar.importDmt': 'DMT importeren',
   'data.toolbar.importLabTest': 'Laboproeven importeren',
