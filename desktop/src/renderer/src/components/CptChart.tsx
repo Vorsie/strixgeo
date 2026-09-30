@@ -10,6 +10,7 @@ import type {
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import ElevationEditor from './ElevationEditor'
+import CptProvenanceTag, { type CptImportProvenance } from './CptProvenanceTag'
 import {
   FS_AXIS_MAX_MPA,
   FS_AXIS_TICKS_MPA,
@@ -582,6 +583,7 @@ export default function CptChart({
           ) : (
             <span className="text-amber-600">{t('chart.zMissing')}</span>
           )}
+          <CptProvenanceTag provenance={detail?.import_provenance as CptImportProvenance | null | undefined} />
         </div>
       </div>
 
