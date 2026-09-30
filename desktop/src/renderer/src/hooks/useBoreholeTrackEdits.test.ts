@@ -33,6 +33,7 @@ function setup() {
     createTrack: vi.fn(async () => response('obs-new')),
     replaceTrack: vi.fn(async (_b: string, _p: string, trackId: string) => response(trackId)),
     deleteTrack: vi.fn(async () => undefined),
+    resetTracksToDov: vi.fn(async () => ({ tracks: [], discarded_edits: 1, kept_manual: 0 })),
   }
   const pushed: UndoCommand[] = []
   const markMutated = vi.fn()
@@ -132,5 +133,33 @@ describe('useBoreholeTrackEdits', () => {
     expect(s.reloadBoreholeDetail).toHaveBeenCalledWith('bh-1')
     expect(s.markMutated).toHaveBeenCalled()
     expect(s.pushed).toHaveLength(0)
+  })
+})
+
+describe('useBoreholeTrackEdits — Reset to DOV (owner 2026-09-30)', () => {
+  // "there needs to be a per borehole button to reset to dov defaults": the
+  // reset is confirmed in the dialog and pushes NO undo step (the confirm is
+  // the guard); the borehole is refetched and the sections redraw like any edit.
+  it('resets the whole borehole, refetches it, marks the project and pushes no undo', async () => {
+    const s = setup()
+    const revision = getBoreholeTracksRevision()
+    let outcome: unknown
+    await act(async () => {
+      outcome = await s.result.current.resetToDov('bh-1', null)
+    })
+    expect(s.client.resetTracksToDov).toHaveBeenCalledWith('bh-1', 'proj-1', null)
+    expect(outcome).toEqual({ tracks: [], discarded_edits: 1, kept_manual: 0 })
+    expect(s.reloadBoreholeDetail).toHaveBeenCalledWith('bh-1')
+    expect(getBoreholeTracksRevision()).toBeGreaterThan(revision)
+    expect(s.markMutated).toHaveBeenCalled()
+    expect(s.pushed).toHaveLength(0)
+  })
+
+  it('resets one track when given its id', async () => {
+    const s = setup()
+    await act(async () => {
+      await s.result.current.resetToDov('bh-1', 'field_log:color')
+    })
+    expect(s.client.resetTracksToDov).toHaveBeenCalledWith('bh-1', 'proj-1', 'field_log:color')
   })
 })
