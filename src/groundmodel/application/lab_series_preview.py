@@ -58,6 +58,13 @@ class LabSeriesPreview:
         The parser findings, ``{level, code, message, rows}``.
     has_errors : bool
         True when any finding is an ERROR.
+    dov_lookup : dict[str, Any] or None
+        Owner 2026-09-30: no project borehole matched, so DOV was asked for
+        ``<job>-<borehole>``. ``{status, borehole_name, borehole_id}``;
+        ``status`` is ``"fetched"`` (imported into the project and proposed),
+        ``"not_found"`` (DOV has no such borehole) or ``"unreachable"`` (DOV
+        timed out / no network / answered an error). ``None`` when DOV was not
+        asked.
     """
 
     file_name: str
@@ -76,3 +83,4 @@ class LabSeriesPreview:
     existing_test: dict[str, Any] | None = None
     issues: list[dict[str, Any]] = field(default_factory=list)
     has_errors: bool = False
+    dov_lookup: dict[str, Any] | None = None
