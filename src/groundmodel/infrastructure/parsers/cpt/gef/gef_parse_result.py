@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import polars as pl
 
@@ -41,6 +42,12 @@ class GEFParseResult:
         DovParser stamps ``DOV``. Defaults to ``NONE`` so a future
         result type that doesn't yet carry an elevation surfaces as
         "unknown source" rather than a silent fake. Debt #8.
+    import_provenance : dict or None
+        How a NON-file source produced this result, stored verbatim on the
+        CPT's ``import_provenance`` column (Data Integrity rule 1). The PDF
+        digitiser stamps ``source = "pdf-digitised"``, the report file + sha,
+        the pages, the calibration and the digitiser version. None for a GEF /
+        DOV parse, whose provenance is the file itself.
 
     Notes
     -----
@@ -58,6 +65,7 @@ class GEFParseResult:
     issues: list[ValidationIssue] = field(default_factory=list)
     rf_source: DerivedValueSource | None = None
     elevation_source: ElevationSource = ElevationSource.NONE
+    import_provenance: dict[str, Any] | None = None
 
     @property
     def has_errors(self) -> bool:
