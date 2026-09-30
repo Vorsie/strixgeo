@@ -1,4 +1,4 @@
-// Raw lab-series surface — the "Import lab tests (Geosys)" preview dialog, the
+// Raw lab-series surface — the "Import lab tests" preview dialog, the
 // borehole detail's Lab tests list and the readings viewer (2026-09-29).
 //
 // Part of the English message catalogue — see 'locales/en/index.ts' for the
@@ -46,6 +46,12 @@ export const LAB_SERIES = {
   'labSeries.dialog.skip': 'Skip this file',
   'labSeries.dialog.cancel': 'Cancel',
   'labSeries.dialog.readFailed': 'Could not read {file}: {message}',
+  'labSeries.dialog.formatNotRecognised': '{file}: This file format is not recognised. Contact the StrixGeo dev team to have it added.',
+  'labSeries.dialog.notImported': 'Not imported',
+  'labSeries.dialog.close': 'Close',
+  'labSeries.dialog.dovFetched': 'Fetched {name} from DOV.',
+  'labSeries.dialog.dovNotFound': '{name} is not in this project and DOV has no borehole with that name, so this file is not imported. Pick another borehole in the list above, or first add {name} to the project (import it from DOV once DOV publishes it) and import this file again.',
+  'labSeries.dialog.dovUnreachable': 'DOV not reachable: {name} is not in this project and could not be looked up in DOV, so this file is not imported. Pick another borehole in the list above, or check the network and import this file again.',
 
   // Finding levels (the badge in front of each finding).
   'labSeries.level.error': 'Error',
@@ -59,12 +65,13 @@ export const LAB_SERIES = {
 
   // Result toast.
   'labSeries.toast.summary': 'Lab tests: {imported} imported, {replaced} replaced, {unchanged} unchanged, {skipped} skipped, {failed} failed',
+  'labSeries.toast.dovFetched': 'Boreholes fetched from DOV: {names}',
 
   // Borehole detail: the Lab tests list.
   'labSeries.section.title': 'Lab tests ({n})',
   'labSeries.section.loading': 'Loading lab tests…',
   'labSeries.section.failed': 'Could not load the lab tests.',
-  'labSeries.section.empty': 'No raw lab tests on this borehole. Use Import > Import lab tests (Geosys).',
+  'labSeries.section.empty': 'No raw lab tests on this borehole. Use Import > Import lab tests.',
   'labSeries.section.sample': 'Sample {top} to {base} m',
   'labSeries.section.counts': '{specimens} specimen(s), {stages} stage(s), {readings} readings',
   'labSeries.section.flags': '{warnings} warning(s), {errors} error(s)',
