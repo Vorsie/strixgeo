@@ -10,15 +10,45 @@
  * Every cell is re-judged on each keystroke by ``validateTrackRows`` (the
  * mirror of the backend rules): errors block Save, warnings (gaps, deeper than
  * drilled) only inform. The component is controlled: the parent owns the rows.
+ *
+ * Owner dogfeed 2026-09-30:
+ *
+ * * "When adding a coded lithology it would be nice to see the info that is
+ *   already there in other tracks": a read-only REFERENCE PANE beside the rows
+ *   (above them on a narrow window) lists the borehole's other tracks as
+ *   depth-ordered intervals; the intervals that overlap the row that has the
+ *   focus are marked and scrolled into view;
+ * * "i want max 3 admixtures in coded lithology": a row never offers a fourth
+ *   admixture and says "3 at most" (``MAX_ADMIXTURES_PER_INTERVAL``).
  */
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 
-import type { TrackRowIssue, TrackEditorRow, TrackRowsVerdict } from '../../../utils/boreholeTracks'
-import { newRowAfter, trackContent } from '../../../utils/boreholeTracks'
+import type {
+  TrackRowIssue,
+  TrackEditorRow,
+  TrackRowsVerdict,
+} from '../../../utils/boreholeTracks'
+import {
+  MAX_ADMIXTURES_PER_INTERVAL,
+  newRowAfter,
+  referenceIntervalText,
+  referenceOverlapsRow,
+  trackContent,
+} from '../../../utils/boreholeTracks'
+import type { TrackIntervalBody } from '../../../api/client'
 import type { CodeOption, CodelistField } from '../../../utils/dovTrackCodelists'
 import { useT } from '../../../i18n/translate'
 import type { MessageKey } from '../../../i18n/locales/en'
 import CodelistPicker from './CodelistPicker'
+
+/** One of the borehole's OTHER tracks, shown read-only beside the rows. */
+export interface ReferenceTrack {
+  trackId: string
+  /** Translated kind + provenance, e.g. "Field log: colour (DOV)". */
+  label: string
+  intervals: readonly TrackIntervalBody[]
+}
 
 interface Props {
   kind: string
@@ -27,6 +57,8 @@ interface Props {
   verdict: TrackRowsVerdict
   /** Options per codelist field; ``null`` = free text. */
   options: (field: CodelistField) => CodeOption[] | null
+  /** The borehole's other tracks for the reference pane (the edited one excluded). */
+  references?: readonly ReferenceTrack[]
 }
 
 const INPUT =
@@ -48,9 +80,22 @@ export default function TrackIntervalEditor({
   onRowsChange,
   verdict,
   options,
+  references = [],
 }: Props): JSX.Element {
   const t = useT()
   const content = trackContent(kind)
+  // The row that has the focus: the reference pane marks what overlaps it.
+  const [activeRow, setActiveRow] = useState<number | null>(null)
+  const paneRef = useRef<HTMLElement | null>(null)
+  const active = activeRow !== null ? rows[activeRow] : undefined
+  const activeTop = active?.top
+  const activeBase = active?.base
+  useEffect(() => {
+    // Bring the first marked reference interval into view as the engineer moves
+    // between rows (scrollIntoView is absent in jsdom, hence the guard).
+    const first = paneRef.current?.querySelector<HTMLElement>('[data-overlaps="true"]')
+    first?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeRow, activeTop, activeBase])
   const cell = (column: string, row: number) =>
     t('tracks.editor.cellLabel', { column, row: row + 1 })
   const hasError = (row: number, field: TrackRowIssue['field']) =>
@@ -200,15 +245,21 @@ export default function TrackIntervalEditor({
             </button>
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() =>
-            update(index, { admixtures: [...r.admixtures, { soil_code: '', amount: '', locally: false }] })
-          }
-          className="self-start text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
-        >
-          + {t('tracks.editor.addAdmixture')}
-        </button>
+        {r.admixtures.length < MAX_ADMIXTURES_PER_INTERVAL ? (
+          <button
+            type="button"
+            onClick={() =>
+              update(index, { admixtures: [...r.admixtures, { soil_code: '', amount: '', locally: false }] })
+            }
+            className="self-start text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            + {t('tracks.editor.addAdmixture')}
+          </button>
+        ) : (
+          <span className="text-[10px] text-text-muted">
+            {t('tracks.editor.admixtureCap', { n: MAX_ADMIXTURES_PER_INTERVAL })}
+          </span>
+        )}
       </div>
     )
   }
@@ -220,8 +271,54 @@ export default function TrackIntervalEditor({
         ? t('tracks.editor.unit')
         : t('tracks.editor.description')
 
+  const locally = t('tracks.editor.locally')
+  const referencePane = (
+    <aside
+      ref={paneRef}
+      aria-label={t('tracks.reference.title')}
+      className="md:w-72 shrink-0 max-h-[55vh] overflow-auto rounded border border-border-subtle p-2 text-[11px]"
+    >
+      <h3 className="mb-0.5 font-semibold text-text-primary">{t('tracks.reference.title')}</h3>
+      <p className="mb-1 text-[10px] text-text-muted">{t('tracks.reference.hint')}</p>
+      {references.length === 0 ? (
+        <p className="italic text-text-muted">{t('tracks.reference.empty')}</p>
+      ) : (
+        references.map(ref => (
+          <section key={ref.trackId} className="mb-2">
+            <h4 className="text-[10px] font-semibold text-text-secondary">{ref.label}</h4>
+            <ul>
+              {[...ref.intervals]
+                .sort((a, b) => a.top_m - b.top_m || a.base_m - b.base_m)
+                .map((interval, i) => {
+                  const overlaps = active !== undefined && referenceOverlapsRow(interval, active)
+                  return (
+                    <li
+                      key={i}
+                      data-overlaps={overlaps ? 'true' : 'false'}
+                      className={[
+                        'flex gap-1 rounded px-0.5',
+                        overlaps
+                          ? 'bg-amber-100 text-text-primary dark:bg-amber-900/40'
+                          : 'text-text-secondary',
+                      ].join(' ')}
+                    >
+                      <span className="shrink-0 tabular-nums text-text-muted">
+                        {interval.top_m}–{interval.base_m}
+                      </span>
+                      <span>{referenceIntervalText(interval, locally)}</span>
+                    </li>
+                  )
+                })}
+            </ul>
+          </section>
+        ))
+      )}
+    </aside>
+  )
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col-reverse gap-3 md:flex-row md:items-start">
+    <div className="flex min-w-0 flex-1 flex-col gap-2">
       <div className="overflow-x-auto">
         <table className="text-[11px] border-collapse">
           <thead>
@@ -244,7 +341,11 @@ export default function TrackIntervalEditor({
           </thead>
           <tbody>
             {rows.map((r, index) => (
-              <tr key={r.key} className="align-top">
+              <tr
+                key={r.key}
+                className={['align-top', index === activeRow ? 'bg-surface-sunken' : ''].join(' ')}
+                onFocus={() => setActiveRow(index)}
+              >
                 <td className="px-1 py-0.5 text-text-muted tabular-nums">{index + 1}</td>
                 <td className="px-1 py-0.5">{depthInput(index, 'top', t('tracks.editor.top'))}</td>
                 <td className="px-1 py-0.5">{depthInput(index, 'base', t('tracks.editor.base'))}</td>
@@ -298,6 +399,8 @@ export default function TrackIntervalEditor({
           ))}
         </ul>
       )}
+    </div>
+    {referencePane}
     </div>
   )
 }
