@@ -22,6 +22,9 @@ from uuid6 import uuid7
 
 from groundmodel.application.dov_borehole_orm_builders import build_borehole_orm
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
+from groundmodel.application.import_borehole_dov_by_name_result import (
+    ImportBoreholeDovByNameResult,
+)
 from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
 from groundmodel.application.import_interpretations_dov import ImportInterpretationsDov
 from groundmodel.application.import_interpretations_dov_result import (
@@ -57,7 +60,11 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.crs_bounds_constants import (
     COORDINATES_OUTSIDE_CRS_BOUNDS_CODE,
 )
-from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    DOV_LAMBERT72_TO_WGS84,
+    DOV_PROJECT_ID,
+    DOV_SINGLE_BOREHOLE_BOX_HALF_WIDTH_M,
+)
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.infrastructure.parsers.dov.dov_http_retry import DovRateLimitState
 from groundmodel.shared.config import settings
@@ -175,176 +182,291 @@ class ImportBoreholeDov(GroundModelLogger):
                 http, west, south, east, north, progress_cb, backoff
             )
 
-            total = len(parsed)
-            # Count conservation: boreholes lost during download/parse are the
-            # gap between the WFS index size and the parsed count.
-            download_failed = discovered_count - total
+            return await self._persist_parsed(
+                http,
+                discovered_count,
+                parsed,
+                (west, south, east, north),
+                app_project_id,
+                progress_cb,
+                backoff,
+                t_total,
+            )
+
+    async def execute_by_name(
+        self, name: str, app_project_id: UUID | None = None
+    ) -> ImportBoreholeDovByNameResult:
+        """Fetch ONE borehole from DOV by its name and persist it into the project.
+
+        Owner 2026-09-30: a lab test naming a borehole the project does not
+        hold loads it from DOV. The same building blocks as the bbox import:
+        the WFS row (found by name instead of by area), the per-permkey XML
+        download + parse, then :meth:`_persist_parsed` (dedup, persist, the
+        interpretation and sample phases over a small box around the one
+        borehole, one commit).
+
+        Parameters
+        ----------
+        name : str
+            The borehole name, e.g. ``GEO-25/022-B17`` (DOV may prefix it).
+        app_project_id : UUID | None
+            The project to import into.
+
+        Returns
+        -------
+        ImportBoreholeDovByNameResult
+            ``found`` False when DOV has no such borehole (nothing written).
+
+        Raises
+        ------
+        httpx.HTTPStatusError, httpx.RequestError
+            When DOV answers an error or cannot be reached (logged first).
+        """
+        self.info(f"DOV borehole by name: {name!r} into project {app_project_id}")
+        t_total = time.perf_counter()
+        backoff = DovRateLimitState()
+        async with make_dov_async_client() as http:
+            client = DovBoreholeClient(http, cache=self._boring_cache, backoff=backoff)
+            row = await fetch_wfs_or_raise(
+                client.find_by_name(name), label="borehole by name", logger=self
+            )
+            if row is None:
+                self.warning(f"DOV borehole by name {name!r}: DOV has no such borehole")
+                return ImportBoreholeDovByNameResult(found=False, dov_name=name)
+            parsed = await fetch_wfs_or_raise(
+                client.fetch_rows_processed([row], DovBoringParser().parse),
+                label="borehole by name",
+                logger=self,
+            )
+            batch = await self._persist_parsed(
+                http,
+                1,
+                parsed,
+                _box_around(row),
+                app_project_id,
+                None,
+                backoff,
+                t_total,
+            )
+        borehole_id = batch.borehole_ids[0] if batch.borehole_ids else None
+        if borehole_id is None:
+            self.warning(f"DOV borehole by name {row.test_id!r}: found but not persisted")
+        else:
+            self.success(f"DOV borehole by name {row.test_id!r} -> {borehole_id}")
+        return ImportBoreholeDovByNameResult(
+            found=True, dov_name=row.test_id, borehole_id=borehole_id, batch=batch
+        )
+
+    async def _persist_parsed(
+        self,
+        http: httpx.AsyncClient,
+        discovered_count: int,
+        parsed: list[tuple[BoreholeWfsRow, BoreholeParseResult]],
+        bbox: tuple[float, float, float, float],
+        app_project_id: UUID | None,
+        progress_cb: ProgressCallback | None,
+        backoff: DovRateLimitState,
+        t_total: float,
+    ) -> ImportBoreholeDovResult:
+        """Run phases 3-5 on downloaded + parsed boreholes: dedup, persist, children, commit.
+
+        Shared by the bbox import and the by-name import (one borehole), so a
+        borehole fetched for a lab test lands exactly like one from a drawn box.
+
+        Parameters
+        ----------
+        http : httpx.AsyncClient
+            The import's shared HTTP client (kept warm for the child phases).
+        discovered_count : int
+            WFS rows found (the download-failure count is the gap to ``parsed``).
+        parsed : list[tuple[BoreholeWfsRow, BoreholeParseResult]]
+            The boreholes that survived download and parse.
+        bbox : tuple[float, float, float, float]
+            WGS84 ``(west, south, east, north)`` the interpretation and sample
+            phases search.
+        app_project_id : UUID | None
+            The project scope.
+        progress_cb : ProgressCallback | None
+            Optional phase ticks.
+        backoff : DovRateLimitState
+            The import-wide rate-limit state.
+        t_total : float
+            ``perf_counter`` at the import start (the summary's wall-clock).
+
+        Returns
+        -------
+        ImportBoreholeDovResult
+            The batch summary.
+        """
+        west, south, east, north = bbox
+        total = len(parsed)
+        # Count conservation: boreholes lost during download/parse are the
+        # gap between the WFS index size and the parsed count.
+        download_failed = discovered_count - total
+        if download_failed > 0:
+            self.warning(
+                f"DOV import: {download_failed} borehole(s) lost during download/parse "
+                f"({total} of {discovered_count} survived) — "
+                f"per-item ERROR lines above carry the cause"
+            )
+        if total == 0:
             if download_failed > 0:
+                self.info(
+                    f"DOV import: 0 boreholes survived download/parse "
+                    f"({download_failed} of {discovered_count} lost) — nothing to persist"
+                )
+            else:
+                self.info("DOV import: no boreholes found in bbox — nothing to persist")
+            return ImportBoreholeDovResult(
+                imported=0, duplicates=0, failed=download_failed, borehole_ids=[]
+            )
+
+        for wfs_row, result in parsed:
+            if result.has_errors:
                 self.warning(
-                    f"DOV import: {download_failed} borehole(s) lost during download/parse "
-                    f"({total} of {discovered_count} survived) — "
-                    f"per-item ERROR lines above carry the cause"
-                )
-            if total == 0:
-                if download_failed > 0:
-                    self.info(
-                        f"DOV import: 0 boreholes survived download/parse "
-                        f"({download_failed} of {discovered_count} lost) — nothing to persist"
-                    )
-                else:
-                    self.info("DOV import: no boreholes found in bbox — nothing to persist")
-                return ImportBoreholeDovResult(
-                    imported=0, duplicates=0, failed=download_failed, borehole_ids=[]
+                    f"DOV import: '{wfs_row.test_id}' parsed with errors — "
+                    + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
                 )
 
-            for wfs_row, result in parsed:
-                if result.has_errors:
-                    self.warning(
-                        f"DOV import: '{wfs_row.test_id}' parsed with errors — "
-                        + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
-                    )
-
-            # Phase-summary INFO: how many parsed boreholes carry coordinates
-            # outside their declared CRS's area (a swapped X/Y or a foreign
-            # position). The per-test detail is the WARNING the parser already
-            # attached; this is the "did this batch have any" the reader scans.
-            flagged = sum(
-                1
-                for _, result in parsed
-                if any(iss.code == COORDINATES_OUTSIDE_CRS_BOUNDS_CODE for iss in result.issues)
-            )
-            if flagged:
-                self.info(
-                    f"DOV import: {flagged}/{len(parsed)} borehole(s) have coordinates "
-                    "outside their declared CRS area"
-                )
-
-            # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
-            t_dedup = time.perf_counter()
-            test_ids = [row.test_id for row, _ in parsed if row.test_id]
-            existing = (
-                await self._repo.find_existing_test_ids(DOV_PROJECT_ID, test_ids, app_project_id)
-                if test_ids
-                else {}
-            )
+        # Phase-summary INFO: how many parsed boreholes carry coordinates
+        # outside their declared CRS's area (a swapped X/Y or a foreign
+        # position). The per-test detail is the WARNING the parser already
+        # attached; this is the "did this batch have any" the reader scans.
+        flagged = sum(
+            1
+            for _, result in parsed
+            if any(iss.code == COORDINATES_OUTSIDE_CRS_BOUNDS_CODE for iss in result.issues)
+        )
+        if flagged:
             self.info(
-                f"DOV phase 3 (dedup query): {ms_since(t_dedup)} ms — "
-                f"{len(existing)} of {len(test_ids)} already in project"
-            )
-            await fire_progress(progress_cb, "dedup", len(existing), total)
-
-            # Phase 4 — persist non-duplicates + build maps for ALL
-            # boreholes in scope (new + existing). Two keyings:
-            #   * test_id → UUID — used by interpretation WFS rows
-            #     (they reference Proefnummer = test_id).
-            #   * borehole_permkey → UUID — used by sample/lab-test WFS
-            #     rows (they reference the borehole by URL whose last
-            #     segment is the permkey).
-            #
-            # Refresh-on-duplicate: existing boreholes go into the same
-            # maps as new ones, so phases 4b/4c run for them too. Per-
-            # row dedup inside those phases (against ``dov_permkey``)
-            # ensures we don't re-add observations / samples / lab
-            # tests we already have. The result: a parser fix lands →
-            # the user re-imports → existing boreholes get the missing
-            # children that the upstream now provides. No TRUNCATE
-            # required to apply parser fixes.
-            t_persist = time.perf_counter()
-            imported = 0
-            duplicates = 0
-            failed = 0
-            borehole_ids: list[UUID] = []
-            borehole_map: dict[str, UUID] = {}
-            permkey_map: dict[str, UUID] = {}
-            # Per-test_id WFS row map. Carries the ``has_<type>``
-            # flags into the interpretation phase so it can detect
-            # WFS gaps (issue #6). Build for every in-scope borehole
-            # (new + existing) since the gap can happen on either.
-            wfs_row_map: dict[str, BoreholeWfsRow] = {}
-
-            for i, (wfs_row, result) in enumerate(parsed, 1):
-                wfs_row_map[wfs_row.test_id] = wfs_row
-                existing_id = existing.get(wfs_row.test_id)
-                if existing_id is not None:
-                    duplicates += 1
-                    borehole_ids.append(existing_id)
-                    borehole_map[wfs_row.test_id] = existing_id
-                    permkey_map[wfs_row.permkey] = existing_id
-                    self.debug(
-                        f"DOV import [{i}/{total}]: '{wfs_row.test_id}' already "
-                        f"exists ({existing_id}) — refresh-on-duplicate will "
-                        f"fill in any missing children"
-                    )
-                else:
-                    try:
-                        borehole_orm = self._build_orm(wfs_row, result, app_project_id)
-                        await self._repo.save(borehole_orm, flush=False)
-                        imported += 1
-                        borehole_ids.append(borehole_orm.id)
-                        borehole_map[wfs_row.test_id] = borehole_orm.id
-                        permkey_map[wfs_row.permkey] = borehole_orm.id
-                        self.debug(
-                            f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}"
-                        )
-                    except Exception as exc:
-                        failed += 1
-                        self.error(
-                            f"DOV import [{i}/{total}]: persist failed for "
-                            f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
-                        )
-                await fire_progress(progress_cb, "persist", i, total)
-
-            self.info(
-                f"DOV phase 4 (persist {imported} boreholes, no commit): "
-                f"{ms_since(t_persist)} ms — phase 4b/4c will run for "
-                f"{len(borehole_map)} boreholes ({duplicates} via "
-                f"refresh-on-duplicate)"
+                f"DOV import: {flagged}/{len(parsed)} borehole(s) have coordinates "
+                "outside their declared CRS area"
             )
 
-            # Phase 4b — fetch + attach interpretations for ALL in-scope
-            # boreholes (new + existing). Per-row dedup happens inside
-            # the persist function based on Observation.dov_permkey.
-            interp_result = await self._fetch_and_attach_interpretations(
-                http, west, south, east, north, borehole_map, wfs_row_map, backoff
-            )
-            await fire_progress(progress_cb, "interpretations", interp_result.attached, total)
+        # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
+        t_dedup = time.perf_counter()
+        test_ids = [row.test_id for row, _ in parsed if row.test_id]
+        existing = (
+            await self._repo.find_existing_test_ids(DOV_PROJECT_ID, test_ids, app_project_id)
+            if test_ids
+            else {}
+        )
+        self.info(
+            f"DOV phase 3 (dedup query): {ms_since(t_dedup)} ms — "
+            f"{len(existing)} of {len(test_ids)} already in project"
+        )
+        await fire_progress(progress_cb, "dedup", len(existing), total)
 
-            # Phase 4c — fetch + attach samples + lab tests, same
-            # refresh-on-duplicate flow. Per-row dedup based on
-            # Sample.dov_permkey + each lab-test family's dov_permkey.
-            samples_result = await self._fetch_and_attach_samples(
-                http, west, south, east, north, permkey_map, backoff
-            )
-            await fire_progress(progress_cb, "samples", samples_result.samples_attached, total)
+        # Phase 4 — persist non-duplicates + build maps for ALL
+        # boreholes in scope (new + existing). Two keyings:
+        #   * test_id → UUID — used by interpretation WFS rows
+        #     (they reference Proefnummer = test_id).
+        #   * borehole_permkey → UUID — used by sample/lab-test WFS
+        #     rows (they reference the borehole by URL whose last
+        #     segment is the permkey).
+        #
+        # Refresh-on-duplicate: existing boreholes go into the same
+        # maps as new ones, so phases 4b/4c run for them too. Per-
+        # row dedup inside those phases (against ``dov_permkey``)
+        # ensures we don't re-add observations / samples / lab
+        # tests we already have. The result: a parser fix lands →
+        # the user re-imports → existing boreholes get the missing
+        # children that the upstream now provides. No TRUNCATE
+        # required to apply parser fixes.
+        t_persist = time.perf_counter()
+        imported = 0
+        duplicates = 0
+        failed = 0
+        borehole_ids: list[UUID] = []
+        borehole_map: dict[str, UUID] = {}
+        permkey_map: dict[str, UUID] = {}
+        # Per-test_id WFS row map. Carries the ``has_<type>``
+        # flags into the interpretation phase so it can detect
+        # WFS gaps (issue #6). Build for every in-scope borehole
+        # (new + existing) since the gap can happen on either.
+        wfs_row_map: dict[str, BoreholeWfsRow] = {}
 
-            # Phase 5 — single commit flushes the whole batch (boreholes +
-            # observations + layers + admixtures + samples + grain-sizes
-            # + lab tests, all in one transaction). Refresh-on-duplicate
-            # means the commit is also worth doing when imported = 0:
-            # phases 4b/4c may have added children to existing boreholes.
-            has_new_rows = (
-                imported > 0
-                or interp_result.attached > 0
-                or samples_result.samples_attached > 0
-                or samples_result.grain_sizes_attached > 0
-                or samples_result.atterberg_attached > 0
-                or samples_result.caco3_attached > 0
-                or samples_result.organic_attached > 0
-                or samples_result.water_content_attached > 0
-                or samples_result.scalar_lab_tests_attached > 0
-            )
-            if has_new_rows:
-                t_commit = time.perf_counter()
-                await self._session.commit()
-                self.info(
-                    f"DOV phase 5 (commit batch of {imported} new boreholes + "
-                    f"{interp_result.attached} observations + "
-                    f"{samples_result.samples_attached} samples + "
-                    f"{samples_result.grain_sizes_attached} grain-sizes "
-                    f"into {len(borehole_map)} boreholes): "
-                    f"{ms_since(t_commit)} ms"
+        for i, (wfs_row, result) in enumerate(parsed, 1):
+            wfs_row_map[wfs_row.test_id] = wfs_row
+            existing_id = existing.get(wfs_row.test_id)
+            if existing_id is not None:
+                duplicates += 1
+                borehole_ids.append(existing_id)
+                borehole_map[wfs_row.test_id] = existing_id
+                permkey_map[wfs_row.permkey] = existing_id
+                self.debug(
+                    f"DOV import [{i}/{total}]: '{wfs_row.test_id}' already "
+                    f"exists ({existing_id}) — refresh-on-duplicate will "
+                    f"fill in any missing children"
                 )
-            await fire_progress(progress_cb, "commit", imported, imported)
+            else:
+                try:
+                    borehole_orm = self._build_orm(wfs_row, result, app_project_id)
+                    await self._repo.save(borehole_orm, flush=False)
+                    imported += 1
+                    borehole_ids.append(borehole_orm.id)
+                    borehole_map[wfs_row.test_id] = borehole_orm.id
+                    permkey_map[wfs_row.permkey] = borehole_orm.id
+                    self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
+                except Exception as exc:
+                    failed += 1
+                    self.error(
+                        f"DOV import [{i}/{total}]: persist failed for "
+                        f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
+                    )
+            await fire_progress(progress_cb, "persist", i, total)
+
+        self.info(
+            f"DOV phase 4 (persist {imported} boreholes, no commit): "
+            f"{ms_since(t_persist)} ms — phase 4b/4c will run for "
+            f"{len(borehole_map)} boreholes ({duplicates} via "
+            f"refresh-on-duplicate)"
+        )
+
+        # Phase 4b — fetch + attach interpretations for ALL in-scope
+        # boreholes (new + existing). Per-row dedup happens inside
+        # the persist function based on Observation.dov_permkey.
+        interp_result = await self._fetch_and_attach_interpretations(
+            http, west, south, east, north, borehole_map, wfs_row_map, backoff
+        )
+        await fire_progress(progress_cb, "interpretations", interp_result.attached, total)
+
+        # Phase 4c — fetch + attach samples + lab tests, same
+        # refresh-on-duplicate flow. Per-row dedup based on
+        # Sample.dov_permkey + each lab-test family's dov_permkey.
+        samples_result = await self._fetch_and_attach_samples(
+            http, west, south, east, north, permkey_map, backoff
+        )
+        await fire_progress(progress_cb, "samples", samples_result.samples_attached, total)
+
+        # Phase 5 — single commit flushes the whole batch (boreholes +
+        # observations + layers + admixtures + samples + grain-sizes
+        # + lab tests, all in one transaction). Refresh-on-duplicate
+        # means the commit is also worth doing when imported = 0:
+        # phases 4b/4c may have added children to existing boreholes.
+        has_new_rows = (
+            imported > 0
+            or interp_result.attached > 0
+            or samples_result.samples_attached > 0
+            or samples_result.grain_sizes_attached > 0
+            or samples_result.atterberg_attached > 0
+            or samples_result.caco3_attached > 0
+            or samples_result.organic_attached > 0
+            or samples_result.water_content_attached > 0
+            or samples_result.scalar_lab_tests_attached > 0
+        )
+        if has_new_rows:
+            t_commit = time.perf_counter()
+            await self._session.commit()
+            self.info(
+                f"DOV phase 5 (commit batch of {imported} new boreholes + "
+                f"{interp_result.attached} observations + "
+                f"{samples_result.samples_attached} samples + "
+                f"{samples_result.grain_sizes_attached} grain-sizes "
+                f"into {len(borehole_map)} boreholes): "
+                f"{ms_since(t_commit)} ms"
+            )
+        await fire_progress(progress_cb, "commit", imported, imported)
 
         total_failed = failed + download_failed
         self.success(
@@ -627,3 +749,17 @@ class ImportBoreholeDov(GroundModelLogger):
             borehole.z_epsg = DOV_VERTICAL_EPSG
 
         return borehole
+
+
+def _box_around(row: BoreholeWfsRow) -> tuple[float, float, float, float]:
+    """A small WGS84 ``(west, south, east, north)`` box around one WFS row's point.
+
+    The interpretation and sample phases search by area; around one borehole a
+    box of a few tens of metres holds its streams, and anything else in it is
+    ignored (those phases attach only to the boreholes in their id maps).
+    """
+    half = DOV_SINGLE_BOREHOLE_BOX_HALF_WIDTH_M
+    x, y = row.x or 0.0, row.y or 0.0
+    west, south = DOV_LAMBERT72_TO_WGS84.transform(x - half, y - half)
+    east, north = DOV_LAMBERT72_TO_WGS84.transform(x + half, y + half)
+    return west, south, east, north
