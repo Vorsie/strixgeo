@@ -190,3 +190,67 @@ export function linearTicks(min: number, max: number, count = 5): number[] {
   }
   return out
 }
+
+/** The plotted domain of a chart: x (time / stress / strain) and y ranges. */
+export interface ChartDomain {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+/** Share of the log x span added on each side of the drawn readings. */
+const LOG_X_MARGIN = 0.06
+/** Share of the linear x span added on each side. */
+const LINEAR_X_MARGIN = 0.03
+/** Share of the y span added above and below. */
+const Y_MARGIN = 0.05
+
+/**
+ * The domain that shows every drawn reading, strictly inside the plot frame.
+ *
+ * Owner 2026-09-30: "make sure full trap is visible in plots". A reading ON
+ * the frame is half cut off, and the first reading of a stage would hide under
+ * the t = 0 marker on the left edge, so both axes get a margin: on a log axis a
+ * share of the decades spanned (at least a tenth of a decade), on a linear axis
+ * a share of the span. The y range holds every drawn value AND the t = 0
+ * marker's value.
+ *
+ * @param series - Per series its drawn points and optional t = 0 value.
+ * @param opts - ``xLog`` for a log x axis (points with x <= 0 are not drawn).
+ * @returns The domain, or null when nothing is drawn.
+ */
+export function chartDomain(
+  series: { points: XY[]; leftEdgeValue?: number | null }[],
+  opts: { xLog?: boolean } = {},
+): ChartDomain | null {
+  const xLog = opts.xLog ?? false
+  const drawn = series.map(s => s.points.filter(p => !xLog || p.x > 0))
+  const xs = drawn.flatMap(pts => pts.map(p => p.x))
+  const ys = [
+    ...drawn.flatMap(pts => pts.map(p => p.y)),
+    ...series.flatMap(s => (s.leftEdgeValue != null ? [s.leftEdgeValue] : [])),
+  ]
+  if (xs.length === 0 || ys.length === 0) return null
+  let x0 = Math.min(...xs)
+  let x1 = Math.max(...xs)
+  if (xLog) {
+    const l0 = Math.log10(x0)
+    const l1 = Math.log10(x1)
+    const pad = Math.max((l1 - l0) * LOG_X_MARGIN, 0.1)
+    x0 = 10 ** (l0 - pad)
+    x1 = 10 ** (l1 + pad)
+  } else {
+    const pad = x1 > x0 ? (x1 - x0) * LINEAR_X_MARGIN : 1
+    x0 -= pad
+    x1 += pad
+  }
+  let y0 = Math.min(...ys)
+  let y1 = Math.max(...ys)
+  if (y0 === y1) {
+    y0 -= 1
+    y1 += 1
+  }
+  const pad = (y1 - y0) * Y_MARGIN
+  return { x0, x1, y0: y0 - pad, y1: y1 + pad }
+}
