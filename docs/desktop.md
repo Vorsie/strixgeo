@@ -68,6 +68,18 @@ desktop/src/
     │                            Create / Open card on the left, Recent Projects on the right.
     │                            Engineering-app convention — no auto-reopen on launch.
     ├── components/borelog/      BoreholeLog sub-components (tracks, header, legend, …)
+    │   └── components/BoreholeTracksDialog.tsx  The "Tracks" panel behind the borelog
+    │                            toolbar button (2026-09-29): list of the borehole's tracks
+    │                            (kind, DOV / Manual / Edited-by-hand badge, interval count,
+    │                            drawn-in-sections flag), Add track (kind picker), Edit
+    │                            (TrackIntervalEditor: Top/Base + DOV codelist pickers from
+    │                            utils/dovTrackCodelists.ts, free text only for descriptions;
+    │                            a new row starts at the last base, Enter in the last row adds
+    │                            one), Delete (ConfirmDialog, Cancel focused, "Delete track").
+    │                            Saves go through hooks/useBoreholeTrackEdits.ts (undoable
+    │                            add/edit, detail refetch, markMutated, and a
+    │                            hooks/boreholeTracksRevision.ts bump that makes an open
+    │                            section refetch its borehole columns).
     ├── components/interpretation/
     │   ├── FormationPickerDialog.tsx      Pick an existing geological formation.
     │   ├── LithoCompositionPickerDialog.tsx  Two-tab picker: existing units + new-unit builder.
