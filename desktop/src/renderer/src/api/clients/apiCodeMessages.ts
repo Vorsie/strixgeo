@@ -9,6 +9,7 @@ import type { MessageKey } from '../../i18n/locales/en'
 
 const CODE_KEYS = {
   dov_import_too_large: 'api.code.dovImportTooLarge',
+  cpt_pdf_report_unknown: 'api.code.cptPdfReportUnknown',
   dov_import_already_running: 'api.code.dovImportAlreadyRunning',
   body_partition_locked: 'api.code.bodyPartitionLocked',
   lock_timeout: 'api.code.lockTimeout',
