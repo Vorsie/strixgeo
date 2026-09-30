@@ -41,6 +41,16 @@ class OedometerStage:
         stage 1, which prints none.
     lab_coefficient : float or None
         The lab's C or A value for the stage (lab-derived, pass-through).
+    rezero_indices : list[int]
+        0-based indices of readings that REPEAT the previous reading's
+        timestamp at a dial-gauge re-zero. The reading is kept as read (the
+        raw record stays whole) but a consumer that plots or counts readings
+        skips these indices, so no series counts the moment twice.
+    extra_channels : dict[str, list[float or None]]
+        Format-specific per-reading columns beyond the five above, keyed by
+        canonical channel key (the newer oedometer module logs the load on
+        the hanger and the time since the test start per reading). Same
+        length as ``elapsed_min``.
     """
 
     stage_number: int
@@ -56,3 +66,5 @@ class OedometerStage:
     stage_settlement_mm: float | None = None
     lab_coefficient_label: str | None = None
     lab_coefficient: float | None = None
+    rezero_indices: list[int] = field(default_factory=list)
+    extra_channels: dict[str, list[float | None]] = field(default_factory=dict)
