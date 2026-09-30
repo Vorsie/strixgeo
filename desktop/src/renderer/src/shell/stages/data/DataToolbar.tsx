@@ -9,7 +9,7 @@
 // zone (committed in a subsequent step). This file owns only the stage-
 // specific import verbs.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Upload, Loader2, Waves } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -17,6 +17,10 @@ import { PortalMenu, usePortalMenu } from '../../ToolbarPrimitives'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import { useT, type Translator } from '../../../i18n/translate'
 import type { MessageKey } from '../../../i18n/locales/en'
+import LabSeriesImportDialog, {
+  type LabSeriesImportSummary,
+} from '../../../components/labSeries/LabSeriesImportDialog'
+import { notifyLabSeriesChanged } from '../../../hooks/useLabSeriesRevision'
 
 /**
  * Import action verbs for the Data stage toolbar.
@@ -51,6 +55,38 @@ export default function DataToolbar(): JSX.Element {
   // Data stage always has it, but read defensively for partial test shells.
   const bedOverrides = shell.bedOverrides
   const t = useT()
+  // Raw lab import (2026-09-29): the picked files, walked one by one through
+  // the preview dialog; null = no import running.
+  const [labFiles, setLabFiles] = useState<string[] | null>(null)
+
+  async function handleImportLabSeries(): Promise<void> {
+    const paths = await window.electron.openFiles([
+      { name: 'Lab exports (Geosys)', extensions: ['txt', 'csv', 'dat'] },
+      { name: 'All Files', extensions: ['*'] },
+    ])
+    if (paths.length > 0) setLabFiles(paths)
+  }
+
+  function finishLabImport(summary: LabSeriesImportSummary): void {
+    setLabFiles(null)
+    const written = summary.imported + summary.replaced
+    shell.toasts.toast(
+      summary.failed > 0 && written === 0 ? 'error' : 'success',
+      t('labSeries.toast.summary', {
+        imported: summary.imported,
+        replaced: summary.replaced,
+        unchanged: summary.unchanged,
+        skipped: summary.skipped,
+        failed: summary.failed,
+      }),
+    )
+    if (written === 0) return
+    // The import wrote to the database: the project is dirty until File > Save
+    // puts the tests into the .strix; a new sample changes the borehole detail.
+    shell.coordinator?.markMutated?.()
+    for (const id of summary.touchedBoreholeIds) void shell.investigations.loadBoreholeDetail(id)
+    notifyLabSeriesChanged()
+  }
 
   const isImporting = importing || dovImporting
   const drawingBbox = bboxImportType !== null
@@ -82,7 +118,12 @@ export default function DataToolbar(): JSX.Element {
         ]
       : []),
     { key: 'data.toolbar.importDmt', testid: 'import-verb-dmt', available: false },
-    { key: 'data.toolbar.importLabTest', testid: 'import-verb-lab', available: false },
+    {
+      key: 'data.toolbar.importLabTest',
+      testid: 'import-verb-lab',
+      available: true,
+      onClick: () => void handleImportLabSeries(),
+    },
     { key: 'data.toolbar.importMonitoring', testid: 'import-verb-monitoring', available: false },
   ]
 
@@ -111,6 +152,14 @@ export default function DataToolbar(): JSX.Element {
         t={t}
         onOpenChange={setImportMenuOpen}
       />
+      {labFiles && (
+        <LabSeriesImportDialog
+          projectId={shell.project.id}
+          filePaths={labFiles}
+          boreholes={shell.visibleBoreholes.map(b => ({ id: b.id, name: b.name }))}
+          onFinished={finishLabImport}
+        />
+      )}
       {bedOverrides && (
         <button
           type="button"
