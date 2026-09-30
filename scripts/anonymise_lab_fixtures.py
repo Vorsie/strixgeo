@@ -1,4 +1,4 @@
-"""Strip personal and client names from the Geosys lab fixtures (repeatable).
+"""Strip personal and client names from the raw lab-export fixtures (repeatable).
 
 Owner ruling 2026-09-29: "yeah remove all names". The lab exports carry the
 client contact the report is for ("Rapport bij"), the site / client reference
@@ -56,9 +56,9 @@ _LINE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 def _encoding_of(raw: bytes) -> tuple[str, bytes]:
-    """Return (codec, BOM) for a Geosys export.
+    """Return (codec, BOM) for a raw lab export.
 
-    The old Geosys exports are ISO-8859-1; the newer oedometer module writes
+    The control listings and point dumps are ISO-8859-1; the newer oedometer module writes
     UTF-8 with a byte-order mark. The BOM is returned so it is written back.
     """
     if raw.startswith(b"\xef\xbb\xbf"):
@@ -95,7 +95,7 @@ def anonymise_file(path: Path) -> bool:
     Parameters
     ----------
     path : pathlib.Path
-        A Geosys export.
+        A raw lab export.
 
     Returns
     -------
