@@ -21,12 +21,31 @@ from collections.abc import Iterable, Sequence
 
 from groundmodel.domain.value_objects.lab_sample_candidate import SampleCandidate
 
-__all__ = ["SampleCandidate", "match_borehole_ids", "match_sample"]
+__all__ = ["SampleCandidate", "borehole_name_ends_with", "match_borehole_ids", "match_sample"]
 
 
 def _norm(text: str) -> str:
     """Case-fold and drop every space (``GEO-25/022 - B17`` → ``geo-25/022-b17``)."""
     return "".join(text.split()).casefold()
+
+
+def borehole_name_ends_with(name: str, suffix: str) -> bool:
+    """True when ``name`` ends with ``suffix``, case- and space-insensitive.
+
+    Parameters
+    ----------
+    name : str
+        A borehole name as stored (``1411-GEO-24/159-B2``).
+    suffix : str
+        The lab's ``<job>-<borehole>`` (``GEO-24/159-B2``).
+
+    Returns
+    -------
+    bool
+        Whether the name ends with the suffix (an empty suffix never matches).
+    """
+    wanted = _norm(suffix)
+    return bool(wanted) and _norm(name).endswith(wanted)
 
 
 def match_borehole_ids(
@@ -57,7 +76,7 @@ def match_borehole_ids(
     job = _norm(job_number)
     if borehole_name and _norm(borehole_name):
         suffix = f"{job}-{_norm(borehole_name)}"
-        return [bid for bid, name in boreholes if _norm(name).endswith(suffix)]
+        return [bid for bid, name in boreholes if borehole_name_ends_with(name, suffix)]
     return [bid for bid, name in boreholes if f"{job}-" in _norm(name)]
 
 
