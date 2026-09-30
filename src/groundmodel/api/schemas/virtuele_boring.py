@@ -72,6 +72,23 @@ class VirtueleBoringInvestigationResponse(BaseModel):
     predictions_by_model: dict[str, list[VirtueleBoringLayerResponse]]
 
 
+class VirtueleBoringSkippedResponse(BaseModel):
+    """One (investigation, model) fetch that returned nothing, and why.
+
+    ``reason`` is ``"dov_unreachable"`` (DOV gave no HTTP answer: a
+    timeout, reset or refused connection) or ``"dov_http_error"`` (DOV
+    answered with a non-2xx status). ``detail`` carries the transport
+    error class (``"ReadTimeout"``) or ``"HTTP <status>"``.
+    """
+
+    investigation_kind: Literal["cpt", "borehole"]
+    investigation_id: UUID
+    name: str
+    model: str
+    reason: Literal["dov_unreachable", "dov_http_error"]
+    detail: str
+
+
 class VirtueleBoringPredictionsResponse(BaseModel):
     """Full predictions payload returned by the per-project endpoint.
 
@@ -79,8 +96,13 @@ class VirtueleBoringPredictionsResponse(BaseModel):
     Lambert 72 (or whose coordinates were missing). The desktop
     client can surface this so the user understands the gap between
     project size and overlay coverage.
+
+    ``skipped`` (additive, 2026-09-30) lists every per-call fetch that
+    failed, with its reason — a partial DOV outage answers 200 with
+    the data that came back and this list explaining the rest.
     """
 
     models: list[str]
     predictions: list[VirtueleBoringInvestigationResponse]
     skipped_count: int
+    skipped: list[VirtueleBoringSkippedResponse] = Field(default_factory=list)
