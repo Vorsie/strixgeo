@@ -25,6 +25,7 @@ from groundmodel.api.routers import (
     borehole_tracks,
     codelists,
     cpt,
+    cpt_pdf,
     cross_section,
     dem,
     geology,
@@ -518,6 +519,8 @@ def create_app(environment: str | None = None) -> FastAPI:
         ),
     )
 
+    # Before cpt.router: /cpt/pdf/... must never be read as /cpt/{cpt_id}.
+    app.include_router(cpt_pdf.router)
     app.include_router(cpt.router)
     app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
     # Hand-edited tracks (owner 2026-09-29) - own module, same /borehole prefix.
