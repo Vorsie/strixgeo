@@ -1,5 +1,5 @@
 /**
- * Raw lab-series client — preview / import a lab export (Geosys oedometer
+ * Raw lab-series client — preview / import a raw lab export (oedometer
  * control listing, the newer oedometer module's raw export, triaxial per-point
  * dump), list a borehole's lab tests, read a sample's full readings.
  *
@@ -64,6 +64,20 @@ export interface LabSeriesPreviewResponse {
   existing_test: { id: string; sample_id: string; same_content: boolean } | null
   issues: LabSeriesIssue[]
   has_errors: boolean
+  /**
+   * Set when no project borehole matched and DOV was asked for
+   * ``<job>-<borehole>`` (owner 2026-09-30): ``fetched`` = imported into the
+   * project and proposed; ``not_found`` = DOV has no such borehole;
+   * ``unreachable`` = DOV timed out / no network / answered an error.
+   */
+  dov_lookup?: LabSeriesDovLookup | null
+}
+
+/** What the preview's DOV lookup of a missing borehole found. */
+export interface LabSeriesDovLookup {
+  status: 'fetched' | 'not_found' | 'unreachable' | string
+  borehole_name: string
+  borehole_id: string | null
 }
 
 /** Response of ``POST /lab-series/import``. */
@@ -110,6 +124,23 @@ export class LabSeriesRefreshConfirmationRequiredError extends Error {
     this.diff = diff
   }
 }
+
+/**
+ * Thrown for a file whose format Strix does not read (400
+ * ``lab_file_format_not_recognised``, owner ruling 2026-09-30). The dialog
+ * words it in the user's language; the server's English message is kept.
+ */
+export class LabFileFormatNotRecognisedError extends Error {
+  readonly fileName: string
+  constructor(fileName: string, message?: string) {
+    super(message ?? `${fileName}: file format not recognised`)
+    this.name = 'LabFileFormatNotRecognisedError'
+    this.fileName = fileName
+  }
+}
+
+/** The stable code of an unknown-format refusal. */
+const FORMAT_NOT_RECOGNISED = 'lab_file_format_not_recognised'
 
 /** One channel: one value per reading of its stage. */
 export interface LabSeriesChannel {
@@ -213,17 +244,29 @@ export interface LabSeriesTestSummary {
 async function fileForm(filePath: string, fields: Record<string, string>): Promise<FormData> {
   // fetch('file://') is blocked in the renderer sandbox — read via IPC.
   const buffer: Uint8Array = await window.electron.readFile(filePath)
-  const fileName = filePath.split(/[\\/]/).pop() ?? 'lab.txt'
+  const fileName = baseName(filePath)
   const form = new FormData()
   form.append('file', new Blob([new Uint8Array(buffer)]), fileName)
   for (const [key, value] of Object.entries(fields)) form.append(key, value)
   return form
 }
 
-/** Throw the server's message for a non-2xx answer. */
-async function throwFor(res: Response, fallback: string): Promise<never> {
+/**
+ * Throw the server's message for a non-2xx answer; an unknown file format
+ * becomes a LabFileFormatNotRecognisedError for ``fileName``.
+ */
+async function throwFor(res: Response, fallback: string, fileName: string): Promise<never> {
   const body = await res.json().catch(() => ({}))
-  throw new Error(detailMessage(body.detail) ?? `${fallback}: ${res.status}`)
+  const detail = body.detail
+  if (detail && typeof detail === 'object' && detail.code === FORMAT_NOT_RECOGNISED) {
+    throw new LabFileFormatNotRecognisedError(fileName, detailMessage(detail) ?? undefined)
+  }
+  throw new Error(detailMessage(detail) ?? `${fallback}: ${res.status}`)
+}
+
+/** The file name at the end of a path. */
+function baseName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() ?? filePath
 }
 
 export const labSeriesClient = {
@@ -239,7 +282,7 @@ export const labSeriesClient = {
       method: 'POST',
       body: await fileForm(filePath, fields),
     })
-    if (!res.ok) return throwFor(res, 'Lab preview failed')
+    if (!res.ok) return throwFor(res, 'Lab preview failed', baseName(filePath))
     return res.json()
   },
 
@@ -279,7 +322,7 @@ export const labSeriesClient = {
       }
       throw new Error(detailMessage(d) ?? 'Lab import refused')
     }
-    if (!res.ok) return throwFor(res, 'Lab import failed')
+    if (!res.ok) return throwFor(res, 'Lab import failed', baseName(filePath))
     return res.json()
   },
 
