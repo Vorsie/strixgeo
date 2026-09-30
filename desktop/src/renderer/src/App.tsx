@@ -7,6 +7,7 @@ import { useSections } from './hooks/useSections'
 import type { SectionModelAxis } from './hooks/useSections'
 import { useBedOverrides } from './hooks/useBedOverrides'
 import { useInvestigationData } from './hooks/useInvestigationData'
+import { useCptPdfImport } from './hooks/useCptPdfImport'
 import { useProjectBodyRecompute } from './hooks/useProjectBodyRecompute'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useRecoveryAutosave } from './hooks/useRecoveryAutosave'
@@ -33,6 +34,7 @@ import BackendRestartingBanner from './components/BackendRestartingBanner'
 import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
 import BoreholeRefreshConfirmDialog from './components/BoreholeRefreshConfirmDialog'
 import BoreholeImportReportPanel from './components/BoreholeImportReportPanel'
+import CptPdfImportDialog from './components/cptPdf/CptPdfImportDialog'
 import ConfirmDialog from './components/ui/ConfirmDialog'
 import { usePromiseConfirm } from './hooks/usePromiseConfirm'
 import {
@@ -1012,6 +1014,23 @@ export default function App() {
     const off = window.electron.onMenuImportBorehole(() => void handleImportBoreholeXml?.())
     return off
   }, [handleImportBoreholeXml])
+  // Data → Import → CPTs from a PDF report: the picked report opens the
+  // triage / calibrate / import dialog; its settled outcomes are booked
+  // here like every CPT import (toast, manifest, session imports, list).
+  const { pdfImport, handleImportCptPdf, closePdfImport, handlePdfImported } = useCptPdfImport({
+    project,
+    toast,
+    refreshList,
+    unhideCpts,
+    addToManifest,
+    setSessionImportCptIds,
+    markMutated,
+    setSelectedId,
+  })
+  useEffect(() => {
+    const off = window.electron.onMenuImportCptPdf(() => void handleImportCptPdf())
+    return off
+  }, [handleImportCptPdf])
 
   // Cross-section state and handlers — sections list, selection, draw
   // mode, focused-contact highlight, and all CRUD. The lifecycle
@@ -1423,7 +1442,7 @@ export default function App() {
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
-    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn,
+    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, handleImportCptPdf,
     pendingCptPins, adoptImportedBoreholes,
     // visible + geo
     visibleCpts, visibleBoreholes, geo,
@@ -1610,6 +1629,16 @@ export default function App() {
 
       {/* Refresh-on-reimport consent. Only reachable with a project open (the
           import menu item is), so it lives in this branch alone. */}
+      {pdfImport && (
+        <CptPdfImportDialog
+          open
+          filePath={pdfImport.filePath}
+          projectId={project.id}
+          onClose={closePdfImport}
+          onImported={(results, fileName) => void handlePdfImported(results, fileName)}
+        />
+      )}
+
       <CptRefreshConfirmDialog
         open={refreshConfirm !== null}
         fileName={refreshConfirm?.fileName ?? ''}
