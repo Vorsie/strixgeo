@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
+import { apiErrorDetail } from '../api/clients/shared'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 import type {
@@ -310,6 +311,14 @@ export function useMapOverlays({
         // render their own "no predictions yet" copy.
         setVirtueleBoringPredictions([])
         setVirtueleBoringSkippedCount(0)
+        // A 503 ``dov_unreachable`` is DOV being down, not a bug: the request
+        // core already logged the one WARN for it, so this is an info line
+        // naming the reason (no toast — the overlay is optional). The failure
+        // is not cached, so the next project open / model change retries.
+        if (apiErrorDetail(err)?.code === 'dov_unreachable') {
+          log.info('mapOverlays', 'virtuele boring predictions unavailable: dov_unreachable')
+          return
+        }
         log.warn('mapOverlays', 'virtuele boring predictions fetch failed', err)
       } finally {
         if (!cancelled) setVirtueleBoringLoading(false)
