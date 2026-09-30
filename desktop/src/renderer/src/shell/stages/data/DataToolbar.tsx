@@ -45,6 +45,7 @@ export default function DataToolbar(): JSX.Element {
     handleImportDov,
     handleImportBoreholeDov,
     handleImportBoreholeXml,
+    handleImportCptPdf,
   } = shell.investigations
   // The guided tutorial's "Open the Import menu" step moves on by itself when
   // the dropdown opens (owner ruling 1, 2026-09-06). Read defensively: a partial
@@ -119,6 +120,14 @@ export default function DataToolbar(): JSX.Element {
   const importActions: ImportAction[] = [
     { key: 'data.toolbar.importCptGef', testid: 'import-verb-cpt-gef', available: true, onClick: handleImportCpt },
     { key: 'data.toolbar.importCptDov', testid: 'import-verb-cpt-dov', available: true, onClick: handleImportDov },
+    {
+      key: 'data.toolbar.importCptPdf',
+      testid: 'import-verb-cpt-pdf',
+      available: true,
+      // Optional on the bus (typed stage fixtures omit it); the real app
+      // always passes it, so the verb is never shown as a future phase.
+      onClick: () => void handleImportCptPdf?.(),
+    },
     {
       key: 'data.toolbar.importBoreholeDov',
       testid: 'import-verb-borehole-dov',
