@@ -1,34 +1,57 @@
 /**
- * The short lab-result lines the track editor's reference pane prints under a
- * sample (owner 2026-10-01: "i also want the psd's of monster to be visible in
- * the right hand pane").
+ * The compact lab lines the track editor's reference pane prints under a
+ * sample (owner 2026-10-01, on a real DOV borehole: "this is too verbose,
+ * also make a combined sieve + hydrometer graph").
  *
- * One line per test: Atterberg limits, water content, organic content, CaCO3
- * and every row of the scalar catch-all. The typed families get a translated
- * line; a catch-all row prints its raw DOV parameter token (no translation
- * table exists for those) with the parameter group as tooltip. The grain-size
- * curve is NOT here: the pane draws it and reads its fractions itself
- * (``psdFractionShares``).
+ * At most three short lines, each a list of parts joined with " · ":
+ *
+ *   1. the fraction shares, read from the sample's COMBINED grain-size curve
+ *      (``mergeGrainSizeCurves``): "clay 12 % · silt 43 % · sand 40 % ·
+ *      gravel 5 %", or "fines < 63 µm 2 % · sand 96 % · gravel 2 %" when the
+ *      curve does not reach 2 um;
+ *   2. the classification: "ASTM SW-SM, Well-graded sand with silt · BGGG
+ *      grofzand" (only the parts present);
+ *   3. the scalars under SHORT labels (``labParameterShortLabels``): "w 16.8 %
+ *      · CaCO₃ 1.8 % · org. 0.1 % · ρ 2.1 t/m³ · ρs 2.65 t/m³ · wL 35 % ...".
+ *
+ * The raw DOV parameter token never prints inline: it is the part's tooltip.
+ * Measured numbers keep the precision the lab reported (2.65 stays 2.65);
+ * only the shares, which are READ from the curve, round to one decimal.
  *
  * Pure: no React, no DOM.
  */
 import type { SampleResponse } from '../api/clients/borehole'
 import type { MessageKey } from '../i18n/locales/en'
-import type { MessageParams } from '../i18n/translate'
+import { stripDovDoubledTail } from './labTestLabels'
+import { LAB_SCALAR_RANK, LAB_SYMBOLS, labParameterRole } from './labParameterShortLabels'
+import { mergeGrainSizeCurves, psdFractionShares } from './psdCurve'
 
-/** One printable result line: an i18n key + its params, and a tooltip. */
-export interface SampleLabLine {
-  key: MessageKey
-  params: MessageParams
-  /** Raw upstream token (method, parameter group) shown as tooltip. */
+/** A part's label: a language-free symbol, or an i18n key when language-bound. */
+export type LabLabel = { text: string } | { key: MessageKey }
+
+/** One "label value" chunk of a compact line. */
+export interface LabPart {
+  label: LabLabel
+  /** The value with its unit; ``''`` for a label-only part (non-plastic). */
+  value: string
+  /** Raw upstream tokens (DOV parameter, method, fraction name) as tooltip. */
   title?: string
+  /** A fraction share the combined curve does not reach (printed "?"). */
+  unknown?: boolean
+}
+
+/** The three compact lines of one sample; an empty list = no line. */
+export interface SampleLabSummary {
+  shares: LabPart[]
+  classification: LabPart[]
+  scalars: LabPart[]
 }
 
 /**
- * Format a percentage-like number for a compact line: at most one decimal,
- * no trailing ``.0``; a missing value prints as ``?``.
+ * Format a share read from the curve: at most one decimal, no trailing
+ * ``.0``; a missing value prints as ``?``.
  *
- * @param value - The number, or ``null`` when the lab did not report it.
+ * @param value - The number, or ``null`` when it is not known.
  * @returns The display string.
  */
 export function formatLabNumber(value: number | null): string {
@@ -37,79 +60,175 @@ export function formatLabNumber(value: number | null): string {
 }
 
 /**
- * The result lines of one sample, in a fixed family order.
+ * Format a MEASURED number with the precision the lab reported.
+ *
+ * ``toPrecision(12)`` only scrubs binary float noise (35 - 20.1); it never
+ * rounds away a reported digit.
+ */
+function formatMeasured(value: number): string {
+  return String(Number(value.toPrecision(12)))
+}
+
+/** ``value`` + `` unit`` when the unit is known. */
+function withUnit(value: string, unit: string | null): string {
+  return unit ? `${value} ${unit}` : value
+}
+
+/** A scalar part with its print rank. */
+interface RankedPart {
+  rank: number
+  part: LabPart
+}
+
+/** Percentage part of a typed family, or nothing when not reported. */
+function pctPart(
+  symbol: string,
+  rank: number,
+  pct: number | null,
+  method: string | null,
+): RankedPart | null {
+  if (pct === null || !Number.isFinite(pct)) return null
+  return { rank, part: { label: { text: symbol }, value: `${formatMeasured(pct)} %`, title: method ?? undefined } }
+}
+
+/** The fraction names a share line prints; each is also the raw zone token. */
+type FractionName = 'clay' | 'silt' | 'fines' | 'sand' | 'gravel'
+
+/** The share line, read from the combined grain-size curve. */
+function shareParts(sample: SampleResponse): LabPart[] {
+  const points = mergeGrainSizeCurves(sample.grain_sizes)
+  if (points.length === 0) return []
+  const shares = psdFractionShares(points)
+  // Clay + silt only when the combined curve reaches 2 um; else the fines
+  // (< 63 um) as one share, the one fine number a sieve curve still tells.
+  const fine: { name: FractionName; pct: number | null }[] =
+    shares.clay !== null && shares.silt !== null
+      ? [
+          { name: 'clay', pct: shares.clay },
+          { name: 'silt', pct: shares.silt },
+        ]
+      : [{ name: 'fines', pct: shares.fines }]
+  const all: { name: FractionName; pct: number | null }[] = [
+    ...fine,
+    { name: 'sand', pct: shares.sand },
+    { name: 'gravel', pct: shares.gravel },
+  ]
+  return all.map(f => ({
+    label: { key: `tracks.samples.fraction.${f.name}` as MessageKey },
+    value: f.pct === null ? '?' : `${formatLabNumber(f.pct)} %`,
+    title: f.name,
+    unknown: f.pct === null,
+  }))
+}
+
+/** One classification row: its value and the raw DOV token. */
+interface ClassificationRow {
+  value: string
+  raw: string
+}
+
+/**
+ * The compact lines of one sample.
  *
  * @param sample - The sample as the borehole detail carries it.
- * @returns One line per test; empty when the sample carries none of them.
+ * @returns Shares, classification and scalar parts; a line with nothing to
+ *          say is an empty list.
  */
-export function sampleLabLines(sample: SampleResponse): SampleLabLine[] {
-  const lines: SampleLabLine[] = []
-  for (const att of sample.atterberg_limits_tests) {
-    if (att.non_plastic === true) {
-      lines.push({ key: 'tracks.samples.nonPlastic', params: {}, title: att.method ?? undefined })
-      continue
-    }
-    if (att.liquid_limit_pct === null && att.plastic_limit_pct === null) continue
-    const pi =
-      att.liquid_limit_pct !== null && att.plastic_limit_pct !== null
-        ? att.liquid_limit_pct - att.plastic_limit_pct
-        : null
-    lines.push({
-      key: 'tracks.samples.atterberg',
-      params: {
-        ll: formatLabNumber(att.liquid_limit_pct),
-        pl: formatLabNumber(att.plastic_limit_pct),
-        pi: formatLabNumber(pi),
-      },
-      title: att.method ?? undefined,
-    })
+export function sampleLabSummary(sample: SampleResponse): SampleLabSummary {
+  const scalars: RankedPart[] = []
+  const push = (p: RankedPart | null): void => {
+    if (p) scalars.push(p)
   }
   for (const w of sample.water_content_tests) {
-    if (w.content_pct === null) continue
-    lines.push({
-      key: 'tracks.samples.waterContent',
-      params: { pct: formatLabNumber(w.content_pct) },
-      title: w.method ?? undefined,
-    })
-  }
-  for (const o of sample.organic_content_tests) {
-    // Matter and carbon are different quantities: each gets its own label.
-    if (o.matter_pct !== null) {
-      lines.push({
-        key: 'tracks.samples.organicMatter',
-        params: { pct: formatLabNumber(o.matter_pct) },
-        title: o.method ?? undefined,
-      })
-    }
-    if (o.carbon_pct !== null) {
-      lines.push({
-        key: 'tracks.samples.organicCarbon',
-        params: { pct: formatLabNumber(o.carbon_pct) },
-        title: o.method ?? undefined,
-      })
-    }
+    push(pctPart(LAB_SYMBOLS.waterContent, LAB_SCALAR_RANK.waterContent, w.content_pct, w.method))
   }
   for (const c of sample.caco3_content_tests) {
-    if (c.content_pct === null) continue
-    lines.push({
-      key: 'tracks.samples.caco3',
-      params: { pct: formatLabNumber(c.content_pct) },
-      title: c.method ?? undefined,
-    })
+    push(pctPart(LAB_SYMBOLS.caco3, LAB_SCALAR_RANK.caco3, c.content_pct, c.method))
   }
+  for (const o of sample.organic_content_tests) {
+    // Matter and carbon are different quantities: each keeps its own symbol.
+    push(pctPart(LAB_SYMBOLS.organicMatter, LAB_SCALAR_RANK.organicMatter, o.matter_pct, o.method))
+    push(pctPart(LAB_SYMBOLS.organicCarbon, LAB_SCALAR_RANK.organicCarbon, o.carbon_pct, o.method))
+  }
+  for (const att of sample.atterberg_limits_tests) {
+    if (att.non_plastic === true) {
+      scalars.push({
+        rank: LAB_SCALAR_RANK.atterberg,
+        part: { label: { key: 'tracks.samples.nonPlastic' }, value: '', title: att.method ?? undefined },
+      })
+      continue
+    }
+    push(pctPart(LAB_SYMBOLS.liquidLimit, LAB_SCALAR_RANK.atterberg, att.liquid_limit_pct, att.method))
+    push(pctPart(LAB_SYMBOLS.plasticLimit, LAB_SCALAR_RANK.atterberg, att.plastic_limit_pct, att.method))
+    // No plasticity index is invented from one limit.
+    if (att.liquid_limit_pct !== null && att.plastic_limit_pct !== null) {
+      push(
+        pctPart(
+          LAB_SYMBOLS.plasticityIndex,
+          LAB_SCALAR_RANK.atterberg,
+          att.liquid_limit_pct - att.plastic_limit_pct,
+          att.method,
+        ),
+      )
+    }
+  }
+
+  let astmCode: ClassificationRow | null = null
+  let astmName: ClassificationRow | null = null
+  const bggg: LabPart[] = []
   for (const s of sample.scalar_lab_tests) {
     const value =
-      s.value_numeric !== null
-        ? // Not a percentage: a density needs its second decimal, so the
-          // catch-all keeps up to three instead of the percent lines' one.
-          `${String(Number(s.value_numeric.toFixed(3)))}${s.unit ? ` ${s.unit}` : ''}`
-        : s.value_text
-    if (value === null || value === '') continue
-    lines.push({
-      key: 'tracks.samples.scalar',
-      params: { parameter: s.parameter, value },
-      title: s.parameter_group,
+      s.value_numeric !== null ? withUnit(formatMeasured(s.value_numeric), s.unit) : (s.value_text ?? '').trim()
+    if (value === '') continue
+    const role = labParameterRole(stripDovDoubledTail(s.parameter))
+    if (role.kind === 'astmCode') {
+      astmCode ??= { value, raw: s.parameter }
+    } else if (role.kind === 'astmName') {
+      astmName ??= { value, raw: s.parameter }
+    } else if (role.kind === 'bggg') {
+      bggg.push({ label: { text: 'BGGG' }, value, title: s.parameter })
+    } else {
+      scalars.push({ rank: role.rank, part: { label: { text: role.symbol }, value, title: s.parameter } })
+    }
+  }
+  const classification: LabPart[] = []
+  const astm = [astmCode, astmName].filter((x): x is ClassificationRow => x !== null)
+  if (astm.length > 0) {
+    classification.push({
+      label: { text: 'ASTM' },
+      value: astm.map(x => x.value).join(', '),
+      title: astm.map(x => x.raw).join('\n'),
     })
   }
-  return lines
+  classification.push(...bggg)
+
+  // Stable sort: equal ranks keep the order the lab reported them in.
+  scalars.sort((a, b) => a.rank - b.rank)
+  return { shares: shareParts(sample), classification, scalars: scalars.map(s => s.part) }
+}
+
+/**
+ * The first words of a DOV grain-size method: the text before the first
+ * " op " / " met " / " volgens " qualifier, comma or parenthesis
+ * ("Zeving op massa met grootte <= 2mm (fijnkorrelig)" -> "Zeving").
+ */
+function shortMethod(raw: string): string {
+  return raw.split(/\s+(?:op|met|volgens)\s+|\s*[(,]/)[0].trim() || raw.trim()
+}
+
+/**
+ * The title of a sample's ONE grain-size chart: its methods joined with
+ * " + " (owner 2026-10-01: "make a combined sieve + hydrometer graph").
+ *
+ * @param tests - The grain-size tests drawn in the chart.
+ * @returns ``text`` (short methods, deduplicated) + ``title`` (the raw
+ *          method tokens), or ``null`` when no test names a method.
+ */
+export function grainSizeMethodsTitle(
+  tests: readonly { method: string | null }[],
+): { text: string; title: string } | null {
+  const raws = [...new Set(tests.map(t => t.method?.trim() ?? '').filter(m => m !== ''))]
+  if (raws.length === 0) return null
+  const shorts = [...new Set(raws.map(shortMethod))]
+  return { text: shorts.join(' + '), title: raws.join(' + ') }
 }
