@@ -8,8 +8,10 @@
  *     the left (owner 2026-08-14: "a fixed axis scale ... so it is always
  *     easy to see sand/silt/clay fraction" — every card is directly
  *     comparable and the fraction boundaries never move); y is % finer by
- *     weight, 0 at the bottom, 100 at the top. One polyline per test, so a
- *     sample with a repeat analysis shows both on one axis.
+ *     weight, 0 at the bottom, 100 at the top. ONE polyline per sample: the
+ *     sample's grain-size tests (a sieve + a hydrometer) merge into one
+ *     combined curve (owner 2026-10-01: "make a combined sieve + hydrometer
+ *     graph"; one sample = one chart everywhere, ``mergeGrainSizeCurves``).
  *   * Without — a compact card carrying the metadata and an explicit
  *     "no grain-size test" line, rather than an empty chart frame that would
  *     read as a failed render.
@@ -27,7 +29,7 @@
 import type { SampleResponse } from '../../api/client'
 import { clampPopoverPosition } from '../../utils/hoverPopoverPlacement'
 import { selectOrganicContent } from '../../utils/organicContentSummary'
-import { psdCurvePoints } from '../../utils/psdCurve'
+import { mergeGrainSizeCurves } from '../../utils/psdCurve'
 import { useT } from '../../i18n/translate'
 import PsdMiniChart from './PsdMiniChart'
 
@@ -105,11 +107,9 @@ export default function SamplePsdPopover({
   bodyClickable = false,
 }: SamplePsdPopoverProps): JSX.Element {
   const t = useT()
-  const curves = sample.grain_sizes.map(test => ({
-    id: test.id,
-    points: psdCurvePoints(test),
-  }))
-  const hasChart = curves.some(c => c.points.length > 0)
+  const combined = mergeGrainSizeCurves(sample.grain_sizes)
+  const curves = [{ id: sample.id, points: combined }]
+  const hasChart = combined.length > 0
   // Organic content rides along on the same hover (owner, dogfeed 2026-08-15).
   // The helper says WHICH quantity it found; the label below prints that, since
   // organic matter and organic carbon are not the same number. It reads the
