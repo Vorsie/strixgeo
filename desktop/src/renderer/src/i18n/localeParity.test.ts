@@ -48,11 +48,8 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // "Top (m)" is the depth column's word in BE Dutch as well.
   'tracks.badge.dov',
   'tracks.editor.top',
-  // Track editor sample block (2026-10-01): "silt" is the BE Dutch word too,
-  // CaCO3 is a chemical formula, and the catch-all line is only two slots.
+  // Track editor sample block (2026-10-01): "silt" is the BE Dutch word too.
   'tracks.samples.fraction.silt',
-  'tracks.samples.caco3',
-  'tracks.samples.scalar',
   // ⋯ More menu headings: "Model" and "Export" are the same words in BE Dutch.
   // The third heading, sections.moreGroup.section, becomes "Profiel" and is NOT
   // here. The Export heading matches the bar's own Export dropdown above it.
