@@ -18,6 +18,13 @@
  *   (above them on a narrow window) lists the borehole's other tracks as
  *   depth-ordered intervals; the intervals that overlap the row that has the
  *   focus are marked and scrolled into view;
+ * "it is way too small, i also want the psd's of monster to be visible in
+ *   the right hand pane" (2026-10-01): the editor and the pane are two grid
+ *   columns that never overlap (the pane at least 24rem, stacked BELOW the
+ *   editor on a narrow dialog), the pane sticks to the top of the dialog body
+ *   and is as tall as it, its text at the dialog's normal size; it carries the
+ *   borehole's samples with their grain-size curve and lab results
+ *   (``SampleReferenceBlock``), marked like the other reference intervals;
  * * "i want max 3 admixtures in coded lithology": a row never offers a fourth
  *   admixture and says "3 at most" (``MAX_ADMIXTURES_PER_INTERVAL``).
  */
@@ -36,11 +43,12 @@ import {
   referenceOverlapsRow,
   trackContent,
 } from '../../../utils/boreholeTracks'
-import type { TrackIntervalBody } from '../../../api/client'
+import type { SampleResponse, TrackIntervalBody } from '../../../api/client'
 import type { CodeOption, CodelistField } from '../../../utils/dovTrackCodelists'
 import { useT } from '../../../i18n/translate'
 import type { MessageKey } from '../../../i18n/locales/en'
 import CodelistPicker from './CodelistPicker'
+import SampleReferenceBlock from './SampleReferenceBlock'
 
 /** One of the borehole's OTHER tracks, shown read-only beside the rows. */
 export interface ReferenceTrack {
@@ -59,10 +67,12 @@ interface Props {
   options: (field: CodelistField) => CodeOption[] | null
   /** The borehole's other tracks for the reference pane (the edited one excluded). */
   references?: readonly ReferenceTrack[]
+  /** The borehole's samples for the pane's "Samples (DOV)" block. */
+  samples?: readonly SampleResponse[]
 }
 
 const INPUT =
-  'h-6 px-1 rounded border text-[11px] bg-surface-card text-text-primary tabular-nums'
+  'h-7 px-1 rounded border text-xs bg-surface-card text-text-primary tabular-nums'
 
 /** The i18n key of an issue code (codes come from the validator). */
 export function issueKey(code: string): MessageKey {
@@ -81,6 +91,7 @@ export default function TrackIntervalEditor({
   verdict,
   options,
   references = [],
+  samples = [],
 }: Props): JSX.Element {
   const t = useT()
   const content = trackContent(kind)
@@ -173,6 +184,7 @@ export default function TrackIntervalEditor({
           <CodelistPicker
             value={r.mainSoil[0] ?? ''}
             options={soils}
+            maxWidthClass="max-w-[10rem]"
             ariaLabel={cell(t('tracks.editor.mainSoil'), index)}
             invalid={hasError(index, 'mainSoil')}
             onChange={token => setSoil(0, token)}
@@ -182,6 +194,7 @@ export default function TrackIntervalEditor({
           <CodelistPicker
             value={r.mainSoil[1] ?? ''}
             options={soils}
+            maxWidthClass="max-w-[10rem]"
             emptyLabel={t('tracks.editor.none')}
             ariaLabel={cell(t('tracks.editor.mainSoil2'), index)}
             onChange={token => setSoil(1, token)}
@@ -191,6 +204,7 @@ export default function TrackIntervalEditor({
           <CodelistPicker
             value={r.color}
             options={options('colour') ?? []}
+            maxWidthClass="max-w-[10rem]"
             emptyLabel={t('tracks.editor.none')}
             ariaLabel={cell(t('tracks.editor.colour'), index)}
             invalid={hasError(index, 'color')}
@@ -215,6 +229,7 @@ export default function TrackIntervalEditor({
             <CodelistPicker
               value={adm.soil_code}
               options={options('admixtureSoil') ?? []}
+              maxWidthClass="max-w-[11rem]"
               ariaLabel={cell(`${t('tracks.editor.admixtures')} ${a + 1}`, index)}
               invalid={hasError(index, 'admixtures')}
               onChange={token => setAdm(a, { soil_code: token })}
@@ -222,11 +237,12 @@ export default function TrackIntervalEditor({
             <CodelistPicker
               value={adm.amount}
               options={amounts}
+              maxWidthClass="max-w-[8rem]"
               emptyLabel={unspecified}
               ariaLabel={cell(`${t('tracks.editor.amount')} ${a + 1}`, index)}
               onChange={token => setAdm(a, { amount: token })}
             />
-            <label className="flex items-center gap-0.5 text-[10px] text-text-secondary">
+            <label className="flex items-center gap-0.5 text-xs text-text-secondary">
               <input
                 type="checkbox"
                 checked={adm.locally}
@@ -251,7 +267,7 @@ export default function TrackIntervalEditor({
             onClick={() =>
               update(index, { admixtures: [...r.admixtures, { soil_code: '', amount: '', locally: false }] })
             }
-            className="self-start text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+            className="self-start text-xs text-blue-600 dark:text-blue-400 hover:underline"
           >
             + {t('tracks.editor.addAdmixture')}
           </button>
@@ -276,16 +292,23 @@ export default function TrackIntervalEditor({
     <aside
       ref={paneRef}
       aria-label={t('tracks.reference.title')}
-      className="md:w-72 shrink-0 max-h-[55vh] overflow-auto rounded border border-border-subtle p-2 text-[11px]"
+      // Wide dialog: a sticky column as tall as the visible dialog body (the
+      // body is the scroller, see BoreholeTracksDialog). Narrow dialog: a plain
+      // block below the editor that scrolls with the body.
+      className={[
+        'min-w-0 rounded border border-border-subtle p-3 text-xs',
+        'min-[1150px]:sticky min-[1150px]:top-0 min-[1150px]:h-[calc(90vh-9.5rem)] min-[1150px]:overflow-auto',
+      ].join(' ')}
     >
-      <h3 className="mb-0.5 font-semibold text-text-primary">{t('tracks.reference.title')}</h3>
-      <p className="mb-1 text-[10px] text-text-muted">{t('tracks.reference.hint')}</p>
+      <h3 className="mb-0.5 text-sm font-semibold text-text-primary">{t('tracks.reference.title')}</h3>
+      <p className="mb-2 text-[10px] text-text-muted">{t('tracks.reference.hint')}</p>
+      <SampleReferenceBlock samples={samples} active={active} />
       {references.length === 0 ? (
         <p className="italic text-text-muted">{t('tracks.reference.empty')}</p>
       ) : (
         references.map(ref => (
           <section key={ref.trackId} className="mb-2">
-            <h4 className="text-[10px] font-semibold text-text-secondary">{ref.label}</h4>
+            <h4 className="text-xs font-semibold text-text-secondary">{ref.label}</h4>
             <ul>
               {[...ref.intervals]
                 .sort((a, b) => a.top_m - b.top_m || a.base_m - b.base_m)
@@ -296,7 +319,7 @@ export default function TrackIntervalEditor({
                       key={i}
                       data-overlaps={overlaps ? 'true' : 'false'}
                       className={[
-                        'flex gap-1 rounded px-0.5',
+                        'flex gap-2 rounded px-1',
                         overlaps
                           ? 'bg-amber-100 text-text-primary dark:bg-amber-900/40'
                           : 'text-text-secondary',
@@ -317,10 +340,19 @@ export default function TrackIntervalEditor({
   )
 
   return (
-    <div className="flex flex-col-reverse gap-3 md:flex-row md:items-start">
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
+    // Two grid columns that never overlap: the rows (their table scrolls
+    // sideways inside its own column when it is wider) and the pane, at least
+    // 24rem (30rem on a wide window; a fixed width, because a track with a
+    // max takes its max before the rows get any leftover). The dialog takes
+    // 96vw in editor mode, so 1150 px of window is ~1100 px of dialog: below
+    // that the coded grid and the pane do not both fit, and the pane stacks
+    // BELOW the editor (source order) instead of
+    // covering the admixture column. Literal class names: the Tailwind JIT
+    // scanner only sees whole strings.
+    <div className="grid grid-cols-1 items-start gap-4 min-[1150px]:grid-cols-[minmax(0,1fr)_24rem] min-[1800px]:grid-cols-[minmax(0,1fr)_30rem]">
+    <div className="flex min-w-0 flex-col gap-2">
       <div className="overflow-x-auto">
-        <table className="text-[11px] border-collapse">
+        <table className="text-xs border-collapse">
           <thead>
             <tr className="text-left text-text-muted">
               <th className="px-1 font-normal">#</th>
@@ -378,7 +410,7 @@ export default function TrackIntervalEditor({
         <button
           type="button"
           onClick={addRow}
-          className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+          className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
         >
           <Plus size={11} />
           {t('tracks.editor.addRow')}
@@ -386,7 +418,7 @@ export default function TrackIntervalEditor({
         <span className="text-[10px] text-text-muted">{t('tracks.editor.rowHint')}</span>
       </div>
       {(verdict.errors.length > 0 || verdict.warnings.length > 0) && (
-        <ul className="text-[11px] flex flex-col gap-0.5" aria-live="polite">
+        <ul className="text-xs flex flex-col gap-0.5" aria-live="polite">
           {verdict.errors.map((e, i) => (
             <li key={`e${i}`} className="text-red-600 dark:text-red-400">
               {t(issueKey(e.code), e.params)}
