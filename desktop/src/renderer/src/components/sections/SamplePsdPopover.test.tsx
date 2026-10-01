@@ -8,7 +8,9 @@
 // and disappears on mouse-leave."
 //
 //   SPP1  the card names the sample and the depth range it covers
-//   SPP2  a sample with two grain-size tests draws two curves
+//   SPP2  a sample with two grain-size tests draws ONE combined curve (owner
+//         2026-10-01: "make a combined sieve + hydrometer graph"; one
+//         sample = one chart everywhere)
 //   SPP3  a sample with no grain-size test says so, and draws no curve
 //   SPP4  the card never eats the mouse
 //   SPP5  hovering at the right edge keeps the whole card on the panel
@@ -86,13 +88,20 @@ describe('SamplePsdPopover', () => {
     expect(card.textContent).toContain('3.25')
   })
 
-  it('SPP2: a sample with two grain-size tests draws two curves', () => {
+  it('SPP2: a sample with two grain-size tests draws ONE combined curve', () => {
     renderPopover(
-      makeSample({ grain_sizes: [makeGrainSize('g-1'), makeGrainSize('g-2')] }),
+      makeSample({
+        grain_sizes: [
+          makeGrainSize('g-sieve'),
+          { ...makeGrainSize('g-hydro'), diameters_mm: [0.002, 0.02, 0.063], pct_larger: [99, 95, 90] },
+        ],
+      }),
     )
-    expect(screen.getByTestId('psd-curve-g-1')).toBeDefined()
-    expect(screen.getByTestId('psd-curve-g-2')).toBeDefined()
-    expect(screen.getByTestId('psd-chart')).toBeDefined()
+    expect(screen.getAllByTestId('psd-chart')).toHaveLength(1)
+    const curves = document.querySelectorAll('polyline')
+    expect(curves).toHaveLength(1)
+    // The combined curve carries the hydrometer's fines AND the sieve's sand.
+    expect(curves[0].getAttribute('points')?.trim().split(/\s+/)).toHaveLength(5)
   })
 
   it('SPP3: a sample with no grain-size test says so, and draws no curve', () => {
