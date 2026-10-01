@@ -411,3 +411,118 @@ describe('BoreholeTracksDialog — samples in the reference pane ("the psd\'s of
     expect(within(block).getByText('No samples on this borehole')).toBeTruthy()
   })
 })
+
+// Owner 2026-10-01: "Start from" a DOV DESCRIPTION into a coded lithology
+// fills the codes from the text, and "make sure the person using it checks
+// everything, like when you hover an interval you see the source in one way or
+// another". Pinned in the ruling's words:
+// * every parsed row shows an amber "From description, check" marker; hovering
+//   the row or the marker shows the verbatim description and the clauses that
+//   were not matched;
+// * a per-row "Checked" clears the marker; editing any field of the row clears
+//   it too;
+// * Save stays disabled while a row still needs a check, its title saying how
+//   many; "Mark all as checked" exists but is not the default focus;
+// * the unmatched clauses are listed once under the grid, nothing silently
+//   dropped;
+// * starting from a CODED track carries no marker (unchanged).
+describe('BoreholeTracksDialog — "Start from" a description ("check everything")', () => {
+  const SILT =
+    'silt, zeer sterk zeer fijn zandhoudend, steenfragmenten (tot 20mm), kalkhoudend, plastisch, bruin, vochtig'
+  const SAND = 'zeer fijn tot fijn zand, sterk silthoudend, kleilenzen, kalkhoudend, groengrijs, zeer vochtig'
+
+  function withDescription(): BoreholeDetailResponse {
+    const detail = borehole()
+    const description = {
+      ...detail.observations[0],
+      id: 'obs-desc',
+      observation_type: 'lithological_description',
+      source: 'dov',
+      edited_manually_at: null,
+      layers: [
+        { id: 'd-0', top_m: 0, base_m: 1.2, color: null, main_soil_codes: [], description: SILT, layer_index: 0, admixtures: [] },
+        { id: 'd-1', top_m: 1.2, base_m: 2.5, color: null, main_soil_codes: [], description: SAND, layer_index: 1, admixtures: [] },
+      ],
+    }
+    return { ...detail, observations: [...detail.observations, description] }
+  }
+
+  function startFrom(templateId: string): ReturnType<typeof setup> {
+    const s = setup(withDescription())
+    fireEvent.change(screen.getByLabelText('Kind of the new track'), { target: { value: 'coded_lithology' } })
+    fireEvent.change(screen.getByLabelText('Start from'), { target: { value: templateId } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add track' }))
+    return s
+  }
+
+  const markers = () => screen.queryAllByText('From description, check')
+  const save = () => screen.getByRole('button', { name: 'Save track' }) as HTMLButtonElement
+
+  it('fills the codes from the description; each row carries the marker, the source on hover', () => {
+    startFrom('obs-desc')
+    expect((screen.getByLabelText('Main soil, row 1') as HTMLSelectElement).value).toBe('SI')
+    expect((screen.getByLabelText('Main soil, row 2') as HTMLSelectElement).value).toBe('FZ')
+    expect((screen.getByLabelText('Colour, row 2') as HTMLSelectElement).value).toBe('groengrijs')
+    expect(markers()).toHaveLength(2)
+    const marker = markers()[0]
+    expect(marker.getAttribute('title')).toContain(SILT)
+    expect(marker.getAttribute('title')).toContain('(tot 20mm)')
+    const row = marker.closest('tr') as HTMLElement
+    expect(row.getAttribute('title')).toContain(SILT)
+  })
+
+  it('lists the unmatched clauses once under the grid', () => {
+    startFrom('obs-desc')
+    expect(screen.getByText('Not matched: (tot 20mm), kleilenzen')).toBeTruthy()
+  })
+
+  it('Save stays disabled until each row is checked, its title saying how many', () => {
+    startFrom('obs-desc')
+    expect(save().disabled).toBe(true)
+    expect(save().getAttribute('title')).toBe('2 rows still to check')
+    fireEvent.click(screen.getByRole('button', { name: 'Mark row 1 as checked' }))
+    expect(markers()).toHaveLength(1)
+    expect(save().getAttribute('title')).toBe('1 row still to check')
+    fireEvent.click(screen.getByRole('button', { name: 'Mark row 2 as checked' }))
+    expect(markers()).toHaveLength(0)
+    expect(save().disabled).toBe(false)
+  })
+
+  it('editing a field of a row clears its marker', () => {
+    startFrom('obs-desc')
+    fireEvent.change(screen.getByLabelText('Colour, row 1'), { target: { value: 'grijsbruin' } })
+    expect(markers()).toHaveLength(1)
+    // The row still says where it came from on hover.
+    const row = (screen.getByLabelText('Colour, row 1') as HTMLElement).closest('tr') as HTMLElement
+    expect(row.getAttribute('title')).toContain(SILT)
+  })
+
+  it('"Mark all as checked" enables Save, and is not the default focus', async () => {
+    const s = startFrom('obs-desc')
+    const all = screen.getByRole('button', { name: 'Mark all as checked' })
+    expect(document.activeElement).not.toBe(all)
+    fireEvent.click(all)
+    expect(markers()).toHaveLength(0)
+    expect(save().disabled).toBe(false)
+    fireEvent.click(save())
+    await waitFor(() => expect(s.editing.saveTrack).toHaveBeenCalledTimes(1))
+    const [, draft] = (s.editing.saveTrack as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(draft.intervals[0]).toEqual({
+      top_m: 0,
+      base_m: 1.2,
+      color: 'bruin',
+      main_soil_codes: ['SI'],
+      admixtures: [
+        { soil_code: 'FZ', amount: 'S', locally: false },
+        { soil_code: 'SN', amount: 'N', locally: false },
+        { soil_code: 'KA', amount: 'N', locally: false },
+      ],
+    })
+  })
+
+  it('starting from a coded track carries no marker', () => {
+    startFrom('obs-litho')
+    expect(markers()).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Mark all as checked' })).toBeNull()
+  })
+})
