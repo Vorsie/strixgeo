@@ -23,6 +23,7 @@ import {
   referenceOverlapsRow,
   rowsFromTemplate,
   rowsFromIntervals,
+  rowsNeedingCheck,
   rowsToIntervals,
   validateTrackRows,
   type TrackEditorRow,
@@ -292,11 +293,24 @@ describe('"Start from…" a track as template (owner 2026-09-30: "copy another t
     ],
   }
 
-  it('a coded track started from a description copies the depths and leaves the codes empty', () => {
+  // Owner 2026-10-01 overruled "depths only" ("parse the description into
+  // codes" + "make sure the person using it checks everything").
+  it('a coded lithology started from a description reads the codes from the text, each row to check', () => {
     const rows = rowsFromTemplate('coded_lithology', descSource)
     expect(rows.map(r => [r.top, r.base])).toEqual([['0', '1.5'], ['1.5', '3']])
-    expect(rows.map(r => r.mainSoil)).toEqual([[''], ['']])
+    expect(rows.map(r => r.mainSoil)).toEqual([['FZ'], ['KL']])
     expect(rows.map(r => r.description)).toEqual(['', ''])
+    expect(rows.map(r => r.sourceText)).toEqual(['fijn zand', 'klei'])
+    expect(rows.map(r => r.needsCheck)).toEqual([true, true])
+    expect(rowsNeedingCheck(rows)).toBe(2)
+    // The saved track is a normal one: the editor-only fields never reach it.
+    expect(rowsToIntervals('coded_lithology', rows)[0]).toEqual({
+      top_m: 0,
+      base_m: 1.5,
+      color: null,
+      main_soil_codes: ['FZ'],
+      admixtures: [],
+    })
   })
 
   it('a coded track started from another coded track copies the codes too', () => {
