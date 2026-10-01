@@ -96,6 +96,21 @@ export function labelForParameterGroup(raw: string): string {
 }
 
 /**
+ * Strip DOV's doubled-token tail from a parameter string.
+ *
+ * DOV ships e.g. ``Korrelvolumemassa (korrelvolumemassa)`` or
+ * ``Grondsoort volgens ASTM, de code (ASTM_code)``: the name, then the
+ * same parameter again as a slug in parentheses. Only the LAST parenthesised
+ * group goes, so a name that itself ends in "(MB)" keeps it.
+ *
+ * @param raw - The parameter string as the API returns it.
+ * @returns The name without the tail, trimmed.
+ */
+export function stripDovDoubledTail(raw: string): string {
+  return raw.replace(/\s*\([^)]*\)\s*$/, '').trim()
+}
+
+/**
  * Translate a DOV parameter string to an English label.
  *
  * The DOV doubled-token-in-parens tail (e.g. ``Korrelvolumemassa
@@ -103,7 +118,7 @@ export function labelForParameterGroup(raw: string): string {
  * the raw value as it arrives from the API.
  */
 export function labelForParameter(raw: string): string {
-  const trimmed = raw.replace(/\s*\([^)]*\)\s*$/, '').trim()
+  const trimmed = stripDovDoubledTail(raw)
   const exact = PARAMETER_LABELS[trimmed]
   if (exact) return exact
   return trimmed || raw
