@@ -346,3 +346,64 @@ describe('BoreholeTracksDialog — max 3 admixtures ("i want max 3 admixtures in
     expect(screen.getByText('3 at most')).toBeTruthy()
   })
 })
+
+// Owner 2026-10-01 (dogfeed of the coded-lithology editor): "it is way too
+// small, i also want the psd's of monster to be visible in the right hand
+// pane". Pinned in the session main's words:
+// * the reference pane carries a block "Samples (DOV)" listing the borehole's
+//   samples by depth interval and sample number;
+// * a sample with a grain-size result shows its fractions with their %, the
+//   raw fraction name as tooltip; Atterberg / water / organic / CaCO3 / other
+//   scalar results on the same sample show as one short line each;
+// * a sample whose depth interval overlaps the focused row is marked, like the
+//   other reference intervals;
+// * no sample -> "No samples on this borehole".
+describe('BoreholeTracksDialog — samples in the reference pane ("the psd\'s of monster")', () => {
+  function openCoded(detail?: BoreholeDetailResponse): HTMLElement {
+    setup(detail)
+    fireEvent.click(within(trackRow(/Coded lithology/)).getByRole('button', { name: 'Edit' }))
+    return screen.getByRole('complementary', { name: 'Other tracks of this borehole' })
+  }
+
+  it('lists the samples by depth interval and number, with the grain-size fractions of the curve', () => {
+    const pane = openCoded()
+    const block = within(pane).getByRole('region', { name: 'Samples (DOV)' })
+    const m1 = within(block).getByText('Sample M1').closest('li') as HTMLElement
+    expect(m1.textContent).toMatch(/0\.5–1/)
+    // Fixture M1 is a sieve curve 63 um..2 mm: 2 % fines, 96 % sand, 2 % gravel;
+    // clay and silt are not reached, so the fines are given as one share.
+    const sand = within(m1).getByText(/sand 96 %/)
+    expect(sand.getAttribute('title')).toMatch(/sand/)
+    expect(within(m1).getByText(/fines < 63 µm 2 %/)).toBeTruthy()
+    expect(within(m1).getByText(/gravel 2 %/)).toBeTruthy()
+    expect(within(m1).queryByText(/clay \d/)).toBeNull()
+    // The method is the raw DOV token.
+    expect(within(m1).getByText(/Zeving/)).toBeTruthy()
+    // Atterberg on the same sample as one line.
+    expect(within(m1).getByText('LL 35 % · PL 20 % · PI 15 %')).toBeTruthy()
+    // M2 has no grain size, only a scalar catch-all result: its raw parameter.
+    const m2 = within(block).getByText('Sample M2').closest('li') as HTMLElement
+    expect(within(m2).getByText(/Grondsoort volgens ASTM, de code: CL/)).toBeTruthy()
+  })
+
+  it('marks the sample whose depth interval overlaps the focused row', () => {
+    const pane = openCoded()
+    const block = within(pane).getByRole('region', { name: 'Samples (DOV)' })
+    const m1 = within(block).getByText('Sample M1').closest('li') as HTMLElement
+    const m2 = within(block).getByText('Sample M2').closest('li') as HTMLElement
+    // Row 2 is 1.5-3.2 m: M2 (2.0-2.5) overlaps, M1 (0.5-1.0) does not.
+    fireEvent.focus(screen.getByLabelText('Top (m), row 2'))
+    expect(m2.getAttribute('data-overlaps')).toBe('true')
+    expect(m1.getAttribute('data-overlaps')).toBe('false')
+    // Row 1 is 0-1.5 m: now M1 is the one.
+    fireEvent.focus(screen.getByLabelText('Top (m), row 1'))
+    expect(m1.getAttribute('data-overlaps')).toBe('true')
+    expect(m2.getAttribute('data-overlaps')).toBe('false')
+  })
+
+  it('says so when the borehole has no sample', () => {
+    const pane = openCoded({ ...borehole(), samples: [] })
+    const block = within(pane).getByRole('region', { name: 'Samples (DOV)' })
+    expect(within(block).getByText('No samples on this borehole')).toBeTruthy()
+  })
+})
