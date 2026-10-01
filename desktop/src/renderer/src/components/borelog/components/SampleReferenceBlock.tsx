@@ -1,25 +1,27 @@
 /**
  * The "Samples (DOV)" block of the track editor's reference pane (owner
  * 2026-10-01: "i also want the psd's of monster to be visible in the right
- * hand pane").
+ * hand pane"; same day, on a real DOV borehole: "this is too verbose, also
+ * make a combined sieve + hydrometer graph").
  *
  * Lists the borehole's samples by depth interval and sample number. Per
- * grain-size test it draws the mini PSD chart (the same chart the section
- * view's sample hover card draws) and prints the fraction shares read from the
- * curve (``psdFractionShares``); a share whose boundary the curve does not
- * reach is printed as "?" with a tooltip, never guessed. The other lab results
- * on the sample follow as one short line each (``sampleLabLines``).
+ * sample ONE mini PSD chart (the same chart the section view's sample hover
+ * card draws), drawn from the COMBINED curve of the sample's grain-size tests
+ * (``mergeGrainSizeCurves``) and titled with their methods joined. Under it
+ * at most three compact lines (``sampleLabSummary``): the fraction shares
+ * read from the combined curve, the classification, the scalars under short
+ * labels. A share the combined curve does not reach prints "?" with a
+ * tooltip, never guessed; the raw DOV tokens are tooltips, never inline.
  *
  * A sample whose depth interval overlaps the focused editor row is marked the
  * same way the other reference intervals are (``referenceOverlapsRow``), so
  * the scroll-into-view of the pane reaches it too (``data-overlaps``).
  */
-import type { GrainSizeResponse, SampleResponse } from '../../../api/client'
-import type { MessageKey } from '../../../i18n/locales/en'
-import { useT } from '../../../i18n/translate'
+import type { SampleResponse } from '../../../api/client'
+import { useT, type Translator } from '../../../i18n/translate'
 import { referenceOverlapsRow, type TrackEditorRow } from '../../../utils/boreholeTracks'
-import { psdCurvePoints, psdFractionShares } from '../../../utils/psdCurve'
-import { formatLabNumber, sampleLabLines } from '../../../utils/sampleLabLines'
+import { mergeGrainSizeCurves, psdCurvePoints } from '../../../utils/psdCurve'
+import { grainSizeMethodsTitle, sampleLabSummary, type LabPart } from '../../../utils/sampleLabLines'
 import PsdMiniChart from '../../sections/PsdMiniChart'
 
 interface Props {
@@ -32,23 +34,31 @@ interface Props {
 const CHART_WIDTH = 300
 const CHART_HEIGHT = 72
 
-/** The fraction names, in print order; each is also the raw zone token. */
-type FractionName = 'clay' | 'silt' | 'fines' | 'sand' | 'gravel'
+/** One part as printed: "label value" (a label-only part prints its label). */
+function partText(part: LabPart, t: Translator): string {
+  const label = 'text' in part.label ? part.label.text : t(part.label.key)
+  return part.value === '' ? label : `${label} ${part.value}`
+}
 
-/**
- * The fractions one curve prints: clay + silt when the curve reaches 2 um,
- * else the fines (< 63 um) as one share; then sand and gravel.
- */
-function printedFractions(test: GrainSizeResponse): { name: FractionName; pct: number | null }[] {
-  const shares = psdFractionShares(psdCurvePoints(test))
-  const fine: { name: FractionName; pct: number | null }[] =
-    shares.clay !== null && shares.silt !== null
-      ? [
-          { name: 'clay', pct: shares.clay },
-          { name: 'silt', pct: shares.silt },
-        ]
-      : [{ name: 'fines', pct: shares.fines }]
-  return [...fine, { name: 'sand', pct: shares.sand }, { name: 'gravel', pct: shares.gravel }]
+/** One compact line: its parts joined with " · ", each with its tooltip. */
+function LabLine({ parts, title }: { parts: readonly LabPart[]; title?: string }): JSX.Element | null {
+  const t = useT()
+  if (parts.length === 0) return null
+  return (
+    <div data-testid="sample-lab-line" title={title}>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          <span
+            className="tabular-nums"
+            title={part.unknown ? `${part.title ?? ''}: ${t('tracks.samples.fractionUnknown')}` : part.title}
+          >
+            {partText(part, t)}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 /**
@@ -75,8 +85,14 @@ export default function SampleReferenceBlock({ samples, active }: Props): JSX.El
             const overlaps =
               active !== undefined
               && referenceOverlapsRow({ top_m: sample.depth_top_m, base_m: sample.depth_base_m }, active)
-            const lines = sampleLabLines(sample)
-            const tests = sample.grain_sizes.filter(g => psdCurvePoints(g).length > 0)
+            const summary = sampleLabSummary(sample)
+            const curve = mergeGrainSizeCurves(sample.grain_sizes)
+            const methods = grainSizeMethodsTitle(
+              sample.grain_sizes.filter(g => psdCurvePoints(g).length > 0),
+            )
+            const hasLab =
+              curve.length > 0
+              || summary.shares.length + summary.classification.length + summary.scalars.length > 0
             return (
               <li
                 key={sample.id}
@@ -96,42 +112,22 @@ export default function SampleReferenceBlock({ samples, active }: Props): JSX.El
                       : t('tracks.samples.noNumber')}
                   </span>
                 </div>
-                {tests.map(test => (
-                  <div key={test.id} className="mt-0.5">
-                    <div title={test.method ?? undefined}>
-                      {test.method !== null
-                        ? t('tracks.samples.grainSize', { method: test.method })
-                        : t('tracks.samples.grainSizeNoMethod')}
-                    </div>
+                {curve.length > 0 && (
+                  <div className="mt-0.5">
+                    <div title={methods?.title}>{methods?.text ?? t('tracks.samples.grainSizeNoMethod')}</div>
                     <div className="text-text-muted" style={{ width: CHART_WIDTH }}>
                       <PsdMiniChart
-                        curves={[{ id: test.id, points: psdCurvePoints(test) }]}
+                        curves={[{ id: sample.id, points: curve }]}
                         width={CHART_WIDTH}
                         height={CHART_HEIGHT}
                       />
                     </div>
-                    <div className="flex flex-wrap gap-x-2" title={t('tracks.samples.fractionHint')}>
-                      {printedFractions(test).map(f => (
-                        <span
-                          key={f.name}
-                          className="tabular-nums"
-                          title={f.pct === null ? `${f.name}: ${t('tracks.samples.fractionUnknown')}` : f.name}
-                        >
-                          {t(`tracks.samples.fraction.${f.name}` as MessageKey)} {formatLabNumber(f.pct)}
-                          {f.pct === null ? '' : ' %'}
-                        </span>
-                      ))}
-                    </div>
                   </div>
-                ))}
-                {lines.map((line, i) => (
-                  <div key={i} title={line.title}>
-                    {t(line.key, line.params)}
-                  </div>
-                ))}
-                {tests.length === 0 && lines.length === 0 && (
-                  <div className="italic text-text-muted">{t('tracks.samples.noLab')}</div>
                 )}
+                <LabLine parts={summary.shares} title={t('tracks.samples.fractionHint')} />
+                <LabLine parts={summary.classification} />
+                <LabLine parts={summary.scalars} />
+                {!hasLab && <div className="italic text-text-muted">{t('tracks.samples.noLab')}</div>}
               </li>
             )
           })}
