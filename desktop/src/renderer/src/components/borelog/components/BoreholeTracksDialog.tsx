@@ -30,6 +30,12 @@
  *   new track is still a manual one;
  * * the interval editor shows the borehole's other tracks beside the rows
  *   (``TrackIntervalEditor`` reference pane).
+ *
+ * Owner dogfeed 2026-10-01 ("it is way too small, i also want the psd's of
+ * monster to be visible in the right hand pane"): in editor mode the card takes
+ * 96vw x 90vh, the editor body scrolls under a fixed Save / Back footer, and
+ * the pane carries the borehole's samples (``borehole.samples``, already in
+ * the detail response: no extra fetch).
  */
 import { useMemo, useState } from 'react'
 
@@ -363,17 +369,22 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     </>
   )
 
+  // The editor body is the dialog's scroller (the reference pane sticks to its
+  // top); the Save / Back footer stays in view below it.
   const editorView = editor && (
     <>
-      <TrackIntervalEditor
-        kind={editor.kind}
-        rows={editor.rows}
-        onRowsChange={rows => setEditor({ ...editor, rows })}
-        verdict={verdict}
-        options={options}
-        references={references}
-      />
-      <div className="mt-3 flex items-center justify-end gap-2">
+      <div className="min-h-0 flex-1 overflow-auto" data-testid="borehole-track-editor-body">
+        <TrackIntervalEditor
+          kind={editor.kind}
+          rows={editor.rows}
+          onRowsChange={rows => setEditor({ ...editor, rows })}
+          verdict={verdict}
+          options={options}
+          references={references}
+          samples={borehole.samples}
+        />
+      </div>
+      <div className="mt-3 flex shrink-0 items-center justify-end gap-2">
         <Button size="sm" variant="secondary" onClick={() => setEditor(null)} disabled={busy}>
           {t('tracks.editor.back')}
         </Button>
@@ -398,11 +409,17 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
         onCancel={editor ? () => setEditor(null) : onClose}
         labelledBy={titleId}
         busy={busy}
-        cardClassName="w-[min(64rem,95vw)] max-h-[85vh] overflow-auto"
+        // Owner 2026-10-01 "it is way too small": the editor takes the window
+        // (96vw x 90vh) and scrolls its own body; the list keeps its 64rem card.
+        cardClassName={
+          editor === null
+            ? 'w-[min(64rem,95vw)] max-h-[85vh] overflow-auto'
+            : 'w-[96vw] max-w-[120rem] h-[90vh] overflow-hidden'
+        }
         testid="borehole-tracks-dialog"
       >
-        <div className="p-5">
-          <h2 id={titleId} className="mb-2 text-sm font-semibold text-text-primary">
+        <div className={editor === null ? 'p-5' : 'flex h-full flex-col p-5'}>
+          <h2 id={titleId} className="mb-2 shrink-0 text-sm font-semibold text-text-primary">
             {editor === null
               ? t('tracks.title', { name: borehole.name })
               : editor.trackId === null
@@ -410,14 +427,14 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
                 : t('tracks.editor.titleEdit', { kind: kindName })}
           </h2>
           {serverError && (
-            <p role="alert" className="mb-2 text-xs text-red-600 dark:text-red-400">
+            <p role="alert" className="mb-2 shrink-0 text-xs text-red-600 dark:text-red-400">
               {serverError}
             </p>
           )}
           {notice && (
             <p
               role="status"
-              className="mb-2 rounded border border-border-subtle px-2 py-1 text-xs text-text-secondary"
+              className="mb-2 shrink-0 rounded border border-border-subtle px-2 py-1 text-xs text-text-secondary"
             >
               {notice}
             </p>
