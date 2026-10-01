@@ -25,6 +25,9 @@ interface Props {
   /** Red outline when the cell carries an error. */
   invalid?: boolean
   className?: string
+  /** Width cap (a Tailwind ``max-w-*`` class); the select shrinks to its
+   *  longest option up to this. Defaults to 14rem. */
+  maxWidthClass?: string
 }
 
 /**
@@ -40,6 +43,7 @@ export default function CodelistPicker({
   emptyLabel,
   invalid = false,
   className = '',
+  maxWidthClass = 'max-w-[14rem]',
 }: Props): JSX.Element {
   const t = useT()
   const known = options.some(o => o.code === value)
@@ -51,7 +55,8 @@ export default function CodelistPicker({
       onChange={e => onChange(e.target.value)}
       title={value || undefined}
       className={[
-        'h-6 px-1 rounded border text-[11px] bg-surface-card text-text-primary max-w-[14rem]',
+        'h-7 px-1 rounded border text-xs bg-surface-card text-text-primary',
+        maxWidthClass,
         invalid ? 'border-red-500' : 'border-border-subtle',
         className,
       ].join(' ')}
