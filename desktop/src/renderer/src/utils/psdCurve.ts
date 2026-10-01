@@ -229,3 +229,100 @@ export function psdFractionShares(points: readonly PsdPoint[]): PsdFractionShare
     gravel: atSandGravel === null ? null : 100 - atSandGravel,
   }
 }
+
+/**
+ * Boundary where the sieve hands over to the hydrometer (63 um, the
+ * silt/sand boundary of ``PSD_FRACTION_ZONES``): in an overlap the coarse
+ * test wins at or above it, the fine test below it.
+ */
+const SIEVE_HYDROMETER_HANDOVER_MM = PSD_FRACTION_ZONES[2].fromMm
+
+/**
+ * Relative tolerance for "the same diameter" in two tests: DOV ships the
+ * same sieve size as e.g. 0.063 and 0.0630000001 after unit conversion.
+ */
+const SAME_DIAMETER_RELATIVE_TOLERANCE = 1e-9
+
+/** The diameter span one curve covers (``null`` for an empty curve). */
+function curveSpan(points: readonly PsdPoint[]): { minMm: number; maxMm: number } | null {
+  if (points.length === 0) return null
+  return { minMm: points[0].diameterMm, maxMm: points[points.length - 1].diameterMm }
+}
+
+/**
+ * Merge the grain-size tests of ONE sample into one cumulative curve.
+ *
+ * Owner 2026-10-01: "make a combined sieve + hydrometer graph". A DOV sample
+ * often carries a sieve test (coarse diameters) and a hydrometer test (the
+ * fines); read one at a time neither reaches all three fraction boundaries.
+ *
+ * The rule:
+ *
+ *   * every point of every test, sorted by diameter;
+ *   * a point that sits inside the diameter span of another test (an
+ *     overlap) is kept only when its own test is the preferred one there:
+ *     at or above 63 um the test reaching the coarsest diameter (the sieve),
+ *     below 63 um the test reaching the finest diameter (the hydrometer);
+ *     ties go to the first test;
+ *   * points of several tests on the SAME diameter become one point, the
+ *     mean of their % finer;
+ *   * nothing is extrapolated: the merged curve spans exactly the union of
+ *     the tests' points.
+ *
+ * Monotonicity is NOT forced: a lab whose two tests disagree shows that
+ * disagreement in the curve instead of having it smoothed away.
+ *
+ * @param tests - The sample's grain-size tests (raw DOV arrays).
+ * @returns The merged curve, ascending diameter; a single test comes back as
+ *          its own {@link psdCurvePoints}; no usable point gives ``[]``.
+ */
+export function mergeGrainSizeCurves(tests: readonly PsdSample[]): PsdPoint[] {
+  const curves = tests.map(psdCurvePoints).filter(c => c.length > 0)
+  if (curves.length <= 1) return curves[0] ?? []
+  const spans = curves.map(curveSpan)
+
+  /** The index of the test that owns diameter ``d`` among those covering it. */
+  function preferredAt(d: number): number {
+    let best = -1
+    for (let i = 0; i < curves.length; i++) {
+      const span = spans[i]
+      if (span === null || d < span.minMm || d > span.maxMm) continue
+      if (best === -1) {
+        best = i
+        continue
+      }
+      const bestSpan = spans[best] as { minMm: number; maxMm: number }
+      const better =
+        d >= SIEVE_HYDROMETER_HANDOVER_MM ? span.maxMm > bestSpan.maxMm : span.minMm < bestSpan.minMm
+      if (better) best = i
+    }
+    return best
+  }
+
+  const all = curves
+    .flatMap((points, testIndex) => points.map(p => ({ ...p, testIndex })))
+    .sort((a, b) => a.diameterMm - b.diameterMm)
+
+  const merged: PsdPoint[] = []
+  let i = 0
+  while (i < all.length) {
+    // Gather every point on the same diameter (within the tolerance).
+    let j = i + 1
+    while (
+      j < all.length
+      && all[j].diameterMm - all[i].diameterMm <= all[i].diameterMm * SAME_DIAMETER_RELATIVE_TOLERANCE
+    ) {
+      j++
+    }
+    const group = all.slice(i, j)
+    const fromTests = new Set(group.map(p => p.testIndex))
+    if (fromTests.size > 1) {
+      const mean = group.reduce((sum, p) => sum + p.pctFiner, 0) / group.length
+      merged.push({ diameterMm: group[0].diameterMm, pctFiner: mean })
+    } else if (preferredAt(group[0].diameterMm) === group[0].testIndex) {
+      for (const p of group) merged.push({ diameterMm: p.diameterMm, pctFiner: p.pctFiner })
+    }
+    i = j
+  }
+  return merged
+}
