@@ -152,3 +152,80 @@ export function psdPolyline(
     })
     .join(' ')
 }
+
+/**
+ * The share of each soil fraction, in % by weight, read from one curve.
+ *
+ * ``null`` = the curve does not reach the boundary that share needs, so the
+ * share is unknown (never guessed). ``fines`` is everything finer than 63 um
+ * (clay + silt), the one fine number a sieve-only curve can still tell.
+ */
+export interface PsdFractionShares {
+  clay: number | null
+  silt: number | null
+  fines: number | null
+  sand: number | null
+  gravel: number | null
+}
+
+/**
+ * The % finer of a curve at one diameter, or ``null`` outside its reach.
+ *
+ * Between two points the value is interpolated linearly on the LOG diameter
+ * axis (the axis the curve is drawn on). Below the finest point the value is
+ * only known when that point already reads 0 % finer; above the coarsest only
+ * when it already reads 100 %.
+ *
+ * @param points - Curve points, ascending diameter (``psdCurvePoints``).
+ * @param diameterMm - The diameter to read at.
+ * @returns The % finer, or ``null`` when the curve does not tell.
+ */
+function pctFinerAt(points: readonly PsdPoint[], diameterMm: number): number | null {
+  if (points.length === 0) return null
+  const first = points[0]
+  const last = points[points.length - 1]
+  if (diameterMm < first.diameterMm) return first.pctFiner <= 0 ? 0 : null
+  if (diameterMm > last.diameterMm) return last.pctFiner >= 100 ? 100 : null
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    if (p.diameterMm === diameterMm) return p.pctFiner
+    const next = points[i + 1]
+    if (next !== undefined && p.diameterMm < diameterMm && diameterMm < next.diameterMm) {
+      const t =
+        (Math.log10(diameterMm) - Math.log10(p.diameterMm))
+        / (Math.log10(next.diameterMm) - Math.log10(p.diameterMm))
+      return p.pctFiner + t * (next.pctFiner - p.pctFiner)
+    }
+  }
+  return null
+}
+
+/** ``a - b`` when both are known. */
+function shareBetween(coarse: number | null, fine: number | null): number | null {
+  return coarse === null || fine === null ? null : coarse - fine
+}
+
+/**
+ * Split one grain-size curve into clay / silt / sand / gravel shares.
+ *
+ * Owner 2026-10-01: "i also want the psd's of monster to be visible in the
+ * right hand pane" of the track editor. The shares are read from the curve at
+ * the ISO 14688 boundaries of ``PSD_FRACTION_ZONES`` (2 um, 63 um, 2 mm); this
+ * is a presentation reading of the stored curve, never stored itself.
+ *
+ * @param points - Curve points, ascending diameter (``psdCurvePoints``).
+ * @returns The shares; a share whose boundary the curve misses is ``null``.
+ */
+export function psdFractionShares(points: readonly PsdPoint[]): PsdFractionShares {
+  const [, silt, sand, gravel] = PSD_FRACTION_ZONES
+  const atClaySilt = pctFinerAt(points, silt.fromMm)
+  const atSiltSand = pctFinerAt(points, sand.fromMm)
+  const atSandGravel = pctFinerAt(points, gravel.fromMm)
+  return {
+    clay: atClaySilt,
+    silt: shareBetween(atSiltSand, atClaySilt),
+    fines: atSiltSand,
+    sand: shareBetween(atSandGravel, atSiltSand),
+    gravel: atSandGravel === null ? null : 100 - atSandGravel,
+  }
+}
