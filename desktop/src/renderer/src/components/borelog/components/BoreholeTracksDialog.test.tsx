@@ -354,7 +354,8 @@ describe('BoreholeTracksDialog — max 3 admixtures ("i want max 3 admixtures in
 //   samples by depth interval and sample number;
 // * a sample with a grain-size result shows its fractions with their %, the
 //   raw fraction name as tooltip; Atterberg / water / organic / CaCO3 / other
-//   scalar results on the same sample show as one short line each;
+//   scalar results on the same sample share ONE compact line under short
+//   labels (owner, same day: "this is too verbose");
 // * a sample whose depth interval overlaps the focused row is marked, like the
 //   other reference intervals;
 // * no sample -> "No samples on this borehole".
@@ -379,11 +380,14 @@ describe('BoreholeTracksDialog — samples in the reference pane ("the psd\'s of
     expect(within(m1).queryByText(/clay \d/)).toBeNull()
     // The method is the raw DOV token.
     expect(within(m1).getByText(/Zeving/)).toBeTruthy()
-    // Atterberg on the same sample as one line.
-    expect(within(m1).getByText('LL 35 % · PL 20 % · PI 15 %')).toBeTruthy()
-    // M2 has no grain size, only a scalar catch-all result: its raw parameter.
+    // Atterberg on the same sample, in the compact scalar line.
+    const lines = within(m1).getAllByTestId('sample-lab-line').map(l => l.textContent)
+    expect(lines).toContain('wL 35 % · wP 20 % · IP 15 %')
+    // M2 has no grain size, only the ASTM catch-all row: the classification
+    // line, the raw DOV parameter as tooltip only.
     const m2 = within(block).getByText('Sample M2').closest('li') as HTMLElement
-    expect(within(m2).getByText(/Grondsoort volgens ASTM, de code: CL/)).toBeTruthy()
+    const astm = within(m2).getByText('ASTM CL')
+    expect(astm.getAttribute('title')).toBe('Grondsoort volgens ASTM, de code')
   })
 
   it('marks the sample whose depth interval overlaps the focused row', () => {
