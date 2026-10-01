@@ -16,6 +16,7 @@ import type {
   BoreholeDetailResponse,
   TrackIntervalBody,
 } from '../api/clients/borehole'
+import { parseDescribedLithology, type SoilApproximation } from './describedLithologyToCodes'
 import type { CodelistField } from './dovTrackCodelists'
 import { MAX_ADMIXTURES_PER_INTERVAL, TRACK_DEPTH_DECIMALS } from './dovTrackCodelists_constants'
 
@@ -168,6 +169,26 @@ export interface TrackEditorRow {
   /** One or two equally-dominant main soils (DOV repeats <hoofdnaam>). */
   mainSoil: string[]
   admixtures: TrackAdmixtureRow[]
+  /** Editor-only, never saved: the verbatim description a row's codes were
+   *  read from ("Start from" a description track, owner 2026-10-01). */
+  sourceText?: string
+  /** Editor-only: the codes read from ``sourceText`` still wait for the
+   *  person's check; Save is blocked while any row says so. */
+  needsCheck?: boolean
+  /** Editor-only: what the reading of ``sourceText`` could not place. */
+  parseNotes?: DescriptionParseNotes
+}
+
+/** What reading a description left for the person to see (editor-only). */
+export interface DescriptionParseNotes {
+  /** Clauses that produced no code. */
+  unmatched: string[]
+  /** Soil names mapped to the nearest code (no exact DOV code). */
+  approximations: SoilApproximation[]
+  /** Recognised DOV moisture token a coded track does not store, or ``''``. */
+  moisture: string
+  /** Recognised DOV consistency token a coded track does not store, or ``''``. */
+  consistency: string
 }
 
 let rowSeq = 0
@@ -412,6 +433,9 @@ export interface TrackTemplate {
  *
  * * coded <- coded: main soils, colour and admixtures (at most
  *   ``MAX_ADMIXTURES_PER_INTERVAL``);
+ * * coded lithology <- a lithological description: the codes are READ from
+ *   the text (``parseDescribedLithology``, owner 2026-10-01 "parse the
+ *   description into codes"); each row keeps the text and needs a check;
  * * text <- text: the description, except into a formal stratigraphy (its cells
  *   are DOV unit codes, never free text) unless the template is one too;
  * * field log <- the same field-log kind: the value; a colour field log <- a
@@ -433,6 +457,8 @@ export function rowsFromTemplate(kind: string, template: TrackTemplate): TrackEd
       r.mainSoil = i.main_soil_codes && i.main_soil_codes.length > 0 ? [...i.main_soil_codes] : ['']
       r.color = i.color ?? ''
       r.admixtures = (i.admixtures ?? []).slice(0, MAX_ADMIXTURES_PER_INTERVAL).map(a => ({ ...a }))
+    } else if (kind === 'coded_lithology' && template.kind === 'lithological_description') {
+      fillFromDescription(r, i.description ?? '')
     } else if (target === 'text' && source === 'text') {
       if (kind !== 'formal_stratigraphy' || template.kind === kind) r.description = i.description ?? ''
     } else if (target === 'value') {
@@ -441,6 +467,42 @@ export function rowsFromTemplate(kind: string, template: TrackTemplate): TrackEd
     }
     return r
   })
+}
+
+/**
+ * Fill a coded row from a DOV description and mark it for the person's check
+ * (owner 2026-10-01: "make sure the person using it checks everything").
+ *
+ * @param row - The row to fill (mutated: it is fresh from ``emptyRow``).
+ * @param description - The template interval's description verbatim.
+ */
+function fillFromDescription(row: TrackEditorRow, description: string): void {
+  const draft = parseDescribedLithology(description)
+  row.mainSoil = draft.mainSoil.length > 0 ? draft.mainSoil : ['']
+  row.color = draft.color
+  row.admixtures = draft.admixtures
+  row.sourceText = description
+  row.needsCheck = true
+  row.parseNotes = {
+    unmatched: draft.unmatched,
+    approximations: draft.approximations,
+    moisture: draft.moisture,
+    consistency: draft.consistency,
+  }
+}
+
+/** The rows whose codes, read from a description, still wait for a check. */
+export function rowsNeedingCheck(rows: readonly TrackEditorRow[]): number {
+  return rows.filter(r => r.needsCheck === true).length
+}
+
+/** Every unmatched clause of the rows, once each, in row order. */
+export function unmatchedClauses(rows: readonly TrackEditorRow[]): string[] {
+  const out: string[] = []
+  for (const r of rows) {
+    for (const clause of r.parseNotes?.unmatched ?? []) if (!out.includes(clause)) out.push(clause)
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
