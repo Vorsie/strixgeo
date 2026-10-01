@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PSD_FIXED_DOMAIN,
   PSD_FRACTION_ZONES,
+  mergeGrainSizeCurves,
   psdCurvePoints,
   psdFractionShares,
   psdPolyline,
@@ -199,5 +200,75 @@ describe('psdFractionShares — fraction shares read from the curve', () => {
     const done = psdFractionShares(psdCurvePoints({ diameters_mm: [0.063, 0.5], pct_larger: [70, 0] }))
     expect(done.sand).toBeCloseTo(70, 9)
     expect(done.gravel).toBe(0)
+  })
+})
+
+// Owner 2026-10-01 (track editor reference pane, on a real DOV borehole): "this
+// is too verbose, also make a combined sieve + hydrometer graph". A DOV sample
+// often carries TWO grain-size tests: a sieve (coarse diameters) and a
+// hydrometer (the fines). Read one at a time, the sieve never reaches 2 um /
+// 63 um and the hydrometer never reaches 2 mm, so every share printed "?".
+// The rule, in the session main's words:
+//
+//   PSD14  the grain-size tests of a sample merge into ONE cumulative curve,
+//          points sorted by diameter.
+//   PSD15  where the sieve and the hydrometer overlap in diameter, the sieve
+//          point is kept for >= 63 um and the hydrometer point below; when
+//          both sit on the same diameter, the mean.
+//   PSD16  a sample with a single test keeps that test's curve unchanged.
+//   PSD17  the shares are read from the combined curve: a share that printed
+//          "?" per test resolves on the merged curve; "?" only when the
+//          COMBINED curve does not reach that boundary (never extrapolated).
+describe('mergeGrainSizeCurves — one combined curve per sample', () => {
+  const sieve = { diameters_mm: [0.063, 0.125, 0.25, 0.5, 1, 2, 4], pct_larger: [88, 70, 40, 20, 10, 5, 0] }
+  const hydrometer = { diameters_mm: [0.002, 0.006, 0.02, 0.063], pct_larger: [97, 95, 92, 88] }
+
+  it('PSD14: a sieve and a hydrometer merge into one curve, ascending and monotone', () => {
+    const merged = mergeGrainSizeCurves([sieve, hydrometer])
+    const d = merged.map(p => p.diameterMm)
+    expect(d).toEqual([0.002, 0.006, 0.02, 0.063, 0.125, 0.25, 0.5, 1, 2, 4])
+    for (let i = 1; i < merged.length; i++) {
+      expect(merged[i].pctFiner).toBeGreaterThanOrEqual(merged[i - 1].pctFiner)
+    }
+  })
+
+  it('PSD15: in the overlap the sieve wins at >= 63 um, the hydrometer below, the mean on a shared diameter', () => {
+    const coarse = { diameters_mm: [0.04, 0.063, 0.1, 0.2], pct_larger: [95, 90, 80, 50] }
+    const fine = { diameters_mm: [0.002, 0.03, 0.05, 0.075, 0.1], pct_larger: [99, 96, 93, 85, 70] }
+    const merged = mergeGrainSizeCurves([coarse, fine])
+    // 0.04 (sieve) lies inside the hydrometer's span and below 63 um: dropped.
+    // 0.075 (hydrometer) lies inside the sieve's span and above 63 um: dropped.
+    // 0.1 sits in both: the mean of 20 % and 30 % finer.
+    expect(merged).toEqual([
+      { diameterMm: 0.002, pctFiner: 1 },
+      { diameterMm: 0.03, pctFiner: 4 },
+      { diameterMm: 0.05, pctFiner: 7 },
+      { diameterMm: 0.063, pctFiner: 10 },
+      { diameterMm: 0.1, pctFiner: 25 },
+      { diameterMm: 0.2, pctFiner: 50 },
+    ])
+  })
+
+  it('PSD16: a sample with one grain-size test keeps that curve unchanged', () => {
+    expect(mergeGrainSizeCurves([sieve])).toEqual(psdCurvePoints(sieve))
+    expect(mergeGrainSizeCurves([])).toEqual([])
+  })
+
+  it('PSD17: the shares that read "?" per test resolve on the combined curve', () => {
+    const perSieve = psdFractionShares(psdCurvePoints(sieve))
+    const perHydrometer = psdFractionShares(psdCurvePoints(hydrometer))
+    expect(perSieve.clay).toBeNull()
+    expect(perHydrometer.sand).toBeNull()
+    const shares = psdFractionShares(mergeGrainSizeCurves([sieve, hydrometer]))
+    expect(shares.clay).toBeCloseTo(3, 9)
+    expect(shares.silt).toBeCloseTo(9, 9)
+    expect(shares.sand).toBeCloseTo(83, 9)
+    expect(shares.gravel).toBeCloseTo(5, 9)
+    // Never extrapolated: a combined curve that stops short of 2 um keeps clay unknown.
+    const noClay = psdFractionShares(
+      mergeGrainSizeCurves([sieve, { diameters_mm: [0.01, 0.063], pct_larger: [95, 88] }]),
+    )
+    expect(noClay.clay).toBeNull()
+    expect(noClay.sand).toBeCloseTo(83, 9)
   })
 })
