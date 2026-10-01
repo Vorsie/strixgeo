@@ -31,6 +31,11 @@
  * * the interval editor shows the borehole's other tracks beside the rows
  *   (``TrackIntervalEditor`` reference pane).
  *
+ * Owner 2026-10-01, a coded lithology started from a DOV description: the
+ * codes are read from the text and every such row must be checked first
+ * ("make sure the person using it checks everything"): Save stays disabled
+ * while ``rowsNeedingCheck`` is above zero, its title saying how many.
+ *
  * Owner dogfeed 2026-10-01 ("it is way too small, i also want the psd's of
  * monster to be visible in the right hand pane"): in editor mode the card takes
  * 96vw x 90vh, the editor body scrolls under a fixed Save / Back footer, and
@@ -51,6 +56,7 @@ import {
   newRowAfter,
   rowsFromIntervals,
   rowsFromTemplate,
+  rowsNeedingCheck,
   rowsToIntervals,
   validateTrackRows,
   type BoreholeTrackSummary,
@@ -179,8 +185,16 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     })
   }
 
+  const pendingChecks = editor === null ? 0 : rowsNeedingCheck(editor.rows)
+  const saveBlockedTitle =
+    pendingChecks === 0
+      ? undefined
+      : pendingChecks === 1
+        ? t('tracks.check.saveBlockedOne')
+        : t('tracks.check.saveBlockedMany', { n: pendingChecks })
+
   const save = async () => {
-    if (editor === null || verdict.errors.length > 0) return
+    if (editor === null || verdict.errors.length > 0 || pendingChecks > 0) return
     setBusy(true)
     setServerError(null)
     try {
@@ -392,7 +406,8 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
           size="sm"
           variant="primary"
           onClick={() => void save()}
-          disabled={busy || verdict.errors.length > 0}
+          disabled={busy || verdict.errors.length > 0 || pendingChecks > 0}
+          title={saveBlockedTitle}
         >
           {busy ? t('tracks.editor.saving') : t('tracks.editor.save')}
         </Button>
