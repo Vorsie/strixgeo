@@ -27,6 +27,15 @@
  *   (``SampleReferenceBlock``), marked like the other reference intervals;
  * * "i want max 3 admixtures in coded lithology": a row never offers a fourth
  *   admixture and says "3 at most" (``MAX_ADMIXTURES_PER_INTERVAL``).
+ *
+ * Owner 2026-10-01, a coded lithology started from a DOV description ("make
+ * sure the person using it checks everything, like when you hover an interval
+ * you see the source"): a row whose codes were read from the text carries an
+ * amber "From description, check" marker; the row and the marker show the
+ * verbatim text plus what was not matched as their tooltip; "Checked" (or any
+ * edit of the row) clears the marker; "Mark all as checked" clears them all
+ * (never the default focus); the unmatched clauses are listed under the grid.
+ * The parent blocks Save while a marker stands (``rowsNeedingCheck``).
  */
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
@@ -41,13 +50,16 @@ import {
   newRowAfter,
   referenceIntervalText,
   referenceOverlapsRow,
+  rowsNeedingCheck,
   trackContent,
+  unmatchedClauses,
 } from '../../../utils/boreholeTracks'
 import type { SampleResponse, TrackIntervalBody } from '../../../api/client'
 import type { CodeOption, CodelistField } from '../../../utils/dovTrackCodelists'
 import { useT } from '../../../i18n/translate'
 import type { MessageKey } from '../../../i18n/locales/en'
 import CodelistPicker from './CodelistPicker'
+import { DescriptionCheckCell, DescriptionCheckSummary, descriptionTooltip } from './DescriptionCheck'
 import SampleReferenceBlock from './SampleReferenceBlock'
 
 /** One of the borehole's OTHER tracks, shown read-only beside the rows. */
@@ -112,8 +124,15 @@ export default function TrackIntervalEditor({
   const hasError = (row: number, field: TrackRowIssue['field']) =>
     verdict.errors.some(e => e.row === row && e.field === field)
 
+  // Any edit of a row counts as its check (owner 2026-10-01: the marker is
+  // there to make the person look; changing a cell is looking).
   const update = (index: number, patch: Partial<TrackEditorRow>) =>
-    onRowsChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+    onRowsChange(rows.map((r, i) => (i === index ? { ...r, ...patch, needsCheck: false } : r)))
+  const markAllChecked = () => onRowsChange(rows.map(r => (r.needsCheck ? { ...r, needsCheck: false } : r)))
+  const hasSource = rows.some(r => r.sourceText !== undefined)
+  const pendingChecks = rowsNeedingCheck(rows)
+  const unmatched = unmatchedClauses(rows)
+
   const addRow = () => onRowsChange([...rows, newRowAfter(rows)])
   const removeRow = (index: number) => onRowsChange(rows.filter((_, i) => i !== index))
 
@@ -369,6 +388,7 @@ export default function TrackIntervalEditor({
               ) : (
                 <th className="px-1 font-normal">{valueLabel}</th>
               )}
+              {hasSource && <th className="px-1 font-normal">{t('tracks.check.column')}</th>}
               <th />
             </tr>
           </thead>
@@ -378,6 +398,7 @@ export default function TrackIntervalEditor({
                 key={r.key}
                 className={['align-top', index === activeRow ? 'bg-surface-sunken' : ''].join(' ')}
                 onFocus={() => setActiveRow(index)}
+                title={descriptionTooltip(t, r)}
               >
                 <td className="px-1 py-0.5 text-text-muted tabular-nums">{index + 1}</td>
                 <td className="px-1 py-0.5">{depthInput(index, 'top', t('tracks.editor.top'))}</td>
@@ -389,6 +410,11 @@ export default function TrackIntervalEditor({
                     {content === 'value'
                       ? textOrPicker(index, 'value', 'value', valueLabel)
                       : textOrPicker(index, 'description', 'description', valueLabel)}
+                  </td>
+                )}
+                {hasSource && (
+                  <td className="px-1 py-0.5">
+                    <DescriptionCheckCell row={r} index={index} onChecked={() => update(index, {})} />
                   </td>
                 )}
                 <td className="px-1 py-0.5">
@@ -418,6 +444,9 @@ export default function TrackIntervalEditor({
         </button>
         <span className="text-[10px] text-text-muted">{t('tracks.editor.rowHint')}</span>
       </div>
+      {hasSource && (
+        <DescriptionCheckSummary pending={pendingChecks} unmatched={unmatched} onMarkAll={markAllChecked} />
+      )}
       {(verdict.errors.length > 0 || verdict.warnings.length > 0) && (
         <ul className="text-xs flex flex-col gap-0.5" aria-live="polite">
           {verdict.errors.map((e, i) => (
