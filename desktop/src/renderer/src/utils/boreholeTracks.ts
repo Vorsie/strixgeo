@@ -480,7 +480,10 @@ export function referenceIntervalText(interval: TrackIntervalBody, locallyWord =
  * @param interval - A reference interval.
  * @param row - The editor row that has the focus.
  */
-export function referenceOverlapsRow(interval: TrackIntervalBody, row: TrackEditorRow): boolean {
+export function referenceOverlapsRow(
+  interval: Pick<TrackIntervalBody, 'top_m' | 'base_m'>,
+  row: TrackEditorRow,
+): boolean {
   const top = parseDepth(row.top)
   const base = parseDepth(row.base)
   if (top === null) return false
