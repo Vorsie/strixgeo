@@ -302,7 +302,6 @@ export default function TrackIntervalEditor({
     >
       <h3 className="mb-0.5 text-sm font-semibold text-text-primary">{t('tracks.reference.title')}</h3>
       <p className="mb-2 text-[10px] text-text-muted">{t('tracks.reference.hint')}</p>
-      <SampleReferenceBlock samples={samples} active={active} />
       {references.length === 0 ? (
         <p className="italic text-text-muted">{t('tracks.reference.empty')}</p>
       ) : (
@@ -336,6 +335,8 @@ export default function TrackIntervalEditor({
           </section>
         ))
       )}
+      {/* Owner 2026-10-01: the identification tests (OKP) sit last, under every other track. */}
+      <SampleReferenceBlock samples={samples} active={active} />
     </aside>
   )
 
