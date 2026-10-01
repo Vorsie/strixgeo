@@ -22,7 +22,13 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { PSD_FIXED_DOMAIN, PSD_FRACTION_ZONES, psdCurvePoints, psdPolyline } from './psdCurve'
+import {
+  PSD_FIXED_DOMAIN,
+  PSD_FRACTION_ZONES,
+  psdCurvePoints,
+  psdFractionShares,
+  psdPolyline,
+} from './psdCurve'
 
 /** Parse an SVG polyline "x,y x,y" string back into numbers. */
 function parsePolyline(d: string): Array<{ x: number; y: number }> {
@@ -134,5 +140,64 @@ describe('psdPolyline — log x axis, 0-100 % y axis', () => {
       expect(zone.toMm).toBeLessThanOrEqual(PSD_FIXED_DOMAIN.maxMm)
       expect(zone.toMm).toBeGreaterThan(zone.fromMm)
     }
+  })
+})
+
+// Owner 2026-10-01 (track editor dogfeed): "i also want the psd's of monster
+// to be visible in the right hand pane". The pane prints, per grain-size test,
+// the share of each soil fraction READ FROM THE CURVE at the ISO 14688
+// boundaries (2 um, 63 um, 2 mm). A boundary the curve does not reach is not
+// guessed: that share is unknown. A sieve-only curve still tells the fines
+// (< 63 um) as one number.
+//
+//   PSD10  a curve spanning every boundary gives clay / silt / sand / gravel
+//          that add up to 100 %.
+//   PSD11  a sieve-only curve (starts at 63 um) gives fines, sand and gravel;
+//          clay and silt stay unknown.
+//   PSD12  between two sieves the % finer is read on the log diameter axis.
+//   PSD13  a curve that stops short of 2 mm while still below 100 % finer
+//          leaves sand and gravel unknown; one that already reached 100 %
+//          finer knows there is no gravel.
+describe('psdFractionShares — fraction shares read from the curve', () => {
+  it('PSD10: a curve spanning every boundary splits 100 % over clay, silt, sand and gravel', () => {
+    const shares = psdFractionShares(
+      psdCurvePoints({ diameters_mm: [0.002, 0.063, 2, 63], pct_larger: [90, 60, 10, 0] }),
+    )
+    expect(shares.clay).toBeCloseTo(10, 9)
+    expect(shares.silt).toBeCloseTo(30, 9)
+    expect(shares.sand).toBeCloseTo(50, 9)
+    expect(shares.gravel).toBeCloseTo(10, 9)
+    expect(shares.fines).toBeCloseTo(40, 9)
+  })
+
+  it('PSD11: a sieve-only curve tells fines, sand and gravel but not clay or silt', () => {
+    const shares = psdFractionShares(
+      psdCurvePoints({ diameters_mm: [0.063, 0.125, 0.25, 0.5, 1.0, 2.0], pct_larger: [98, 85, 60, 30, 10, 2] }),
+    )
+    expect(shares.clay).toBeNull()
+    expect(shares.silt).toBeNull()
+    expect(shares.fines).toBeCloseTo(2, 9)
+    expect(shares.sand).toBeCloseTo(96, 9)
+    expect(shares.gravel).toBeCloseTo(2, 9)
+  })
+
+  it('PSD12: between two sieves the % finer is read on the log diameter axis', () => {
+    // 0.02 and 0.2 mm bracket 63 um; 0.063 sits at log-fraction
+    // (log 0.063 - log 0.02) / 1 of the decade.
+    const shares = psdFractionShares(
+      psdCurvePoints({ diameters_mm: [0.02, 0.2, 2], pct_larger: [80, 20, 0] }),
+    )
+    const t = Math.log10(0.063) - Math.log10(0.02)
+    expect(shares.fines).toBeCloseTo(20 + t * 60, 9)
+  })
+
+  it('PSD13: a curve short of 2 mm leaves sand and gravel unknown unless it already reached 100 % finer', () => {
+    const short = psdFractionShares(psdCurvePoints({ diameters_mm: [0.063, 0.5], pct_larger: [70, 20] }))
+    expect(short.fines).toBeCloseTo(30, 9)
+    expect(short.sand).toBeNull()
+    expect(short.gravel).toBeNull()
+    const done = psdFractionShares(psdCurvePoints({ diameters_mm: [0.063, 0.5], pct_larger: [70, 0] }))
+    expect(done.sand).toBeCloseTo(70, 9)
+    expect(done.gravel).toBe(0)
   })
 })
