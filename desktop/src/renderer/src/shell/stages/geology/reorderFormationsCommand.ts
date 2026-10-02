@@ -18,6 +18,7 @@ import { api } from '../../../api/client'
 import type { GeologicalFormationResponse } from '../../../api/client'
 import { log } from '../../../utils/log'
 import { compareFormationsOldestFirst } from '../../../utils/formationOrder'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import type { UndoCommand } from '../../../hooks/useUndoStack'
 
 /** Everything the reorder command reads or writes — supplied per-call by the
@@ -77,10 +78,15 @@ export async function reorderFormationsCommand(
   if (sourceId === targetId) return
   setReorderBusy(true)
   // Derive visible list inline — cannot close over ``visibleFormations`` (TDZ).
-  const previous =
+  // GEOLOGICAL rows only — the same rows the Stratigrafie roster lists (owner
+  // ruling B(a), 2026-10-02). The manifest can admit litho / geotech units, and
+  // renumbering them here would write display_order on a litho unit from a
+  // drag the user made among geological formations.
+  const previous = (
     manifestFormationIds === undefined
       ? formations
       : formations.filter(f => manifestFormationIds.has(f.id))
+  ).filter(isGeologicalFormation)
   // The inspector presents formations YOUNGEST-first (borehole-log /
   // stratigraphic-column reading order), which is the REVERSE of
   // ``display_order`` (ascending = older = the section/3D paint order;
