@@ -74,15 +74,11 @@ export default function GeologyInspector(): JSX.Element {
       handleFormationDeleted,
       handleToggleBoreholeInModel,
       refetchFormations,
-      // Litho contacts — used for the axis-aware formation filter (below).
-      // When the sections axis is 'lithostratigraphic', only formations
-      // with ≥1 contact in the active litho model are shown.
-      lithoContacts,
       // Geological contacts — fed to the crossing-banner click handler
       // so the issue's contact ids resolve to anchor coordinates.
       contacts: geoContacts,
     },
-    sections: { sections, sectionModelAxis, handleSectionLineDrawn, effectiveHorizontalEpsg },
+    sections: { sections, handleSectionLineDrawn, effectiveHorizontalEpsg },
     investigations: { cpts, boreholes },
     toasts: { toast },
     // manifestFormationIds is still needed by reorderFormations' inline
@@ -247,32 +243,19 @@ export default function GeologyInspector(): JSX.Element {
   // ---------------------------------------------------------------------------
   const visibleFormations = busVisibleFormations
 
-  // Model-axis-aware filter (LOCKED owner decision, #55 litho-Seed slice).
-  // When the sections editor is on the lithostratigraphic axis, narrow the
-  // inspector's formation list to only formations that have ≥1 contact in
-  // the active litho model.  This way the Geology inspector becomes a
-  // "what's been mapped in litho" view when the user is working on the
-  // litho skeleton — the full vocabulary is always one axis-switch away.
-  // On the geological axis the filter is a no-op (the full set is shown).
-  const isLithoAxis = sectionModelAxis === 'lithostratigraphic'
-  const lithoFormationIds = useMemo(() => {
-    if (!isLithoAxis) return null
-    const ids = new Set<string>()
-    for (const c of lithoContacts) ids.add(c.formation_id)
-    return ids
-  }, [isLithoAxis, lithoContacts])
-
-  const filteredVisibleFormations = useMemo(() => {
-    // Geological axis: show GEOLOGICAL formations only. Formations are a single
-    // project-wide vocabulary shared by the geological + litho + geotech models
-    // (no per-model column), so litho units (ZAND/KLEI/SILT/VEEN — those with a
-    // ``litho_main_soil_code``) live in the same list and would otherwise leak
-    // into the geology roster once the visibility manifest admits them (e.g.
-    // after "Fill from boreholes" or a .gmproj reload). The canvas already
-    // applies this filter (GeologyCanvas) — the roster must match.
-    if (lithoFormationIds === null) return visibleFormations.filter(isGeologicalFormation)
-    return visibleFormations.filter(f => lithoFormationIds.has(f.id))
-  }, [visibleFormations, lithoFormationIds])
+  // The Stratigrafie roster ALWAYS lists the GEOLOGICAL formations, whatever
+  // the Sections axis (owner ruling B(a), 2026-10-02 — it reverses the #55
+  // litho-Seed axis filter, which swapped this roster to the litho units after
+  // a litho build while GeologyCanvas kept drawing the geological formations).
+  // Formations are one project-wide vocabulary shared by the geological + litho
+  // + geotech models, so litho units and geotech units live in the same list
+  // and would otherwise leak in once the visibility manifest admits them (e.g.
+  // after "Fill from boreholes" or a .gmproj reload). The canvas applies the
+  // same filter — the roster must match it.
+  const filteredVisibleFormations = useMemo(
+    () => visibleFormations.filter(isGeologicalFormation),
+    [visibleFormations],
+  )
 
   // Reading order for the list UI: youngest-first, like a borehole log /
   // stratigraphic column. ``visibleFormations`` is ascending display_order
@@ -291,7 +274,8 @@ export default function GeologyInspector(): JSX.Element {
   return (
     <div className="flex flex-col gap-3 px-3 py-4">
       <GeologyInspectorHeader
-        formationCount={visibleFormations.length}
+        // The count is what the roster LISTS (it counted every kind before).
+        formationCount={filteredVisibleFormations.length}
         activeModelName={activeGeologicalModel?.name ?? null}
         t={t}
       />
@@ -347,14 +331,14 @@ export default function GeologyInspector(): JSX.Element {
       />
 
       {/* Empty-state guidance */}
-      {visibleFormations.length === 0 && (
+      {filteredVisibleFormations.length === 0 && (
         <div className="text-[11px] text-text-muted leading-snug">
           {t('geology.emptyRosterHint')}
         </div>
       )}
 
       {/* Formation list with drag-reorder */}
-      {visibleFormations.length > 0 && (
+      {filteredVisibleFormations.length > 0 && (
         <GeologyFormationList
           formations={displayedFormations}
           sessionImportFormationIds={sessionImportFormationIds}
