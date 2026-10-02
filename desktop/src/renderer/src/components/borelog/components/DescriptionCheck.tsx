@@ -5,7 +5,8 @@
  *
  * * ``descriptionTooltip`` — the hover text of a row whose codes were read from
  *   text: the verbatim description, then every clause the reading could not
- *   place (unmatched, mapped to a nearest code, or not stored by a coded track),
+ *   place (unmatched, mapped to a nearest code, not stored by a coded track, or
+ *   read but not coded: a denial, a second colour, a feel word),
  *   so nothing is silently dropped;
  * * ``DescriptionCheckCell`` — the row's amber "From description, check"
  *   marker with its "Checked" button, or a muted "From description" once
@@ -42,6 +43,7 @@ export function descriptionTooltip(t: Translator, row: TrackEditorRow): string |
     notes.consistency ? t('tracks.check.consistency', { token: notes.consistency }) : '',
   ].filter(x => x !== '')
   if (notStored.length > 0) lines.push(t('tracks.check.notStored', { list: notStored.join(', ') }))
+  if (notes.notes.length > 0) lines.push(t('tracks.check.notes', { list: notes.notes.join(', ') }))
   return lines.join('\n')
 }
 
