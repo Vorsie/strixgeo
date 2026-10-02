@@ -360,3 +360,24 @@ describe('UnitListPane — manual-group tag', () => {
     expect(screen.queryByTestId('parameters-node-group-geotech-body:silt-sf:gbA')).toBeNull()
   })
 })
+
+// NP12 — owner finding 2026-10-02: "unit rows show the raw DOV admixture token
+//        (ZAND (SL:M))". The row reads the Lithology roster's translated name;
+//        the raw token stays reachable as the row's tooltip.
+describe('UnitListPane — unit names at the presentation boundary (owner 2026-10-02)', () => {
+  it('NP12 — the ZAND (SL:M) row shows the roster name, the raw token is its title', () => {
+    mockLithoFormations = [
+      formation('zand-sl', {
+        name: 'ZAND (SL:M)',
+        litho_main_soil_code: 'ZAND',
+        litho_admixtures: [{ soil_code: 'SL', amount: 'M', locally: false }],
+      }),
+    ]
+    mockLithoLayers = [layer('L1', { formation_id: 'zand-sl', body_id: 'lb12' })]
+    render(<UnitListPane />)
+    const label = screen.getByTestId('parameters-node-label-litho-unit:zand-sl')
+    expect(label.textContent).not.toContain('(SL:M)')
+    expect(label.textContent).toMatch(/^SAND \| /)
+    expect(label.getAttribute('title')).toBe('ZAND (SL:M)')
+  })
+})
