@@ -88,6 +88,12 @@ desktop/src/
     │                            editor's read-only reference pane of the other tracks
     │                            (marks the intervals overlapping the focused row), and
     │                            max 3 admixtures per coded row (no fourth row offered).
+    │                            A coded lithology started from a DESCRIPTION track reads
+    │                            the codes word by word (utils/describedLithologyToCodes
+    │                            + describedLithologyWords, vocabulary from the owner's
+    │                            dov-desktopstudie classifier); every row needs a check
+    │                            (DescriptionCheck.tsx). Fewer than half read = depths
+    │                            only + one "could not read" notice (owner 2026-10-02).
     ├── components/interpretation/
     │   ├── FormationPickerDialog.tsx      Pick an existing geological formation.
     │   ├── LithoCompositionPickerDialog.tsx  Two-tab picker: existing units + new-unit builder.
