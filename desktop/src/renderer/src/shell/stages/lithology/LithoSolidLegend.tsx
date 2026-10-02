@@ -15,7 +15,7 @@ import type {
   GeologicalFormationResponse,
   LithoBodySolidResponse,
 } from '../../../api/client'
-import { lithoDisplayName } from '../../../utils/lithoLabels'
+import { formationUnitDisplayName } from '../../../utils/formationUnitDisplayName'
 import type { Translator } from '../../../i18n/translate'
 
 // Collapse threshold: groups with more than this many bodies are collapsed
@@ -211,9 +211,7 @@ export default function LithoSolidLegend({
 
       {groups.map(({ formation, formationId, solids }) => {
         const displayName = formation
-          ? (formation.litho_main_soil_code != null
-              ? lithoDisplayName(formation.litho_main_soil_code, formation.litho_admixtures)
-              : formation.name)
+          ? formationUnitDisplayName(formation)
           : formationId
         const flaggedCount = solids.filter(s => s.is_flagged === true).length
         const isExpanded = expandedGroups.has(formationId)
