@@ -201,7 +201,10 @@ describe('PerUnitTab — litho scope pools the whole unit (R1)', () => {
     expect(screen.getByTestId('unit-stats-n-qc').textContent).toContain('4')
     // The header NAMES what is pooled — the whole litho unit, every class.
     const title = screen.getByTestId('unit-stats-title').textContent ?? ''
-    expect(title).toContain('Zand van Diest')
+    // The unit reads the Lithology roster's translated name (owner finding
+    // 2026-10-02) — a litho unit's stored name is never printed raw.
+    expect(title).toContain('SAND')
+    expect(title).not.toContain('Zand van Diest')
     expect(title).toMatch(/whole litho unit, all packing classes/i)
   })
 })
