@@ -27,6 +27,7 @@ import type { GeologicalFormationResponse, LithoLayerResponse } from '../../../a
 import { nadClassName } from '../../../utils/nadClasses'
 import type { ParameterUnitScope } from '../../ShellContext'
 import type { BodyRosterEntry } from './parameterUnitBodies'
+import { formationUnitDisplayName } from '../../../utils/formationUnitDisplayName'
 import { geotechBodyLabel, lithoBodyLabel } from './parameterScopeLabels'
 
 /**
@@ -65,6 +66,12 @@ export interface ParameterTreeNode {
   scope: ParameterUnitScope
   /** Display label — spec §1 (translate-at-presentation-boundary). */
   label: string
+  /**
+   * The raw stored name behind a LITHO-UNIT row's translated ``label`` (the DOV
+   * token, e.g. "ZAND (SL:M)") — the row's tooltip, so the engineer can verify
+   * the translation (owner finding 2026-10-02). ``undefined`` on every other kind.
+   */
+  rawName?: string
   /** N accepted bands the row's click pools (over ``bandsForScope``). */
   bandCount: number
   /** How many of those bands are CPT-anchored — the "M with cone" honesty. */
@@ -439,7 +446,10 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
   )
 
   return units.map(unit => {
-    const unitName = unit.name ?? '—'
+    // Translate at the presentation boundary (owner finding 2026-10-02): the
+    // row reads the Lithology roster's name ("ZAND | matig siltig"), the raw
+    // DOV token ("ZAND (SL:M)") rides ``rawName`` for the tooltip.
+    const unitName = formationUnitDisplayName(unit)
     const geotechByLithoBody = geotechByUnitAndLithoBody.get(unit.id)
     const lithoBodyIds = lithoBodyIdsForUnit(
       input.lithoLayers,
@@ -537,7 +547,7 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
             // node carries, so the two never disagree.
             groupableBodyParentLabel:
               collapsedSoleBodyId !== undefined
-                ? lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies)
+                ? lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies, input.lithoFormations)
                 : undefined,
           }
         })
@@ -550,7 +560,10 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
         // body with a single packing class keeps that class node, so the
         // pakkingsdichtheid label survives and the body stays openable.
         children: classNodes,
-        label: lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies),
+        // Named after the body's OWN home formation, whichever row it sits
+        // under (owner finding 2026-10-02: weld body #4 homed on ZAND read
+        // "ZAND (SL:M) · #4" under the SL:M row).
+        label: lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies, input.lithoFormations),
         bandCount: counts.bandCount,
         coneBandCount: counts.coneBandCount,
       }
@@ -561,6 +574,7 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
     return {
       scope,
       label: unitName,
+      rawName: unit.name ?? undefined,
       bandCount: counts.bandCount,
       coneBandCount: counts.coneBandCount,
       children: collapseSingleLeafChild(lithoBodyNodes),
