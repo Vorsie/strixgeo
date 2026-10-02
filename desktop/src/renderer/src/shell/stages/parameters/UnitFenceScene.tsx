@@ -4,12 +4,14 @@
 // actually scoped on the Parameters stage.
 //
 // A PASSIVE embed: ``chromeless`` viewer, single pane, no split / compare /
-// legend — the one verb is the host's own camera reset. The walls are the
+// legend — the host's own verbs are the camera reset, "Zoom to unit" and a
+// basemap on/off (owner ruling C(a), 2026-10-02). The walls are the
 // SAME ``buildProjectFence`` panels the 3-D stages draw, filtered to the
 // scoped unit's formation id (each panel carries exactly one), over the same
 // basemap lid the ground surface supplies.
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Focus, Map as MapIcon, RotateCcw } from 'lucide-react'
 
 import type { LithoBodySolidResponse } from '../../../api/client'
 import type * as Cesium from 'cesium'
@@ -21,14 +23,23 @@ import { useShell } from '../../ShellContext'
 import { parameterScopeModel, type ParameterUnitScope } from '../../ShellContext'
 import Geology3DViewer from '../geology/Geology3DViewer'
 import type { SplitLine } from '../geology/geology3DPrimitives'
+import type { ZoomToVerticesFn } from '../geology/useZoomToVerticesRef'
 import { EMPTY_SURFACES_MAP, useBody3DViewState } from '../shared/useBody3DViewState'
 import { bandsForScope, type ParameterTreeInput } from './parameterBodyTree'
 import { cutoutFilterForScope, fenceCutoutPanels } from './fenceCutoutFilter'
 import { fenceFrameCorners } from './unitFenceFrame'
+import { readUnitFenceBasemapOn, writeUnitFenceBasemapOn } from './unitFenceBasemapPref'
 import {
   UNIT_FENCE_BASEMAP_LID_ALPHA,
+  UNIT_FENCE_ZOOM_TO_UNIT_MIN_RANGE_M,
   UNIT_FENCE_ZOOM_TUNING,
 } from './unitFenceSceneConstants'
+
+/** The cutout's overlay verb buttons — one look, with a visible keyboard focus
+ * ring (WCAG 2.4.7). */
+const CUTOUT_VERB_CLASS =
+  'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border shadow ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1'
 
 /** The viewer requires the callback; a passive pane never draws a split. */
 const NOOP_SPLIT_DRAWN = (_plane: Cesium.Plane, _line: SplitLine): void => {}
@@ -90,6 +101,20 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   // embed never enters a split, so a local ref suffices.
   const resetSplitRef = useRef<(() => void) | null>(null)
   const resetCameraRef = useRef<(() => void) | null>(null)
+  // "Zoom to unit" (owner ruling C(a), 2026-10-02): the viewport publishes a
+  // fly-to-vertices verb here; only the button below ever calls it.
+  const zoomToVerticesRef = useRef<ZoomToVerticesFn | null>(null)
+  // Basemap on/off — the chromeless pane hides the viewer's own toggle, so the
+  // cutout offers its own: the orthophoto lid (depthTest off, alpha 0.6) can
+  // hide a thin wall. Remembered per viewer (UI chrome, localStorage).
+  const [basemapOn, setBasemapOn] = useState<boolean>(readUnitFenceBasemapOn)
+  const toggleBasemap = useCallback(() => {
+    setBasemapOn(prev => {
+      const next = !prev
+      writeUnitFenceBasemapOn(next)
+      return next
+    })
+  }, [])
 
   // ``groundSurface`` is deliberately NOT taken (owner ruling B6a,
   // 2026-08-27): the cutout renders no ground-surface lid — the walls + the
@@ -172,6 +197,16 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   // The colour lookup needs the FULL roster (filtering it would only break
   // the wall colours); geotech walls wear NAD colours exactly as the geotech
   // stage paints them.
+  // The SELECTED unit's frame — the filtered cutout's box, not the whole
+  // fence's (that one is Reset view's). Computed on click only: the camera
+  // never moves on its own (audit F4).
+  const zoomToUnit = useCallback(() => {
+    if (cutout === undefined) return
+    const corners = fenceFrameCorners(cutout)
+    if (corners === null) return
+    zoomToVerticesRef.current?.(corners, UNIT_FENCE_ZOOM_TO_UNIT_MIN_RANGE_M)
+  }, [cutout])
+
   const viewerFormations = useMemo(
     () => (isGeotech ? nadColoredFormations(geotechFormations) : lithoFormations),
     [isGeotech, geotechFormations, lithoFormations],
@@ -220,6 +255,8 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
         // B6b: "make the basemap a bit more seethrough? like 5%?" — the
         // cutout's own dial; the shared stages keep their default.
         basemapLidAlpha={UNIT_FENCE_BASEMAP_LID_ALPHA}
+        basemapEnabled={basemapOn}
+        zoomToVerticesRef={zoomToVerticesRef}
         fencePanels={cutout}
         // F4: the orthophoto footprint + lid elevation come from the WHOLE
         // model's panels, so a scoped body keeps the same photo the other
@@ -231,16 +268,54 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
         zoomTuning={UNIT_FENCE_ZOOM_TUNING}
         chromeless
       />
-      <button
-        onClick={() => resetCameraRef.current?.()}
-        className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-[10px] bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page shadow"
-        // F4: the frame is the WHOLE fence's bounding box, so the reset
-        // restores the model-wide view, not a unit close-up.
-        title={t('params.resetCameraFrame')}
-        data-testid="unit-fence-reset-camera"
-      >
-        {t('common.resetView')}
-      </button>
+      <div className="absolute top-2 right-2 z-10 flex flex-wrap justify-end gap-1">
+        <button
+          type="button"
+          onClick={toggleBasemap}
+          aria-pressed={basemapOn}
+          className={
+            CUTOUT_VERB_CLASS +
+            (basemapOn
+              ? ' bg-surface-overlay/95 border-border-default text-text-primary hover:bg-surface-page'
+              : ' bg-surface-overlay/80 border-border-subtle text-text-muted line-through hover:bg-surface-page')
+          }
+          title={basemapOn ? t('geology.hideBasemap') : t('geology.showBasemap')}
+          data-testid="unit-fence-basemap-toggle"
+        >
+          <MapIcon size={11} aria-hidden="true" />
+          {t('params.fenceBasemap')}
+        </button>
+        <button
+          type="button"
+          onClick={zoomToUnit}
+          className={
+            CUTOUT_VERB_CLASS +
+            ' bg-surface-overlay/95 border-border-default text-text-primary hover:bg-surface-page'
+          }
+          // C(a): frames the SELECTED unit's walls (the filtered cutout), with
+          // a ~40 m floor so a thin unit fills the pane.
+          title={t('params.zoomToUnitTitle')}
+          data-testid="unit-fence-zoom-to-unit"
+        >
+          <Focus size={11} aria-hidden="true" />
+          {t('params.zoomToUnit')}
+        </button>
+        <button
+          type="button"
+          onClick={() => resetCameraRef.current?.()}
+          className={
+            CUTOUT_VERB_CLASS +
+            ' bg-surface-overlay/95 border-border-default text-text-primary hover:bg-surface-page'
+          }
+          // F4: the frame is the WHOLE fence's bounding box, so the reset
+          // restores the model-wide view, not a unit close-up.
+          title={t('params.resetCameraFrame')}
+          data-testid="unit-fence-reset-camera"
+        >
+          <RotateCcw size={11} aria-hidden="true" />
+          {t('common.resetView')}
+        </button>
+      </div>
     </div>
   )
 }
