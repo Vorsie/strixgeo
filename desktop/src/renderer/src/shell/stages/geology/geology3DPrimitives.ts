@@ -164,6 +164,34 @@ export function buildBasemapLid(
   }
 }
 
+/** The whole-model bounds-fit floor (m): the shared 3-D stages never fly closer. */
+export const BOUNDS_FIT_DEFAULT_MIN_RANGE_M = 600
+
+/**
+ * The camera range a bounds fit flies to: 2.2× the bounding-sphere radius,
+ * never closer than ``minRangeM``.
+ *
+ * Parameters
+ * ----------
+ * radiusM
+ *     The bounding-sphere radius (m).
+ * minRangeM
+ *     The closest allowed range (m); defaults to the whole-model 600 m floor.
+ *     Only the fence cutout's "Zoom to unit" passes a smaller one (~40 m), so a
+ *     thin unit fills the pane (owner ruling C(a), 2026-10-02).
+ *
+ * Returns
+ * -------
+ * number
+ *     The range (m).
+ */
+export function boundsFitRangeM(
+  radiusM: number,
+  minRangeM: number = BOUNDS_FIT_DEFAULT_MIN_RANGE_M,
+): number {
+  return Math.max(radiusM * 2.2, minRangeM)
+}
+
 /**
  * Fly the Cesium camera to encompass all formation surfaces.
  *
@@ -172,14 +200,17 @@ export function buildBasemapLid(
  * camera
  *     Cesium Camera instance.
  * surfaces
- *     Surfaces to frame.
+ *     Surfaces to frame (only their ``vertices`` are read).
  * projectEpsg
  *     Horizontal CRS for coordinate transform.
+ * minRangeM
+ *     The closest range the flight may end at; see ``boundsFitRangeM``.
  */
 export function flyToBounds(
   camera: Cesium.Camera,
-  surfaces: FormationSurfaceResponse[],
+  surfaces: readonly { vertices: readonly (readonly [number, number, number])[] }[],
   projectEpsg: number,
+  minRangeM: number = BOUNDS_FIT_DEFAULT_MIN_RANGE_M,
 ): void {
   // Build a bounding sphere from every surface vertex (ECEF) and let
   // Cesium fit it to the frustum. The previous manual approach put the
@@ -197,9 +228,9 @@ export function flyToBounds(
   if (points.length === 0) return
 
   const sphere = Cesium.BoundingSphere.fromPoints(points)
-  // 2.2× radius (min 600 m) keeps the whole model comfortably in view
-  // without the camera ending up inside thin/flat geology.
-  const range = Math.max(sphere.radius * 2.2, 600)
+  // 2.2× radius (min 600 m by default) keeps the whole model comfortably in
+  // view without the camera ending up inside thin/flat geology.
+  const range = boundsFitRangeM(sphere.radius, minRangeM)
 
   camera.flyToBoundingSphere(sphere, {
     duration: 1.5,
