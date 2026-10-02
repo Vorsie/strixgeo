@@ -33,3 +33,19 @@ export const UNIT_FENCE_ZOOM_TUNING = {
   minimumZoomDistanceM: 5,
   fineZoomFraction: 0.05,
 } as const
+
+/**
+ * The closest range (m) the cutout's "Zoom to unit" flight may end at (owner
+ * ruling C(a), 2026-10-02). The shared bounds fit never flies closer than
+ * 600 m — right for a whole model, a sliver for one thin unit. ~40 m frames a
+ * single thin wall so its bands read, and stays well clear of the 5 m wheel
+ * floor (``UNIT_FENCE_ZOOM_TUNING.minimumZoomDistanceM``).
+ */
+export const UNIT_FENCE_ZOOM_TO_UNIT_MIN_RANGE_M = 40
+
+/**
+ * localStorage key for the cutout's basemap on/off (owner ruling C(a),
+ * 2026-10-02). Per-viewer UI chrome only — never an engineering decision, so
+ * it does not belong in the project bundle. ``'0'`` = off; anything else = on.
+ */
+export const UNIT_FENCE_BASEMAP_STORAGE_KEY = 'strix.parameters.fenceCutout.basemap'
