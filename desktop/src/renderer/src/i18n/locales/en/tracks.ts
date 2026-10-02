@@ -110,6 +110,8 @@ export const TRACKS = {
   'tracks.check.notStored': 'Not stored in a coded lithology track: {list}',
   'tracks.check.moisture': 'moisture {token}',
   'tracks.check.consistency': 'consistency {token}',
+  'tracks.check.notes': 'Read, not coded: {list}',
+  'tracks.check.unreadable': 'Could not read these descriptions ({n} of {m}); fill the codes by hand',
   'tracks.template.option': '{kind} ({source}, {n} intervals)',
   'tracks.template.hint':
     'Copies the depths of the chosen track, and its codes or text when the new kind carries them. A coded lithology started from a description gets codes read from the text, to check row by row. The new track is manual.',
