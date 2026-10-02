@@ -22,7 +22,7 @@ import {
   type ParameterTreeInput,
 } from './parameterBodyTree'
 import { bodyLabelOf, type BodyRosterEntry } from './parameterUnitBodies'
-import { geotechBodyLabel, lithoBodyLabel } from './parameterScopeLabels'
+import { geotechBodyLabel, lithoBodyLabel, lithoUnitDisplayName } from './parameterScopeLabels'
 import { crossedFormationLabel } from '../../../utils/crossedFormationLabel'
 
 const PATH_SEP = ' › '
@@ -87,10 +87,9 @@ function homeUnitOfLithoBody(bodyId: string, input: ParameterTreeInput): string 
   return input.lithoLayers.find(l => (l.body_id ?? null) === bodyId)?.formation_id ?? null
 }
 
-/** A litho unit's display name, or ``'—'`` when unknown. */
+/** A litho unit's TRANSLATED display name (the tree's row name), or ``'—'``. */
 function lithoUnitName(unitId: string | null, input: ParameterTreeInput): string {
-  if (unitId === null) return '—'
-  return input.lithoFormations.find(f => f.id === unitId)?.name ?? '—'
+  return lithoUnitDisplayName(unitId, input.lithoFormations)
 }
 
 /**
@@ -200,7 +199,7 @@ export function groupProvenanceLithoBodies(
     } else {
       key = `litho:${lithoBodyId}`
       const unit = lithoUnitName(homeUnitOfLithoBody(lithoBodyId, input), input)
-      label = lithoBodyLabel(lithoBodyId, unit, input.lithoBodies)
+      label = lithoBodyLabel(lithoBodyId, unit, input.lithoBodies, input.lithoFormations)
     }
     const seen = byKey.get(key)
     if (seen === undefined) {
@@ -295,12 +294,12 @@ export function scopeHeaderLabel(
     }
     case 'litho-body': {
       const unit = lithoUnitName(scope.unitId, input)
-      const base = unit + PATH_SEP + lithoBodyLabel(scope.bodyId, unit, input.lithoBodies)
+      const base = unit + PATH_SEP + lithoBodyLabel(scope.bodyId, unit, input.lithoBodies, input.lithoFormations)
       return base + geoContextSuffix(input.lithoBodies.get(scope.bodyId))
     }
     case 'geotech-class': {
       const unit = lithoUnitName(scope.lithoUnitId, input)
-      const bodyLabel = lithoBodyLabel(scope.lithoBodyId, unit, input.lithoBodies)
+      const bodyLabel = lithoBodyLabel(scope.lithoBodyId, unit, input.lithoBodies, input.lithoFormations)
       const path = unit + PATH_SEP + bodyLabel + PATH_SEP + nadClassName(scope.nadClass)
       // The crossed formations are the litho body's — the jump lands here when
       // the body could not be resolved (dogfeed 2026-09-01), so it must still
@@ -325,7 +324,7 @@ export function scopeHeaderLabel(
       if (path === null || path.lithoUnitId === null || path.lithoBodyId === null)
         return bodyLabel + geoSuffix
       const unit = lithoUnitName(path.lithoUnitId, input)
-      const lithoBody = lithoBodyLabel(path.lithoBodyId, unit, input.lithoBodies)
+      const lithoBody = lithoBodyLabel(path.lithoBodyId, unit, input.lithoBodies, input.lithoFormations)
       const cls = path.nadClass != null ? nadClassName(path.nadClass) : ''
       return [unit, lithoBody, cls, bodyLabel].filter(s => s !== '').join(PATH_SEP) + geoSuffix
     }
