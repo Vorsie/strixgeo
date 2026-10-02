@@ -13,7 +13,7 @@ import { Layers } from 'lucide-react'
 import type { Translator } from '../../../i18n/translate'
 
 interface GeologyInspectorHeaderProps {
-  /** Number of visible formations (shown next to the header label). */
+  /** Number of geological formations the roster lists (shown next to the label). */
   formationCount: number
   /** Active geological model name, or ``null`` when none is active. */
   activeModelName: string | null
@@ -27,7 +27,7 @@ interface GeologyInspectorHeaderProps {
  * Parameters
  * ----------
  * formationCount
- *     Number of visible formations.
+ *     Number of geological formations the roster lists.
  * activeModelName
  *     Active geological model name, or ``null``.
  * t
@@ -48,7 +48,12 @@ export default function GeologyInspectorHeader({
       <div className="flex items-center gap-2">
         <Layers size={14} className="text-status-amber" />
         <span className="text-xs font-medium">{t('geology.formations')}</span>
-        <span className="text-[10px] text-text-muted tabular-nums">{formationCount}</span>
+        <span
+          className="text-[10px] text-text-muted tabular-nums"
+          data-testid="geology-formation-count"
+        >
+          {formationCount}
+        </span>
       </div>
       {activeModelName && (
         <div
