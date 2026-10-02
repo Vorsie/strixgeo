@@ -8,8 +8,8 @@
 //
 // PB2 — a body is labelled the way the 3-D legend names bodies: its NAME when
 //       the engineer gave one, else "#<ordinal>".
-// PB3 — a body the roster does not know keeps a stable id-prefix label, never
-//       a blank.
+// PB3 — a body the roster does not know reads a loading word — never an id
+//       prefix (owner 2026-10-02), never a blank.
 // PB13/PB14 — ``bodyHomeUnitId``: a jump that resolved a body reports the
 //        body's home formation; no body (or an unknown one) keeps the label.
 
@@ -32,9 +32,16 @@ describe('bodyLabelOf — the legend-consistent body label', () => {
     expect(bodyLabelOf('body-B', roster)).toBe('#5')
   })
 
-  it('PB3 — a body the roster does not know keeps a stable id-prefix label', () => {
-    expect(bodyLabelOf('0123456789abcdef', null)).toBe('01234567')
-    expect(bodyLabelOf('0123456789abcdef', new Map())).toBe('01234567')
+  // Owner finding 2026-10-02 REVERSES the old id-prefix fallback: "id-like
+  // names (a84343518…) in the tree for a moment before they changed to real
+  // names". A body the roster does not know yet reads a loading word, never
+  // an id and never a blank.
+  it('PB3 — a body the roster does not know reads a loading word, never an id prefix', () => {
+    for (const roster of [null, new Map()]) {
+      const label = bodyLabelOf('0123456789abcdef', roster)
+      expect(label).not.toContain('01234567')
+      expect(label).toBe('Loading…')
+    }
   })
 })
 
