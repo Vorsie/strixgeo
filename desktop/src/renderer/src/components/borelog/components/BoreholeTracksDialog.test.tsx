@@ -431,7 +431,7 @@ describe('BoreholeTracksDialog — "Start from" a description ("check everything
     'silt, zeer sterk zeer fijn zandhoudend, steenfragmenten (tot 20mm), kalkhoudend, plastisch, bruin, vochtig'
   const SAND = 'zeer fijn tot fijn zand, sterk silthoudend, kleilenzen, kalkhoudend, groengrijs, zeer vochtig'
 
-  function withDescription(): BoreholeDetailResponse {
+  function withDescription(texts: readonly string[] = [SILT, SAND]): BoreholeDetailResponse {
     const detail = borehole()
     const description = {
       ...detail.observations[0],
@@ -439,16 +439,22 @@ describe('BoreholeTracksDialog — "Start from" a description ("check everything
       observation_type: 'lithological_description',
       source: 'dov',
       edited_manually_at: null,
-      layers: [
-        { id: 'd-0', top_m: 0, base_m: 1.2, color: null, main_soil_codes: [], description: SILT, layer_index: 0, admixtures: [] },
-        { id: 'd-1', top_m: 1.2, base_m: 2.5, color: null, main_soil_codes: [], description: SAND, layer_index: 1, admixtures: [] },
-      ],
+      layers: texts.map((text, i) => ({
+        id: `d-${i}`,
+        top_m: [0, 1.2, 2.5][i],
+        base_m: [1.2, 2.5, 3.1][i],
+        color: null,
+        main_soil_codes: [],
+        description: text,
+        layer_index: i,
+        admixtures: [],
+      })),
     }
     return { ...detail, observations: [...detail.observations, description] }
   }
 
-  function startFrom(templateId: string): ReturnType<typeof setup> {
-    const s = setup(withDescription())
+  function startFrom(templateId: string, texts?: readonly string[]): ReturnType<typeof setup> {
+    const s = setup(withDescription(texts))
     fireEvent.change(screen.getByLabelText('Kind of the new track'), { target: { value: 'coded_lithology' } })
     fireEvent.change(screen.getByLabelText('Start from'), { target: { value: templateId } })
     fireEvent.click(screen.getByRole('button', { name: 'Add track' }))
@@ -473,7 +479,21 @@ describe('BoreholeTracksDialog — "Start from" a description ("check everything
 
   it('lists the unmatched clauses once under the grid', () => {
     startFrom('obs-desc')
-    expect(screen.getByText('Not matched: (tot 20mm), kleilenzen')).toBeTruthy()
+    expect(screen.getByText('Not matched: (tot 20mm)')).toBeTruthy()
+  })
+
+  it('the hover text lists what was read but not coded (a denial is never an admixture)', () => {
+    startFrom('obs-desc', ['grijze klei, niet kalkhoudend', SILT])
+    expect(markers()[0].getAttribute('title')).toContain('Read, not coded: niet kalkhoudend')
+  })
+
+  // Owner 2026-10-02: "if i'm getting 0 matches then it is better not to do it".
+  it('fewer than half read: depths only, one "could not read" line, no check markers', () => {
+    startFrom('obs-desc', ['opgevuld gat', 'idem', SILT])
+    expect(screen.getByText('Could not read these descriptions (2 of 3); fill the codes by hand')).toBeTruthy()
+    expect(markers()).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Mark all as checked' })).toBeNull()
+    expect((screen.getByLabelText('Main soil, row 3') as HTMLSelectElement).value).toBe('')
   })
 
   it('Save stays disabled until each row is checked, its title saying how many', () => {
