@@ -14,7 +14,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../../api/client'
-import { lithoDisplayName } from '../../../utils/lithoLabels'
+import { formationUnitDisplayName } from '../../../utils/formationUnitDisplayName'
 import type { Translator } from '../../../i18n/translate'
 
 // ---------------------------------------------------------------------------
@@ -67,9 +67,7 @@ function LithoUnitRow({
           ``name`` is the raw token ("KLEI (KL:Z)"); the roster shows the
           English pipe label (debt #96). */}
       <span className="flex-1 truncate">
-        {f.litho_main_soil_code != null
-          ? lithoDisplayName(f.litho_main_soil_code, f.litho_admixtures)
-          : f.name}
+        {formationUnitDisplayName(f)}
       </span>
 
       {/* Debt #87: parent-review affordance — amber filled circle on the
