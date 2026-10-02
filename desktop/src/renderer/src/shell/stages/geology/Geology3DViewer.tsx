@@ -49,7 +49,7 @@ import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/b
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import { formationsYoungestFirst } from '../../../utils/formationOrder'
-import { lithoDisplayName } from '../../../utils/lithoLabels'
+import { formationUnitDisplayName } from '../../../utils/formationUnitDisplayName'
 import { isGeotechUnit } from '../../../utils/formationKind'
 import { useT } from '../../../i18n/translate'
 import { useLanguage } from '../../../i18n/languageSelect'
@@ -58,6 +58,7 @@ import type { FencePanel } from '../../../utils/fencePanels'
 import { BasemapPanel } from './BasemapPanel'
 import { CesiumViewport } from './CesiumViewport'
 import type { ViewportZoomTuning } from './useViewportZoomTuning'
+import type { ZoomToVerticesFn } from './useZoomToVerticesRef'
 import { GeotechLayersTree } from './GeotechLayersTree'
 import { computeSplitPlane, type DrawState, type SplitLine } from './geology3DPrimitives'
 import {
@@ -205,6 +206,19 @@ export interface Geology3DViewerProps {
    * passes it; omitted keeps every Cesium default. */
   zoomTuning?: ViewportZoomTuning
   /**
+   * Ref the primary viewport fills with a fly-to-these-vertices callback — the
+   * fence cutout's "Zoom to unit" (owner ruling C(a), 2026-10-02). Omitted on
+   * every stage canvas.
+   */
+  zoomToVerticesRef?: React.MutableRefObject<ZoomToVerticesFn | null>
+  /**
+   * HOST-controlled basemap on/off. The chromeless fence cutout hides the
+   * viewer's own Basemap toggle, so it renders its own and passes the state
+   * here (owner ruling C(a), 2026-10-02). Omitted (every stage canvas) = the
+   * viewer's own toggle drives it, unchanged.
+   */
+  basemapEnabled?: boolean
+  /**
    * The counterpart model shown in the right-hand pane when
    * ``splitMode === 'compare'`` — the litho model beside the geotech
    * subdivision derived from it, or the reverse.
@@ -293,6 +307,8 @@ export default function Geology3DViewer({
   basemapLidAlpha,
   lidFootprintPanels,
   zoomTuning,
+  zoomToVerticesRef,
+  basemapEnabled: hostBasemapEnabled,
   compareScene,
   onEnterCompare,
   chromeless = false,
@@ -410,8 +426,10 @@ export default function Geology3DViewer({
     // without it the legend would keep its old-language labels after a flip.
     [formations, bodySolids, fencePanels, lang],
   )
-  // Basemap on/off (the user toggle). Default on.
-  const [basemapEnabled, setBasemapEnabled] = useState(true)
+  // Basemap on/off (the user toggle). Default on. A host that passes
+  // ``basemapEnabled`` (the chromeless cutout) controls it instead.
+  const [ownBasemapEnabled, setBasemapEnabled] = useState(true)
+  const basemapEnabled = hostBasemapEnabled ?? ownBasemapEnabled
   // DEM ground-surface on/off (the "Ground surface" legend toggle). Default on.
   const [groundSurfaceVisible, setGroundSurfaceVisible] = useState(true)
   // G7 daylight reading — the gap between the DEM ground and the model's
@@ -537,6 +555,7 @@ export default function Geology3DViewer({
           basemapLidAlpha={basemapLidAlpha}
           lidFootprintPanels={lidFootprintPanels}
           zoomTuning={zoomTuning}
+          zoomToVerticesRef={zoomToVerticesRef}
           cameraRef={primaryCameraRef}
         />
 
@@ -679,12 +698,7 @@ export default function Geology3DViewer({
                             at the presentation boundary (debt #96 class fix). Geological
                             formations have null litho_main_soil_code and fall back to
                             their plain name. */}
-                        {f.litho_main_soil_code != null
-                          ? lithoDisplayName(
-                              f.litho_main_soil_code,
-                              f.litho_admixtures ?? [],
-                            )
-                          : f.name}
+                        {formationUnitDisplayName(f)}
                       </span>
                     </button>
                   </li>
