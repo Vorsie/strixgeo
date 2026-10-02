@@ -765,7 +765,10 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     expect(screen.getByText('Formation B')).toBeTruthy()
   })
 
-  it('B7-litho — on litho axis only formations with ≥1 litho contact are shown', () => {
+  // Owner ruling B(a), 2026-10-02, REVERSES the #55 litho-Seed axis filter:
+  // the Stratigrafie roster ALWAYS lists the geological formations, whatever
+  // the Sections axis — litho contacts no longer narrow or empty it.
+  it('B7-litho — on litho axis the geological formations are still all shown, contact or not', () => {
     const ctx = makeStubContext()
     const f1 = makeFormation('f-1', 'Formation A', 0) // has a litho contact
     const f2 = makeFormation('f-2', 'Formation B', 1) // no litho contact
@@ -780,10 +783,10 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
     )
 
     expect(screen.getByText('Formation A')).toBeTruthy()
-    expect(screen.queryByText('Formation B')).toBeNull()
+    expect(screen.getByText('Formation B')).toBeTruthy()
   })
 
-  it('B7-litho-empty — on litho axis with no contacts the list is empty', () => {
+  it('B7-litho-empty — on litho axis with no litho contacts the roster is NOT emptied', () => {
     const ctx = makeStubContext()
     const f1 = makeFormation('f-1', 'Formation A', 0)
     ctx.geoModel.visibleFormations = [f1]
@@ -796,7 +799,7 @@ describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => 
       </ShellContext.Provider>,
     )
 
-    expect(screen.queryByText('Formation A')).toBeNull()
+    expect(screen.getByText('Formation A')).toBeTruthy()
   })
 })
 
