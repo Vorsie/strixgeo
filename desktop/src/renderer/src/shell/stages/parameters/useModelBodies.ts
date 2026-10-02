@@ -10,7 +10,7 @@
 // the statistics canvas (Parameters), the sections canvas unit-jump rosters
 // (Sections), and the geotech units roster's crossed-formation subtitle
 // (Geotechnical inspector, debt #278 R2). A missing or failed roster degrades
-// to id-prefix labels / a dropped subtitle — see ``parameterUnitBodies.bodyLabelOf``
+// to loading-word labels / a dropped subtitle — see ``parameterUnitBodies.bodyLabelOf``
 // — never to a blocked pane. (Deferred: the file still lives under parameters/.)
 
 import { useEffect, useState } from 'react'
