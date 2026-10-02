@@ -114,6 +114,9 @@ export const OUTPUTS_NL = {
   'params.assemblingFence': 'Hekkendiagram samenstellen…',
   'params.noFenceWalls':
     'Nog geen hekkenwanden voor deze eenheid. Verbind haar banden over de profielen en ze verschijnen hier.',
+  'params.zoomToUnit': 'Zoom naar eenheid',
+  'params.zoomToUnitTitle': 'Vlieg de camera naar de wanden van de gekozen eenheid',
+  'params.fenceBasemap': 'Achtergrondkaart',
   'params.resetCameraFrame': 'Zet de camera terug om het model te kaderen',
   'params.identificationTests': 'Identificatieproeven',
   'params.labTestsLoadFailedDetail': 'Kon de labproeven voor deze eenheid niet laden: {error}',
@@ -143,6 +146,7 @@ export const OUTPUTS_NL = {
   'params.noUnitsYet': 'Nog geen eenheden',
   'params.noUnitsHintTree':
     'Bouw een lithologisch model in de fase Lithologie en verdeel het daarna in de fase Geotechniek. De boom vult zich hier.',
+  'params.bodyLabelLoading': 'Laden…',
   'params.unitsHeader': 'Eenheden',
   'params.orphanBandsOne': '{n} band buiten het lithomodel',
   'params.orphanBandsMany': '{n} banden buiten het lithomodel',
