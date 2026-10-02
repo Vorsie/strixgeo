@@ -56,6 +56,7 @@ import {
   newRowAfter,
   rowsFromIntervals,
   rowsFromTemplate,
+  unreadDescriptions,
   rowsNeedingCheck,
   rowsToIntervals,
   validateTrackRows,
@@ -165,6 +166,10 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     setNotice(null)
     const template = tracks.find(tr => tr.trackId === templateId)
     const rows = template ? rowsFromTemplate(newKind, template) : []
+    // Owner 2026-10-02: "if i'm getting 0 matches then it is better not to do
+    // it" - the rows stay empty and one line says why.
+    const unread = template ? unreadDescriptions(newKind, template) : null
+    if (unread !== null) setNotice(t('tracks.check.unreadable', { n: unread.unread, m: unread.total }))
     setEditor({
       trackId: null,
       kind: newKind,
