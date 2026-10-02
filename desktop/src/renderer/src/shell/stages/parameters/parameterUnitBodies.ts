@@ -16,7 +16,19 @@
 //   * ``bodyHomeUnitId`` — the jump authority: a resolved body reports its
 //     HOME formation, never the clicked region's label.
 
+import { getLanguage } from '../../../i18n/languageSelect'
+import { translate } from '../../../i18n/translate'
 import type { BodyGeoFormationFields } from '../../../utils/crossedFormationLabel'
+
+/**
+ * The loading word a body the roster does not know yet reads ("Loading…" /
+ * "Laden…") — owner finding 2026-10-02: never an id prefix in its place.
+ *
+ * @returns  The active-language loading word.
+ */
+export function bodyLabelLoading(): string {
+  return translate(getLanguage(), 'params.bodyLabelLoading')
+}
 
 /** The roster fields a body label reads — a reduced ``BodyListItem``. */
 export interface BodyRosterEntry extends BodyGeoFormationFields {
@@ -40,9 +52,9 @@ export interface BodyRosterEntry extends BodyGeoFormationFields {
  * A body's display label, the way the 3-D legend names bodies.
  *
  * The engineer's trimmed name wins; else the legend's ``#<ordinal>``; a body
- * the roster does not know (stale stamp, roster still loading) keeps a stable
- * 8-character id prefix — the ``BodyContextMenu`` header precedent — so the
- * row is never blank and never lies about being resolved.
+ * the roster does not know (roster still loading, stale stamp) reads the
+ * loading word — never an id prefix (owner finding 2026-10-02: "a84343518…"
+ * flashed in the tree before the real names landed) and never a blank.
  *
  * Parameters
  * ----------
@@ -62,7 +74,7 @@ export function bodyLabelOf(
   roster: ReadonlyMap<string, BodyRosterEntry> | null,
 ): string {
   const entry = roster?.get(bodyId)
-  if (entry === undefined) return bodyId.slice(0, 8)
+  if (entry === undefined) return bodyLabelLoading()
   const name = entry.name?.trim()
   return name ? name : `#${entry.body_ordinal}`
 }
