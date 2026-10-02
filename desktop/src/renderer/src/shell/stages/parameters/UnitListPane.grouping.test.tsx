@@ -40,6 +40,7 @@ let mockGeotechFormations: unknown[] = []
 let mockLithoLayers: unknown[] = []
 let mockGeotechLayers: unknown[] = []
 let mockActiveGeotechModel: { id: string } | null = null
+let mockActiveLithoModel: { id: string } | null = null
 let mockGeotechNonce = 0
 let mockSelectedUnit: unknown = null
 
@@ -52,7 +53,7 @@ vi.mock('../../ShellContext', () => ({
       lithoLayers: mockLithoLayers,
       geotechLayers: mockGeotechLayers,
       geotechLayersLoaded: true,
-      activeLithoModel: null,
+      activeLithoModel: mockActiveLithoModel,
       activeGeotechModel: mockActiveGeotechModel,
       requestGeotechLayersRefetch,
     },
@@ -184,6 +185,8 @@ afterEach(() => {
   mockLithoLayers = []
   mockGeotechLayers = []
   mockActiveGeotechModel = null
+  mockActiveLithoModel = null
+  listLenses.mockReset()
   mockGeotechNonce = 0
   mockSelectedUnit = null
 })
@@ -320,11 +323,30 @@ describe('UnitListPane — grouping in the right pane', () => {
     expect(createBodyUnion).not.toHaveBeenCalled()
   })
 
-  it('PG7 — the two collapsed loose-sand rows carry DISTINCT checkbox names that add the litho parent (ux-reviewer 2026-09-04)', () => {
+  it('PG7 — the two collapsed loose-sand rows carry DISTINCT checkbox names that add the litho parent (ux-reviewer 2026-09-04)', async () => {
     seedTwoParentCollapsedScene()
+    // The parents are told apart by their roster ordinals ("ZAND · #0" vs
+    // "ZAND · #2"). Before 2026-10-02 an unloaded roster told them apart by an
+    // id prefix — the leak the owner reported — so the roster is loaded here.
+    mockActiveLithoModel = { id: 'litho-1' }
+    listLenses.mockImplementation((_project: string, modelId: string) =>
+      Promise.resolve(
+        modelId === 'litho-1'
+          ? [
+              { id: 'zb0', name: null, body_ordinal: 0, formation_id: 'zand' },
+              { id: 'zb2', name: null, body_ordinal: 2, formation_id: 'zand' },
+            ]
+          : [],
+      ),
+    )
     listBodyUnions.mockResolvedValue([])
     render(<UnitListPane />)
     expandBothZandBodies()
+    await vi.waitFor(() =>
+      expect(
+        screen.getByTestId('parameters-node-check-geotech-class:zand:zb2:5').getAttribute('aria-label'),
+      ).toContain('#2'),
+    )
 
     // Both rows' own label is "SAND, loose"; their checkboxes must not collide.
     const a0 =
