@@ -112,6 +112,9 @@ export const OUTPUTS = {
   'params.assemblingFence': 'Assembling the fence…',
   'params.noFenceWalls':
     'No fence walls for this unit yet. Connect its bands across sections and they will appear here.',
+  'params.zoomToUnit': 'Zoom to unit',
+  'params.zoomToUnitTitle': "Fly the camera to the selected unit's walls",
+  'params.fenceBasemap': 'Basemap',
   'params.resetCameraFrame': 'Reset the camera to frame the model',
   // identification tests
   'params.identificationTests': 'Identification tests',
@@ -142,6 +145,7 @@ export const OUTPUTS = {
   'params.noUnitsYet': 'No units yet',
   'params.noUnitsHintTree':
     'Build a lithological model on the Lithology stage, then subdivide it on the Geotechnical stage. The tree will populate here.',
+  'params.bodyLabelLoading': 'Loading…',
   'params.unitsHeader': 'Units',
   'params.orphanBandsOne': '{n} band outside the litho model',
   'params.orphanBandsMany': '{n} bands outside the litho model',
