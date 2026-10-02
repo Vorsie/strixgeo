@@ -115,7 +115,12 @@ desktop/src/
     │       │                  buildParameterTree + bandsForScope(scope) drive the pane,
     │       │                  the pooling, the counts and the cutout body set alike;
     │       │                  labels split into parameterScopeLabels.ts + the path header
-    │       │                  into parameterScopeHeader.ts (500-line cap). A geotech band's
+    │       │                  into parameterScopeHeader.ts (500-line cap). Names (owner
+    │       │                  2026-10-02): a unit row reads utils/formationUnitDisplayName
+    │       │                  ("ZAND | matig siltig"), the raw token on its title; a litho
+    │       │                  body reads "<its OWN home unit> · #<stored ordinal>" under
+    │       │                  every row it sits; a body the roster lacks reads "Loading…",
+    │       │                  never an id prefix. A geotech band's
     │       │                  litho body is derived live through litho_layer.parent_litho_
     │       │                  layer_id (Slice A). GROUPS ADD NO LEVEL (owner 2026-09-11):
     │       │                  a lone geotech body always folds into its class row, grouped
@@ -140,6 +145,9 @@ desktop/src/
     │       │                  inverted-log graph, pooled by unitPsd.ts on the same
     │       │                  midpoint-in-band rule) + UnitFenceCutout (lazy
     │       │                  Cesium fence walls of the SCOPE over the basemap, chromeless;
+    │       │                  host verbs: Basemap on/off (per-viewer localStorage), Zoom to
+    │       │                  unit (the filtered cutout's frame, 40 m floor) and Reset view
+    │       │                  (whole model) — the camera never moves on its own;
     │       │                  the cutout body set is derived from bandsForScope, so a class
     │       │                  row shows every one of its bodies' walls). Section →
     │       │                  Parameters jump = the fallback ladder in
