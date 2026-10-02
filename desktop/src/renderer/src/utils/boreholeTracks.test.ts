@@ -25,6 +25,7 @@ import {
   rowsFromIntervals,
   rowsNeedingCheck,
   rowsToIntervals,
+  unreadDescriptions,
   validateTrackRows,
   type TrackEditorRow,
 } from './boreholeTracks'
@@ -311,6 +312,35 @@ describe('"Start from…" a track as template (owner 2026-09-30: "copy another t
       main_soil_codes: ['FZ'],
       admixtures: [],
     })
+  })
+
+  // Owner 2026-10-02 after a real borehole read 0 of 17: "if i'm getting 0
+  // matches then it is better not to do it". When fewer than half of the
+  // intervals give a main soil, Start from gives depths only, no markers.
+  const unreadable = {
+    kind: 'lithological_description',
+    intervals: [
+      { top_m: 0, base_m: 1, description: 'opgevuld gat' },
+      { top_m: 1, base_m: 2, description: 'idem' },
+      { top_m: 2, base_m: 3, description: 'klei' },
+    ],
+  }
+
+  it('fewer than half of the descriptions read: ALL rows depths only, no check markers', () => {
+    const rows = rowsFromTemplate('coded_lithology', unreadable)
+    expect(rows.map(r => [r.top, r.base])).toEqual([['0', '1'], ['1', '2'], ['2', '3']])
+    expect(rows.map(r => r.mainSoil)).toEqual([[''], [''], ['']])
+    expect(rows.map(r => r.sourceText)).toEqual([undefined, undefined, undefined])
+    expect(rowsNeedingCheck(rows)).toBe(0)
+    expect(unreadDescriptions('coded_lithology', unreadable)).toEqual({ unread: 2, total: 3 })
+  })
+
+  it('half or more read: the codes are filled and no "could not read" line', () => {
+    const half = { ...unreadable, intervals: [...unreadable.intervals, { top_m: 3, base_m: 4, description: 'fijn zand' }] }
+    expect(rowsFromTemplate('coded_lithology', half).map(r => r.mainSoil)).toEqual([[''], [''], ['KL'], ['FZ']])
+    expect(unreadDescriptions('coded_lithology', half)).toBeNull()
+    // Not a description into a coded lithology: never a "could not read" line.
+    expect(unreadDescriptions('informal_stratigraphy', unreadable)).toBeNull()
   })
 
   it('a coded track started from another coded track copies the codes too', () => {
