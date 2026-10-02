@@ -28,6 +28,7 @@ import {
 import { lidElevationAtInvestigations } from './cesiumGeometry'
 import { useCameraLink } from './useCameraLink'
 import { useViewportZoomTuning, type ViewportZoomTuning } from './useViewportZoomTuning'
+import { useZoomToVerticesRef, type ZoomToVerticesFn } from './useZoomToVerticesRef'
 import { REQUEST_RENDER_WIDGET_OPTIONS, requestSceneRender } from './sceneRender'
 
 // Single-viewport Cesium widget
@@ -48,6 +49,9 @@ export interface CesiumViewportProps {
   splitLine?: SplitLine | null
   /** Ref populated with a fly-to-bounds callback. */
   cameraResetRef?: React.MutableRefObject<(() => void) | null>
+  /** Ref populated with a fly-to-these-vertices callback (the fence cutout's
+   * "Zoom to unit", owner ruling C(a) 2026-10-02); omitted on every stage. */
+  zoomToVerticesRef?: React.MutableRefObject<ZoomToVerticesFn | null>
   /**
    * Optional callback for recording click positions during the split-line
    * draw interaction.  Called with the projected [x, y] position of the click
@@ -190,6 +194,7 @@ export function CesiumViewport({
   invertClip = false,
   splitLine = null,
   cameraResetRef,
+  zoomToVerticesRef,
   onSceneClick,
   groundSurface,
   hiddenFormationIds,
@@ -513,6 +518,7 @@ export function CesiumViewport({
 
   // Cutout-only wheel-zoom tuning (F5) — a no-op unless ``zoomTuning`` is set.
   useViewportZoomTuning(mountedScene, zoomTuning)
+  useZoomToVerticesRef(mountedScene, projectEpsg, zoomToVerticesRef)
 
   // ---------------------------------------------------------------------------
   // Wire click handler for split-line draw interaction
