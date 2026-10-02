@@ -16,7 +16,11 @@ import type {
   BoreholeDetailResponse,
   TrackIntervalBody,
 } from '../api/clients/borehole'
-import { parseDescribedLithology, type SoilApproximation } from './describedLithologyToCodes'
+import {
+  parseDescribedLithology,
+  type DescribedLithologyDraft,
+  type SoilApproximation,
+} from './describedLithologyToCodes'
 import type { CodelistField } from './dovTrackCodelists'
 import { MAX_ADMIXTURES_PER_INTERVAL, TRACK_DEPTH_DECIMALS } from './dovTrackCodelists_constants'
 
@@ -181,7 +185,7 @@ export interface TrackEditorRow {
 
 /** What reading a description left for the person to see (editor-only). */
 export interface DescriptionParseNotes {
-  /** Clauses that produced no code. */
+  /** Words / runs that produced no code. */
   unmatched: string[]
   /** Soil names mapped to the nearest code (no exact DOV code). */
   approximations: SoilApproximation[]
@@ -189,6 +193,9 @@ export interface DescriptionParseNotes {
   moisture: string
   /** Recognised DOV consistency token a coded track does not store, or ``''``. */
   consistency: string
+  /** Read but not coded: denials, a second colour, feel words outside DOV's
+   *  lists, an amount range, "idem", the drilling method. */
+  notes: string[]
 }
 
 let rowSeq = 0
@@ -435,7 +442,10 @@ export interface TrackTemplate {
  *   ``MAX_ADMIXTURES_PER_INTERVAL``);
  * * coded lithology <- a lithological description: the codes are READ from
  *   the text (``parseDescribedLithology``, owner 2026-10-01 "parse the
- *   description into codes"); each row keeps the text and needs a check;
+ *   description into codes"); each row keeps the text and needs a check.
+ *   When fewer than half of the intervals give a main soil, NO row is filled
+ *   (depths only, no check): owner 2026-10-02 "if i'm getting 0 matches then
+ *   it is better not to do it" (``unreadDescriptions`` says so);
  * * text <- text: the description, except into a formal stratigraphy (its cells
  *   are DOV unit codes, never free text) unless the template is one too;
  * * field log <- the same field-log kind: the value; a colour field log <- a
@@ -450,15 +460,17 @@ export function rowsFromTemplate(kind: string, template: TrackTemplate): TrackEd
   const target = trackContent(kind)
   const source = trackContent(template.kind)
   const sorted = [...template.intervals].sort((a, b) => a.top_m - b.top_m || a.base_m - b.base_m)
-  return sorted.map(i => {
+  const drafts = readsDescriptions(kind, template) ? readDescriptions(sorted) : null
+  const readable = drafts !== null && !tooFewRead(drafts)
+  return sorted.map((i, index) => {
     const r = emptyRow(String(i.top_m))
     r.base = String(i.base_m)
     if (target === 'coded' && source === 'coded') {
       r.mainSoil = i.main_soil_codes && i.main_soil_codes.length > 0 ? [...i.main_soil_codes] : ['']
       r.color = i.color ?? ''
       r.admixtures = (i.admixtures ?? []).slice(0, MAX_ADMIXTURES_PER_INTERVAL).map(a => ({ ...a }))
-    } else if (kind === 'coded_lithology' && template.kind === 'lithological_description') {
-      fillFromDescription(r, i.description ?? '')
+    } else if (drafts !== null) {
+      if (readable) fillFromDescription(r, drafts[index])
     } else if (target === 'text' && source === 'text') {
       if (kind !== 'formal_stratigraphy' || template.kind === kind) r.description = i.description ?? ''
     } else if (target === 'value') {
@@ -469,15 +481,49 @@ export function rowsFromTemplate(kind: string, template: TrackTemplate): TrackEd
   })
 }
 
+/** True when ``kind`` is a coded lithology started from a description track. */
+function readsDescriptions(kind: string, template: TrackTemplate): boolean {
+  return kind === 'coded_lithology' && template.kind === 'lithological_description'
+}
+
+/** Each interval's draft, top down; "idem" reads the draft above it. */
+function readDescriptions(sorted: readonly TrackIntervalBody[]): DescribedLithologyDraft[] {
+  const drafts: DescribedLithologyDraft[] = []
+  for (const i of sorted) drafts.push(parseDescribedLithology(i.description ?? '', drafts[drafts.length - 1]))
+  return drafts
+}
+
+/** Fewer than half of the drafts name a main soil. */
+function tooFewRead(drafts: readonly DescribedLithologyDraft[]): boolean {
+  const read = drafts.filter(d => d.mainSoil.length > 0).length
+  return read * 2 < drafts.length
+}
+
 /**
- * Fill a coded row from a DOV description and mark it for the person's check
- * (owner 2026-10-01: "make sure the person using it checks everything").
+ * How many descriptions of ``template`` could not be read, when "Start from"
+ * gave up on them (fewer than half read) — the editor's one-line notice.
+ *
+ * @param kind - Kind of the new track.
+ * @param template - The track it starts from.
+ * @returns ``{unread, total}`` when the rows were left empty, else ``null``.
+ */
+export function unreadDescriptions(kind: string, template: TrackTemplate): { unread: number; total: number } | null {
+  if (!readsDescriptions(kind, template) || template.intervals.length === 0) return null
+  const sorted = [...template.intervals].sort((a, b) => a.top_m - b.top_m || a.base_m - b.base_m)
+  const drafts = readDescriptions(sorted)
+  if (!tooFewRead(drafts)) return null
+  return { unread: drafts.filter(d => d.mainSoil.length === 0).length, total: drafts.length }
+}
+
+/**
+ * Fill a coded row from a description's draft and mark it for the person's
+ * check (owner 2026-10-01: "make sure the person using it checks everything").
  *
  * @param row - The row to fill (mutated: it is fresh from ``emptyRow``).
- * @param description - The template interval's description verbatim.
+ * @param draft - The template interval's draft (``source`` = its text).
  */
-function fillFromDescription(row: TrackEditorRow, description: string): void {
-  const draft = parseDescribedLithology(description)
+function fillFromDescription(row: TrackEditorRow, draft: DescribedLithologyDraft): void {
+  const description = draft.source
   row.mainSoil = draft.mainSoil.length > 0 ? draft.mainSoil : ['']
   row.color = draft.color
   row.admixtures = draft.admixtures
@@ -488,6 +534,7 @@ function fillFromDescription(row: TrackEditorRow, description: string): void {
     approximations: draft.approximations,
     moisture: draft.moisture,
     consistency: draft.consistency,
+    notes: draft.notes,
   }
 }
 
