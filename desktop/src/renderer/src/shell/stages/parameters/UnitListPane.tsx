@@ -410,7 +410,14 @@ function NodeRow({
         ) : (
           <span aria-hidden="true" className="shrink-0 w-3" />
         )}
-        <span className="truncate" data-testid={`parameters-node-label-${key}`}>
+        {/* A litho-unit row's label is the TRANSLATED name; the raw DOV token
+            ("ZAND (SL:M)") rides the tooltip so the engineer can verify the
+            mapping (owner finding 2026-10-02, translate-at-the-boundary rule). */}
+        <span
+          className="truncate"
+          title={node.rawName}
+          data-testid={`parameters-node-label-${key}`}
+        >
           {node.label}
         </span>
         {/* D1: the manual-group tag — "(group N)" — a shrink-0 SIBLING of the
