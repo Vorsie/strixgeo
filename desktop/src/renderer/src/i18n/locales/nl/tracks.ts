@@ -107,6 +107,8 @@ export const TRACKS_NL = {
   'tracks.check.notStored': 'Niet bewaard in een gecodeerde lithologie: {list}',
   'tracks.check.moisture': 'vochtgehalte {token}',
   'tracks.check.consistency': 'consistentie {token}',
+  'tracks.check.notes': 'Gelezen, niet gecodeerd: {list}',
+  'tracks.check.unreadable': 'Kon deze beschrijvingen niet lezen ({n} van {m}); vul de codes zelf in',
   'tracks.template.option': '{kind} ({source}, {n} intervallen)',
   'tracks.template.hint':
     'Neemt de dieptes van het gekozen spoor over, en de codes of tekst als de nieuwe soort die draagt. Een gecodeerde lithologie vanuit een beschrijving krijgt codes uit de tekst, rij per rij na te kijken. Het nieuwe spoor is handmatig.',
