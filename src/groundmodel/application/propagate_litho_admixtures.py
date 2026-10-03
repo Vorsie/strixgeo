@@ -7,7 +7,8 @@ Scope
 -----
 Only ``litho_admixtures`` is modified.  ``litho_main_soil_code``,
 ``instance_ordinal``, and all other columns are left untouched — no resolver
-re-run is needed because the naming group and ordinals are unchanged.
+re-run is needed because no layer changes its litho unit, so bodies and ordinals
+are unchanged.
 
 If the seed formation has no edges its component is the singleton ``{seed}``,
 so the update is applied to the seed alone (valid — single-unit bulk edit).
