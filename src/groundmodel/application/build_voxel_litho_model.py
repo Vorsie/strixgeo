@@ -813,10 +813,12 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         # as-drawn copy kept for the footprint hull is geometry only: no consumer
         # reads a body id from it, so it stays unaliased.
         # Packing-class identity (debt #278): fuse the twin formation rows one
-        # NAD class carries across a geological boundary, so a body spanning
-        # that boundary keeps ONE id (owner 2026-08-21, "yes one mass one
-        # body"). Inert on a litho model — its rows carry no NAD class, so the
-        # key is the identity function and the alias plan is byte-identical.
+        # NAD class of ONE litho unit carries across a geological boundary, so a
+        # body spanning that boundary keeps ONE id (owner 2026-08-21, "yes one
+        # mass one body"). Two litho units never fuse (owner 2026-10-03: ZAND
+        # and ZAND (SL:M) are two lithologies). Inert on a litho model — its rows
+        # carry no NAD class, so the key is the identity function and the alias
+        # plan is byte-identical.
         identity_key_of = await self._packing_class_key(model_id)
         aliases = plan_body_aliases(sections, identity_key_of)
         merged_away = sum(1 for src, dst in aliases.items() if src != dst)
@@ -1632,9 +1634,10 @@ class BuildVoxelLithoModel(LithoSolidPersistenceMixin):
         The cross-section body merge fuses two regions only when their formation
         identity agrees. On a geotech model the same packing class exists under
         several formation ROW ids (one per NAD class × litho parent × geological
-        parent), so the merge must compare the CLASS to keep a body whole across
-        a geological boundary (debt #278; owner 2026-08-21, "yes one mass one
-        body"). This resolves the model's project, then delegates to the shared
+        parent), so the merge must compare the CLASS within one litho unit to
+        keep a body whole across a geological boundary (debt #278; owner
+        2026-08-21, "yes one mass one body"; never across two litho units, owner
+        2026-10-03). This resolves the model's project, then delegates to the shared
         :func:`~groundmodel.application.packing_class_key_loader.load_packing_class_key`
         (the same wiring the recompute uses), so the domain merge never sees an
         ORM row.
