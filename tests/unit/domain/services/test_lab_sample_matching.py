@@ -86,3 +86,18 @@ def test_without_an_interval_the_lab_sample_number_matches() -> None:
 def test_no_overlap_and_no_number_means_create_one() -> None:
     """Nothing matches → no sample (the preview proposes creating one)."""
     assert match_sample(3.0, 3.5, "9/9", [SampleCandidate("s", 1.0, 1.5, None)]) == (None, "none")
+
+
+def test_the_dov_prefixed_name_of_the_dogfeed_project_matches_the_oedometer_listing() -> None:
+    """Owner dogfeed 2026-10-03: job ``GEO-19/122`` + borehole ``B7A`` (listing 20/0568).
+
+    The project holds DOV's own names, prefixed ``1411-``; the name that ends
+    with ``GEO-19/122-B7A`` matches, its siblings (B7B, B8A, B3A) do not.
+    """
+    project = [
+        ("b7a", "1411-GEO-19/122-B7A"),
+        ("b7b", "1411-GEO-19/122-B7B"),
+        ("b8a", "1411-GEO-19/122-B8A"),
+        ("b3a", "1411-GEO-19/122-B3A"),
+    ]
+    assert match_borehole_ids("GEO-19/122", "B7A", project) == ["b7a"]
