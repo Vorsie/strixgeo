@@ -4,7 +4,8 @@
 // TypeScript (utils/geotechHierarchicalFill/packingClassOf.ts — buildPackingClassOf)
 // and once in Python (domain/services/voxel_litho/packing_class_key.py —
 // packing_class_key_of). Both collapse a formation row that carries BOTH a NAD
-// class and a soil code to "SOIL|CLASS" and keep a row missing either half at
+// class and a soil code to "LITHOUNIT|SOIL|CLASS" ("SOIL|CLASS" when the litho
+// unit is unknown) and keep a row missing either half at
 // its own row identity, so the frontend fill and the backend voxel body merge
 // agree on what "same body" means.
 //
@@ -35,6 +36,7 @@ interface Row {
   formation_id: string
   nad_class: number | null
   soil_code: string | null
+  litho_unit_id: string | null
   effective_key: string
 }
 
@@ -56,7 +58,7 @@ const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as Fixture
 function classMap(): Map<string, string> {
   const entries: Array<readonly [string, PackingClassMeta]> = fixture.rows.map((r) => [
     r.formation_id,
-    { nadClass: r.nad_class, soilCode: r.soil_code },
+    { nadClass: r.nad_class, soilCode: r.soil_code, lithoUnitId: r.litho_unit_id },
   ])
   return buildPackingClassOf(entries)
 }
@@ -88,5 +90,9 @@ describe('packing-class key twin (debt #284)', () => {
     expect(effectiveKey(map, 'f-sand-6')).toBe(effectiveKey(map, 'f-sand-6-twin'))
     expect(effectiveKey(map, 'f-no-class')).toBe('f-no-class')
     expect(effectiveKey(map, 'f-no-soil')).toBe('f-no-soil')
+    // Owner 2026-10-03: "a zand and zand/matig siltig are 2 different
+    // lithologies, never weld those" — same soil + class, two litho units.
+    expect(effectiveKey(map, 'g-zand-6')).not.toBe(effectiveKey(map, 'g-zand-slm-6'))
+    expect(effectiveKey(map, 'g-zand-6')).toBe(effectiveKey(map, 'g-zand-6-twin'))
   })
 })
