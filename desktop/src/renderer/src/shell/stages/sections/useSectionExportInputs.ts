@@ -18,7 +18,7 @@ import type {
   LithoLayerResponse,
 } from '../../../api/clients/geology.types'
 import type { InvestigationLocation } from '../../../utils/assembleLithoSectionInputs'
-import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
+import { packingClassOfFormations } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { useShell } from '../../ShellContext'
 
 /** Everything the Sections-stage exporters (D-Series + the PDF sheet) read. */
@@ -87,15 +87,7 @@ export function useSectionExportInputs(): SectionExportInputs {
   // framed geotech fill reads it; a litho export ignores it.
   const packingClassOf = useMemo(
     () =>
-      buildPackingClassOf(
-        geotechFormations.map(
-          f =>
-            [
-              f.id,
-              { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null },
-            ] as const,
-        ),
-      ),
+      packingClassOfFormations(geotechFormations),
     [geotechFormations],
   )
 
