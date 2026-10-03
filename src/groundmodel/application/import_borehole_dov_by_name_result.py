@@ -23,10 +23,16 @@ class ImportBoreholeDovByNameResult:
         The project borehole (new, or already there) once persisted; ``None``
         when not found or when its XML could not be downloaded / parsed.
     batch : ImportBoreholeDovResult or None
-        The persist summary (children attached, failures) when found.
+        The persist summary (children attached, failures) when found and
+        written; ``None`` when the borehole was already in the project.
+    already_in_project : bool
+        The project already held ``(project, "DOV", test_id)`` (found before
+        the download, or stored by a concurrent request): ``borehole_id`` is
+        that row and nothing was written.
     """
 
     found: bool
     dov_name: str
     borehole_id: UUID | None = None
     batch: ImportBoreholeDovResult | None = None
+    already_in_project: bool = False
