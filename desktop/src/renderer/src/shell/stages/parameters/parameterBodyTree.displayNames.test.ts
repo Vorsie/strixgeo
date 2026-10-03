@@ -3,17 +3,17 @@
 // three models side by side — the geological "Default" (Antropogeen /
 // Fluviatiel Holoceen / Fluviatiel Pleistoceen, never in this tree), a litho
 // model with ZAND (SL:M) / VEEN / SILT / KLEI / ZAND, and a geotech model whose
-// units are named "<litho> (NAD n)". Litho bodies are numbered across the ZAND
-// naming group, so the lone ZAND (SL:M) body carries body_ordinal 12, and one
-// cross-family WELD body (#4) has its home on ZAND while its SL:M ground puts it
-// under the ZAND (SL:M) row too (the 2026-09-16 geotech-sourced rule).
+// units are named "<litho> (NAD n)". His stored bodies were numbered across the
+// ZAND naming group, so the lone ZAND (SL:M) body carries body_ordinal 12, and
+// one cross-family WELD body (#4, stamped before the 2026-10-03 ruling retired
+// the weld) has its home on ZAND while it still carries SL:M ground.
 //
 // DN1 — "the unit rows show the raw DOV admixture token": a unit row reads the
 //       same translated name the Lithology roster shows ("ZAND | matig siltig"),
 //       and the raw stored name rides along for the row's tooltip.
-// DN2 — "a body is named after its OWN home formation, under whichever row it
-//       sits": weld body #4 reads "ZAND · #4" under the SL:M row AND under the
-//       ZAND row — one body, one name.
+// DN2 — owner 2026-10-03: "a zand and zand/matig siltig are 2 different
+//       lithologies, never weld those" — a body is listed under its HOME unit
+//       only: #4 reads "ZAND · #4" under ZAND, and never under the SL:M row.
 // DN3 — ruling A(a): "keep the stored body_ordinal as printed" — #12 stays #12.
 // DN4 — "id-like names for a moment before they changed to real names": a tree
 //       built before the body rosters (and the geotech formation list) have
@@ -214,12 +214,17 @@ describe('Parameters tree names — presentation boundary (owner 2026-10-02)', (
     expect(unitNode(tree, ZAND).label).toBe('ZAND')
   })
 
-  it('DN2 — weld body #4 is named after its OWN home (ZAND), under the SL:M row and under the ZAND row alike', () => {
+  it('DN2 — body #4 is listed under its home unit (ZAND) only, never under the matig siltig row', () => {
     const tree = buildParameterTree(scene())
-    const underSl = bodyNode(unitNode(tree, ZAND_SL), BODY_WELD_4)
     const underZand = bodyNode(unitNode(tree, ZAND), BODY_WELD_4)
-    expect(underSl.label).toBe('ZAND · #4')
     expect(underZand.label).toBe('ZAND · #4')
+    const slBodies = unitNode(tree, ZAND_SL).children.filter(
+      n => n.scope.kind === 'litho-body' && n.scope.bodyId === BODY_WELD_4,
+    )
+    expect(slBodies, 'ZAND · #4 is listed under the ZAND | matig siltig row').toHaveLength(0)
+    for (const label of allLabels([unitNode(tree, ZAND_SL)])) {
+      expect(label).not.toContain('ZAND · #4')
+    }
   })
 
   it('DN3 — ruling A(a): the stored body_ordinal is printed as stored ("#12" stays "#12")', () => {
@@ -247,7 +252,7 @@ describe('Parameters tree names — presentation boundary (owner 2026-10-02)', (
     const unitHeader = scopeHeaderLabel({ kind: 'litho-unit', unitId: ZAND_SL }, input)
     expect(unitHeader.startsWith('ZAND | matig siltig')).toBe(true)
     const weldHeader = scopeHeaderLabel(
-      { kind: 'litho-body', unitId: ZAND_SL, bodyId: BODY_WELD_4 },
+      { kind: 'litho-body', unitId: ZAND, bodyId: BODY_WELD_4 },
       input,
     )
     expect(weldHeader).toContain('ZAND · #4')
