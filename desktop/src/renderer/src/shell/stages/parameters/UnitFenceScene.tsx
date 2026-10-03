@@ -16,7 +16,7 @@ import { Focus, Map as MapIcon, RotateCcw } from 'lucide-react'
 import type { LithoBodySolidResponse } from '../../../api/client'
 import type * as Cesium from 'cesium'
 import { nadColoredFormations } from '../../../utils/nadClasses'
-import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
+import { packingClassOfFormations } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 import { LoadingState } from '../../EmptyState'
 import { useT } from '../../../i18n/translate'
 import { useShell } from '../../ShellContext'
@@ -85,15 +85,7 @@ export default function UnitFenceScene({ scope }: Props): JSX.Element {
   // identity); inert on a litho scope.
   const packingClassOf = useMemo(
     () =>
-      buildPackingClassOf(
-        geotechFormations.map(
-          f =>
-            [
-              f.id,
-              { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null },
-            ] as const,
-        ),
-      ),
+      packingClassOfFormations(geotechFormations),
     [geotechFormations],
   )
 
