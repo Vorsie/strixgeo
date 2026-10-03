@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { computeHierarchicalGeotechFill } from './index'
+import { buildPackingClassOf } from './packingClassOf'
 import type { CorrelationEdge, PartitionColumn, SectionRegion } from '../sectionPartition'
 import { computeSectionFillActive } from '../partitionEngineSelect'
 
@@ -714,6 +715,79 @@ describe('the hierarchical geotech fill — densities within lithos', () => {
         'a different-class lens welded into a foreign mass',
       ).toBe(false)
     }
+  })
+
+  /**
+   * The H12 scene, its class map built through ``buildPackingClassOf`` with each
+   * packing row's LITHO UNIT — the interbed silt lens on column A in ``lensUnit``,
+   * the thick silt on column B in ``u-silt``.
+   */
+  function variantScene(lensUnit: string): ReturnType<typeof computeHierarchicalGeotechFill> {
+    const litho = {
+      columns: [
+        column('A', 10, [
+          { layerId: 'LA-top-silt', formationId: 'u-silt', top: 0, base: 1 },
+          { layerId: 'LA-sand-lens', formationId: 'u-sand-a', top: 1, base: 3 },
+          { layerId: 'LA-silt-lens', formationId: lensUnit, top: 3, base: 4 },
+          { layerId: 'LA-deep-sand', formationId: 'u-sand', top: 4, base: 6 },
+        ]),
+        column('B', 10, [
+          { layerId: 'LB-silt', formationId: 'u-silt', top: 0, base: 5 },
+          { layerId: 'LB-sand', formationId: 'u-sand', top: 5, base: 6 },
+        ]),
+      ],
+      edges: [tie('LA-top-silt', 'LB-silt'), tie('LA-deep-sand', 'LB-sand')],
+    }
+    const geotech = [
+      column('A', 10, [
+        { layerId: 'GA-top-silt', formationId: 'g-silt-row', top: 0, base: 1 },
+        { layerId: 'GA-sand-lens', formationId: 'g-sand-lens-row', top: 1, base: 3 },
+        { layerId: 'GA-silt-lens', formationId: 'g-silt-lens-row', top: 3, base: 4 },
+        { layerId: 'GA-deep-sand', formationId: 'g-sand-row', top: 4, base: 6 },
+      ]),
+      column('B', 10, [
+        { layerId: 'GB-silt', formationId: 'g-silt-row', top: 0, base: 5 },
+        { layerId: 'GB-sand', formationId: 'g-sand-row', top: 5, base: 6 },
+      ]),
+    ]
+    return computeHierarchicalGeotechFill({
+      lithoColumns: litho.columns,
+      lithoEdges: litho.edges,
+      lithoRegions: computeSectionFillActive(litho.columns, litho.edges, undefined, ALONG),
+      geotechColumns: geotech,
+      geotechEdges: [tie('GA-top-silt', 'GB-silt'), tie('GA-deep-sand', 'GB-sand')],
+      alongM: ALONG,
+      packingClassOf: buildPackingClassOf([
+        ['g-silt-row', { nadClass: 13, soilCode: 'SILT', lithoUnitId: 'u-silt' }],
+        ['g-silt-lens-row', { nadClass: 13, soilCode: 'SILT', lithoUnitId: lensUnit }],
+        ['g-sand-lens-row', { nadClass: 6, soilCode: 'ZAND', lithoUnitId: 'u-sand-a' }],
+        ['g-sand-row', { nadClass: 8, soilCode: 'ZAND', lithoUnitId: 'u-sand' }],
+      ]),
+    })
+  }
+
+  const lensWeldedIntoSilt = (out: ReturnType<typeof computeHierarchicalGeotechFill>): boolean =>
+    out.regions.some((r) => {
+      const ids = r.layerIds ?? []
+      return ids.includes('GA-silt-lens') && ids.includes('GB-silt')
+    })
+
+  it('H12b: a same-class lens of ANOTHER litho unit (SILT vs SILT (ZA:M)) never welds', () => {
+    // Owner ruling 2026-10-03, verbatim: "a zand and zand/matig siltig are 2
+    // different lithologies, never weld those." Same soil, same NAD class,
+    // touching — but two litho units, so the contact stays a body boundary.
+    expect(
+      lensWeldedIntoSilt(variantScene('u-silt-za-m')),
+      'a lens of an admixture variant welded into the plain unit',
+    ).toBe(false)
+  })
+
+  it('H12c: negative control — the same lens of the SAME litho unit still welds', () => {
+    // The cross-family sweep stays for one unit: touching + same class + same
+    // unit = one mass (owner 2026-08-21, option 3).
+    expect(lensWeldedIntoSilt(variantScene('u-silt')), 'the same-unit lens stayed apart').toBe(
+      true,
+    )
   })
 
   it('H13: a welded pair puts its contact ON the tie line — the band above rides it too', () => {
