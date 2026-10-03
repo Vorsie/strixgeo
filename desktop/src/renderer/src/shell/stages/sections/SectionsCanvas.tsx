@@ -91,6 +91,7 @@ import { useGeotechPackingCorrelation } from "./useGeotechPackingCorrelation";
 import { useEdgeDragRetarget } from "./useEdgeDragRetarget";
 import { useLithoGeoSnapDialog } from "./useLithoGeoSnapDialog";
 import { useManualLithoUnit } from "./useManualLithoUnit";
+import { packingClassMetaOf } from "../../../utils/geotechHierarchicalFill/packingClassOf";
 import { SectionScopeContext } from "../../../components/sections/SectionScopeContext";
 import type {
   GeotechAxisModel,
@@ -708,14 +709,10 @@ export default function SectionsCanvas(): JSX.Element {
     if (!isGeotech) return undefined;
     const nadMeta = new Map<string, GeotechFormationMeta>();
     for (const f of geotechFormations) {
-      nadMeta.set(f.id, {
-        nadClass: f.nad_class ?? null,
-        soilCode: f.litho_main_soil_code ?? null,
-        // Admixture soil codes feed the SEAM identity so two same-class bands of
-        // different composition (e.g. ZAND vs clay-bearing ZAND, both NAD 12)
-        // still draw their contact (owner walk22b).
-        admixtureCodes: (f.litho_admixtures ?? []).map((a) => a.soil_code),
-      });
+      // Admixture soil codes feed the SEAM identity (owner walk22b); the litho
+      // unit leads the FILL's class key, so two litho units never weld (owner
+      // 2026-10-03) — both read by ``packingClassMetaOf``.
+      nadMeta.set(f.id, packingClassMetaOf(f));
     }
     const lithoSoilByFormationId = new Map<string, string | null>();
     const lithoFormationColorById = new Map<string, string>();
