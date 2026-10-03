@@ -147,3 +147,86 @@ async def test_a_borehole_whose_xml_fails_to_download_is_not_found(
 
     assert result.found is True
     assert result.borehole_id is None
+
+
+# --- Owner dogfeed 2026-10-03: a second lab preview inserted a duplicate -> 500 ---
+
+
+@pytest.mark.asyncio
+async def test_a_borehole_already_in_the_project_is_returned_not_downloaded_again(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """The project already holds (project, 'DOV', test_id) → that borehole is
+    returned; no XML download, no new BoreholeOrm, nothing committed."""
+    existing = uuid4()
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={_NAME: existing}
+    )
+    download = AsyncMock(return_value=[(_row(), _parsed())])
+    with (
+        patch(f"{_MOD}.DovBoreholeClient.find_by_name", new=AsyncMock(return_value=_row())),
+        patch(f"{_MOD}.DovBoreholeClient.fetch_rows_processed", new=download),
+    ):
+        result = await use_case.execute_by_name(_NAME, app_project_id=uuid4())
+
+    assert result.found is True
+    assert result.borehole_id == existing
+    assert result.already_in_project is True
+    download.assert_not_awaited()
+    use_case._repo.save.assert_not_awaited()  # type: ignore[attr-defined]
+    use_case._session.commit.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_a_concurrent_insert_of_the_same_borehole_returns_that_borehole(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """Two previews race: both saw no row, the other one committed first, so
+    this one's flush hits ``uq_borehole_app_project_source_test``. The write is
+    rolled back and the borehole the other request stored is returned."""
+    from sqlalchemy.exc import IntegrityError
+
+    winner = uuid4()
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[{}, {}, {_NAME: winner}]
+    )
+    use_case._session.rollback = AsyncMock()  # type: ignore[attr-defined]
+    clash = IntegrityError("INSERT", {}, Exception("uq_borehole_app_project_source_test"))
+    with (
+        patch(f"{_MOD}.DovBoreholeClient.find_by_name", new=AsyncMock(return_value=_row())),
+        patch(
+            f"{_MOD}.DovBoreholeClient.fetch_rows_processed",
+            new=AsyncMock(return_value=[(_row(), _parsed())]),
+        ),
+        patch(f"{_MOD}.ImportInterpretationsDov.execute", new=AsyncMock(side_effect=clash)),
+    ):
+        result = await use_case.execute_by_name(_NAME, app_project_id=uuid4())
+
+    use_case._session.rollback.assert_awaited_once()  # type: ignore[attr-defined]
+    assert result.found is True
+    assert result.borehole_id == winner
+    assert result.already_in_project is True
+
+
+@pytest.mark.asyncio
+async def test_a_conflict_that_is_not_the_same_borehole_is_raised(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """The clash is rolled back, but when no such borehole is there afterwards
+    the error is not hidden: the caller sees the IntegrityError."""
+    from sqlalchemy.exc import IntegrityError
+
+    use_case._repo.find_existing_test_ids = AsyncMock(return_value={})  # type: ignore[method-assign]
+    use_case._session.rollback = AsyncMock()  # type: ignore[attr-defined]
+    clash = IntegrityError("INSERT", {}, Exception("some_other_constraint"))
+    with (
+        patch(f"{_MOD}.DovBoreholeClient.find_by_name", new=AsyncMock(return_value=_row())),
+        patch(
+            f"{_MOD}.DovBoreholeClient.fetch_rows_processed",
+            new=AsyncMock(return_value=[(_row(), _parsed())]),
+        ),
+        patch(f"{_MOD}.ImportInterpretationsDov.execute", new=AsyncMock(side_effect=clash)),
+        pytest.raises(IntegrityError),
+    ):
+        await use_case.execute_by_name(_NAME, app_project_id=uuid4())
+    use_case._session.rollback.assert_awaited_once()  # type: ignore[attr-defined]
