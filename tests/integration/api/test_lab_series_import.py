@@ -379,3 +379,101 @@ async def test_the_borehole_list_counts_the_lab_tests_per_borehole(
     assert listing.status_code == 200, listing.text
     counts = {row["id"]: row["lab_series_count"] for row in listing.json()}
     assert counts == {str(bh.id): 1, str(other.id): 0}
+
+
+# --- Owner dogfeed 2026-10-03: 200568B7 preview answered 500 (duplicate borehole) ---
+
+
+async def test_the_dov_borehole_already_in_the_project_is_proposed_without_asking_dov(
+    async_client: AsyncClient, db_session: AsyncSession, monkeypatch
+) -> None:
+    """Listing 20/0568 names GEO-19/122 + B7A; the project holds DOV's
+    ``1411-GEO-19/122-B7A`` (renamed by the user, so only its test_id still
+    reads that way) → proposed, DOV never asked, no 500."""
+    project = await make_project(db_session)
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="B7A renamed",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="1411-GEO-19/122-B7A",
+        location_x=150000.0,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=30.0,
+    )
+    db_session.add(bh)
+    await db_session.commit()
+    asked: list[str] = []
+
+    async def fake_by_name(self, name, app_project_id=None):
+        asked.append(name)
+        raise AssertionError("DOV must not be asked")
+
+    monkeypatch.setattr(ImportBoreholeDov, "execute_by_name", fake_by_name)
+    r = await _post(async_client, "preview", _OED_0568, {"project_id": project.id})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert asked == []
+    assert body["borehole_match"] == "unique"
+    assert body["proposed_borehole_id"] == str(bh.id)
+    assert body["dov_lookup"] is None
+    assert body["existing_test"] is None
+
+
+async def test_the_by_name_import_returns_the_stored_borehole_and_inserts_no_duplicate(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    """``execute_by_name`` for a borehole the project already holds as
+    (project, 'DOV', test_id) returns that row; no second row, no download."""
+    from unittest.mock import AsyncMock
+
+    from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import (
+        BoreholeWfsRow,
+    )
+    from groundmodel.infrastructure.parsers.borehole.dov.dov_client import DovBoreholeClient
+
+    project = await make_project(db_session)
+    stored = await _borehole(db_session, project.id, "1411-GEO-19/122-B7A")
+    row = BoreholeWfsRow(
+        permkey="2019-123456",
+        test_id="1411-GEO-19/122-B7A",
+        fiche_url="https://www.dov.vlaanderen.be/data/boring/2019-123456",
+        xml_url="https://www.dov.vlaanderen.be/xdov/proxy/export/boring/2019-123456",
+        x=150000.0,
+        y=200000.0,
+        z=5.0,
+        drill_method=None,
+        municipality=None,
+        executor=None,
+        purpose=None,
+        total_depth_m=30.0,
+        has_coded_lithology=False,
+        has_geotechnical_coding=False,
+        has_lithological_description=True,
+        has_informal_stratigraphy=False,
+        has_formal_stratigraphy=False,
+        has_quaternary_stratigraphy=False,
+        has_hydrogeological_stratigraphy=False,
+        has_informal_hydrogeological_stratigraphy=False,
+    )
+    download = AsyncMock()
+    monkeypatch.setattr(DovBoreholeClient, "find_by_name", AsyncMock(return_value=row))
+    monkeypatch.setattr(DovBoreholeClient, "fetch_rows_processed", download)
+
+    result = await ImportBoreholeDov(db_session).execute_by_name(
+        "GEO-19/122-B7A", app_project_id=project.id
+    )
+
+    assert result.already_in_project is True
+    assert result.borehole_id == stored.id
+    download.assert_not_awaited()
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(BoreholeOrm)
+        .where(
+            BoreholeOrm.app_project_id == project.id,
+            BoreholeOrm.test_id == "1411-GEO-19/122-B7A",
+        )
+    )
+    assert count == 1
