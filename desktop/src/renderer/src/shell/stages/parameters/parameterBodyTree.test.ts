@@ -436,19 +436,15 @@ describe('parameterBodyTree — manual groups (debt #278 D1/D2)', () => {
 // separate litho unit, so gets a separate dropdown."
 //
 // An admixture VARIANT (e.g. ZAND (GL|KL) — glauconitic, clayey sand) is its own
-// litho FORMATION row, distinct from the plain ZAND. In the litho model the two
-// weld into ONE body mass (shared body_id), and the body's roster HOME is the
-// plain unit. Their geotech packing bands carry ``source_litho_formation_id`` = the
-// variant. Before the fix the tree homed each geotech band by the welded litho
-// body's home formation, so the variant unit rendered as a childless leaf and its
-// packing sat beneath the plain unit. The tree must home the packing by the SOURCE
-// litho formation: the variant unit gets its own dropdown, and a packing body never
-// sits under another formation's node.
+// litho FORMATION row, distinct from the plain ZAND, and — owner 2026-10-03, "a
+// zand and zand/matig siltig are 2 different lithologies, never weld those" — its
+// own bodies: the two never share a body_id, each body is homed on its own unit,
+// and a body is listed under that home unit only.
 describe('parameterBodyTree — an admixture variant is its own unit node (owner 2026-09-16)', () => {
-  // ZAND and ZAND (GL|KL) are two litho FORMATIONS welded into ONE body 'zbW'; the
-  // roster homes that body to the plain ZAND. Each formation is subdivided to NAD 6
-  // (one geotech body each): the plain sand's packing is 'gzMd', the variant's is
-  // 'ggMd'.
+  // ZAND and ZAND (GL|KL) are two litho FORMATIONS with a body each ('zb0' homed on
+  // ZAND, 'gb0' homed on the variant, both #0). Each formation is subdivided to
+  // NAD 6 (one geotech body each): the plain sand's packing is 'gzMd', the
+  // variant's is 'ggMd'.
   function makeVariantScene(): ParameterTreeInput {
     const lithoFormations = [
       formation('zand', { name: 'ZAND', display_order: 0, litho_main_soil_code: 'ZAND' }),
@@ -459,16 +455,18 @@ describe('parameterBodyTree — an admixture variant is its own unit node (owner
       formation('zandglkl-md', { nad_class: 6, source_litho_formation_id: 'zand-glkl' }),
     ]
     const lithoLayers = [
-      layer('Lz', { formation_id: 'zand', body_id: 'zbW', cpt_id: 'c1' }),
-      layer('Lg', { formation_id: 'zand-glkl', body_id: 'zbW', cpt_id: 'c1' }),
+      layer('Lz', { formation_id: 'zand', body_id: 'zb0', cpt_id: 'c1' }),
+      layer('Lg', { formation_id: 'zand-glkl', body_id: 'gb0', cpt_id: 'c1' }),
     ]
     const geotechLayers = [
       layer('gz', { formation_id: 'zand-md', parent_litho_layer_id: 'Lz', body_id: 'gzMd', cpt_id: 'c1' }),
       layer('gg', { formation_id: 'zandglkl-md', parent_litho_layer_id: 'Lg', body_id: 'ggMd', cpt_id: 'c1' }),
     ]
-    // The welded body's ONE roster home is the plain ZAND — what made the variant a
-    // childless leaf and pushed its packing beneath SAND.
-    const lithoBodies = roster([['zbW', { name: null, body_ordinal: 0, formation_id: 'zand' }]])
+    // Each unit numbers its own bodies from #0 (owner 2026-10-03).
+    const lithoBodies = roster([
+      ['zb0', { name: null, body_ordinal: 0, formation_id: 'zand' }],
+      ['gb0', { name: null, body_ordinal: 0, formation_id: 'zand-glkl' }],
+    ])
     const geotechBodies = roster([
       ['gzMd', { name: null, body_ordinal: 0, formation_id: 'zand-md' }],
       ['ggMd', { name: null, body_ordinal: 0, formation_id: 'zandglkl-md' }],
@@ -512,6 +510,28 @@ describe('parameterBodyTree — an admixture variant is its own unit node (owner
       .map(b => b.id)
       .sort()
     expect(plainBands).toEqual(['gz'])
+  })
+
+  it('PT-V4 — "a body is listed under its home unit only" (owner 2026-10-03)', () => {
+    // A stale body stamped before the ruling (one body id over a ZAND band and a
+    // ZAND (GL|KL) band, homed on ZAND) shows under ZAND and NOT under the variant:
+    // the 2026-09-16 "under every unit it carries bands of" path is retired.
+    const scene = makeVariantScene()
+    const stale: ParameterTreeInput = {
+      ...scene,
+      lithoLayers: [
+        layer('Lz', { formation_id: 'zand', body_id: 'zbW', cpt_id: 'c1' }),
+        layer('Lg', { formation_id: 'zand-glkl', body_id: 'zbW', cpt_id: 'c1' }),
+      ],
+      lithoBodies: roster([['zbW', { name: null, body_ordinal: 4, formation_id: 'zand' }]]),
+    }
+    const tree = buildParameterTree(stale)
+    const bodiesUnder = (unitId: string): string[] =>
+      (unitNode(tree, unitId)?.children ?? [])
+        .filter(n => n.scope.kind === 'litho-body')
+        .map(n => (n.scope as { bodyId: string }).bodyId)
+    expect(bodiesUnder('zand')).toContain('zbW')
+    expect(bodiesUnder('zand-glkl')).not.toContain('zbW')
   })
 
   it('PT-V3 — "a join across two litho parents still shows the group on both members"', () => {
