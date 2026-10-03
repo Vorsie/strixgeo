@@ -615,17 +615,20 @@ describe('SectionsCanvas — geotech axis model smoke (TDZ net)', () => {
     expect(bundle.geotechLayers.map((l) => l.id)).toEqual(['gl-1', 'gl-2'])
 
     // nadMeta keyed by GEOTECH formation id → NAD class + soil code + admixture
-    // codes (the last feeds the admixture-aware seam identity, walk22b; these
-    // clean sand fixtures carry none).
+    // codes (the seam identity, walk22b; these clean sand fixtures carry none) +
+    // the litho unit the row subdivides (the fill's class key, owner 2026-10-03;
+    // these fixtures carry none).
     expect(bundle.nadMeta.get(GEO_SAND_MEDIUM_ID)).toEqual({
       nadClass: 6,
       soilCode: 'ZA',
       admixtureCodes: [],
+      lithoUnitId: null,
     })
     expect(bundle.nadMeta.get(GEO_SAND_DENSE_ID)).toEqual({
       nadClass: 7,
       soilCode: 'ZA',
       admixtureCodes: [],
+      lithoUnitId: null,
     })
 
     // litho maps keyed by LITHO formation id (soil-code guard + fill colour).
