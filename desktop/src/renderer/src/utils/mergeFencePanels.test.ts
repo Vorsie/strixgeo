@@ -186,9 +186,10 @@ describe('mergeFencePanels — one connected body, one panel', () => {
   })
 
   it('stamps a merged wall with the FIRST member formationId when members disagree', () => {
-    // A cross-family-welded body can carry panels of two formations (see the
-    // module docstring's KNOWN LIMITATION). The merge stamps the whole wall with
-    // the first member's formationId — deterministic, by render order.
+    // A body's panels can carry two formation ROWS (a legacy geological twin of
+    // one class — a body never spans two litho units, owner 2026-10-03). The
+    // merge stamps the whole wall with the first member's formationId —
+    // deterministic, by render order.
     const panels = [
       quad('ZAND', 'z', ['la'], 0, 50, 5, 0),
       quad('LEEM', 'z', ['lb'], 50, 100, 5, 0),
