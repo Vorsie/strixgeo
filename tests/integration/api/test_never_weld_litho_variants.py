@@ -27,6 +27,8 @@ NW-4  A Join (group) of the two bodies is ACCEPTED — the hand-pooling path sta
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -201,10 +203,33 @@ async def nw_scene(
     }
 
 
-async def _layer(session: AsyncSession, layer_id: str) -> LithoLayerOrm:
-    """Re-read one litho layer row (expire first so the resolver's stamp shows)."""
-    session.expire_all()
-    row = await session.get(LithoLayerOrm, layer_id)
+async def _layer(session: AsyncSession, layer_id: str) -> Any:
+    """Read one litho layer's ``(id, formation_id, body_id)`` as a COLUMN select.
+
+    Not ORM instances: the app commits its ``body_id`` stamps in a separate
+    session, and an expired cached instance in ``db_session`` would refresh with
+    a synchronous lazy load (``MissingGreenlet``). A fresh column select reads
+    the committed values every call and never lazy-loads (the
+    ``test_body_unions._bands`` pattern).
+    """
+    row = (
+        await session.execute(
+            select(LithoLayerOrm.id, LithoLayerOrm.formation_id, LithoLayerOrm.body_id).where(
+                LithoLayerOrm.id == layer_id
+            )
+        )
+    ).one_or_none()
+    assert row is not None
+    return row
+
+
+async def _body(session: AsyncSession, body_id: object) -> Any:
+    """Read one body's ``(formation_id, body_ordinal)`` as a column select."""
+    row = (
+        await session.execute(
+            select(BodyOrm.formation_id, BodyOrm.body_ordinal).where(BodyOrm.id == body_id)
+        )
+    ).one_or_none()
     assert row is not None
     return row
 
@@ -228,9 +253,8 @@ async def test_nw2_each_unit_numbers_its_bodies_from_zero(
     """NW-2 — the variant is a unit in its own right, counting from #0."""
     a = await _layer(db_session, nw_scene["layer_a"])
     b = await _layer(db_session, nw_scene["layer_b"])
-    body_a = await db_session.get(BodyOrm, a.body_id)
-    body_b = await db_session.get(BodyOrm, b.body_id)
-    assert body_a is not None and body_b is not None
+    body_a = await _body(db_session, a.body_id)
+    body_b = await _body(db_session, b.body_id)
     assert body_a.formation_id == a.formation_id
     assert body_b.formation_id == b.formation_id
     assert body_a.body_ordinal == 0
