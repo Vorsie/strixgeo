@@ -77,3 +77,39 @@ class TestFrameTieWarning:
         assert warning is not None
         assert "uuid" not in warning.lower()
         assert FRAME_MISMATCH_REVIEW_REASON == "frame_mismatch"
+
+
+class TestFrameTieAcrossLithoUnits:
+    """FC-6 — owner 2026-10-03: two litho units of one soil never weld."""
+
+    def test_fc6_zand_to_zand_matig_siltig_warns_as_surface_only(self) -> None:
+        """FC-6: "a zand and zand/matig siltig are 2 different lithologies".
+
+        Same main soil, litho-connected by a tie, but two litho UNITS: the tie
+        states a shared surface, never one mass, and the engineer is told so.
+        """
+        warning = frame_tie_warning(
+            soil_a="ZAND",
+            soil_b="ZAND",
+            litho_connected=True,
+            band_a="ZAND (NAD 6) on S1",
+            band_b="ZAND (SL:M) (NAD 6) on S2",
+            same_litho_unit=False,
+        )
+        assert warning is not None
+        assert "different litho units" in warning
+        assert "S1" in warning and "S2" in warning
+
+    def test_fc6b_same_unit_connected_is_still_silent(self) -> None:
+        """FC-6b: negative control - one unit, connected: no warning."""
+        assert (
+            frame_tie_warning(
+                soil_a="ZAND",
+                soil_b="ZAND",
+                litho_connected=True,
+                band_a="a",
+                band_b="b",
+                same_litho_unit=True,
+            )
+            is None
+        )
