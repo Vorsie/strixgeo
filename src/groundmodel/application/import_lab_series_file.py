@@ -31,6 +31,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -67,6 +68,7 @@ from groundmodel.infrastructure.parsers.lab.raw_export.oedometer_listing_result 
 )
 from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import (
+    LabBoreholeConflictError,
     LabSeriesImportRefusedError,
     LabSeriesRefreshConfirmationRequiredError,
     LabSeriesRefreshRefusedError,
@@ -145,6 +147,8 @@ class ImportLabSeriesFile(GroundModelLogger):
             When the file is none of the supported raw exports.
         NotFoundError
             When ``borehole_id`` is not a borehole of the project.
+        LabBoreholeConflictError
+            When the DOV borehole write clashed with a stored row (409).
 
         Notes
         -----
@@ -168,11 +172,7 @@ class ImportLabSeriesFile(GroundModelLogger):
             has_errors=result.has_errors,
         )
 
-        boreholes = await self._repo.list_borehole_names(project_id)
-        names = dict(boreholes)
-        candidates = match_borehole_ids(
-            identity["job_number"], identity["borehole_name"], boreholes
-        )
+        names, candidates = await self._match_project_boreholes(identity, project_id)
         preview.borehole_candidates = [{"id": bid, "name": names[bid]} for bid in candidates]
         if borehole_id is not None:
             if await self._repo.get_borehole(borehole_id, project_id) is None:
@@ -222,21 +222,81 @@ class ImportLabSeriesFile(GroundModelLogger):
         )
         return preview
 
+    async def _match_project_boreholes(
+        self, identity: dict[str, Any], project_id: UUID
+    ) -> tuple[dict[str, str], list[str]]:
+        """The project boreholes whose name OR DOV ``test_id`` ends with ``<job>-<borehole>``.
+
+        The name is what the user sees and may rename; a DOV borehole's
+        ``test_id`` (``1411-GEO-19/122-B7A``) stays DOV's own, so a renamed
+        borehole still matches. Logs at INFO what was considered and, when
+        nothing matched, the same-job boreholes that were rejected
+        ("log what was NOT found").
+
+        Parameters
+        ----------
+        identity : dict[str, Any]
+            The lab's identity (``job_number``, ``borehole_name``).
+        project_id : UUID
+            The app project.
+
+        Returns
+        -------
+        tuple[dict[str, str], list[str]]
+            ``{id: name}`` of every project borehole, and the matching ids in
+            list order (no duplicates).
+        """
+        boreholes = await self._repo.list_borehole_names(project_id)
+        test_ids = await self._repo.list_borehole_test_ids(project_id)
+        names = dict(boreholes)
+        job, hole = identity["job_number"], identity["borehole_name"]
+        by_name = match_borehole_ids(job, hole, boreholes)
+        by_test_id = match_borehole_ids(job, hole, [(b, t) for b, t in test_ids if t])
+        candidates = list(dict.fromkeys([*by_name, *by_test_id]))
+        wanted = f"{job}-{hole}" if hole else f"{job}-*"
+        self.info(
+            f"lab-series preview: {len(boreholes)} project borehole(s) considered for "
+            f"{wanted!r} (name or DOV test_id ends with it): {len(by_name)} by name, "
+            f"{len(by_test_id)} by test_id -> {len(candidates)} candidate(s)"
+        )
+        if not candidates and job:
+            # The matcher without a borehole = every borehole of the job.
+            same_job = [names[b] for b in match_borehole_ids(job, None, boreholes)]
+            shown = ", ".join(repr(n) for n in same_job[:20]) or "none"
+            self.info(
+                f"lab-series preview: no borehole ends with {wanted!r}; same-job boreholes "
+                f"rejected ({len(same_job)}): {shown}"
+            )
+        return names, candidates
+
     async def _fetch_from_dov(
         self, preview: LabSeriesPreview, identity: dict[str, Any], project_id: UUID
     ) -> None:
         """No project borehole matched: ask DOV for ``<job>-<borehole>`` (in place).
 
         Found → imported into the project and proposed (``borehole_match``
-        ``"unique"``). Not found, or DOV not reachable → ``borehole_match``
-        ``"none"`` and ``dov_lookup`` says why; the user picks a borehole or
-        the file is not imported. A DOV failure is never raised on.
+        ``"unique"``). Already in the project (a concurrent preview stored it)
+        → proposed, ``dov_lookup`` stays ``None``. Not found, or DOV not
+        reachable → ``borehole_match`` ``"none"`` and ``dov_lookup`` says why;
+        the user picks a borehole or the file is not imported. A DOV failure is never raised on.
+
+        Raises
+        ------
+        LabBoreholeConflictError
+            The borehole write clashed with a stored row that could not be
+            returned instead (rolled back first).
         """
         name = "".join(f"{identity['job_number']}-{identity['borehole_name']}".split())
         preview.borehole_match = "none"
         self.info(f"lab-series preview: no project borehole ends with {name!r}; asking DOV")
         try:
             outcome = await self._fetch_dov_borehole(name, project_id)
+        except IntegrityError as exc:
+            # A borehole write that clashed and could not be resolved to the
+            # stored row: roll back and refuse by name (409), never a 500.
+            await self._session.rollback()
+            self.warning(f"lab-series preview: borehole write for {name!r} clashed: {exc.orig!r}")
+            raise LabBoreholeConflictError(name) from exc
         except (httpx.HTTPError, TimeoutError) as exc:
             self.warning(f"lab-series preview: DOV not reachable for {name!r}: {exc!r}")
             preview.dov_lookup = {
@@ -252,15 +312,23 @@ class ImportLabSeriesFile(GroundModelLogger):
             preview.dov_lookup = {"status": "not_found", "borehole_name": name, "borehole_id": None}
             return
         bid = str(outcome.borehole_id)
+        preview.borehole_candidates = [{"id": bid, "name": outcome.dov_name}]
+        preview.borehole_match = "unique"
+        preview.proposed_borehole_id = bid
+        if outcome.already_in_project:
+            # Stored meanwhile by another request (or missed by the name
+            # match): a local match, not a DOV fetch — the desktop must not
+            # list it as "fetched from DOV".
+            self.info(
+                f"lab-series preview: {outcome.dov_name!r} is already in the project as {bid}"
+            )
+            return
         self.success(f"lab-series preview: fetched {outcome.dov_name!r} from DOV as {bid}")
         preview.dov_lookup = {
             "status": "fetched",
             "borehole_name": outcome.dov_name,
             "borehole_id": bid,
         }
-        preview.borehole_candidates = [{"id": bid, "name": outcome.dov_name}]
-        preview.borehole_match = "unique"
-        preview.proposed_borehole_id = bid
 
     # ------------------------------------------------------------------ execute
 
