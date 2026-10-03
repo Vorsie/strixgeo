@@ -29,7 +29,7 @@ class LithoBodySolidResponse(BaseModel):
     formation_id : UUID
         The geological formation (= lithology) the body belongs to.
     body_ordinal : int
-        The body's ordinal within its formation's naming group (0-based,
+        The body's ordinal within its mass unit (one sequence per litho unit, 0-based,
         assigned by ``ResolveLithoInstances``).  Combined with the lithology
         name gives a stable human handle such as "SILT #3".
     method : str
