@@ -17,6 +17,7 @@ import time
 from uuid import UUID
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -215,12 +216,18 @@ class ImportBoreholeDov(GroundModelLogger):
         Returns
         -------
         ImportBoreholeDovByNameResult
-            ``found`` False when DOV has no such borehole (nothing written).
+            ``found`` False when DOV has no such borehole (nothing written);
+            ``already_in_project`` True when the project already holds DOV's
+            ``(project, "DOV", test_id)`` row, before the download or after a
+            concurrent request stored it (nothing written, that row returned).
 
         Raises
         ------
         httpx.HTTPStatusError, httpx.RequestError
             When DOV answers an error or cannot be reached (logged first).
+        sqlalchemy.exc.IntegrityError
+            A write clash that is not this borehole stored by another request
+            (the session is rolled back first).
         """
         self.info(f"DOV borehole by name: {name!r} into project {app_project_id}")
         t_total = time.perf_counter()
@@ -233,21 +240,47 @@ class ImportBoreholeDov(GroundModelLogger):
             if row is None:
                 self.warning(f"DOV borehole by name {name!r}: DOV has no such borehole")
                 return ImportBoreholeDovByNameResult(found=False, dov_name=name)
+            # Idempotent: the project may already hold DOV's borehole (the
+            # caller's name match missed it, or another request stored it a
+            # moment ago). Return that row; download and write nothing.
+            already = await self._existing_by_test_id(row.test_id, app_project_id)
+            if already is not None:
+                return already
             parsed = await fetch_wfs_or_raise(
                 client.fetch_rows_processed([row], DovBoringParser().parse),
                 label="borehole by name",
                 logger=self,
             )
-            batch = await self._persist_parsed(
-                http,
-                1,
-                parsed,
-                _box_around(row),
-                app_project_id,
-                None,
-                backoff,
-                t_total,
-            )
+            try:
+                batch = await self._persist_parsed(
+                    http,
+                    1,
+                    parsed,
+                    _box_around(row),
+                    app_project_id,
+                    None,
+                    backoff,
+                    t_total,
+                )
+            except IntegrityError as exc:
+                # Owner dogfeed 2026-10-03: two lab previews of one file both
+                # saw no row; the other committed first, so this flush hit
+                # uq_borehole_app_project_source_test. Roll back, then return
+                # the row the other request stored. Any other clash re-raises.
+                await self._session.rollback()
+                self.warning(
+                    f"DOV borehole by name {row.test_id!r}: write clashed "
+                    f"({type(exc.orig).__name__ if exc.orig else 'IntegrityError'}: "
+                    f"{str(exc.orig)[:200]}); rolled back, looking for the stored row"
+                )
+                stored = await self._existing_by_test_id(row.test_id, app_project_id)
+                if stored is None:
+                    self.error(
+                        f"DOV borehole by name {row.test_id!r}: clash but no "
+                        f"(project {app_project_id}, DOV, {row.test_id!r}) row — re-raising"
+                    )
+                    raise
+                return stored
         borehole_id = batch.borehole_ids[0] if batch.borehole_ids else None
         if borehole_id is None:
             self.warning(f"DOV borehole by name {row.test_id!r}: found but not persisted")
@@ -255,6 +288,39 @@ class ImportBoreholeDov(GroundModelLogger):
             self.success(f"DOV borehole by name {row.test_id!r} -> {borehole_id}")
         return ImportBoreholeDovByNameResult(
             found=True, dov_name=row.test_id, borehole_id=borehole_id, batch=batch
+        )
+
+    async def _existing_by_test_id(
+        self, test_id: str, app_project_id: UUID | None
+    ) -> ImportBoreholeDovByNameResult | None:
+        """The project's stored DOV borehole ``test_id`` as a by-name result, or ``None``.
+
+        Parameters
+        ----------
+        test_id : str
+            DOV's borehole name (``1411-GEO-19/122-B7A``).
+        app_project_id : UUID | None
+            The project scope (same scoping as the bbox dedup).
+
+        Returns
+        -------
+        ImportBoreholeDovByNameResult or None
+            ``already_in_project`` True with the stored id; ``None`` when the
+            project holds no such row.
+        """
+        existing = await self._repo.find_existing_test_ids(
+            DOV_PROJECT_ID, [test_id], app_project_id
+        )
+        borehole_id = existing.get(test_id)
+        if borehole_id is None:
+            self.debug(f"DOV borehole by name {test_id!r}: not in project {app_project_id} yet")
+            return None
+        self.info(
+            f"DOV borehole by name {test_id!r}: already in project {app_project_id} as "
+            f"{borehole_id} — nothing downloaded, nothing written"
+        )
+        return ImportBoreholeDovByNameResult(
+            found=True, dov_name=test_id, borehole_id=borehole_id, already_in_project=True
         )
 
     async def _persist_parsed(
