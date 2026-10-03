@@ -638,20 +638,12 @@ class DxfSectionExporter(SectionExporter):
                 )
                 parts_by_body.setdefault(body_key, []).append((part, layer_name))
         # One label per body, at its largest part (representative_point is always
-        # inside, a centroid is not for a crescent). A resolver body can span two
-        # units (a cross-family weld, "one mass one body"); it still gets one
-        # number, listed under the layer of its largest part.
+        # inside, a centroid is not for a crescent). A resolver body is one litho
+        # unit (owner 2026-10-03: two units never weld), so its index entry is
+        # listed under that unit's layer.
         labelled: list[tuple[float, float, Polygon, str]] = []
-        multi_unit = 0
-        for body_key, parts in parts_by_body.items():
+        for parts in parts_by_body.values():
             largest, layer_name = max(parts, key=lambda item: item[0].area)
-            layers = {name for _part, name in parts}
-            if len(layers) > 1:
-                multi_unit += 1
-                self.debug(
-                    f"DXF body {body_key[1]} spans {len(layers)} unit layer(s) "
-                    f"{sorted(layers)}; indexed under {layer_name!r} (its largest part)"
-                )
             top = max(part.bounds[3] for part, _name in parts)
             left = min(part.bounds[0] for part, _name in parts)
             labelled.append((top, left, largest, layer_name))
@@ -674,8 +666,8 @@ class DxfSectionExporter(SectionExporter):
             )
         self.debug(
             f"DXF section export drew {drawn} fill part(s) from {len(fill.polygons)} region(s) "
-            f"as {len(drawn_bodies)} labelled body(ies) ({multi_unit} spanning two or more "
-            f"units, {sum(1 for p in fill.polygons if p.body_id is None)} region(s) "
+            f"as {len(drawn_bodies)} labelled body(ies) "
+            f"({sum(1 for p in fill.polygons if p.body_id is None)} region(s) "
             f"without a body id)"
         )
         return drawn_bodies
