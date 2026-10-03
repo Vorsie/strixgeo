@@ -4053,7 +4053,8 @@ to prompt them one at a time without flooding the user.  Owner
 directive: ship single-path first, revisit if bulk-path slivers
 become a dogfeed pain point.
 
-## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration) — WONTFIX 2026-09-22
+## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — SHELVED 2026-06-22, placement under reconsideration) — WONTFIX 2026-09-22
+
 
 **WONTFIX 2026-09-22 (owner): "it'll become a mess on accept-all."** Not built and
 not planned: the prompt would fire N times per Accept-all and the response carries no
@@ -9712,10 +9713,15 @@ BP-4 in `test_body_partition_litho_write_recompute_race.py`.
   stats routing are undesigned. The arm plumbing is already axis-agnostic.
 * **Visual mark for a standing separation** (ux flag, owner dogfeed call) and
   a Rejoin-list overflow bound (menu height) — deferred to dogfeed.
-* **crossFamilyWeld × merged-panel formationId**: a cross-family-welded body's
-  fence panel now carries ONE member's formationId across the whole wall —
-  cutout filter / legend "walled" mark / DXF layer credit only that formation.
-  Enriches the standing EYEBALL-ONLY item; change nothing until seen on screen.
+* ~~**crossFamilyWeld × merged-panel formationId**~~ — **SUPERSEDED
+  2026-10-03.** The owner saw the case (testproject_dev litho body #4: 88 bands,
+  ~55 ZAND + ~33 ZAND (SL:M), one body because the bands touched) and ruled
+  *"a zand and zand/matig siltig are 2 different lithologies, never weld
+  those"*. A body is now one litho unit end to end: the resolver's `same_mass`
+  compares the unit, ordinals number per unit, the fill / voxel / fence class
+  key is `UNIT|SOIL|CLASS`, the Parameters tree lists a body under its home
+  unit only, and Join (group) stays the hand-pooling path. A merged fence
+  wall's single formationId stamp can no longer span two units.
 
 Original rulings (2026-08-31) kept below for the record.
 
