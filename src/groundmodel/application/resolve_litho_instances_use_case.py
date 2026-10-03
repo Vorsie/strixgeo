@@ -74,7 +74,8 @@ class _BodyChange(TypedDict):
     formation_id : str
         String form of the body's formation UUID.
     new_ordinal : int
-        The body's ordinal within its ``(parent, soil)`` naming group.
+        The body's ordinal within its mass unit (one sequence per litho unit,
+        plus per NAD class on a geotech model; owner 2026-10-03).
     """
 
     formation_id: str
@@ -248,6 +249,7 @@ tuple[tuple[UUID, UUID], ...]]
                 GeologicalFormationOrm.parent_formation_id,
                 GeologicalFormationOrm.litho_main_soil_code,
                 GeologicalFormationOrm.nad_class,
+                GeologicalFormationOrm.source_litho_formation_id,
             )
             .join(GeologicalFormationOrm, GeologicalFormationOrm.id == LithoLayerOrm.formation_id)
             .where(
@@ -276,6 +278,11 @@ tuple[tuple[UUID, UUID], ...]]
             # (owner 2026-08-21: one mass one body). None on litho and on
             # skeleton bands, where the row comparison stands.
             packing_nad_class=r.nad_class if is_geotechnical else None,
+            # The litho UNIT the band subdivides (owner 2026-10-03: "a zand and
+            # zand/matig siltig are 2 different lithologies, never weld those") —
+            # two bands of different litho units never share a geotech body. A
+            # litho layer's unit is its own formation row (``litho_unit_of``).
+            litho_unit_id=r.source_litho_formation_id if is_geotechnical else None,
         )
         for r in layer_rows
     ]
