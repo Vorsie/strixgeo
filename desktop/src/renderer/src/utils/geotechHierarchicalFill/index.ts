@@ -71,9 +71,10 @@ export interface HierarchicalGeotechFillInput {
   /** Along-section metres, 1:1 with ``lithoColumns``. */
   alongM: readonly number[]
   /**
-   * Geotech formation id → canonical packing-class key (``SOIL|CLASS``, see
-   * ``buildPackingClassOf``). The law compares *"litho and packing density"* —
-   * the CLASS — but the model stores one formation ROW per (class, litho
+   * Geotech formation id → canonical packing-class key (``UNIT|SOIL|CLASS``,
+   * see ``buildPackingClassOf``). The law compares *"litho and packing
+   * density"* — the litho UNIT (owner 2026-10-03: ZAND and ZAND (SL:M) never
+   * weld) and the CLASS — but the model stores one formation ROW per (class, litho
    * parent, GEOLOGICAL parent), so the same NAD class exists under several row
    * ids and comparing rows reads two NAD-6 sands as different masses wherever
    * a geological boundary crosses the gap (owner ruling 2026-08-21: *"one mass
@@ -126,9 +127,10 @@ export interface HierarchicalGeotechFillDiagnostics {
   /** Cover the dominant-mass step classified, in square metres. */
   levelFilledAreaM2: number
   /**
-   * Same-class masses welded ACROSS litho families (owner 2026-08-21, option
-   * 3: a closed lens touching a same-class mass from another family is one
-   * mass and one body, no tie needed).
+   * Same-class masses of ONE litho unit welded ACROSS litho families (owner
+   * 2026-08-21, option 3: a closed lens touching a same-class mass from another
+   * family is one mass and one body, no tie needed). Two litho units never weld
+   * (owner 2026-10-03) — the class key carries the unit.
    */
   crossFamilyWelds: number
   /**
@@ -507,8 +509,9 @@ export function computeHierarchicalGeotechFill(
   const splitRemainders = filled.splitRemainders
   residualAreaM2.outsideBandRange += filled.residualOutsideBandRangeM2
 
-  // THE FILL SWEEP CROSSES FAMILIES (owner ruling 2026-08-21, option 3: one
-  // mass one body, no tie needed) — see ``crossFamilyWeld.ts``.
+  // THE FILL SWEEP CROSSES FAMILIES OF ONE LITHO UNIT (owner ruling 2026-08-21,
+  // option 3: one mass one body, no tie needed; never across two units, owner
+  // 2026-10-03) — see ``crossFamilyWeld.ts``.
   const swept = weldAcrossFamilies(
     regions,
     (formationId) => input.packingClassOf?.get(formationId) ?? formationId,
