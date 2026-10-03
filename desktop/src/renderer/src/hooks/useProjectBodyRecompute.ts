@@ -35,7 +35,10 @@ import type {
   SectionLike,
 } from '../utils/assembleLithoSectionInputs'
 import { useBodyRecompute, type UseBodyRecomputeResult } from './useBodyRecompute'
-import { buildPackingClassOf } from '../utils/geotechHierarchicalFill/packingClassOf'
+import {
+  packingClassOfFormations,
+  type PackingClassSource,
+} from '../utils/geotechHierarchicalFill/packingClassOf'
 
 /**
  * Module-ref bridge to the toolbar's "4 · Divide boreholes" verb.
@@ -90,7 +93,7 @@ export interface UseProjectBodyRecomputeArgs {
    * formation row per (class, litho parent, geological parent), so identity
    * evidence must compare the CLASS, never the row).
    */
-  geotechFormations: readonly { id: string; nad_class: number | null; litho_main_soil_code: string | null }[]
+  geotechFormations: readonly PackingClassSource[]
   /** Coordinator nonce — bumped by every litho-model mutation site. */
   bodyRecomputeLithoNonce: number
   /** Coordinator nonce — bumped by every geotech-model mutation site. */
@@ -137,11 +140,7 @@ export function useProjectBodyRecompute(
   // groups by (litho passes none and keeps row identity).
   const geotechPackingClassOf = useMemo(
     () =>
-      buildPackingClassOf(
-        geotechFormations.map(
-          f => [f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null }] as const,
-        ),
-      ),
+      packingClassOfFormations(geotechFormations),
     [geotechFormations],
   )
 
