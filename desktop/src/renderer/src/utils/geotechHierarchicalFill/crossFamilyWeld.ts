@@ -1,13 +1,22 @@
 /**
  * THE FILL SWEEP ACROSS FAMILIES (owner ruling 2026-08-21, option 3 of the
  * gap0_lens_dissolve_choice page — *"option 3 ofcourse"*, on top of *"yes one
- * mass one body"*): a closed lens touching a same-class mass from ANOTHER
- * litho family welds into it — in the renderer, and in the database through
- * the layer ids the welded region carries into the body-recompute evidence.
+ * mass one body"*): a closed lens touching a same-class mass of the SAME litho
+ * unit from ANOTHER litho family welds into it — in the renderer, and in the
+ * database through the layer ids the welded region carries into the
+ * body-recompute evidence.
+ *
+ * Never across two litho units (owner ruling 2026-10-03, verbatim: *"a zand and
+ * zand/matig siltig are 2 different lithologies, never weld those"*). The
+ * class key (``buildPackingClassOf``) leads with the litho unit, so a NAD-6
+ * ZAND (SL:M) lens touching a NAD-6 ZAND mass keeps its own outline and its
+ * contact is a body boundary like ZAND / KLEI; a tie between them is a surface
+ * statement only.
  *
  * The litho stage closed such a lens with no litho tie, so it is its own
  * family and the per-family merge can never reach it. This pass runs the SAME
- * weld (``mergeFaces``) over a whole gap's classed faces, keyed on the CLASS.
+ * weld (``mergeFaces``) over a whole gap's classed faces, keyed on the CLASS
+ * KEY (unit + soil + class).
  * Faces from different family runs state their shared boundary at different
  * granularities (one long edge vs two split halves), so every ring is first
  * split at the other rings' vertices that lie on its edges — then the edge
@@ -74,10 +83,11 @@ function splitAtSharedVertices(rings: readonly Pt[][]): Pt[][] {
 }
 
 /**
- * Weld touching same-class faces across litho families, per gap.
+ * Weld touching same-class faces of one litho unit across litho families, per gap.
  *
  * @param regions The classed faces of the whole section, any gap order.
- * @param classKeyOf Formation row → canonical class key (row id fallback).
+ * @param classKeyOf Formation row → canonical class key, litho unit included
+ *   (row id fallback).
  * @param separatedPairs Canonical ``a|b`` layer-id pairs the engineer separated — a
  *   cross-family weld whose combined layers would hold BOTH sides is skipped, so the
  *   paint seam survives (owner 2026-08-31, debt #278 R5). Absent leaves the sweep
