@@ -328,14 +328,14 @@ def layer_donor_picks(
     The unit test is stricter than the soil test on purpose (owner ruling
     2026-09-14, borehole GEO-07/182-B2: *"i redivided B2 but there is still a
     dense sand, while there is no dense sand in that litho unit on each adjacent
-    test"*).  The resolver welds every admixture variant of one soil into ONE
-    litho body (``resolve_litho_instances.same_mass``), so a clean ``ZAND`` unit
-    and the glauconitic ``ZAND (GL:|KL:)`` unit below it share a body id.  Where
-    the borehole's own clean sand reaches deeper than the flank's clean sand,
-    the flank's glauconitic pick overlaps the receiver's extent MORE, and the
-    old SOIL test admitted it — so the neighbouring unit's DENSE class was lent
-    onto a clean sand every adjacent test read medium dense.  A neighbouring
-    unit's class is never lent, whatever the body welding says: only the SAME
+    test"*).  The resolver then welded every admixture variant of one soil into
+    ONE litho body, so a clean ``ZAND`` unit and the glauconitic ``ZAND
+    (GL:|KL:)`` unit below it shared a body id, and the old SOIL test lent the
+    neighbouring unit's DENSE class onto a clean sand every adjacent test read
+    medium dense.  Since owner 2026-10-03 a body never spans two litho units
+    (``resolve_litho_instances.same_mass``), and the unit gate stays as the
+    explicit statement of the rule — it also holds while a body id is stale
+    between an accept and the next resolve.  Only the SAME
     litho unit on the flank donates, and where a flank carries no band of that
     unit at all it contributes nothing (the receiver then falls to the
     conservative floor of ``apply_column_floor``, §8-0b).  The finer key still
@@ -346,15 +346,15 @@ def layer_donor_picks(
     correlated : Sequence[BodyLayerPick]
         Layers this one is tied to by an approved litho correlation.
     body_picks : Sequence[BodyLayerPick]
-        Layers sharing this one's litho body, whatever geological band — and,
-        because the body welds admixture variants of one soil, whatever
-        litho unit; the ``receiver_formation_id`` gate is what confines them.
+        Layers sharing this one's litho body, whatever geological band. A body
+        is one litho unit (owner 2026-10-03); the ``receiver_formation_id``
+        gate states that rule explicitly for the correlated donors too.
     receiver_formation_id : str
         The receiver litho unit's ``source_litho_formation_id``, stringified —
         the group key's litho formation (``_group_segments`` keys each planning
         group on it).  A donor pick donates only when its own
         ``formation_id`` equals this, so a clean sand borrows only from clean
-        sand and never from the glauconitic sand welded into the same body.
+        sand and never from the neighbouring glauconitic sand.
     layer_top_elev_m, layer_base_elev_m : float
         The borehole layer's extent in elevation, top above base.
     flanking_investigations : set[str]
@@ -398,9 +398,9 @@ def layer_donor_picks(
             continue
         if pick.investigation_id not in flanking_investigations:
             continue
-        # A body welds admixture variants of one soil, so the body pool carries
-        # the glauconitic sand alongside the clean one; the unit gate keeps only
-        # the receiver's own litho unit.
+        # Only the receiver's own litho unit donates (owner 2026-09-14). A body is
+        # one unit since 2026-10-03, so this holds by construction; the gate
+        # keeps it true while a stamped body id is stale.
         if str(pick.formation_id) != receiver_formation_id:
             continue
         by_investigation[pick.investigation_id].append(pick)
