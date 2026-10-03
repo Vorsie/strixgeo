@@ -60,6 +60,30 @@ class LabSeriesRepository(GroundModelLogger):
         )
         return [(str(r.id), r.name) for r in rows]
 
+    async def list_borehole_test_ids(self, project_id: UUID) -> list[tuple[str, str]]:
+        """Return ``(id, test_id)`` of every borehole in the project, by name.
+
+        The source identifier (a DOV borehole's ``1411-GEO-19/122-B7A``) stays
+        the source's own when the user renames the borehole, so the lab match
+        also reads it.
+
+        Parameters
+        ----------
+        project_id : UUID
+            The app project.
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            Borehole ids (as strings) and test ids (``""`` when none).
+        """
+        rows = await self._session.execute(
+            select(BoreholeOrm.id, BoreholeOrm.test_id)
+            .where(BoreholeOrm.app_project_id == project_id)
+            .order_by(BoreholeOrm.name)
+        )
+        return [(str(r.id), r.test_id or "") for r in rows]
+
     async def get_borehole(self, borehole_id: UUID, project_id: UUID) -> BoreholeOrm | None:
         """Return a borehole of the project (no children), or ``None``."""
         row: BoreholeOrm | None = await self._session.scalar(
