@@ -30,13 +30,18 @@ _PROJECT = uuid4()
 
 
 def _use_case(
-    boreholes: list[tuple[str, str]], fetcher: AsyncMock
+    boreholes: list[tuple[str, ...]], fetcher: AsyncMock
 ) -> tuple[ImportLabSeriesFile, MagicMock]:
-    """The use case over a fake repository; ``fetcher`` stands in for DOV."""
+    """The use case over a fake repository; ``fetcher`` stands in for DOV.
+
+    ``boreholes`` holds ``(id, name)`` or ``(id, name, test_id)``.
+    """
     uc = ImportLabSeriesFile(MagicMock(), dov_borehole_fetcher=fetcher)
     repo = MagicMock()
-    state = {"boreholes": list(boreholes)}
-    repo.list_borehole_names = AsyncMock(side_effect=lambda _p: list(state["boreholes"]))
+    names = [(b[0], b[1]) for b in boreholes]
+    test_ids = [(b[0], b[2] if len(b) > 2 else b[1]) for b in boreholes]
+    repo.list_borehole_names = AsyncMock(return_value=names)
+    repo.list_borehole_test_ids = AsyncMock(return_value=test_ids)
     repo.get_borehole = AsyncMock(return_value=object())
     repo.list_samples = AsyncMock(return_value=[])
     repo.find_by_identity = AsyncMock(return_value=None)
@@ -150,3 +155,76 @@ async def test_an_export_that_names_no_borehole_does_not_ask_dov() -> None:
     preview = await uc.preview(_NEW_MODULE, _PROJECT)
     fetcher.assert_not_awaited()
     assert preview.dov_lookup is None
+
+
+# --- Owner dogfeed 2026-10-03: 200568B7-LstSMControleListing.txt answered 500 ---
+
+_OEDO_B7A = _LAB / "oedometer" / "200568B7-LstSMControleListing.txt"  # GEO-19/122, B7A
+
+
+@pytest.mark.asyncio
+async def test_the_project_borehole_1411_geo_19_122_b7a_is_proposed_without_asking_dov() -> None:
+    """The listing names job GEO-19/122 + borehole B7A; the project holds DOV's
+    ``1411-GEO-19/122-B7A`` → that borehole is proposed and DOV is not asked."""
+    fetcher = AsyncMock()
+    b7a = str(uuid4())
+    uc, _ = _use_case(
+        [(str(uuid4()), "1411-GEO-19/122-B7B"), (b7a, "1411-GEO-19/122-B7A")], fetcher
+    )
+    preview = await uc.preview(_OEDO_B7A, _PROJECT)
+    fetcher.assert_not_awaited()
+    assert preview.borehole_match == "unique"
+    assert preview.proposed_borehole_id == b7a
+    assert preview.borehole_candidates == [{"id": b7a, "name": "1411-GEO-19/122-B7A"}]
+
+
+@pytest.mark.asyncio
+async def test_a_renamed_dov_borehole_still_matches_on_its_dov_test_id() -> None:
+    """The user renamed the borehole; DOV's ``test_id`` still ends with the
+    lab's ``<job>-<borehole>`` → it is the match, DOV is not asked."""
+    fetcher = AsyncMock()
+    b7a = str(uuid4())
+    uc, _ = _use_case([(b7a, "B7A (renamed)", "1411-GEO-19/122-B7A")], fetcher)
+    preview = await uc.preview(_OEDO_B7A, _PROJECT)
+    fetcher.assert_not_awaited()
+    assert preview.proposed_borehole_id == b7a
+
+
+@pytest.mark.asyncio
+async def test_dov_answering_the_borehole_is_already_in_the_project_proposes_it_unfetched() -> None:
+    """A second preview raced the first one's DOV fetch: the by-name import
+    finds the row already there → the preview proposes it like a local match,
+    and does not say "fetched from DOV"."""
+    existing = uuid4()
+    fetcher = AsyncMock(
+        return_value=ImportBoreholeDovByNameResult(
+            found=True,
+            dov_name="1411-GEO-19/122-B7A",
+            borehole_id=existing,
+            already_in_project=True,
+        )
+    )
+    uc, _ = _use_case([], fetcher)
+    preview = await uc.preview(_OEDO_B7A, _PROJECT)
+    assert preview.dov_lookup is None
+    assert preview.borehole_match == "unique"
+    assert preview.proposed_borehole_id == str(existing)
+    assert preview.borehole_candidates == [{"id": str(existing), "name": "1411-GEO-19/122-B7A"}]
+
+
+@pytest.mark.asyncio
+async def test_a_borehole_write_conflict_during_the_dov_fetch_is_a_named_conflict() -> None:
+    """Any unique-key clash while the DOV borehole is written is refused by
+    name (the router answers 409 ``lab_borehole_conflict``), never a 500."""
+    from sqlalchemy.exc import IntegrityError
+
+    from groundmodel.shared.exceptions import LabBoreholeConflictError
+
+    clash = IntegrityError("INSERT", {}, Exception("uq_borehole_app_project_source_test"))
+    uc, _ = _use_case([], AsyncMock(side_effect=clash))
+    uc._session.rollback = AsyncMock()  # type: ignore[attr-defined]
+    with pytest.raises(LabBoreholeConflictError) as info:
+        await uc.preview(_OEDO_B7A, _PROJECT)
+    assert info.value.borehole_name == "GEO-19/122-B7A"
+    assert "GEO-19/122-B7A" in str(info.value)
+    uc._session.rollback.assert_awaited_once()  # type: ignore[attr-defined]
