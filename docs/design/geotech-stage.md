@@ -122,8 +122,12 @@ else is plumbing that DRAWS what the kernel decides.
    ruling); a column carrying no unit of the family is EXCLUDED and the run
    spans it.
 
-**Mass identity is the CLASS, never the formation row** (owner 2026-08-21:
-*"yes one mass one body"*). The subdivide keeps one geotech formation ROW per
+**Mass identity is the litho UNIT + the CLASS, never the formation row**
+(owner 2026-08-21: *"yes one mass one body"*; owner 2026-10-03: *"a zand and
+zand/matig siltig are 2 different lithologies, never weld those"* — the class
+key `UNIT|SOIL|CLASS` leads with the packing row's `source_litho_formation_id`,
+so a NAD-6 ZAND and a NAD-6 ZAND (SL:M) are two masses, two bodies, and their
+contact keeps its seam). The subdivide keeps one geotech formation ROW per
 `(nad_class, litho parent)` — the geological parent is a live-derived LABEL, not identity (R1, owner 2026-08-31, debt #278) — so a litho unit spanning a geological boundary keeps ONE row
 instead of one per geological band. Everything that compares masses therefore translates row →
 class first: the fill takes `packingClassOf` (built by
@@ -153,10 +157,14 @@ same-column disambiguation (S16c) and every single-spanning gap stay byte-
 identical. Pinned in `geotechHierarchicalFill/classChangeSeam.test.ts` against
 the two real cases; the GEOTECH_210 gate then reads all-zero.
 
-**The fill sweep crosses families** (owner ruling 2026-08-21, option 3 of the
-`gap0_lens_dissolve_choice` page — *"option 3 ofcourse"*): a closed lens
-touching a same-class mass from ANOTHER litho family welds into it, **no tie
-needed** — the one deliberate exception to "ties define it". The litho stage
+**The fill sweep crosses families of one litho unit** (owner ruling
+2026-08-21, option 3 of the `gap0_lens_dissolve_choice` page — *"option 3
+ofcourse"*): a closed lens touching a same-class mass of the SAME litho unit
+from ANOTHER litho family welds into it, **no tie needed** — the one deliberate
+exception to "ties define it". It never crosses two litho units (owner
+2026-10-03): the class key carries the unit, so an admixture variant's lens
+keeps its own outline (`hierarchicalFill.test.ts` H12b; H12c is the same-unit
+control). The litho stage
 closed such a lens with no litho tie (its own family), so the per-family merge
 can never reach it; `crossFamilyWeld.ts` runs the same weld over a whole gap's
 classed faces keyed on the class, pre-splitting shared boundaries the two
@@ -1349,16 +1357,18 @@ own donors (``layer_donor_picks``):
 The unit gate is finer than a soil gate on purpose (owner ruling 2026-09-14,
 borehole GEO-07/182-B2: *"i redivided B2 but there is still a dense sand, while
 there is no dense sand in that litho unit on each adjacent test"*). The resolver
-welds every admixture variant of one soil into ONE litho body
-(``resolve_litho_instances.same_mass``), so a clean ``ZAND`` unit and the
-glauconitic ``ZAND (GL:|KL:)`` below it share a body id — and the donor pool is
-read per BODY (``cpt_layer_picks_by_body``). Where the borehole's own clean sand
+then welded every admixture variant of one soil into ONE litho body, so a clean
+``ZAND`` unit and the glauconitic ``ZAND (GL:|KL:)`` below it shared a body id —
+and the donor pool is read per BODY (``cpt_layer_picks_by_body``). Since owner
+2026-10-03 a body is one litho unit (``resolve_litho_instances.same_mass``), so
+the body pool holds one unit by construction; the unit gate below stays as the
+explicit rule (and for the correlated donors, whose tie may cross two units). Where the borehole's own clean sand
 reaches deeper than the flank's clean sand, the flank's glauconitic pick
 overlaps the receiver's extent MORE, so the old **same-soil** gate let
 ``flank_pick_for_unit`` pick it and lend its DENSE class onto a clean sand every
 adjacent test read medium dense. ``layer_donor_picks`` now keeps only picks
 whose own ``formation_id`` equals the receiver's, so **a neighbouring unit's
-class is never lent, whatever the body welding says**: only the same litho unit
+class is never lent**: only the same litho unit
 on the flank donates; a flank carrying no band of that unit contributes nothing;
 when neither flank does, the receiver falls to the conservative floor of
 §8-0b (the loosest class the column measured for that unit, or the variant-aware
