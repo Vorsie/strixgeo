@@ -38,10 +38,10 @@ export function lithoUnitDisplayName(
  * (rendered "ZAND · #4").
  *
  * Owner finding 2026-10-02: a body is named after its OWN home formation (the
- * roster's ``formation_id``), under whichever tree row it sits. A cross-family
- * weld body homed on ZAND that also shows under the ZAND (SL:M) row reads
- * "ZAND · #4" in both places, never "ZAND (SL:M) · #4". The ordinal is the
- * stored ``body_ordinal`` as is (ruling A(a): "#12" stays "#12").
+ * roster's ``formation_id``) — the row the tree lists it under (owner
+ * 2026-10-03: a body is one litho unit, listed under its home only). The
+ * ordinal is the stored ``body_ordinal`` as is (ruling A(a): "#12" stays
+ * "#12").
  *
  * @param bodyId  The resolver body id.
  * @param rowUnitName  The display name of the row the body sits under — the
