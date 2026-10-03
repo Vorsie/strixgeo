@@ -124,12 +124,12 @@ class GeotechBoreholeMaterialiser(GroundModelLogger):
 
         The LITHO FORMATION is part of the key because both presses read the
         group's first segment as THE litho formation of every band they mint
-        from it, and a body does not identify one: the resolver merges
-        admixture variants of the same soil into a single body
-        (``resolve_litho_instances.same_mass`` — *"Admixture variants of the
-        SAME soil (different formation rows, same litho_main_soil_code) still
-        merge"*).  Owner dogfeed 2026-09-11, borehole GEO-52/110/14-b13: his
-        clean sand and the glauconitic sand below it shared a body, so every
+        from it.  Until owner 2026-10-03 a body did not identify one (the
+        resolver merged admixture variants of one soil into a single body); it
+        does now (``resolve_litho_instances.same_mass``: two litho units never
+        weld), and the key keeps stating it.  Owner dogfeed 2026-09-11,
+        borehole GEO-52/110/14-b13: his clean sand and the glauconitic sand
+        below it then shared a body, so every
         band of both took the CLEAN sand's formation; the merge-back then read
         one litho unit either side of his 14.52 m contact and joined two dense
         bands straight through it, and the split he had drawn appeared to have
