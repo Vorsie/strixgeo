@@ -611,6 +611,32 @@ class LabSeriesImportRefusedError(GroundModelError):
         self.code = code
 
 
+class LabBoreholeConflictError(GroundModelError):
+    """Raised when the lab preview's borehole write clashes with a stored row.
+
+    Owner dogfeed 2026-10-03: two previews of the same file both fetched the
+    borehole from DOV; the second insert hit ``uq_borehole_app_project_source_test``
+    and the request answered 500. The preview rolls the write back and raises
+    this; the lab router answers 409 ``lab_borehole_conflict`` naming the
+    borehole, so the user re-opens the preview (which then finds it locally).
+
+    Parameters
+    ----------
+    borehole_name : str
+        The borehole the write was for (``GEO-19/122-B7A``).
+    """
+
+    CODE = "lab_borehole_conflict"
+
+    def __init__(self, borehole_name: str) -> None:
+        """Initialise with the clashing borehole's name."""
+        super().__init__(
+            f"Borehole {borehole_name} was stored in this project by another request "
+            "at the same moment. Open the preview again to use it."
+        )
+        self.borehole_name = borehole_name
+
+
 class LabFileFormatNotRecognisedError(ParseError):
     """Raised when a lab file is none of the raw export formats Strix reads.
 
