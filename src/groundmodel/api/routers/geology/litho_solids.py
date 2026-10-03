@@ -150,7 +150,7 @@ def _to_solid_response(
         Colour override fetched from ``BodyOrm``; ``None`` falls back to the
         formation colour in the 3-D viewer.
     body_ordinal : int
-        The body's ordinal within its formation's naming group, fetched from
+        The body's ordinal within its mass unit (one sequence per litho unit), fetched from
         ``BodyOrm``; combined with the lithology gives a stable human handle
         such as "SILT #3".
 
