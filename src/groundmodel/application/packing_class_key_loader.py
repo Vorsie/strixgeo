@@ -6,9 +6,10 @@ several row ids wherever a litho unit spans a geological boundary.
 
 The 3-D voxel PAINT build
 (:class:`~groundmodel.application.build_voxel_litho_model.BuildVoxelLithoModel`)
-compares the CLASS, not the row, so two same-class masses paint as one voxel
-body — this is what prevents the invented-lithology pinch (owner 2026-08-21,
-"yes one mass one body").
+compares the CLASS within one litho unit, not the row, so two same-class masses
+of one unit paint as one voxel body — this is what prevents the invented-
+lithology pinch (owner 2026-08-21, "yes one mass one body"). Two litho units
+never collapse (owner 2026-10-03: ZAND and ZAND (SL:M) never weld).
 
 NOTE the persisted body IDENTITY recompute
 (:class:`~groundmodel.application.recompute_bodies.RecomputeBodies`) NO LONGER
@@ -49,8 +50,8 @@ async def load_packing_class_key(session: AsyncSession, project_id: UUID) -> Cal
     Returns
     -------
     callable of (str) -> str
-        Maps a region's ``formation_id`` to its ``"{soil}|{nad_class}"`` class
-        key when the row carries both a NAD class and a soil code, and to the id
+        Maps a region's ``formation_id`` to its ``"{litho_unit}|{soil}|{nad_class}"``
+        class key when the row carries both a NAD class and a soil code, and to the id
         UNCHANGED otherwise. A litho model's rows carry no NAD class, so the key
         is the identity function there and any caller is byte-identical to a
         row-keyed merge.
@@ -61,7 +62,16 @@ async def load_packing_class_key(session: AsyncSession, project_id: UUID) -> Cal
                 GeologicalFormationOrm.id,
                 GeologicalFormationOrm.nad_class,
                 GeologicalFormationOrm.litho_main_soil_code,
+                GeologicalFormationOrm.source_litho_formation_id,
             ).where(GeologicalFormationOrm.app_project_id == project_id)
         )
     ).all()
-    return packing_class_key_of((str(r.id), r.nad_class, r.litho_main_soil_code) for r in rows)
+    return packing_class_key_of(
+        (
+            str(r.id),
+            r.nad_class,
+            r.litho_main_soil_code,
+            None if r.source_litho_formation_id is None else str(r.source_litho_formation_id),
+        )
+        for r in rows
+    )
