@@ -184,49 +184,6 @@ def test_uncorrelated_cross_boundary_same_soil_stay_distinct() -> None:
     assert len(result.instances) == 2
 
 
-def test_same_soil_different_formation_rows_still_merge() -> None:
-    """Same lithology, different formation rows (admixture) still merge.
-
-    The one-lithology guard keys on ``litho_main_soil_code``, not formation
-    row — two ZAND layers with different admixture formations stay one body.
-    """
-    a = _layer("00000000-0000-0000-0000-000000000001", 3.0, INV_A, F_SAND)
-    b = _layer(
-        "00000000-0000-0000-0000-000000000002",
-        3.2,
-        INV_B,
-        UUID("00000000-0000-0000-0000-0000000000f3"),  # silty-sand row, still ZAND soil
-    )
-    edges = [LayerEdge(layer_a_id=a.layer_id, layer_b_id=b.layer_id)]
-    result = resolve_litho_instances(layers=[a, b], edges=edges)
-    assert len(result.instances) == 1
-
-
-def test_cross_formation_component_maps_to_shallowest_formation() -> None:
-    """A component spanning two formation rows maps every member to the shallowest's.
-
-    Two SAND layers under the same parent but with DIFFERENT formation
-    rows (clean sand vs silty sand, i.e. different admixture), correlated
-    into ONE component -> every member maps to the SHALLOWEST member's
-    formation_id, and the single instance reports that formation.
-    """
-    shallow = _layer("00000000-0000-0000-0000-000000000001", 2.0, INV_A, F_SAND)
-    deep = _layer(
-        "00000000-0000-0000-0000-000000000002",
-        8.0,
-        INV_B,
-        UUID("00000000-0000-0000-0000-0000000000f3"),  # F_SAND_SILTY
-    )
-    edges = [LayerEdge(layer_a_id=shallow.layer_id, layer_b_id=deep.layer_id)]
-    result = resolve_litho_instances(layers=[shallow, deep], edges=edges)
-    assert len(result.instances) == 1
-    assert shallow.layer_id in result.layer_to_formation
-    assert deep.layer_id in result.layer_to_formation
-    assert result.layer_to_formation[shallow.layer_id] == F_SAND
-    assert result.layer_to_formation[deep.layer_id] == F_SAND
-    assert result.instances[0].formation_id == F_SAND
-
-
 def test_instance_representative_is_shallowest_layer() -> None:
     """A multi-layer instance's representative identity is its shallowest layer.
 
@@ -331,18 +288,113 @@ def test_geotech_unknown_class_keeps_row_identity() -> None:
     assert len(result.instances) == 2
 
 
-def test_litho_layers_carry_no_packing_class_and_keep_merging() -> None:
-    """Negative control: the litho model is untouched by the packing filter.
+# ---------------------------------------------------------------------------
+# NEVER WELD ACROSS LITHOLOGY VARIANTS — owner ruling 2026-10-03.
+#
+# Verbatim: *"a zand and zand/matig siltig are 2 different lithologies, never
+# weld those."* A band of unit X and a band of unit Y never share a body,
+# whatever their main soil family; the contact between them is a body boundary
+# like ZAND / KLEI. An admixture variant is a unit in its own right with its own
+# bodies numbered from #0. Join by hand (a GROUP, never a merge) stays the way to
+# pool the two.
+# ---------------------------------------------------------------------------
 
-    Two admixture variants of one soil (different formation rows, no packing
-    class) still merge, which is the standing litho rule.
+F_ZAND = UUID("00000000-0000-0000-0000-00000000a001")  # litho unit ZAND
+F_ZAND_SLM = UUID("00000000-0000-0000-0000-00000000a002")  # litho unit ZAND (SL:M)
+
+
+def test_touching_zand_and_zand_matig_siltig_are_two_bodies() -> None:
+    """ZAND and ZAND (SL:M) are two lithologies: touching bands never weld.
+
+    The geometry fact (or a tie) between them states a shared contact, never
+    one body.
     """
-    a = _layer("00000000-0000-0000-0000-000000000005", 1.0, INV_A, F_SAND)
-    b = _layer(
-        "00000000-0000-0000-0000-000000000006",
-        1.2,
-        INV_B,
-        UUID("00000000-0000-0000-0000-0000000000f2"),
+    zand = _layer("00000000-0000-0000-0000-000000000101", 2.0, INV_A, F_ZAND)
+    silty = _layer("00000000-0000-0000-0000-000000000102", 4.0, INV_A, F_ZAND_SLM)
+    result = resolve_litho_instances(
+        layers=[zand, silty], edges=[LayerEdge(zand.layer_id, silty.layer_id)]
     )
+    assert len(result.instances) == 2
+    assert result.layer_to_formation[zand.layer_id] == F_ZAND
+    assert result.layer_to_formation[silty.layer_id] == F_ZAND_SLM
+
+
+def test_an_admixture_variant_numbers_its_own_bodies_from_zero() -> None:
+    """Each litho unit numbers its bodies from #0, the variant included.
+
+    Shallow ZAND, then ZAND (SL:M), then a deeper ZAND: ZAND #0 and #1, and the
+    matig siltig unit starts at its own #0.
+    """
+    zand_top = _layer("00000000-0000-0000-0000-000000000111", 1.0, INV_A, F_ZAND)
+    silty = _layer("00000000-0000-0000-0000-000000000112", 3.0, INV_A, F_ZAND_SLM)
+    zand_deep = _layer("00000000-0000-0000-0000-000000000113", 6.0, INV_A, F_ZAND)
+    result = resolve_litho_instances(layers=[zand_top, silty, zand_deep], edges=[])
+    assert result.layer_to_ordinal[zand_top.layer_id] == 0
+    assert result.layer_to_ordinal[zand_deep.layer_id] == 1
+    assert result.layer_to_ordinal[silty.layer_id] == 0
+
+
+def test_same_unit_bands_tied_through_a_variant_stay_per_unit() -> None:
+    """A chain ZAND - ZAND (SL:M) - ZAND never bridges the two ZAND bands.
+
+    The variant is a boundary: the two ZAND bands touch only the variant, so
+    they stay two ZAND bodies, and the variant is its own body.
+    """
+    a = _layer("00000000-0000-0000-0000-000000000121", 1.0, INV_A, F_ZAND)
+    mid = _layer("00000000-0000-0000-0000-000000000122", 1.1, INV_B, F_ZAND_SLM)
+    b = _layer("00000000-0000-0000-0000-000000000123", 1.2, INV_B, F_ZAND)
+    edges = [LayerEdge(a.layer_id, mid.layer_id), LayerEdge(mid.layer_id, b.layer_id)]
+    result = resolve_litho_instances(layers=[a, mid, b], edges=edges)
+    assert len(result.instances) == 3
+
+
+def _geo_band(
+    layer_id: str,
+    depth: float,
+    inv: UUID,
+    packing: UUID,
+    nad_class: int,
+    litho_unit: UUID,
+) -> LayerNode:
+    """One geotech band carrying the litho unit it subdivides."""
+    return LayerNode(
+        layer_id=UUID(layer_id),
+        formation_id=packing,
+        parent_formation_id=P,
+        litho_main_soil_code="ZAND",
+        depth_top_m=depth,
+        source_investigation_id=inv,
+        packing_formation_id=packing,
+        packing_nad_class=nad_class,
+        litho_unit_id=litho_unit,
+    )
+
+
+def test_geotech_same_class_in_zand_and_zand_matig_siltig_are_two_bodies() -> None:
+    """A medium-dense ZAND band never welds to a medium-dense ZAND (SL:M) band.
+
+    Same soil, same NAD class, touching, but two litho units: two geotech
+    bodies, each numbered from #0 within its own unit.
+    """
+    row_zand_md = UUID("00000000-0000-0000-0000-00000000b006")
+    row_slm_md = UUID("00000000-0000-0000-0000-00000000c006")
+    a = _geo_band("00000000-0000-0000-0000-000000000131", 1.0, INV_A, row_zand_md, 6, F_ZAND)
+    b = _geo_band("00000000-0000-0000-0000-000000000132", 2.0, INV_A, row_slm_md, 6, F_ZAND_SLM)
+    result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
+    assert len(result.instances) == 2
+    assert result.layer_to_ordinal[a.layer_id] == 0
+    assert result.layer_to_ordinal[b.layer_id] == 0
+
+
+def test_geotech_same_unit_same_class_across_rows_stays_one_body() -> None:
+    """Negative control: the class-across-geological-rows rule still welds.
+
+    One litho unit, one NAD class, two packing rows (two geological parents):
+    still ONE body (owner 2026-08-21, the class is the mass inside a unit).
+    """
+    row_geo_a = UUID("00000000-0000-0000-0000-00000000b106")
+    row_geo_b = UUID("00000000-0000-0000-0000-00000000b206")
+    a = _geo_band("00000000-0000-0000-0000-000000000141", 1.0, INV_A, row_geo_a, 6, F_ZAND)
+    b = _geo_band("00000000-0000-0000-0000-000000000142", 1.2, INV_B, row_geo_b, 6, F_ZAND)
     result = resolve_litho_instances([a, b], [LayerEdge(a.layer_id, b.layer_id)])
     assert len(result.instances) == 1
