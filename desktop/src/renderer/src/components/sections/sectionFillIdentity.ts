@@ -9,14 +9,16 @@
  * the raw ``formationId``.
  *
  * On the LITHO axis the formation row IS the identity, so that was right.
- * On the GEOTECH axis it is not: the subdivide deliberately keeps one
- * formation ROW per (nad_class, litho parent, geological parent) — that is
- * how a band's provenance survives — so a single packing class lives under
- * two or three row ids wherever its litho or geological parent changes. The
- * FILL already knows this and merges such rows into one mass (the 2026-08-21
- * "one mass one body" ruling, ``packingClassOf`` being its single
- * translation point); the two RENDER passes did not, so a mass that the
- * engine had correctly welded still drew a seam wherever its row id changed.
+ * On the GEOTECH axis it is not: legacy data keeps one formation ROW per
+ * (nad_class, litho parent, geological parent) — that is how a band's
+ * provenance survived — so a single packing class of one litho unit can live
+ * under two row ids wherever its geological parent changes. The FILL already
+ * knows this and merges such rows into one mass (the 2026-08-21 "one mass one
+ * body" ruling, ``packingClassOf`` being its single translation point); the
+ * two RENDER passes did not, so a mass that the engine had correctly welded
+ * still drew a seam wherever its row id changed. Two litho UNITS are never one
+ * mass (owner 2026-10-03: ZAND and ZAND (SL:M) never weld) — the class key
+ * leads with the unit, so their contact keeps its seam.
  *
  * On the owner's real CS1 that is the vertical line down the right edge of
  * 1411-GEO-23/126-B3: the stack there matches row for row on both sides
@@ -36,7 +38,8 @@
  * The identity two adjacent fills are compared on.
  *
  * @param formationId The region's own formation row id.
- * @param packingClassByFormationId Geotech row → packing class (``SOIL|CLASS``),
+ * @param packingClassByFormationId Geotech row → packing class key
+ *   (``UNIT|SOIL|CLASS``),
  *   from the litho frame bundle. Absent on the litho axis, and absent for any
  *   formation that is not a geotech packing row.
  * @returns The packing class where the formation is a known geotech row, and
