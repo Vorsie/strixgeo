@@ -2,17 +2,22 @@
 
 An *instance* is one connected component of correlated litho layers. Two
 layers belong to the same instance iff a path of user-approved correlation
-edges connects them AND they share a lithology. Uncorrelated layers —
+edges connects them AND they belong to the same litho UNIT. Uncorrelated layers —
 including two same-formation layers stacked at one column, or two laterally-
 separate columns never linked — are distinct instances and receive distinct
 ordinals.
 
-One-lithology invariant (owner directive 2026-06-03): a body is a single
-lithology. An edge whose two endpoints have different ``litho_main_soil_code``
+One-unit invariant (owner directive 2026-06-03, tightened 2026-10-03): a body
+is a single litho UNIT. An edge whose two endpoints sit in different litho units
 is dropped from the adjacency graph, so a mis-correlation (or auto-correlate
-crossing a facies change) never merges, say, a clay layer and a silt layer
-into one mixed body. Admixture variants of the SAME soil (different formation
-rows, same ``litho_main_soil_code``) still merge.
+crossing a facies change) never merges, say, a clay layer and a silt layer into
+one mixed body — and, owner 2026-10-03 verbatim, *"a zand and zand/matig siltig
+are 2 different lithologies, never weld those"*: an admixture variant of the
+same main soil (a different litho formation row) is a unit in its own right,
+and the contact between ZAND and ZAND (SL:M) is a body boundary like ZAND /
+KLEI. A tie across two units is still kept by the caller (it states a shared
+surface); it simply never joins bodies. Pooling two units is the user's
+"Join with…" GROUP (``same_join_class``), never a merge.
 
 A2 — geological-formation independence (owner directive 2026-06-04): the
 former one-geological-formation invariant is REVERSED. A body MAY span a
@@ -24,11 +29,11 @@ remains the only edge filter, so merging stays edge-driven and user-controlled
 (the Boom-Klei-on-clay case stays two bodies because the engineer does not
 correlate across that contact).
 
-Ordinals are assigned per ``litho_main_soil_code`` naming group, shallowest
-component first, starting at 0. The component with the shallowest member is
-ordinal 0, the next is 1, and so on. This matches the depth-rank the section
-renderer computes for body labels (Sa1 = shallowest sand instance, Sa2 next),
-regardless of which geological formation each instance falls in.
+Ordinals are assigned per MASS UNIT (``_mass_unit_key``: the litho unit on a
+litho model; the litho unit + NAD class on a geotech model), shallowest
+component first, starting at 0. ZAND numbers its bodies #0.., ZAND (SL:M) its
+own #0.. (owner 2026-10-03), regardless of which geological formation each
+instance falls in.
 
 No I/O, no database access, no logging. The caller
 (``ResolveLithoInstances`` use case) loads the data, calls this function, and
@@ -100,9 +105,17 @@ class LayerNode:
         skeleton band that carries none. The model stores one packing formation
         ROW per (class, litho parent, GEOLOGICAL parent), so the same class
         exists under several row ids — and the mass comparison the owner ruled
-        (2026-08-21: *"yes one mass one body"*) is the CLASS, not the row.
-        Where both ends carry a class, the class decides; where either does
-        not, the row comparison stands (two unknowns are not known equal).
+        (2026-08-21: *"yes one mass one body"*) is the CLASS, not the row,
+        WITHIN one litho unit (``litho_unit_id``). Where both ends carry a
+        class, the class decides; where either does not, the row comparison
+        stands (two unknowns are not known equal).
+    litho_unit_id : UUID | None
+        The litho UNIT (litho formation row) a geotech band subdivides — the
+        packing row's ``source_litho_formation_id``. ``None`` on a litho layer,
+        whose unit IS its ``formation_id`` (see :func:`litho_unit_of`), and on a
+        geotech band whose packing row lost its litho parent (then only the
+        soil + class rule decides). Owner 2026-10-03: two bands of different
+        litho units never share a body, whatever their soil family.
     """
 
     layer_id: UUID
@@ -113,6 +126,7 @@ class LayerNode:
     source_investigation_id: UUID
     packing_formation_id: UUID | None = None
     packing_nad_class: int | None = None
+    litho_unit_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -212,8 +226,8 @@ class InstanceAssignment:
         Representative formation row = the shallowest member layer's
         formation. The reconciled body uses this as its formation_id.
     ordinal : int
-        0-based ordinal within the ``(parent, soil)`` naming group
-        (0 = shallowest instance in the group).
+        0-based ordinal within the instance's mass unit (``_mass_unit_key``:
+        the litho unit, plus the NAD class on a geotech model), 0 = shallowest.
     member_layer_ids : list[UUID]
         Every layer in this component (each gets ``body_id`` stamped).
     source_investigation_id : UUID
@@ -241,8 +255,9 @@ class ResolveResult:
         layer_id -> its instance ordinal (convenience for callers/tests).
     layer_to_formation : dict[UUID, UUID]
         layer_id -> its instance's representative formation_id (the body's
-        formation; may differ from the layer's own formation_id when a
-        component spans admixtures).
+        formation). On a litho model this always equals the layer's own
+        formation_id (a body is one unit); on a geotech model it may be a twin
+        packing row of the same class under another geological parent.
     inert_unions : tuple[LayerUnion, ...]
         ALWAYS EMPTY since owner 2026-09-02: a "Join with…" is a GROUP relation,
         not a merge, so the resolver never judges a union inert. The "never a mixed
@@ -380,32 +395,84 @@ def _constrained_components(
     return list(groups.values())
 
 
+def litho_unit_of(node: LayerNode) -> UUID | None:
+    """The litho UNIT a layer belongs to — the identity a body may never cross.
+
+    A litho layer's unit is its own formation row (litho rows are keyed on
+    lithology + admixture alone, geo-agnostic since A2, so ZAND and ZAND (SL:M)
+    are two rows). A geotech band's unit is the litho formation its packing row
+    subdivides (``litho_unit_id``).
+
+    Parameters
+    ----------
+    node : LayerNode
+        The layer.
+
+    Returns
+    -------
+    UUID | None
+        The unit id, or ``None`` for a geotech band whose litho parent is
+        unknown.
+    """
+    if node.packing_formation_id is None:
+        return node.formation_id
+    return node.litho_unit_id
+
+
+def same_join_class(a: LayerNode, b: LayerNode) -> bool:
+    """Whether two layers are SIMILAR enough to be grouped by a "Join with…".
+
+    The user's Join is a GROUP relation, never a merge (owner 2026-09-02), and
+    it stays the way to pool two litho units by hand (owner 2026-10-03: ZAND and
+    ZAND (SL:M) never weld, but the engineer may still group them). So this is
+    the coarser similarity notion: the same main soil, and on a geotech model
+    the same packing class.
+
+    * **Soil.** Different ``litho_main_soil_code`` → not similar.
+    * **Packing (geotech only).** Where BOTH ends carry a packing class: both
+      NAD classes known → equal; otherwise (a skeleton band) the packing
+      formation ROW must be equal (two unknowns are not known to be the same
+      density). A litho layer carries no packing class, so the soil rule stands
+      alone there.
+
+    Parameters
+    ----------
+    a, b : LayerNode
+        The two candidate layers.
+
+    Returns
+    -------
+    bool
+        ``True`` when the two may be grouped.
+    """
+    if a.litho_main_soil_code != b.litho_main_soil_code:
+        return False
+    if a.packing_formation_id is not None and b.packing_formation_id is not None:
+        if a.packing_nad_class is not None and b.packing_nad_class is not None:
+            if a.packing_nad_class != b.packing_nad_class:
+                return False
+        elif a.packing_formation_id != b.packing_formation_id:
+            return False
+    return True
+
+
 def same_mass(a: LayerNode, b: LayerNode) -> bool:
-    """Whether two layers describe ONE mass — the shared merge predicate.
+    """Whether two layers describe ONE mass — the body-identity predicate.
 
-    A body is a single lithology, and a geotechnical body is a single lithology
-    AND a single packing density. Both a machine edge and a user "Join with…"
-    union may only merge two layers this returns ``True`` for; the edge loop
-    drops a tie that fails it, and a union that fails it is inert (never a mixed
-    body). Extracted so edges and unions apply the identical rule (owner
-    2026-06-03 one-lithology invariant + 2026-08-19 / 2026-08-21 one-packing
-    invariant).
+    A body is a single litho UNIT, and a geotechnical body is a single litho
+    unit AND a single packing density. A machine edge (a tie or a geometry fact)
+    may only merge two layers this returns ``True`` for; the edge loop drops one
+    that fails it.
 
-    Rules, in order:
+    Rules:
 
-    * **Soil.** Different ``litho_main_soil_code`` → not one mass (a
-      mis-correlation, or auto-correlate crossing a facies change — the clay-in-a-
-      silt-body dogfeed of 2026-06-03). Admixture variants of the SAME soil merge,
-      because the comparison keys on the base soil, not the formation row.
-    * **Packing (geotech only).** Where BOTH ends carry a packing class:
-      - both NAD classes known → they must be equal (the CLASS is the mass
-        identity, owner 2026-08-21: *"yes one mass one body"* — one class lives
-        under several row ids across geological parents, so comparing rows would
-        split a body tied across a geological boundary);
-      - otherwise (a skeleton band with no class) → the packing formation ROW
-        must be equal (two unknowns are not known to be the same density).
-      A litho layer carries no packing class, so this branch is inert there and
-      the soil rule stands alone.
+    * **Unit (owner 2026-10-03).** *"a zand and zand/matig siltig are 2
+      different lithologies, never weld those"* — two layers of different litho
+      units are never one mass, whatever their soil family. Where a geotech
+      band's unit is unknown, the soil + class rule below decides alone.
+    * **Soil + packing.** :func:`same_join_class` — same main soil, and on a
+      geotech model the same NAD class (the CLASS, not the row, owner
+      2026-08-21: a class lives under several rows across geological parents).
 
     Parameters
     ----------
@@ -417,15 +484,38 @@ def same_mass(a: LayerNode, b: LayerNode) -> bool:
     bool
         ``True`` when the two layers may share a body, ``False`` otherwise.
     """
-    if a.litho_main_soil_code != b.litho_main_soil_code:
+    unit_a, unit_b = litho_unit_of(a), litho_unit_of(b)
+    if unit_a is not None and unit_b is not None and unit_a != unit_b:
         return False
-    if a.packing_formation_id is not None and b.packing_formation_id is not None:
-        if a.packing_nad_class is not None and b.packing_nad_class is not None:
-            if a.packing_nad_class != b.packing_nad_class:
-                return False
-        elif a.packing_formation_id != b.packing_formation_id:
-            return False
-    return True
+    return same_join_class(a, b)
+
+
+def _mass_unit_key(node: LayerNode) -> tuple[object, ...]:
+    """The numbering group of a layer's body — one ordinal sequence per unit.
+
+    Owner 2026-10-03: an admixture variant is a unit in its own right with its
+    own bodies numbered from #0. A litho body numbers within its litho unit; a
+    geotech body within its litho unit AND packing class (the row when the class
+    is unknown), so the key always matches the :func:`same_mass` identity.
+
+    Parameters
+    ----------
+    node : LayerNode
+        The component's representative (shallowest) layer.
+
+    Returns
+    -------
+    tuple[object, ...]
+        A hashable group key.
+    """
+    unit = litho_unit_of(node)
+    unit_key: object = unit if unit is not None else ("soil", node.litho_main_soil_code)
+    if node.packing_formation_id is None:
+        return (unit_key,)
+    packing: object = (
+        node.packing_nad_class if node.packing_nad_class is not None else node.packing_formation_id
+    )
+    return (unit_key, packing)
 
 
 # Back-compat alias — the predicate was private until it became a cross-layer
@@ -490,11 +580,11 @@ def resolve_litho_instances(
         b = node_map.get(e.layer_b_id)
         if a is None or b is None:
             continue  # dangling-edge guard (endpoint not in this model)
-        # A body is a single mass — one lithology, and one packing density on a
-        # geotech model. ``same_mass`` is the shared predicate a union applies
-        # too (owner 2026-06-03 one-lithology + 2026-08-19/-21 one-packing). A2
+        # A body is a single mass — one litho unit, and one packing density on a
+        # geotech model (owner 2026-06-03 one-lithology, 2026-08-19/-21
+        # one-packing, 2026-10-03 one-unit: ZAND and ZAND (SL:M) never weld). A2
         # (2026-06-04): the geological parent no longer filters edges, so a
-        # same-lithology body MAY span a geological boundary.
+        # same-unit body MAY span a geological boundary.
         if not same_mass(a, b):
             continue
         surviving_edges.append((e.layer_a_id, e.layer_b_id))
@@ -558,19 +648,17 @@ def resolve_litho_instances(
     def _key(ln: LayerNode) -> tuple[float, str]:
         return (ln.depth_top_m, str(ln.layer_id))
 
-    # A2: the naming group keys on lithology ALONE (the geological parent no
-    # longer partitions instances). Two ZAND bodies in different geological
-    # formations share the ZAND naming group and rank by depth (Sa1 = shallowest
-    # sand instance, Sa2 = next), regardless of chrono attribution.
-    GroupKey = tuple[str | None]
-    group_to_comps: dict[GroupKey, list[tuple[tuple[float, str], list[UUID], LayerNode]]] = (
-        defaultdict(list)
-    )
+    # The numbering group is the MASS UNIT (owner 2026-10-03: "shouldn't we see
+    # that sand as a new unit and start counting from zero?"): ZAND bodies
+    # #0..n, ZAND (SL:M) bodies #0..m, regardless of chrono attribution (A2 —
+    # the geological parent never partitions instances).
+    group_to_comps: dict[
+        tuple[object, ...], list[tuple[tuple[float, str], list[UUID], LayerNode]]
+    ] = defaultdict(list)
     for comp in components:
         members = [node_map[fid] for fid in comp]
         rep = min(members, key=_key)  # shallowest member = representative
-        gk: GroupKey = (rep.litho_main_soil_code,)
-        group_to_comps[gk].append((_key(rep), comp, rep))
+        group_to_comps[_mass_unit_key(rep)].append((_key(rep), comp, rep))
 
     instances: list[InstanceAssignment] = []
     layer_to_ordinal: dict[UUID, int] = {}
