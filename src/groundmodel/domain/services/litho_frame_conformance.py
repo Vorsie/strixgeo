@@ -11,6 +11,9 @@ cases can never band, however lawful the tie is as a surface statement
 
 * the parent units are DIFFERENT SOILS — one mass across soils does not
   exist at any stage;
+* the parent units are DIFFERENT LITHO UNITS of one soil (ZAND and ZAND
+  (SL:M)) — owner 2026-10-03: *"a zand and zand/matig siltig are 2 different
+  lithologies, never weld those"*, so the tie is a surface statement only;
 * the parent units are the same soil but carry NO litho correlation path —
   the litho frame closes each family separately, so the packing tie's line
   crosses ground the frame will never open (the owner's S11 silt: two
@@ -39,6 +42,7 @@ def frame_tie_warning(
     litho_connected: bool,
     band_a: str,
     band_b: str,
+    same_litho_unit: bool | None = None,
 ) -> str | None:
     """Return the draw-time warning for a non-conforming packing tie, or ``None``.
 
@@ -55,6 +59,11 @@ def frame_tie_warning(
         Human description of band A (column + depths — never ids).
     band_b : str
         Human description of band B.
+    same_litho_unit : bool | None
+        Whether the two parents are the same litho unit (formation row).
+        ``False`` warns even for a litho-connected same-soil pair: two units
+        never become one mass (owner 2026-10-03). ``None`` = not resolved,
+        which is not evidence of non-conformance.
 
     Returns
     -------
@@ -70,6 +79,12 @@ def frame_tie_warning(
             f"This tie links different soils ({band_a} ↔ {band_b}) - it can "
             f"state a shared surface, but the two bands can never become one "
             f"mass. The fill will not band them."
+        )
+    if same_litho_unit is False:
+        return (
+            f"This tie links different litho units ({band_a} ↔ {band_b}) - it "
+            f"can state a shared surface, but the two bands can never become "
+            f"one mass. The fill will not band them."
         )
     if not litho_connected:
         return (
