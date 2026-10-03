@@ -19,6 +19,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import spool_upload
@@ -55,6 +56,7 @@ from groundmodel.infrastructure.db.repositories.lab_series_repository import (
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import (
+    LabBoreholeConflictError,
     LabFileFormatNotRecognisedError,
     LabSeriesImportRefusedError,
     LabSeriesRefreshConfirmationRequiredError,
@@ -102,7 +104,8 @@ async def preview_lab_series(
     HTTPException
         400 unreadable file, or ``lab_file_format_not_recognised`` for a
         format Strix does not read; 404 borehole not in the project;
-        413 upload too large.
+        409 ``lab_borehole_conflict`` when the borehole write clashed with a
+        stored row (session rolled back); 413 upload too large.
     """
     logger.info(f"POST /lab-series/preview: file={file.filename!r} project={project_id}")
     path = await _spool(file)
@@ -116,6 +119,19 @@ async def preview_lab_series(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except LabBoreholeConflictError as exc:
+        raise await _borehole_conflict(session, exc.borehole_name, str(exc)) from exc
+    except IntegrityError as exc:
+        # Backstop (owner dogfeed 2026-10-03): a clash the use case did not
+        # name must still not reach the generic 500 handler.
+        name = file.filename or path.name
+        raise await _borehole_conflict(
+            session,
+            None,
+            f"{name}: the borehole for this file was stored by another request at the "
+            "same moment. Open the preview again.",
+            orig=exc.orig,
+        ) from exc
     finally:
         path.unlink(missing_ok=True)
     return LabSeriesPreviewResponse(**preview.__dict__)
@@ -328,6 +344,42 @@ async def _spool(file: UploadFile) -> Path:
         )
     return await spool_upload(
         file, suffix=suffix, max_bytes=LAB_SERIES_MAX_UPLOAD_BYTES, label="Lab file"
+    )
+
+
+async def _borehole_conflict(
+    session: AsyncSession, borehole_name: str | None, message: str, *, orig: object = None
+) -> HTTPException:
+    """409 ``lab_borehole_conflict`` after rolling the request's session back.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        The request's session (left usable for the dependency's teardown).
+    borehole_name : str or None
+        The clashing borehole when the use case named it.
+    message : str
+        The human-readable answer.
+    orig : object
+        The driver error behind a raw ``IntegrityError`` (logged only).
+
+    Returns
+    -------
+    HTTPException
+        The 409 to raise.
+    """
+    await session.rollback()
+    logger.warning(
+        f"POST /lab-series/preview: 409 lab_borehole_conflict "
+        f"(borehole={borehole_name!r}, cause={orig!r}) — {message}"
+    )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": LabBoreholeConflictError.CODE,
+            "borehole_name": borehole_name,
+            "message": message,
+        },
     )
 
 
