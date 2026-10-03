@@ -193,9 +193,10 @@ export interface GeotechLithoFrame {
   geotechSoilByFormationId: ReadonlyMap<string, string | null>
   /**
    * Geotech formation id → canonical class key (``buildPackingClassOf``). The
-   * fill compares masses by CLASS, so the duplicate formation rows the model
-   * keeps per geological parent read as one mass (owner 2026-08-21: *"one mass
-   * one body"*).
+   * fill compares masses by litho UNIT + CLASS, so the duplicate formation
+   * rows the model keeps per geological parent read as one mass (owner
+   * 2026-08-21: *"one mass one body"*) while two litho units never do (owner
+   * 2026-10-03: ZAND and ZAND (SL:M) never weld).
    */
   packingClassByFormationId: ReadonlyMap<string, string>
   /**
@@ -1576,9 +1577,9 @@ export default function PartitionFillOverlay({
                 geotechColumns: orderedColumns,
                 geotechEdges: edges,
                 alongM,
-                // Mass identity by CLASS: the duplicate formation rows the
-                // model keeps per geological parent are one mass (owner
-                // 2026-08-21). Invalidation rides the topology key — a class
+                // Mass identity by litho UNIT + CLASS: the duplicate formation
+                // rows the model keeps per geological parent are one mass (owner
+                // 2026-08-21); two litho units never are (owner 2026-10-03). Invalidation rides the topology key — a class
                 // change re-points the layer to another formation row, which
                 // changes the columns.
                 packingClassOf: lithoFrame?.packingClassByFormationId,
@@ -2114,10 +2115,11 @@ export default function PartitionFillOverlay({
   // the gap side of every card boundary — the tone step the owner still saw
   // after the veil went to 0. They classify only; they carry no stroke.
   // ONE MASS, ONE IDENTITY (owner dogfeed 2026-08-22, the vertical line down
-  // B3's right edge): on the geotech axis one packing class lives under
-  // several formation ROWS (one per litho/geological parent — provenance by
-  // design), so comparing raw row ids drew a seam through a mass the fill had
-  // already welded. See ``sectionFillIdentity``.
+  // B3's right edge): on the geotech axis one packing class of one litho unit
+  // lives under several formation ROWS (one per geological parent — provenance
+  // by design), so comparing raw row ids drew a seam through a mass the fill had
+  // already welded. Two litho units keep their seam (owner 2026-10-03: the class
+  // key carries the unit). See ``sectionFillIdentity``.
   const packingClassByFormationId = lithoFrame?.packingClassByFormationId
   const identityOf = useCallback(
     (formationId: string): string => fillIdentityOf(formationId, packingClassByFormationId),
