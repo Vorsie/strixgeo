@@ -52,7 +52,7 @@ import {
   makeVoxelRequestBuilder,
   type VoxelRequestBuilder,
 } from '../shared/makeVoxelRequestBuilder'
-import { buildPackingClassOf } from '../../../utils/geotechHierarchicalFill/packingClassOf'
+import { packingClassOfFormations } from '../../../utils/geotechHierarchicalFill/packingClassOf'
 
 // ---------------------------------------------------------------------------
 // Module-level refs shared with GeotechnicalToolbar — no bus extension.
@@ -156,11 +156,7 @@ export default function GeotechnicalCanvas(): JSX.Element {
   // the 3-D build and the fence weld exactly what the 2-D fill welds.
   const packingClassOf = useMemo(
     () =>
-      buildPackingClassOf(
-        geotechFormations.map(
-          f => [f.id, { nadClass: f.nad_class ?? null, soilCode: f.litho_main_soil_code ?? null }] as const,
-        ),
-      ),
+      packingClassOfFormations(geotechFormations),
     [geotechFormations],
   )
 
