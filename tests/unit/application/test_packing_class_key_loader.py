@@ -30,11 +30,24 @@ def _result_with_rows(rows: list[SimpleNamespace]) -> MagicMock:
 @pytest.mark.asyncio
 async def test_load_packing_class_key_projects_rows_to_class_keys() -> None:
     """Both-halves rows key on ``SOIL|CLASS``; a missing half keeps its row id."""
-    f1, f2, f3 = uuid4(), uuid4(), uuid4()
+    f1, f2, f3, f4, f5 = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    u_zand, u_slm = uuid4(), uuid4()
     rows = [
-        SimpleNamespace(id=f1, nad_class=6, litho_main_soil_code="ZAND"),
-        SimpleNamespace(id=f2, nad_class=6, litho_main_soil_code="ZAND"),
-        SimpleNamespace(id=f3, nad_class=None, litho_main_soil_code="ZAND"),
+        SimpleNamespace(
+            id=f1, nad_class=6, litho_main_soil_code="ZAND", source_litho_formation_id=None
+        ),
+        SimpleNamespace(
+            id=f2, nad_class=6, litho_main_soil_code="ZAND", source_litho_formation_id=None
+        ),
+        SimpleNamespace(
+            id=f3, nad_class=None, litho_main_soil_code="ZAND", source_litho_formation_id=None
+        ),
+        SimpleNamespace(
+            id=f4, nad_class=6, litho_main_soil_code="ZAND", source_litho_formation_id=u_zand
+        ),
+        SimpleNamespace(
+            id=f5, nad_class=6, litho_main_soil_code="ZAND", source_litho_formation_id=u_slm
+        ),
     ]
     session = MagicMock()
     session.execute = AsyncMock(return_value=_result_with_rows(rows))
@@ -45,6 +58,9 @@ async def test_load_packing_class_key_projects_rows_to_class_keys() -> None:
     assert key(str(f1)) == key(str(f2)), "twin-class rows share one key"
     assert key(str(f3)) == str(f3), "a skeleton band keeps its row identity"
     assert key("not-a-known-row") == "not-a-known-row"
+    # Owner 2026-10-03: two litho units (ZAND, ZAND (SL:M)) never share a key.
+    assert key(str(f4)) == f"{u_zand}|ZAND|6"
+    assert key(str(f4)) != key(str(f5))
 
 
 @pytest.mark.asyncio
@@ -65,7 +81,11 @@ async def test_build_packing_class_key_delegates_when_the_project_resolves() -> 
     model_result = MagicMock()
     model_result.scalar_one_or_none.return_value = project_id
     formation_result = _result_with_rows(
-        [SimpleNamespace(id=f1, nad_class=8, litho_main_soil_code="KLEI")]
+        [
+            SimpleNamespace(
+                id=f1, nad_class=8, litho_main_soil_code="KLEI", source_litho_formation_id=None
+            )
+        ]
     )
     session = MagicMock()
     session.execute = AsyncMock(side_effect=[model_result, formation_result])
