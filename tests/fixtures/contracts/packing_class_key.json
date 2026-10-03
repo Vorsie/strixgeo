@@ -1,14 +1,17 @@
 {
-  "_comment": "Cross-language TWIN fixture (debt #284). The single arbiter read by BOTH tests/unit/domain/services/test_twin_packing_class_key.py and desktop/src/renderer/src/utils/geotechHierarchicalFill/packingClassKey.twin.test.ts. It pins the geotech packing-class identity rule shared by packing_class_key.py (packing_class_key_of) and packingClassOf.ts (buildPackingClassOf): a formation row with BOTH a NAD class and a soil code collapses to 'SOIL|CLASS'; a row missing either half keeps ITS OWN row identity (two unknowns are not known to be the same density), so it never welds across rows. The effective key is 'SOIL|CLASS' when both are known and the formation id itself otherwise. The Python callable folds the 'unknown -> id' fallback in; the TS builder returns a Map with no entry for the unknown case and the call site applies '?? id' (PartitionFillOverlay.tsx). The contract compares the EFFECTIVE key: python key_of(id) vs (tsMap.get(id) ?? id). Change a value here and BOTH suites go red.",
+  "_comment": "Cross-language TWIN fixture (debt #284). The single arbiter read by BOTH tests/unit/domain/services/test_twin_packing_class_key.py and desktop/src/renderer/src/utils/geotechHierarchicalFill/packingClassKey.twin.test.ts. It pins the geotech packing-class identity rule shared by packing_class_key.py (packing_class_key_of) and packingClassOf.ts (buildPackingClassOf): a formation row with BOTH a NAD class and a soil code collapses to 'LITHOUNIT|SOIL|CLASS' when its litho unit (source_litho_formation_id) is known, else 'SOIL|CLASS' - owner 2026-10-03 'a zand and zand/matig siltig are 2 different lithologies, never weld those', so the litho unit is part of the mass identity; a row missing either half keeps ITS OWN row identity (two unknowns are not known to be the same density), so it never welds across rows. The effective key is 'SOIL|CLASS' when both are known and the formation id itself otherwise. The Python callable folds the 'unknown -> id' fallback in; the TS builder returns a Map with no entry for the unknown case and the call site applies '?? id' (PartitionFillOverlay.tsx). The contract compares the EFFECTIVE key: python key_of(id) vs (tsMap.get(id) ?? id). Change a value here and BOTH suites go red.",
   "rows": [
-    { "formation_id": "f-sand-6", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6" },
-    { "formation_id": "f-sand-6-twin", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6" },
-    { "formation_id": "f-sand-7", "nad_class": 7, "soil_code": "ZAND", "effective_key": "ZAND|7" },
-    { "formation_id": "f-clay-12", "nad_class": 12, "soil_code": "KLEI", "effective_key": "KLEI|12" },
-    { "formation_id": "f-clay-13", "nad_class": 13, "soil_code": "KLEI", "effective_key": "KLEI|13" },
-    { "formation_id": "f-no-class", "nad_class": null, "soil_code": "ZAND", "effective_key": "f-no-class" },
-    { "formation_id": "f-no-soil", "nad_class": 6, "soil_code": null, "effective_key": "f-no-soil" },
-    { "formation_id": "f-both-null", "nad_class": null, "soil_code": null, "effective_key": "f-both-null" }
+    { "formation_id": "f-sand-6", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6", "litho_unit_id": null },
+    { "formation_id": "f-sand-6-twin", "nad_class": 6, "soil_code": "ZAND", "effective_key": "ZAND|6", "litho_unit_id": null },
+    { "formation_id": "f-sand-7", "nad_class": 7, "soil_code": "ZAND", "effective_key": "ZAND|7", "litho_unit_id": null },
+    { "formation_id": "f-clay-12", "nad_class": 12, "soil_code": "KLEI", "effective_key": "KLEI|12", "litho_unit_id": null },
+    { "formation_id": "f-clay-13", "nad_class": 13, "soil_code": "KLEI", "effective_key": "KLEI|13", "litho_unit_id": null },
+    { "formation_id": "f-no-class", "nad_class": null, "soil_code": "ZAND", "effective_key": "f-no-class", "litho_unit_id": null },
+    { "formation_id": "f-no-soil", "nad_class": 6, "soil_code": null, "effective_key": "f-no-soil", "litho_unit_id": null },
+    { "formation_id": "f-both-null", "nad_class": null, "soil_code": null, "effective_key": "f-both-null", "litho_unit_id": null },
+    { "formation_id": "g-zand-6", "nad_class": 6, "soil_code": "ZAND", "litho_unit_id": "u-zand", "effective_key": "u-zand|ZAND|6" },
+    { "formation_id": "g-zand-6-twin", "nad_class": 6, "soil_code": "ZAND", "litho_unit_id": "u-zand", "effective_key": "u-zand|ZAND|6" },
+    { "formation_id": "g-zand-slm-6", "nad_class": 6, "soil_code": "ZAND", "litho_unit_id": "u-zand-slm", "effective_key": "u-zand-slm|ZAND|6" }
   ],
   "cases": [
     {
@@ -46,6 +49,18 @@
       "description": "A row missing both halves keeps its own row id.",
       "query_id": "f-both-null",
       "expected_key": "f-both-null"
+    },
+    {
+      "name": "an_admixture_variant_never_welds_to_the_plain_unit",
+      "description": "ZAND NAD 6 and ZAND (SL:M) NAD 6 are two litho units: distinct keys, never one mass (owner 2026-10-03).",
+      "query_id": "g-zand-slm-6",
+      "expected_key": "u-zand-slm|ZAND|6"
+    },
+    {
+      "name": "same_unit_same_class_twin_rows_still_weld",
+      "description": "Two packing rows of one litho unit and one class (geological twins) collapse to one key: one mass inside a unit (owner 2026-08-21).",
+      "query_id": "g-zand-6-twin",
+      "expected_key": "u-zand|ZAND|6"
     },
     {
       "name": "id_absent_from_the_rows_maps_to_itself",
