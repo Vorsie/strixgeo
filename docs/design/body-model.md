@@ -13,7 +13,7 @@
   `litho_layer.body_id` on every member. Applies to litho AND geotech models
   (packing bodies drive qc/sample-per-body extraction).
 * A **geometry fact** is an observed geometric adjacency between two
-  same-lithology layers, read off the partition fill (tie-born band/onlap/lens
+  same-unit layers, read off the partition fill (tie-born band/onlap/lens
   regions only — fallback paint NEVER defines identity) per section, plus
   cross-section at shared columns and fence crossings (the stage-2 rule in
   `merge_bodies_across_sections.py`). Facts exist because a tie is overloaded:
@@ -45,6 +45,22 @@
   cross-merge update) to keep instance ordinals coherent — persisted facts
   ride every one of those runs, so a tie edit cannot revert a geometric
   merge; stale facts self-heal at the next recompute.
+* **One body = one litho unit** (owner ruling 2026-10-03, verbatim: *"a zand
+  and zand/matig siltig are 2 different lithologies, never weld those"*). A
+  band of unit X and a band of unit Y never share a body, whatever their main
+  soil family: the contact between ZAND and ZAND (SL:M) is a body boundary like
+  ZAND / KLEI. The resolver's `same_mass` compares the litho UNIT (a litho
+  layer's own formation row; a geotech band's `source_litho_formation_id`)
+  before soil and class, so a tie or a geometry fact across two units is kept
+  (it states a shared surface — a packing tie across two units is flagged
+  `frame_mismatch` at draw time) but never joins bodies. Ordinals are numbered
+  per unit (`_mass_unit_key`): ZAND bodies #0.., ZAND (SL:M) bodies #0..; a
+  geotech body numbers within its litho unit + NAD class. The fill's class key
+  (`packingClassOf.ts` / `packing_class_key.py`, `UNIT|SOIL|CLASS`) carries the
+  unit, so the render, the voxel paint and the fence stop at the same boundary.
+  Pooling two units is the user's **Join** (a GROUP, never a merge;
+  `same_join_class` = same soil + class is its write guard). The Parameters
+  tree lists a body under its home unit only.
 * `body_id` is **identity, not shape** — it over-lumps heterogeneous packages,
   so the fill engine matches on real edges, never on `body_id`
   (see [section-fill.md](section-fill.md)).
