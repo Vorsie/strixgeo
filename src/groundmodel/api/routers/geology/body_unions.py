@@ -22,9 +22,11 @@ space (it re-anchors across a re-subdivide); the resolver IGNORES it for identit
 One guard is enforced at WRITE time so a bad group never reaches the table:
 
 * **Never a mixed group** (``body_union_cross_class``, 422): the two anchors must
-  describe one mass — a group is "things that are similar", i.e. the SAME soil and
-  NAD class. Reuses the resolver's ``same_mass`` predicate so the write guard
-  matches the notion of similarity the edge loop applies to a merge.
+  be similar — a group is "things that are similar", i.e. the SAME soil and NAD
+  class. Reuses the resolver's ``same_join_class`` predicate. It is deliberately
+  COARSER than the body-identity predicate ``same_mass``: since owner 2026-10-03
+  two litho units (ZAND and ZAND (SL:M)) never weld into one body, and a Join is
+  how the engineer pools them by hand.
 
 Owner 2026-09-01: the Separate / Rejoin verbs were removed and ``body_separation``
 is DORMANT, so the former cannot-link pre-check (``body_union_contradicts_separation``,
@@ -63,7 +65,7 @@ from groundmodel.api.schemas.project.body_union.body_union_schemas import (
 )
 from groundmodel.application.body_partition_lock import lock_body_partition
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
-from groundmodel.domain.services.resolve_litho_instances import LayerNode, same_mass
+from groundmodel.domain.services.resolve_litho_instances import LayerNode, same_join_class
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.body_union_orm import BodyUnionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -91,13 +93,13 @@ def _canonical_pair(layer_a_id: UUID, layer_b_id: UUID) -> tuple[UUID, UUID]:
 
 
 def _anchor_node(row: object, *, is_geotechnical: bool) -> LayerNode:
-    """Build the minimal ``LayerNode`` the ``same_mass`` write guard needs.
+    """Build the minimal ``LayerNode`` the ``same_join_class`` write guard needs.
 
     Mirrors the field mapping ``resolve_litho_instances_use_case`` uses so the
     router's class guard and the resolver's edge/union filter decide identically:
     a geotech model carries the formation row as its packing class + its
-    ``nad_class``; a litho model carries neither, so ``same_mass`` falls to
-    soil alone there. Only soil + packing are read by ``same_mass``; the other
+    ``nad_class``; a litho model carries neither, so ``same_join_class`` falls
+    to soil alone there. Only soil + packing are read by ``same_join_class``; the other
     fields are placeholders.
 
     Parameters
@@ -213,11 +215,12 @@ async def create_body_union(
         )
 
     # Never a mixed group: a group is "things that are similar", so the two anchors
-    # must be ONE mass (same soil + class). Reuse the resolver's own ``same_mass``
-    # so this write guard matches the similarity notion the edge loop applies.
+    # must be similar (same soil + class) — ``same_join_class``, NOT the stricter
+    # body identity ``same_mass``: a Join may pool two litho units (ZAND with ZAND
+    # (SL:M)) that never weld on their own (owner 2026-10-03).
     is_geotechnical = model.kind == MODEL_KIND_GEOTECHNICAL
     row_a, row_b = by_id[layer_a_id], by_id[layer_b_id]
-    if not same_mass(
+    if not same_join_class(
         _anchor_node(row_a, is_geotechnical=is_geotechnical),
         _anchor_node(row_b, is_geotechnical=is_geotechnical),
     ):
