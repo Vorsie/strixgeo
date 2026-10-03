@@ -142,6 +142,7 @@ def _layer_row() -> SimpleNamespace:
         parent_formation_id=None,
         litho_main_soil_code="ZAND",
         nad_class=None,
+        source_litho_formation_id=None,
     )
 
 
