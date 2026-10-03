@@ -167,16 +167,13 @@ export function sourceUnitIndex(
 }
 
 /**
- * The litho UNIT a geotech band is homed to — the litho FORMATION it was
- * subdivided from.
+ * The litho UNIT a geotech band was subdivided from — its litho FORMATION.
  *
- * Owner ruling 2026-09-16 (verbatim: "parameters tree, yeah it is a separate
- * litho unit, so gets a separate dropdown"): an admixture variant (ZAND (GL|KL))
- * welds into the plain unit's body mass, so keying a packing band by the welded
- * body's home formation pushed the variant's packing beneath the plain unit. The
- * band's geotech formation carries ``source_litho_formation_id`` = the variant,
- * which is the authoritative home. When that is unset (legacy bands), fall back to
- * the covering litho band's own formation — the geometric parent's unit.
+ * Read for an ORPHAN band (no covering litho band, so no litho body to list it
+ * under): the orphan count is attributed to this unit. The band's geotech
+ * formation carries ``source_litho_formation_id``, the authoritative unit; when
+ * that is unset (legacy bands), fall back to the covering litho band's own
+ * formation — the geometric parent's unit.
  *
  * @param band  A geotech-model band (accepted or not).
  * @param lithoById  ``litho_layer id → layer`` for the parent-band fallback.
@@ -264,17 +261,14 @@ export function bandsForScope(
     case 'geotech-class': {
       const lithoById = lithoLayerIndex(input.lithoLayers)
       const classByFormation = nadClassIndex(input.geotechFormations)
-      const sourceUnitByFormation = sourceUnitIndex(input.geotechFormations)
+      // A litho body is one litho unit (owner 2026-10-03: "a zand and zand/matig
+      // siltig are 2 different lithologies, never weld those"), so the body
+      // alone names the class row's ground.
       return input.geotechLayers.filter(
         l =>
           isAccepted(l) &&
           classByFormation.get(l.formation_id) === scope.nadClass &&
-          lithoBodyOfGeotechBand(l, lithoById) === scope.lithoBodyId &&
-          // Home the band by its SOURCE litho unit, so a welded body's variant
-          // packing pools under the variant's node, never the plain unit's
-          // (owner 2026-09-16). A non-welded body's bands all share one source
-          // unit, so this is a no-op there.
-          sourceUnitOfGeotechBand(l, lithoById, sourceUnitByFormation) === scope.lithoUnitId,
+          lithoBodyOfGeotechBand(l, lithoById) === scope.lithoBodyId,
       )
     }
   }
@@ -361,15 +355,15 @@ function collapseSingleLeafChild(children: ParameterTreeNode[]): ParameterTreeNo
  * The litho body ids homed to a litho unit, in roster-ordinal order.
  *
  * The F1 homing rule: a body renders under its HOME formation (the roster's
- * ``formation_id``); a body the roster does not know falls back to the
- * layer's own ``formation_id``. Distinct body ids only, ordered by ordinal
- * so the tree reads the way the 3-D legend numbers bodies.
+ * ``formation_id``) ONLY; a body the roster does not know falls back to the
+ * layer's own ``formation_id``. A body is one litho unit (owner 2026-10-03:
+ * two units never weld), so it is listed once. Distinct body ids only, ordered
+ * by ordinal so the tree reads the way the 3-D legend numbers bodies.
  */
 function lithoBodyIdsForUnit(
   lithoLayers: readonly LithoLayerResponse[],
   unitId: string,
   roster: ReadonlyMap<string, BodyRosterEntry>,
-  geotechSourcedBodyIds?: Iterable<string>,
 ): string[] {
   const bodies = new Set<string>()
   for (const l of lithoLayers) {
@@ -379,13 +373,6 @@ function lithoBodyIdsForUnit(
     const home = roster.get(bodyId)?.formation_id ?? null
     if (home !== null ? home !== unitId : l.formation_id !== unitId) continue
     bodies.add(bodyId)
-  }
-  // A geotech band sourced to THIS unit homes its covering litho body here too,
-  // even when the welded body's roster home is a different (twin) formation — the
-  // variant unit must show the body carrying its packing (owner 2026-09-16). The
-  // body may thus render under two units; each shows only its own source's bands.
-  if (geotechSourcedBodyIds !== undefined) {
-    for (const id of geotechSourcedBodyIds) bodies.add(id)
   }
   const ordinalOf = (id: string): number => roster.get(id)?.body_ordinal ?? Number.MAX_SAFE_INTEGER
   return Array.from(bodies).sort(
@@ -410,34 +397,28 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
   const lithoById = lithoLayerIndex(input.lithoLayers)
   const classByFormation = nadClassIndex(input.geotechFormations)
 
-  // Accepted geotech bands grouped by (SOURCE litho unit, litho parent body) once,
-  // so the class/body build is a lookup rather than a rescan per litho body. Keying
-  // by the source litho FORMATION (not only the welded body) homes an admixture
-  // variant's packing under the variant's own unit node — owner 2026-09-16.
-  const geotechByUnitAndLithoBody = new Map<string, Map<string, LithoLayerResponse[]>>()
+  // Accepted geotech bands grouped by their litho parent body once, so the
+  // class/body build is a lookup rather than a rescan per litho body. A packing
+  // band sits under its litho body, and that body under its HOME unit only — a
+  // body is one litho unit (owner 2026-10-03), so an admixture variant's packing
+  // sits under the variant's own unit node because its body is homed there.
+  const geotechByLithoBody = new Map<string, LithoLayerResponse[]>()
   const orphanCountBySourceUnit = new Map<string, number>()
   const sourceUnitByGeoFormation = sourceUnitIndex(input.geotechFormations)
   for (const band of input.geotechLayers) {
     if (!isAccepted(band)) continue
     const lithoBody = lithoBodyOfGeotechBand(band, lithoById)
-    const sourceUnit = sourceUnitOfGeotechBand(band, lithoById, sourceUnitByGeoFormation)
     if (lithoBody === null) {
       // Orphan — no covering litho band. Attribute to the geotech formation's
       // source litho unit; never invent a home in the tree (spec §1).
+      const sourceUnit = sourceUnitOfGeotechBand(band, lithoById, sourceUnitByGeoFormation)
       if (sourceUnit !== null) {
         orphanCountBySourceUnit.set(sourceUnit, (orphanCountBySourceUnit.get(sourceUnit) ?? 0) + 1)
       }
       continue
     }
-    // No source unit AND no covering-band formation → nothing to home it to.
-    if (sourceUnit === null) continue
-    let byBody = geotechByUnitAndLithoBody.get(sourceUnit)
-    if (byBody === undefined) {
-      byBody = new Map()
-      geotechByUnitAndLithoBody.set(sourceUnit, byBody)
-    }
-    const bucket = byBody.get(lithoBody)
-    if (bucket === undefined) byBody.set(lithoBody, [band])
+    const bucket = geotechByLithoBody.get(lithoBody)
+    if (bucket === undefined) geotechByLithoBody.set(lithoBody, [band])
     else bucket.push(band)
   }
 
@@ -450,16 +431,10 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
     // row reads the Lithology roster's name ("ZAND | matig siltig"), the raw
     // DOV token ("ZAND (SL:M)") rides ``rawName`` for the tooltip.
     const unitName = formationUnitDisplayName(unit)
-    const geotechByLithoBody = geotechByUnitAndLithoBody.get(unit.id)
-    const lithoBodyIds = lithoBodyIdsForUnit(
-      input.lithoLayers,
-      unit.id,
-      input.lithoBodies,
-      geotechByLithoBody?.keys(),
-    )
+    const lithoBodyIds = lithoBodyIdsForUnit(input.lithoLayers, unit.id, input.lithoBodies)
 
     const lithoBodyNodes = lithoBodyIds.map<ParameterTreeNode>(lithoBodyId => {
-      const classBands = geotechByLithoBody?.get(lithoBodyId) ?? []
+      const classBands = geotechByLithoBody.get(lithoBodyId) ?? []
 
       // Class rows key on nad_class — twin geotech formation rows of the same
       // class fold into ONE row.
@@ -560,9 +535,8 @@ export function buildParameterTree(input: ParameterTreeInput): ParameterTreeNode
         // body with a single packing class keeps that class node, so the
         // pakkingsdichtheid label survives and the body stays openable.
         children: classNodes,
-        // Named after the body's OWN home formation, whichever row it sits
-        // under (owner finding 2026-10-02: weld body #4 homed on ZAND read
-        // "ZAND (SL:M) · #4" under the SL:M row).
+        // Named after the body's OWN home formation (owner finding 2026-10-02);
+        // the body is listed under that home row only (owner 2026-10-03).
         label: lithoBodyLabel(lithoBodyId, unitName, input.lithoBodies, input.lithoFormations),
         bandCount: counts.bandCount,
         coneBandCount: counts.coneBandCount,
