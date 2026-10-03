@@ -77,20 +77,12 @@ interface PanelGroup {
  *     ``formationId`` of its FIRST member (render order → deterministic), the
  *     resolved (or label) ``bodyId``, and the UNION of its members' ``layerIds``.
  *
- *     ⚠ KNOWN LIMITATION — the single-``formationId`` stamp. A resolved body's
- *     panels do NOT always share one formation: ``crossFamilyWeld`` already welds
- *     a closed lens into a same-class mass from ANOTHER litho family and carries
- *     the combined layer ids into the body-recompute evidence (owner's "one mass
- *     one body" / option-3 ruling 2026-08-21), so a body's panels can span two
- *     litho families whose regions each keep one member's formationId. Merging
- *     extends that single first-member stamp across the whole connected body, and
- *     everything that keys off a panel's ``formationId`` — the unit-scope cutout
- *     filter, the legend's "walled" mark, the DXF layer name — then credits only
- *     that one formation for the merged wall. Flagged to the owner alongside the
- *     standing ``crossFamilyWeld`` eyeball item ("only same litho parents can be
- *     joined"): the body-identity question is being settled as a whole (debt
- *     #278 ruling 2 — a body crossing formations LISTS both), and until it is,
- *     grouping purely by resolved body is the brief's instruction.
+ *     The merged panel carries its first member's ``formationId``. A resolved
+ *     body is one litho unit (owner 2026-10-03: *"a zand and zand/matig siltig
+ *     are 2 different lithologies, never weld those"* — the resolver and the
+ *     fill's class key both stop at a unit boundary), so every member credits
+ *     the same unit; on the geotech axis members may differ only by a legacy
+ *     geological-twin row of the same class, which paints and exports alike.
  */
 export function mergeFencePanels(
   panels: readonly FencePanel[],
