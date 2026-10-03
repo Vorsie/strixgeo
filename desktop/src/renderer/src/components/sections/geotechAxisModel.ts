@@ -25,6 +25,11 @@ export interface GeotechFormationMeta {
    * and merges on class. Absent/empty for a clean unit.
    */
   admixtureCodes?: readonly string[]
+  /**
+   * The litho unit the packing row subdivides (``source_litho_formation_id``).
+   * Leads the fill's class key: two litho units never weld (owner 2026-10-03).
+   */
+  lithoUnitId?: string | null
 }
 
 /** Everything the geotech axis reads about the active geotech model. */
