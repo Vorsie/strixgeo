@@ -112,7 +112,7 @@ bands reflect the ties accepted since the last press.
 The rule it applies is SAME-UNIT throughout — donors are filtered by the
 receiver's ``source_litho_formation_id`` (``layer_donor_picks``, owner
 2026-09-14), which is finer than soil: a clean sand borrows only from clean
-sand, never from the glauconitic sand welded into the same body.  The
+sand, never from a neighbouring glauconitic sand.  The
 conservative floors are derived from the unit's own soil + admixtures
 (``loosest_class_for``), and a class from another unit never reaches a band.
 There is no "nearest CPT of any lithology" fallback: a silt's firmness is not
@@ -908,9 +908,9 @@ class SubdivideAllBodies(GeotechBoreholeMaterialiser):
                 f"{len(group_segs)} segment(s)"
             )
 
-            # The litho formation of this group — part of its key, so a body
-            # that welds two admixture variants of one soil is planned as the
-            # two units it is (owner 2026-09-11, his b13 glauconitic sand).
+            # The litho formation of this group — part of its key, so every
+            # group is planned as one litho unit (owner 2026-09-11, his b13
+            # glauconitic sand; a body is one unit since 2026-10-03).
             source_litho_fid = UUID(litho_fid_str)
 
             # Collect CPT members of the group.
