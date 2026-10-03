@@ -5,7 +5,8 @@ Python (``domain/services/voxel_litho/packing_class_key.py`` —
 ``packing_class_key_of``) and once in TypeScript
 (``utils/geotechHierarchicalFill/packingClassOf.ts`` —
 ``buildPackingClassOf``). Both collapse a formation row that carries BOTH a
-NAD class and a soil code to ``"SOIL|CLASS"`` and keep a row missing either
+NAD class and a soil code to ``"LITHOUNIT|SOIL|CLASS"`` (``"SOIL|CLASS"`` when
+the row's litho unit is unknown) and keep a row missing either
 half at its own row identity, so the backend voxel body merge and the frontend
 fill agree on what "same body" means.
 
@@ -66,9 +67,11 @@ def _key_of() -> Any:
     -------
     callable of (str) -> str
         The domain builder's callable, fed the fixture's ``(id, nad_class,
-        soil_code)`` triples exactly as the application loader would.
+        soil_code, litho_unit_id)`` rows exactly as the application loader would.
     """
-    return packing_class_key_of((r["formation_id"], r["nad_class"], r["soil_code"]) for r in _ROWS)
+    return packing_class_key_of(
+        (r["formation_id"], r["nad_class"], r["soil_code"], r["litho_unit_id"]) for r in _ROWS
+    )
 
 
 @pytest.mark.parametrize("row", _ROWS, ids=[r["formation_id"] for r in _ROWS])
@@ -113,3 +116,7 @@ def test_a_fix_on_one_side_of_the_twin_fails_the_other_sides_suite_when_it_drift
     assert key_of("f-sand-6") == key_of("f-sand-6-twin")
     assert key_of("f-no-class") == "f-no-class"
     assert key_of("f-no-soil") == "f-no-soil"
+    # Owner 2026-10-03: "a zand and zand/matig siltig are 2 different
+    # lithologies, never weld those" - same soil + class, two litho units.
+    assert key_of("g-zand-6") != key_of("g-zand-slm-6")
+    assert key_of("g-zand-6") == key_of("g-zand-6-twin")
