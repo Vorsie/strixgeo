@@ -113,7 +113,7 @@ class BodyUnionAnchorInfo(BaseModel):
         The current body's user name, or ``None`` when unnamed (the FE falls
         back to a derived ordinal label).
     body_ordinal : int | None
-        The current body's ordinal within its naming group.
+        The current body's ordinal within its mass unit (one sequence per litho unit).
     formation_id : UUID | None
         The current body's formation row — lets the FE compose a soil-coded
         label (e.g. "Za2").
