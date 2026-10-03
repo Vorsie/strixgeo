@@ -1339,9 +1339,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
         single_band_borehole_count = 0
 
         for (body_id_str, source_geo_fid, litho_fid_str), group_segs in groups.items():
-            # The group IS one litho unit — the key carries its formation, so
-            # this cannot be the formation of a neighbouring unit welded into
-            # the same body (owner 2026-09-11, his b13 glauconitic sand).
+            # The group IS one litho unit — the key carries its formation (owner
+            # 2026-09-11, his b13 glauconitic sand; a body is one unit since
+            # 2026-10-03, so the key and the body agree).
             source_litho_fid = UUID(litho_fid_str)
 
             in_scope_bh_segs = [
@@ -1513,11 +1513,11 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                 # A donor must be the SAME LITHO UNIT (``receiver_formation_id``,
                 # below), not merely the same soil. A silt donor on a sand layer
                 # would put a SILT class inside a ZAND unit (Data Integrity Rule
-                # 3), and — the owner's B2, 2026-09-14 — the glauconitic ZAND
-                # welded into the same body would lend its DENSE class onto a
-                # clean sand every adjacent test reads medium dense. Body
-                # grouping used to enforce even the soil for free; naming donors
-                # by correlation does not, and the body pool spans both variants.
+                # 3), and — the owner's B2, 2026-09-14 — a tied glauconitic ZAND
+                # would lend its DENSE class onto a clean sand every adjacent
+                # test reads medium dense. Naming donors by correlation does not
+                # enforce the unit (a litho tie may cross two units and state a
+                # shared surface), so the gate below does.
 
                 layer_top_elev = bh_elev - (geo_top if unit_layer is None else unit_layer[1])
                 layer_base_elev = bh_elev - (geo_base if unit_layer is None else unit_layer[2])
@@ -1536,9 +1536,8 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
                     correlated,
                     cpt_layer_picks_by_body.get(unit_body_id or "", []),
                     # The receiver's OWN litho unit — the group key's formation.
-                    # The body pool welds the glauconitic variant into one body,
-                    # so only this gate keeps a clean sand from borrowing the
-                    # neighbouring glauconitic unit's class (owner 2026-09-14, B2).
+                    # A tied neighbouring glauconitic unit never lends its class
+                    # (owner 2026-09-14, B2).
                     receiver_formation_id=str(source_litho_fid),
                     layer_top_elev_m=layer_top_elev,
                     layer_base_elev_m=layer_base_elev,
