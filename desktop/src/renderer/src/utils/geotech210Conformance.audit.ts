@@ -312,8 +312,9 @@ function ringExtentOver(
  * @param name The section's name — it prefixes every violation's detail.
  * @param bundle The partition (see {@link AuditBundle}).
  * @param packingClassOf Formation row id → canonical packing class key. The
- *   oracle must compare masses exactly as the fill does — by CLASS (owner
- *   2026-08-21: one mass one body) — or it audits a law the fill was never given.
+ *   oracle must compare masses exactly as the fill does — by litho UNIT + CLASS
+ *   (owner 2026-08-21: one mass one body; 2026-10-03: two litho units never
+ *   weld) — or it audits a law the fill was never given.
  * @returns Every violation found, in column then gap order.
  */
 export function auditPartition(
@@ -669,8 +670,9 @@ export function auditPartition(
           // Distance approximately"), so its own loops must reach ~the middle
           // and demanding the far column would contradict the ruling.
           const fars = farForms.get(`${u.layerId}|${gap}`) ?? []
-          // CLASS identity, not row identity — the duplicate formation rows the
-          // model keeps per geological parent are ONE mass (owner 2026-08-21).
+          // CLASS identity (within one litho unit), not row identity — the
+          // duplicate formation rows the model keeps per geological parent are
+          // ONE mass (owner 2026-08-21); two litho units never are (2026-10-03).
           const sameMassFar = fars.every((f) => classKeyOf(f) === classKeyOf(u.formationId))
           // THE MIXED PAIR (owner, 2026-08-21): *"the D sand should fill that
           // gap ... which forms a closed loop in that gap that only the D sand
