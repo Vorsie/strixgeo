@@ -219,7 +219,7 @@ async def band_frame_warning(
     Owner order 2026-08-21 (after deleting a silt-to-clay tie that rendered as
     nothing): *"next time flag a tie like that when it doesn't conform to the
     litho model!"*  Resolves each endpoint band's parent litho unit, compares
-    main soils, and — for same-soil pairs — walks the parent litho model's
+    main soils and litho units, and — for same-soil pairs — walks the parent litho model's
     ACCEPTED correlation edges for a path between the two units.  Unresolvable
     parents stay silent: absence of evidence is not evidence of non-conformance.
 
@@ -262,4 +262,7 @@ async def band_frame_warning(
         litho_connected=connected,
         band_a=await describe_geotech_band(session, band_a_id),
         band_b=await describe_geotech_band(session, band_b_id),
+        # Owner 2026-10-03: two litho units of one soil never weld, so a tie
+        # across them is flagged even when a litho tie connects them.
+        same_litho_unit=unit_a.formation_id == unit_b.formation_id,
     )
