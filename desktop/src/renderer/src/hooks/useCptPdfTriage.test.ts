@@ -9,15 +9,20 @@
 //   PT2  a 409 "already running" that names the job ATTACHES to that job's
 //        stream and reaches the digest, instead of failing.
 //   PT3  a DIFFERENT report aborts the old stream and uploads the new one.
-//   PT4  a StrictMode mount (effect, cleanup, effect) still reaches the digest.
+//   PT4  a StrictMode mount (effect, cleanup, effect) uploads once and reaches
+//        the digest.
 //   PT5  reset() forgets the report, so starting it again uploads again.
+//   PT6  an unmount and a remount for the same report in the same tick share
+//        the running triage: ONE upload, and the remount reaches the digest.
+//   PT7  an unmount with no remount aborts the stream after the tick.
+//   PT8  reset() aborts the stream at once, and a following start uploads again.
 
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { createElement, StrictMode, useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { cptPdfClient } from '../api/clients/cptPdf'
-import { useCptPdfTriage } from './useCptPdfTriage'
+import { _clearCptPdfTriageRegistry, useCptPdfTriage } from './useCptPdfTriage'
 
 vi.mock('../utils/log', () => ({
   log: {
@@ -99,6 +104,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  _clearCptPdfTriageRegistry()
   vi.unstubAllGlobals()
   ;(window as unknown as { electron?: unknown }).electron = originalElectron
 })
@@ -162,7 +168,7 @@ describe('useCptPdfTriage', () => {
     expect(firstSignal?.aborted).toBe(true)
   })
 
-  it('PT4: a StrictMode mount (effect, cleanup, effect) still reaches the digest', async () => {
+  it('PT4: a StrictMode mount (effect, cleanup, effect) uploads once and reaches the digest', async () => {
     let spawned = false
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') {
@@ -189,8 +195,9 @@ describe('useCptPdfTriage', () => {
     )
 
     await waitFor(() => expect(result.current.state.status).toBe('done'))
-    // The remount's upload was refused 409 and attached to the first job.
-    expect(triagePosts()).toHaveLength(2)
+    // The remount joins the triage the first mount started: no second upload,
+    // so no 409 in the console.
+    expect(triagePosts()).toHaveLength(1)
   })
 
   it('PT5: reset() forgets the report, so starting it again uploads again', async () => {
@@ -206,6 +213,71 @@ describe('useCptPdfTriage', () => {
     expect(result.current.state.status).toBe('idle')
     act(() => result.current.start('C:/r/report.pdf', 'P1'))
 
+    await waitFor(() => expect(triagePosts()).toHaveLength(2))
+  })
+
+  it('PT6: an unmount and a remount for the same report in the same tick upload once', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      return done(init)
+    })
+    // Like the dialog: the hook's owner starts the report from an effect.
+    const useDialogTriage = () => {
+      const triage = useCptPdfTriage()
+      const { start } = triage
+      useEffect(() => {
+        start('C:/r/report.pdf', 'P1')
+      }, [start])
+      return triage
+    }
+    const first = renderHook(useDialogTriage)
+
+    // The same dialog goes away and comes back before the event loop turns.
+    let second!: ReturnType<typeof renderHook<ReturnType<typeof useCptPdfTriage>, unknown>>
+    act(() => {
+      first.unmount()
+      second = renderHook(useDialogTriage)
+    })
+
+    await waitFor(() => expect(second.result.current.state.status).toBe('done'))
+    if (second.result.current.state.status === 'done')
+      expect(second.result.current.state.digest.file_sha).toBe('abc')
+    expect(triagePosts()).toHaveLength(1)
+  })
+
+  it('PT7: an unmount with no remount aborts the stream after the tick', async () => {
+    let streamSignal: AbortSignal | undefined
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      streamSignal = init?.signal ?? undefined
+      return hangingUntilAbort(init)
+    })
+    const { result, unmount } = renderHook(() => useCptPdfTriage())
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
+    await waitFor(() => expect(streamSignal).toBeDefined())
+
+    unmount()
+
+    await waitFor(() => expect(streamSignal?.aborted).toBe(true))
+  })
+
+  it('PT8: reset() aborts the stream at once, and a following start uploads again', async () => {
+    const streamSignals: AbortSignal[] = []
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      if (init?.signal) streamSignals.push(init.signal)
+      return hangingUntilAbort(init)
+    })
+    const { result } = renderHook(() => useCptPdfTriage())
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
+    await waitFor(() => expect(streamSignals).toHaveLength(1))
+
+    act(() => result.current.reset())
+    // An explicit reset does not wait for the tick.
+    expect(streamSignals[0].aborted).toBe(true)
+    expect(result.current.state.status).toBe('idle')
+
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
     await waitFor(() => expect(triagePosts()).toHaveLength(2))
   })
 })
