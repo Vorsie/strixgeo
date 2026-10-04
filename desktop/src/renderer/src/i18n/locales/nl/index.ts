@@ -27,6 +27,7 @@ import type { Messages } from '../en'
 import { BED_OVERRIDE_NL } from './bedOverride'
 import { CHROME_NL } from './chrome'
 import { DATA_NL } from './data'
+import { IMPORT_FLAGS_NL } from './importFlags'
 import { LAUNCH_NL } from './launch'
 import { MODELS_NL } from './models'
 import { OUTPUTS_NL } from './outputs'
@@ -41,6 +42,7 @@ import { TRACKS_NL } from './tracks'
 export const NL: Partial<Messages> = {
   ...CHROME_NL,
   ...DATA_NL,
+  ...IMPORT_FLAGS_NL,
   ...BED_OVERRIDE_NL,
   ...SETTINGS_NL,
   ...MODELS_NL,
@@ -58,6 +60,7 @@ export const NL: Partial<Messages> = {
 export const NL_MODULES = {
   chrome: CHROME_NL,
   data: DATA_NL,
+  importFlags: IMPORT_FLAGS_NL,
   bedOverride: BED_OVERRIDE_NL,
   settings: SETTINGS_NL,
   models: MODELS_NL,
