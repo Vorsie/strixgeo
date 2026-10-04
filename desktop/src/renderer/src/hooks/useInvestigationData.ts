@@ -27,6 +27,7 @@ import { addAllToSet } from '../utils/sets'
 import { dovBboxProblem } from '../utils/dovBbox'
 import { dovSubPhaseFailures } from '../utils/dovImportFailures'
 import { log } from '../utils/log'
+import { preDrillImportWarning } from '../utils/preDrillImportWarning'
 import { t } from '../i18n/translate'
 import type { UndoCommand } from './useUndoStack'
 import type { MessageKey } from '../i18n/locales/en'
@@ -890,14 +891,14 @@ export function useInvestigationData({
       // (docs/ux.md "Reversible vs irreversible") and only then re-posted.
       // Asked sequentially: two dialogs at once is not a question, it is a
       // pile-up.
+      const fileNames = filePaths.map(fp => fp.split(/[\\/]/).pop() ?? fp)
       const declinedNames: string[] = []
       for (let i = 0; i < results.length; i++) {
         const r = results[i]
         if (r.status !== 'rejected') continue
         if (!(r.reason instanceof CptRefreshConfirmationRequiredError)) continue
         const diff = r.reason.diff
-        const fileName = filePaths[i].split(/[\\/]/).pop() ?? filePaths[i]
-        const agreed = await askRefreshConfirmation(fileName, diff)
+        const agreed = await askRefreshConfirmation(fileNames[i], diff)
         if (!agreed) {
           declinedNames.push(diff.name)
           log.info('import', `refresh declined for ${diff.name} — row left untouched`)
@@ -925,8 +926,20 @@ export function useInvestigationData({
       // the toast names them so the user can see WHICH file replaced WHAT.
       const refreshedNames: string[] = []
 
-      for (const r of results) {
+      // Files whose GEF declares a pre-drill the depth column was not shifted
+      // by (PRE_DRILL_NOT_APPLIED): the depths were kept as read, so the
+      // engineer is told which CPT, the declared pre-drill and the first depth.
+      const preDrillWarnings: string[] = []
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]
         if (r.status === 'fulfilled') {
+          const name = r.value.name || fileNames[i]
+          const preDrill = preDrillImportWarning(r.value.issues, name, t)
+          if (preDrill) {
+            preDrillWarnings.push(preDrill)
+            log.warn('import', `PRE_DRILL_NOT_APPLIED on ${name}`)
+          }
           firstId ??= r.value.cpt_id
           touchedIds.push(r.value.cpt_id)
           if (r.value.refreshed) {
@@ -965,6 +978,7 @@ export function useInvestigationData({
         parts.push(t('data.import.leftUnchangedMany', { n: declinedNames.length }))
       if (errors > 0) parts.push(t('data.import.countFailed', { n: errors }))
       toast(errors > 0 && ok === 0 && refreshed === 0 ? 'error' : 'success', parts.join(', '))
+      if (preDrillWarnings.length > 0) toast('warning', preDrillWarnings.join(' '))
 
       unhideCpts(touchedIds)
       // Append to the manifest (visibility gate) AND the session-imports
