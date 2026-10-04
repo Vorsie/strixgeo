@@ -62,6 +62,8 @@ export const CHROME = {
   'api.code.bodyPartitionLocked': 'Another body operation is still running on this model. Try again in a moment.',
   'api.code.lockTimeout': 'The database was busy for too long. Try again in a moment.',
   'api.code.dovUnreachable': 'DOV is not reachable right now; the predictions will load when it is.',
+  'api.code.labBoreholeConflict': 'Borehole {name} was added to this project by another lab preview while this one ran. Open the preview again to use it.',
+  'api.code.labBoreholeConflictUnnamed': 'A borehole for this file was added to this project by another lab preview while this one ran. Open the preview again to use it.',
   'app.backendRestarting': 'Reconnecting to the backend…',
   'app.quit': 'Quit StrixGeo',
   'app.reload': 'Reload StrixGeo',
