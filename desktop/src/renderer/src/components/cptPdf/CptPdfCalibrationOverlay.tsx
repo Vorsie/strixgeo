@@ -8,10 +8,23 @@
 // posts the calibration dict and the overlay is redrawn through it. What the
 // sheet did not print (position, ground level, date) is typed here too.
 //
-// One component with a small canvas (the eyedropper's pixel read); the pure
-// dict edits live in cptPdfCalibrationEdits.ts.
+// Detected vs edited (owner dogfeed 2026-10-04): the component keeps the
+// digitiser's own calibration (``detected``, the backend's
+// PageCalibration.to_dict() as the first read returned it) apart from the
+// user's sparse ``edits``. Every field shows the detected value as its grey
+// placeholder and stays empty until the user types; an empty field means "use
+// the detected value". ``applyEdits`` merges the two for the drawing, for
+// "Read again" and for "Use this calibration". "Pick automatically again"
+// drops every edit and posts NO calibration: POST /cpt/pdf/digitise reads an
+// omitted ``calibrations`` as "the digitiser's own" (DigitiseCptPdfSounding
+// resolves only the pages it is given), so the reset re-reads the page exactly
+// as the first open did.
+//
+// One component with a small canvas (the eyedropper's pixel read); the page
+// drawing lives in CptPdfOverlaySurface.tsx, the pure dict edits in
+// cptPdfCalibrationEdits.ts.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   cptPdfClient,
@@ -24,22 +37,31 @@ import {
 import { useT } from '../../i18n/translate'
 import { log } from '../../utils/log'
 import Button from '../ui/Button'
+import { FIELD_CLASS } from '../ui/fieldClasses'
 import NumericInput from '../ui/NumericInput'
 import {
+  applyEdits,
   axisValues,
+  formatDetectedValue,
+  hasEdits,
   moveFrameCorner,
   overlayScale,
-  setAxisValues,
-  setCurveColour,
-  setPanelKind,
+  patchPanelEdit,
+  type CalibrationEdits,
   type FrameCorner,
   type PanelAxis,
 } from './cptPdfCalibrationEdits'
+import CptPdfOverlaySurface from './CptPdfOverlaySurface'
 
 /** What the user settled on for one sounding. */
 export interface CptPdfSoundingEdit {
+  /** The calibration the import posts: ``edits`` applied over ``detected``. */
   calibrations?: PageCalibrationDict[]
   header?: CptPdfHeaderEdit
+  /** The digitiser's own calibration (reopening shows it as grey hints). */
+  detected?: PageCalibrationDict[]
+  /** The user's edits over ``detected`` (reopening keeps them). */
+  edits?: CalibrationEdits
 }
 
 /** Reads one pixel of the overlay image (RGB 0..255), or null when unreadable. */
@@ -59,7 +81,22 @@ export function canvasPixel(image: HTMLImageElement, x: number, y: number): [num
 
 const PANEL_KINDS: PanelKindValue[] = ['qc', 'fs', 'rf', 'u2', 'inclination', 'unknown']
 const DEFAULT_EPSG = 31370
-const CORNERS: FrameCorner[] = ['top-left', 'bottom-right']
+
+type HeaderNumberKey = 'x' | 'y' | 'epsg' | 'ground_level_m'
+
+/** What one digitise call posts beyond the sounding. */
+interface ReadRequest {
+  /** Omitted = the digitiser detects the calibration itself. */
+  calibrations?: PageCalibrationDict[]
+  groundLevelM?: number | null
+}
+
+/** Drop ``key`` from the header edit (an emptied field = no edit). */
+function withoutHeaderKey(h: CptPdfHeaderEdit, key: keyof CptPdfHeaderEdit): CptPdfHeaderEdit {
+  const next = { ...h }
+  delete next[key]
+  return next
+}
 
 interface Props {
   projectId: string
@@ -99,7 +136,8 @@ export default function CptPdfCalibrationOverlay({
 }: Props): JSX.Element {
   const t = useT()
   const [data, setData] = useState<CptPdfDigitised | null>(null)
-  const [cals, setCals] = useState<PageCalibrationDict[]>([])
+  const [detected, setDetected] = useState<PageCalibrationDict[]>(initial.detected ?? [])
+  const [edits, setEdits] = useState<CalibrationEdits>(initial.edits ?? {})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pageIdx, setPageIdx] = useState(0)
@@ -109,22 +147,30 @@ export default function CptPdfCalibrationOverlay({
   const dragRef = useRef<Drag | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
 
+  const cals = useMemo(() => applyEdits(detected, edits), [detected, edits])
+  const edited = hasEdits(edits) || Object.keys(header).length > 0
+
+  // ``adoptAsDetected``: the answer's calibration is the digitiser's own (a
+  // read that posted none, or a reopen that kept no ``detected``).
   const read = useCallback(
-    async (calibrations?: PageCalibrationDict[]) => {
+    async ({ calibrations, groundLevelM }: ReadRequest, adoptAsDetected = !calibrations) => {
       setBusy(true)
       setError(null)
       try {
-        const ground = header.ground_level_m
         const answer = await cptPdfClient.digitise({
           project_id: projectId,
           file_sha: fileSha,
           sounding_id: sounding.key,
           ...(calibrations ? { calibrations } : {}),
-          ...(ground !== undefined && ground !== null ? { ground_level_m: ground } : {}),
+          ...(groundLevelM !== undefined && groundLevelM !== null ? { ground_level_m: groundLevelM } : {}),
         })
         setData(answer)
-        setCals(answer.calibrations)
-        log.info('cpt-pdf', `sounding ${sounding.key} read: ${answer.series.depth_m?.length ?? 0} rows`)
+        if (adoptAsDetected) setDetected(answer.calibrations)
+        log.info(
+          'cpt-pdf',
+          `sounding ${sounding.key} read (${calibrations ? 'edited' : 'detected'} calibration): ` +
+            `${answer.series.depth_m?.length ?? 0} rows`,
+        )
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         log.error('cpt-pdf', `sounding ${sounding.key} not read: ${msg}`)
@@ -133,14 +179,21 @@ export default function CptPdfCalibrationOverlay({
         setBusy(false)
       }
     },
-    [projectId, fileSha, sounding.key, header.ground_level_m],
+    [projectId, fileSha, sounding.key],
   )
 
   // Read once on open, through the earlier edit if there is one.
   useEffect(() => {
-    void read(initial.calibrations)
-    // reason: the first read must run once per opened sounding; re-running on
-    // every header keystroke (read's identity) would re-extract while typing.
+    const groundLevelM = initial.header?.ground_level_m
+    if (initial.detected) {
+      const kept = initial.edits ?? {}
+      void read({ calibrations: hasEdits(kept) ? applyEdits(initial.detected, kept) : undefined, groundLevelM }, false)
+    } else {
+      // No detected calibration kept: whatever comes back is the baseline.
+      void read({ calibrations: initial.calibrations, groundLevelM }, true)
+    }
+    // reason: the first read must run once per opened sounding; ``initial`` is
+    // a fresh object on every parent render and must not re-extract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sounding.key])
 
@@ -148,11 +201,12 @@ export default function CptPdfCalibrationOverlay({
   useEffect(() => {
     function onMove(e: MouseEvent): void {
       const drag = dragRef.current
-      if (!drag || !data) return
+      if (!drag || !data || !cals[drag.page]) return
       const scale = overlayScale(cals[drag.page], data.overlays[drag.page]?.dpi ?? 72)
       const x = drag.origX + (e.clientX - drag.startX) / scale
       const y = drag.origY + (e.clientY - drag.startY) / scale
-      setCals(prev => prev.map((c, i) => (i === drag.page ? moveFrameCorner(c, drag.panel, drag.corner, x, y) : c)))
+      const frame = moveFrameCorner(cals[drag.page], drag.panel, drag.corner, x, y).panels[drag.panel].frame
+      setEdits(prev => patchPanelEdit(prev, drag.page, drag.panel, { frame }))
     }
     function onUp(): void {
       dragRef.current = null
@@ -169,9 +223,8 @@ export default function CptPdfCalibrationOverlay({
   const overlay = data?.overlays[pageIdx]
   const scale = cal && overlay ? overlayScale(cal, overlay.dpi) : 1
   const panel = cal?.panels[panelIdx]
-
-  const editPage = (edit: (c: PageCalibrationDict) => PageCalibrationDict): void =>
-    setCals(prev => prev.map((c, i) => (i === pageIdx ? edit(c) : c)))
+  const detectedPanel = detected[pageIdx]?.panels[panelIdx]
+  const panelEdit = edits[pageIdx]?.[panelIdx]
 
   const onSurfaceClick = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (!eyedropper || !imageRef.current) return
@@ -179,58 +232,68 @@ export default function CptPdfCalibrationOverlay({
     const rgb = samplePixel(imageRef.current, e.clientX - rect.left, e.clientY - rect.top)
     setEyedropper(false)
     if (!rgb) return
-    const next = cals.map((c, i) => (i === pageIdx ? setCurveColour(c, panelIdx, rgb) : c))
-    setCals(next)
-    void read(next)
+    const next = patchPanelEdit(edits, pageIdx, panelIdx, { colourRgb: rgb })
+    setEdits(next)
+    void read({ calibrations: applyEdits(detected, next), groundLevelM: header.ground_level_m })
   }
+
+  // ``undefined`` drops the typed tick: the field falls back to the read one.
+  const setTick = (axis: PanelAxis, which: 'a' | 'b', v: number | undefined): void =>
+    setEdits(prev => {
+      const ticks = prev[pageIdx]?.[panelIdx]?.ticks ?? {}
+      return patchPanelEdit(prev, pageIdx, panelIdx, {
+        ticks: { ...ticks, [axis]: { ...(ticks[axis] ?? {}), [which]: v } },
+      })
+    })
 
   const axisInputs = (axis: PanelAxis): JSX.Element | null => {
     if (!panel) return null
-    const [a, b] = axisValues(panel, axis)
+    const [readA, readB] = detectedPanel ? axisValues(detectedPanel, axis) : [null, null]
+    const typed = panelEdit?.ticks?.[axis]
     const label =
       axis === 'value'
         ? t('cptPdf.overlay.valueAxis', { unit: panel.unit || '-' })
         : cal.depth_reference === 'elevation'
           ? t('cptPdf.overlay.elevationAxis')
           : t('cptPdf.overlay.depthAxis')
-    const set = (na: number | null, nb: number | null): void =>
-      editPage(c => setAxisValues(c, panelIdx, axis, na, nb))
+    const tickInput = (which: 'a' | 'b', readValue: number | null): JSX.Element => (
+      <NumericInput
+        data-testid={`cpt-pdf-${axis}-tick-${which}`}
+        aria-label={`${label} ${t(which === 'a' ? 'cptPdf.overlay.tickA' : 'cptPdf.overlay.tickB')}`}
+        className={`w-16 px-1 ${FIELD_CLASS}`}
+        allowNegative
+        placeholder={formatDetectedValue(readValue)}
+        value={typed?.[which] ?? Number.NaN}
+        onChange={v => setTick(axis, which, v)}
+        onBlur={e => {
+          if (e.currentTarget.value.trim() === '') setTick(axis, which, undefined)
+        }}
+      />
+    )
     return (
       <fieldset className="flex items-center gap-1 text-xs">
         <legend className="text-text-secondary">{label}</legend>
-        <NumericInput
-          data-testid={`cpt-pdf-${axis}-tick-a`}
-          aria-label={`${label} ${t('cptPdf.overlay.tickA')}`}
-          className="w-16 rounded border border-border-subtle px-1"
-          allowNegative
-          value={a ?? Number.NaN}
-          onChange={v => set(v, b)}
-        />
-        <NumericInput
-          data-testid={`cpt-pdf-${axis}-tick-b`}
-          aria-label={`${label} ${t('cptPdf.overlay.tickB')}`}
-          className="w-16 rounded border border-border-subtle px-1"
-          allowNegative
-          value={b ?? Number.NaN}
-          onChange={v => set(a, v)}
-        />
+        {tickInput('a', readA)}
+        {tickInput('b', readB)}
       </fieldset>
     )
   }
 
-  const headerInput = (
-    key: 'x' | 'y' | 'epsg' | 'ground_level_m',
-    label: string,
-    fallback?: number,
-  ): JSX.Element => (
+  const printed = data?.header
+
+  const headerInput = (key: HeaderNumberKey, label: string, fallback?: number): JSX.Element => (
     <label className="flex flex-col text-xs">
       <span className="text-text-secondary">{label}</span>
       <NumericInput
         data-testid={`cpt-pdf-header-${key}`}
-        className="w-28 rounded border border-border-subtle px-1"
+        className={`w-28 px-1 ${FIELD_CLASS}`}
         allowNegative={key === 'ground_level_m'}
-        value={header[key] ?? fallback ?? Number.NaN}
+        placeholder={formatDetectedValue(printed?.[key] ?? fallback)}
+        value={header[key] ?? Number.NaN}
         onChange={v => setHeader(h => ({ ...h, [key]: v }))}
+        onBlur={e => {
+          if (e.currentTarget.value.trim() === '') setHeader(h => withoutHeaderKey(h, key))
+        }}
       />
     </label>
   )
@@ -240,10 +303,19 @@ export default function CptPdfCalibrationOverlay({
     if ((typed.x !== undefined || typed.y !== undefined) && typed.epsg === undefined) {
       typed.epsg = DEFAULT_EPSG
     }
-    onDone({ calibrations: cals, header: typed })
+    onDone({ calibrations: cals, header: typed, detected, edits })
   }
 
-  const printed = data?.header
+  // Drop every edit and let the digitiser pick the calibration again: no
+  // calibration and no typed ground level go out (see the file comment).
+  const pickAutomatically = (): void => {
+    log.info('cpt-pdf', `sounding ${sounding.key}: user edits dropped, reading the detected calibration again`)
+    setEdits({})
+    setHeader({})
+    setEyedropper(false)
+    void read({})
+  }
+
   const needsPosition = printed ? printed.x === null || printed.y === null : false
   const needsGround = printed ? printed.ground_level_m === null : false
   const needsDate = printed ? printed.test_date === null : false
@@ -261,73 +333,28 @@ export default function CptPdfCalibrationOverlay({
       {data && cal && overlay && (
         <div className="flex gap-3">
           <div className="max-h-[60vh] flex-1 overflow-auto border border-border-subtle">
-            <div
-              data-testid="cpt-pdf-overlay-surface"
-              className={['relative', eyedropper ? 'cursor-crosshair' : ''].join(' ')}
-              style={{ width: overlay.width, height: overlay.height }}
-              onClick={onSurfaceClick}
-            >
-              <img
-                ref={imageRef}
-                data-testid="cpt-pdf-overlay-image"
-                src={`data:image/png;base64,${overlay.png_base64}`}
-                width={overlay.width}
-                height={overlay.height}
-                alt={t('cptPdf.overlay.page', { page: overlay.page_number })}
-                draggable={false}
-              />
-              <svg className="absolute inset-0" width={overlay.width} height={overlay.height}>
-                {cal.panels.map((p, i) => (
-                  <g key={`${p.kind}-${i}`}>
-                    <rect
-                      x={p.frame.x0 * scale}
-                      y={p.frame.y0 * scale}
-                      width={(p.frame.x1 - p.frame.x0) * scale}
-                      height={(p.frame.y1 - p.frame.y0) * scale}
-                      fill="none"
-                      stroke={i === panelIdx ? '#0ea5e9' : '#94a3b8'}
-                      strokeDasharray="4 3"
-                    />
-                    {!eyedropper &&
-                      CORNERS.map(corner => {
-                        const cx = (corner === 'top-left' ? p.frame.x0 : p.frame.x1) * scale
-                        const cy = (corner === 'top-left' ? p.frame.y0 : p.frame.y1) * scale
-                        return (
-                          <circle
-                            key={corner}
-                            data-testid={`cpt-pdf-corner-${i}-${corner}`}
-                            aria-label={t('cptPdf.overlay.cornerHandle', {
-                              corner: t(
-                                corner === 'top-left'
-                                  ? 'cptPdf.overlay.cornerTopLeft'
-                                  : 'cptPdf.overlay.cornerBottomRight',
-                              ),
-                              kind: p.kind,
-                            })}
-                            cx={cx}
-                            cy={cy}
-                            r={6}
-                            className="cursor-move fill-sky-500/70 stroke-white"
-                            onMouseDown={e => {
-                              e.preventDefault()
-                              setPanelIdx(i)
-                              dragRef.current = {
-                                page: pageIdx,
-                                panel: i,
-                                corner,
-                                startX: e.clientX,
-                                startY: e.clientY,
-                                origX: cx / scale,
-                                origY: cy / scale,
-                              }
-                            }}
-                          />
-                        )
-                      })}
-                  </g>
-                ))}
-              </svg>
-            </div>
+            <CptPdfOverlaySurface
+              overlay={overlay}
+              cal={cal}
+              scale={scale}
+              panelIdx={panelIdx}
+              eyedropper={eyedropper}
+              imageRef={imageRef}
+              onSurfaceClick={onSurfaceClick}
+              onCornerDown={(i, corner, e, cx, cy) => {
+                e.preventDefault()
+                setPanelIdx(i)
+                dragRef.current = {
+                  page: pageIdx,
+                  panel: i,
+                  corner,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: cx / scale,
+                  origY: cy / scale,
+                }
+              }}
+            />
           </div>
           <div className="flex w-64 flex-none flex-col gap-2">
             {data.page_numbers.length > 1 && (
@@ -357,9 +384,17 @@ export default function CptPdfCalibrationOverlay({
                   <span className="text-text-secondary">{t('cptPdf.overlay.kind')}</span>
                   <select
                     data-testid="cpt-pdf-panel-kind"
-                    className="rounded border border-border-subtle bg-surface-panel px-1"
+                    className={`px-1 ${FIELD_CLASS}`}
                     value={panel.kind}
-                    onChange={e => editPage(c => setPanelKind(c, panelIdx, e.target.value as PanelKindValue))}
+                    onChange={e => {
+                      const kind = e.target.value as PanelKindValue
+                      // Choosing the read kind again is no edit.
+                      setEdits(prev =>
+                        patchPanelEdit(prev, pageIdx, panelIdx, {
+                          kind: kind === detectedPanel?.kind ? undefined : kind,
+                        }),
+                      )
+                    }}
                   >
                     {PANEL_KINDS.map(k => (
                       <option key={k} value={k}>
@@ -367,6 +402,11 @@ export default function CptPdfCalibrationOverlay({
                       </option>
                     ))}
                   </select>
+                  {panelEdit?.kind !== undefined && detectedPanel && (
+                    <span data-testid="cpt-pdf-panel-kind-read" className="text-text-muted">
+                      {t('cptPdf.overlay.kindRead', { kind: detectedPanel.kind })}
+                    </span>
+                  )}
                 </label>
                 {axisInputs('value')}
                 {axisInputs('depth')}
@@ -412,9 +452,13 @@ export default function CptPdfCalibrationOverlay({
                     <span className="text-text-secondary">{t('cptPdf.overlay.date')}</span>
                     <input
                       data-testid="cpt-pdf-header-date"
-                      className="w-28 rounded border border-border-subtle px-1"
+                      className={`w-28 px-1 ${FIELD_CLASS}`}
+                      placeholder={printed?.test_date ?? ''}
                       value={header.test_date ?? ''}
-                      onChange={e => setHeader(h => ({ ...h, test_date: e.target.value }))}
+                      onChange={e => {
+                        const v = e.target.value
+                        setHeader(h => (v === '' ? withoutHeaderKey(h, 'test_date') : { ...h, test_date: v }))
+                      }}
                     />
                   </label>
                 )}
@@ -427,7 +471,22 @@ export default function CptPdfCalibrationOverlay({
         <Button size="sm" variant="secondary" onClick={onBack}>
           {t('cptPdf.overlay.back')}
         </Button>
-        <Button size="sm" variant="secondary" data-testid="cpt-pdf-reextract" disabled={busy || !data} onClick={() => void read(cals)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="cpt-pdf-reset"
+          disabled={busy || !data || !edited}
+          onClick={pickAutomatically}
+        >
+          {t('cptPdf.overlay.reset')}
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="cpt-pdf-reextract"
+          disabled={busy || !data}
+          onClick={() => void read({ calibrations: cals, groundLevelM: header.ground_level_m })}
+        >
           {t('cptPdf.overlay.reextract')}
         </Button>
         <Button size="sm" variant="primary" data-testid="cpt-pdf-use" disabled={busy || !data} onClick={done}>
