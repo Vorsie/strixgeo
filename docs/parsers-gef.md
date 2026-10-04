@@ -39,6 +39,7 @@ Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef
 - `NEGATIVE_VALUES` — qc, fs must be ≥ 0
 - `NULL_VALUES` — after void masking
 - `PRE_DRILL` — detected from MVAR 13, or inferred when first depth > 0.5 m
+- `PRE_DRILL_NOT_APPLIED` — WARNING, MVAR 13 declares a pre-drill > 0 but the first stored depth lies more than `PRE_DRILL_APPLIED_TOLERANCE_M` (0.05 m) above it, so the depth column was probably not shifted by the pre-drill (camz-001 soundings 39/42: 0.35 m declared, data from 0.02 m, the report sheets plot from 0.37 m). The depths are kept as read (never shifted); the message names both depths and `details` carries `pre_drill_m` / `first_depth_m`, which the desktop GEF import renders as a translated warning toast. Nothing is raised without MVAR 13 or when the data starts at the pre-drill
 - `NO_NET_AREA_RATIO` — WARNING for CPTU without `a` coefficient (MVAR 3)
 - `RF_OUT_OF_RANGE` — Rf outside 0.05–15 % is suspicious
 - `QC_SPIKES` — flags outliers > 5× neighbouring values
