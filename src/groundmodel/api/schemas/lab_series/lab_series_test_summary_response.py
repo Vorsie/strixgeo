@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -30,6 +31,9 @@ class LabSeriesTestSummaryResponse(BaseModel):
         Counts over the whole test.
     n_warnings, n_errors : int
         Finding counts frozen at import (the list's flags badge).
+    test_start_date : date or None
+        The lab's test start date as the file reported it (additive; null when
+        the file had none). The sample panel lists it per test.
     """
 
     id: UUID
@@ -46,3 +50,4 @@ class LabSeriesTestSummaryResponse(BaseModel):
     n_readings: int
     n_warnings: int
     n_errors: int
+    test_start_date: date | None = None
