@@ -12,6 +12,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result impor
 from groundmodel.infrastructure.parsers.borehole.dov.dov_file_interpretation import (
     DovFileInterpretation,
 )
+from groundmodel.infrastructure.parsers.borehole.dov.dov_file_sample import DovFileSample
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
     issues_have_errors,
@@ -45,6 +46,9 @@ class DovBoringFileEntry:
     issues : list[ValidationIssue]
         Every finding for this boring: the boring parser's, the stream
         parsers', and the file-import flags. Each message names the boring.
+    samples : list[DovFileSample]
+        The ``<monster>`` elements of the file that name this boring and carry
+        a depth interval, in file order.
     """
 
     test_id: str
@@ -54,6 +58,7 @@ class DovBoringFileEntry:
     borehole: BoreholeParseResult
     interpretations: list[DovFileInterpretation] = field(default_factory=list)
     issues: list[ValidationIssue] = field(default_factory=list)
+    samples: list[DovFileSample] = field(default_factory=list)
 
     @property
     def primary_lithology(self) -> DovFileInterpretation | None:
