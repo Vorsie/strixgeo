@@ -23,6 +23,14 @@ Flush / commit boundary: this use case OWNS its commit. It creates edges, runs
 the resolver (``commit=False``), then commits once so the edge writes + body
 re-stamps land atomically.
 
+⚠ Since owner 2026-10-04 (*"identity follows the drawing"*) the ties this use
+case writes NO LONGER join bodies by themselves: only the geometry facts the
+renderer posts at ``bodies/recompute`` union. The step-7 re-resolve keeps the
+body stamps coherent; the host halves join only once the fill paints them as
+one mass and the next recompute posts that fact. And since 2026-10-03 (never
+weld) two litho units never share a body, so a lens on its own formation row
+stays its own body whatever the ties say.
+
 ⚠ NOTHING CALLS THIS TODAY — see ``docs/debt.md`` #243.
 ------------------------------------------------------------
 ``POST .../bodies/merge-enclosed-lenses`` is reachable, and the planner is
@@ -254,7 +262,9 @@ class MergeEnclosedLensBodies(GroundModelLogger):
         edges_created = result.rowcount or 0
         edges_skipped = len(values) - edges_created
 
-        # 7. Re-resolve so the host halves join the neighbour's body (one body).
+        # 7. Re-resolve to keep the stamps coherent. The new ties do not union on
+        #    their own (identity follows the drawing, 2026-10-04): the host halves
+        #    join once the fill paints them as one mass and the recompute posts it.
         await ResolveLithoInstances(self._session).execute(model_id=model_id, commit=False)
 
         await self._session.commit()
