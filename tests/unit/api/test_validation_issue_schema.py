@@ -29,4 +29,18 @@ def test_a_finding_without_details_serialises_an_empty_map() -> None:
         "message": "1 of 3 ...",
         "rows": [1],
         "details": {},
+        "params": {},
     }
+
+
+def test_a_finding_with_structured_params_reaches_the_client_with_them() -> None:
+    """PDF_DRILLED_INTERVALS: a list of [top, base] pairs travels in ``params``."""
+    issue = ValidationIssue(
+        ValidationLevel.INFO,
+        "PDF_DRILLED_INTERVALS",
+        "2 drilled interval(s) ...",
+        params={"intervals": [[30.405, 31.177], [33.54, 34.142]]},
+    )
+    body = ValidationIssueSchema.from_issue(issue).model_dump()
+    assert body["params"] == {"intervals": [[30.405, 31.177], [33.54, 34.142]]}
+    assert body["details"] == {}
