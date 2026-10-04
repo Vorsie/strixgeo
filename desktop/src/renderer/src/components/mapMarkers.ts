@@ -34,6 +34,8 @@ export interface BoreholeMapMarker {
   drillMethod: string | null
   boreholeType: string | null
   depth: number | null
+  /** At least one raw lab test on the borehole: the marker shows a flask. */
+  hasLabTests: boolean
 }
 
 /**
@@ -138,6 +140,7 @@ export function buildBoreholeMarkers(
           drillMethod: b.drill_method,
           boreholeType: b.borehole_type,
           depth: b.total_depth_m,
+          hasLabTests: (b.lab_series_count ?? 0) > 0,
         },
       ]
     })
