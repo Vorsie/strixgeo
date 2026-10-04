@@ -10160,3 +10160,28 @@ Note: at cs1's page-filling vex the readable-track width re-fit leaves the
 drawing about 224 mm (paper 276), because `pageFillingVex` still measures the
 length-fit scale, not the re-fit scale; making the seed re-fit-aware so a close-
 paired section opens exactly page-filling is a separate, optional follow-up.
+
+## 286. Body identity lags the drawing until the recompute lands (S — Tier E) — STATUS: OPEN
+
+**What.** Since owner 2026-10-04 (*"identity follows the drawing"*) only the
+geometry facts the renderer posts at `bodies/recompute` union bands into a body;
+an accepted tie never does. Facts are written ONLY by that recompute, so between
+an edit and its debounced recompute (2.5 s quiet, 15 s cap; and on a project
+open until the first recompute lands) every inline resolve reads the previous
+facts: a freshly drawn band is still two bodies, a deleted tie's band is still
+one body. Visible effects in that window: the Parameters tree and a hand-drawn
+packing tie's litho-body guard (`shares_litho_body`) read the old partition, so
+a packing tie drawn within seconds of the litho tie it needs can be refused. A
+project restored from a bundle written before facts existed (pre-2026-08-12)
+resolves to one body per band until its project-open recompute. Also left: the
+`review_reason` filter in `_run_resolver` now only scopes the unbanded-tie
+report (ties no longer union), and the tie's right-click menu does not repeat
+the "accepted, not banded" hover text.
+
+**Why deferred.** The window is seconds long and self-heals; closing it means
+running the fill server-side (debt #104 territory) or posting facts
+synchronously from every tie gesture.
+
+**When to revisit.** When a tester reports a refused packing tie right after a
+litho tie, or a Parameters tree that disagrees with the section for longer than
+the recompute debounce.
