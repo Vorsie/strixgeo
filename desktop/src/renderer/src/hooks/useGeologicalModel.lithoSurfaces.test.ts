@@ -380,3 +380,117 @@ describe('LS1 — the litho solids are re-read when the litho layers change', ()
     ).toBeGreaterThan(before)
   })
 })
+
+// ---------------------------------------------------------------------------
+// LS2 — a completed body recompute re-reads the litho SOLIDS
+// ---------------------------------------------------------------------------
+//
+// Owner finding 2026-10-04: "adding a new correlation doesn't mark the litho
+// stale". The tie edit re-read the solids immediately (LS1's channel), but the
+// solids are staled by the debounced body recompute that runs ~2.5 s LATER.
+// Nothing re-read them after it, so the Build badge stayed as it was. The shell
+// now bumps a per-model counter when a recompute changed the bodies; the litho
+// instance must re-read its solids on a bump for ITS model (and only then).
+
+function solid(isStale: boolean) {
+  return {
+    id: 'solid-1',
+    model_id: LITHO_MODEL_ID,
+    body_id: 'body-1',
+    formation_id: 'f-1',
+    body_ordinal: 0,
+    method: 'voxel',
+    vertices: [],
+    triangles: [],
+    is_stale: isStale,
+  }
+}
+
+describe('LS2 — a body recompute that changed the litho bodies re-reads the solids', () => {
+  it('ambers the Build state after the recompute, without any reload', async () => {
+    const { args } = makeArgs()
+    vi.mocked(apiMock.geology.listLithoSolids).mockResolvedValue([solid(false)])
+    const { result, rerender } = renderHook(
+      (p: { nonces: Record<string, number> }) =>
+        useGeologicalModel({ ...args, bodiesRecomputedNonceByModel: p.nonces }),
+      { initialProps: { nonces: {} as Record<string, number> } },
+    )
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.hasStaleLithoSolid).toBe(false)
+    const before = vi.mocked(apiMock.geology.listLithoSolids).mock.calls.length
+
+    // The recompute staled the solids server-side, then announced the litho model.
+    vi.mocked(apiMock.geology.listLithoSolids).mockResolvedValue([solid(true)])
+    await act(async () => {
+      rerender({ nonces: { [LITHO_MODEL_ID]: 1 } })
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(vi.mocked(apiMock.geology.listLithoSolids).mock.calls.length).toBeGreaterThan(before)
+    expect(
+      result.current.hasStaleLithoSolid,
+      'the litho Build badge must amber once the recompute staled the solids',
+    ).toBe(true)
+  })
+
+  it('a recompute of ANOTHER model does not re-read the litho solids', async () => {
+    const { args } = makeArgs()
+    const { rerender } = renderHook(
+      (p: { nonces: Record<string, number> }) =>
+        useGeologicalModel({ ...args, bodiesRecomputedNonceByModel: p.nonces }),
+      { initialProps: { nonces: {} as Record<string, number> } },
+    )
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    const before = vi
+      .mocked(apiMock.geology.listLithoSolids)
+      .mock.calls.filter(c => c[1] === LITHO_MODEL_ID).length
+
+    await act(async () => {
+      rerender({ nonces: { 'some-other-model': 1 } })
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(
+      vi.mocked(apiMock.geology.listLithoSolids).mock.calls.filter(c => c[1] === LITHO_MODEL_ID)
+        .length,
+    ).toBe(before)
+  })
+})
+
+describe('LS3 — a geotech body recompute re-reads the GEOTECH solids', () => {
+  it('re-fetches the geotech model solids on a bump for the geotech model id', async () => {
+    const GEOTECH_MODEL: GeologicalModelResponse = {
+      ...LITHO_MODEL,
+      id: 'geotech-model-1',
+      name: 'Packing',
+      kind: 'geotechnical',
+      parent_model_id: LITHO_MODEL_ID,
+    }
+    vi.mocked(apiMock.geology.listModels).mockResolvedValue([GEO_MODEL, LITHO_MODEL, GEOTECH_MODEL])
+    const { args } = makeArgs()
+    const { result, rerender } = renderHook(
+      (p: { nonces: Record<string, number> }) =>
+        useGeologicalModel({ ...args, bodiesRecomputedNonceByModel: p.nonces }),
+      { initialProps: { nonces: {} as Record<string, number> } },
+    )
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    expect(result.current.activeGeotechModel?.id).toBe('geotech-model-1')
+    const geotechCalls = () =>
+      vi.mocked(apiMock.geology.listLithoSolids).mock.calls.filter(c => c[1] === 'geotech-model-1')
+        .length
+    const before = geotechCalls()
+
+    await act(async () => {
+      rerender({ nonces: { 'geotech-model-1': 1 } })
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(geotechCalls()).toBeGreaterThan(before)
+  })
+})
