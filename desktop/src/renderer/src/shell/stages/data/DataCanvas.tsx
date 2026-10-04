@@ -18,7 +18,8 @@ import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 import ViewTab from '../../../components/ui/ViewTab'
-import { buildContactOverlays } from '../../../utils/contactOverlays'
+import { buildContactOverlays, filterContactOverlays } from '../../../utils/contactOverlays'
+import { useContactOverlayVisibility } from '../../../hooks/useContactOverlayVisibility'
 import { useT } from '../../../i18n/translate'
 
 /**
@@ -127,6 +128,9 @@ export default function DataCanvas(): JSX.Element {
   } = useShell()
 
   const selectedCpt = visibleCpts.find(c => c.id === selectedId)
+  // Per-user stratigraphic / lithological boundary switches (owner
+  // 2026-10-04); the overlays below drop the switched-off source.
+  const contactOverlayVisibility = useContactOverlayVisibility()
 
   // Faded depth-context overlay for the detail pane — every formation
   // contact (geology) and litho contact anchored at the selected
@@ -135,27 +139,47 @@ export default function DataCanvas(): JSX.Element {
   // ReferenceLines / SVG <line>s in the formation's colour.
   const cptContactOverlays = useMemo(() => {
     if (selectedId === null) return undefined
-    return buildContactOverlays(
-      geoContacts,
-      geoFormations,
-      lithoContacts,
-      lithoFormations,
-      selectedId,
-      'cpt',
+    return filterContactOverlays(
+      buildContactOverlays(
+        geoContacts,
+        geoFormations,
+        lithoContacts,
+        lithoFormations,
+        selectedId,
+        'cpt',
+      ),
+      contactOverlayVisibility.visibility,
     )
-  }, [selectedId, geoContacts, geoFormations, lithoContacts, lithoFormations])
+  }, [
+    selectedId,
+    geoContacts,
+    geoFormations,
+    lithoContacts,
+    lithoFormations,
+    contactOverlayVisibility.visibility,
+  ])
 
   const boreholeContactOverlays = useMemo(() => {
     if (selectedBoreholeId === null) return undefined
-    return buildContactOverlays(
-      geoContacts,
-      geoFormations,
-      lithoContacts,
-      lithoFormations,
-      selectedBoreholeId,
-      'borehole',
+    return filterContactOverlays(
+      buildContactOverlays(
+        geoContacts,
+        geoFormations,
+        lithoContacts,
+        lithoFormations,
+        selectedBoreholeId,
+        'borehole',
+      ),
+      contactOverlayVisibility.visibility,
     )
-  }, [selectedBoreholeId, geoContacts, geoFormations, lithoContacts, lithoFormations])
+  }, [
+    selectedBoreholeId,
+    geoContacts,
+    geoFormations,
+    lithoContacts,
+    lithoFormations,
+    contactOverlayVisibility.visibility,
+  ])
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
   const handleOpenSectionFromMap = useCallback(
@@ -258,6 +282,8 @@ export default function DataCanvas(): JSX.Element {
               }
               virtueleBoringLoading={virtueleBoringLoading}
               contactOverlays={boreholeContactOverlays}
+              contactOverlayVisibility={contactOverlayVisibility.visibility}
+              onToggleContactOverlay={contactOverlayVisibility.toggle}
             />
           ) : (
             <LoadingState label={t('data.canvas.loadingBorehole')} />
@@ -285,6 +311,8 @@ export default function DataCanvas(): JSX.Element {
             }
             virtueleBoringLoading={virtueleBoringLoading}
             contactOverlays={cptContactOverlays}
+            contactOverlayVisibility={contactOverlayVisibility.visibility}
+            onToggleContactOverlay={contactOverlayVisibility.toggle}
           />
         ) : (
           <LoadingState label={t('data.canvas.loadingChart')} />
