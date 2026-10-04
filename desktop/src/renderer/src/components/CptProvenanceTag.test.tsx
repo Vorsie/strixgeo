@@ -3,11 +3,15 @@
 // GEF / DOV CPT carries no provenance and shows nothing extra.
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { setLanguage } from '../i18n/languageSelect'
 
 import CptProvenanceTag from './CptProvenanceTag'
 
 describe('CptProvenanceTag', () => {
+  afterEach(() => setLanguage('en'))
+
   it('names the report and the pages a digitised CPT was read from', () => {
     render(
       <CptProvenanceTag
@@ -30,5 +34,51 @@ describe('CptProvenanceTag', () => {
   it('shows nothing for a CPT imported from a file', () => {
     const { container } = render(<CptProvenanceTag provenance={null} />)
     expect(container.textContent).toBe('')
+  })
+
+  // Owner 2026-10-04, reading the Data pane of sounding 110: "where is the
+  // Voorboring note?" The drilled stretches of a digitised CPT are named on the
+  // provenance line, one decimal, the same wording as the triage row's note.
+  it('names the drilled stretches after the pages', () => {
+    render(
+      <CptProvenanceTag
+        provenance={{
+          source: 'pdf-digitised',
+          report_file_name: '23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf',
+          pages: [235, 236],
+          drilled_intervals_m: [[32.0, 32.3], [40.1, 40.94]],
+          pre_drill_m: 0,
+        }}
+      />,
+    )
+    expect(screen.getByTestId('cpt-provenance-tag').textContent).toBe(
+      'digitised from 23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf, p. 235, 236, drilled 32.0 to 32.3 m, 40.1 to 40.9 m',
+    )
+  })
+
+  it('says nothing about drilling when the CPT has no drilled stretch', () => {
+    render(
+      <CptProvenanceTag
+        provenance={{ source: 'pdf-digitised', report_file_name: 'r.pdf', pages: [235], drilled_intervals_m: [] }}
+      />,
+    )
+    expect(screen.getByTestId('cpt-provenance-tag').textContent).toBe('digitised from r.pdf, p. 235')
+  })
+
+  it('reads in Dutch inside the Dutch app', () => {
+    setLanguage('nl')
+    render(
+      <CptProvenanceTag
+        provenance={{
+          source: 'pdf-digitised',
+          report_file_name: '23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf',
+          pages: [235, 236],
+          drilled_intervals_m: [[32.0, 32.3], [40.1, 40.9]],
+        }}
+      />,
+    )
+    expect(screen.getByTestId('cpt-provenance-tag').textContent).toBe(
+      'gedigitaliseerd uit 23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf, blz. 235, 236, voorboring 32.0 tot 32.3 m, 40.1 tot 40.9 m',
+    )
   })
 })
