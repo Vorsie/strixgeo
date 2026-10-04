@@ -1,18 +1,21 @@
 """Integration tests for ResolveLithoInstances (body reconciliation).
 
 Post-Task-3/4 the resolver operates at LAYER granularity: it loads
-accepted ``litho_layer`` rows + user-approved correlation edges (whose
-endpoints FK ``litho_layer.id``), runs the pure layer-level domain
-resolver, reconciles one ``body`` row per connected component, and
-stamps ``litho_layer.body_id`` on every member layer.
+accepted ``litho_layer`` rows + geometry facts (the union) + accepted ties
+(never a union since 2026-10-04 — identity follows the drawing), runs the
+pure layer-level domain resolver, reconciles one ``body`` row per connected
+component, and stamps ``litho_layer.body_id`` on every member layer.
 
 Coverage here:
 1. Two uncorrelated same-formation SAND layers → two body rows
    (ordinals 0 + 1), every accepted layer stamped with a distinct
    body_id.
-2. Reconcile create-on-split: one correlation edge collapses the two
-   layers into a single body (ordinal 0); deleting the edge re-splits
-   the component, so the resolver CREATES a second body (ordinal 1).
+2. Reconcile create-on-split: one painted band (geometry fact) collapses
+   the two layers into a single body (ordinal 0); deleting the fact
+   re-splits the component, so the resolver CREATES a second body
+   (ordinal 1) — even though the accepted tie stays.
+2b. Identity follows the drawing (owner 2026-10-04): an accepted tie with
+   no geometry fact joins nothing — two bodies.
 3. Reconcile preserve-named-orphan: a named body whose (formation,
    ordinal) instance disappears survives, while an equivalent UNNAMED
    orphan body is deleted.
@@ -27,7 +30,7 @@ the domain service.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -49,6 +52,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration._litho_builders import geometry_fact
 
 
 @dataclass
@@ -257,24 +261,11 @@ def _canonical_edge(
     )
 
 
-@pytest.mark.asyncio
-async def test_deleting_edge_creates_a_second_body_on_split(
-    db_session: AsyncSession,
-    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
-) -> None:
-    """Reconcile create path: one correlated body splits into two when the edge is deleted.
-
-    Correlating both SAND layers makes ONE component → ONE body (ordinal
-    0).  Deleting the edge re-splits the component, so the resolver must
-    CREATE a second body (ordinal 1) — exercising the create-on-split
-    branch of body reconciliation.
-    """
-    ctx = litho_model_with_two_uncorrelated_sand_layers
-
-    # Minimal section so edge.section_id satisfies the NOT NULL FK.
+async def _add_section(db_session: AsyncSession, project_id: UUID) -> CrossSectionOrm:
+    """Add a minimal section so a tie's NOT NULL ``section_id`` FK holds."""
     sec = CrossSectionOrm(
         id=uuid7(),
-        app_project_id=ctx.project_id,
+        app_project_id=project_id,
         name="Sec-RBI",
         start_x=100000.0,
         start_y=200000.0,
@@ -286,15 +277,85 @@ async def test_deleting_edge_creates_a_second_body_on_split(
     )
     db_session.add(sec)
     await db_session.flush()
+    return sec
 
-    # One user-approved edge: the two layers form a single component.
+
+async def _distinct_body_ids(db_session: AsyncSession, model_id: UUID) -> set[UUID | None]:
+    """The set of ``body_id`` stamps on the model's layers."""
+    db_session.expire_all()
+    layers = (
+        (await db_session.execute(select(LithoLayerOrm).where(LithoLayerOrm.model_id == model_id)))
+        .scalars()
+        .all()
+    )
+    return {ly.body_id for ly in layers}
+
+
+@pytest.mark.asyncio
+async def test_an_accepted_tie_the_fill_does_not_band_leaves_two_bodies(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """Owner 2026-10-04, "identity follows the drawing": a tie alone joins nothing.
+
+    The CS4 case: two ZAND (SL:M) bands joined by one accepted top tie that the
+    fill does not paint as a band (sub-TD, no base tie = no band), so there is
+    NO geometry fact for the pair. Two bodies. Once the fill paints the band
+    (the renderer posts the fact), one body.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+    sec = await _add_section(db_session, ctx.project_id)
+    db_session.add(
+        _canonical_edge(
+            model_id=ctx.model_id,
+            layer_x=ctx.layer_a_id,
+            layer_y=ctx.layer_b_id,
+            section_id=sec.id,
+        )
+    )
+    await db_session.commit()
+
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    body_ids = await _distinct_body_ids(db_session, ctx.model_id)
+    assert None not in body_ids
+    assert len(body_ids) == 2, "a tie the fill does not band must not join the bands"
+
+    db_session.add(
+        _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    )
+    await db_session.commit()
+    await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
+    assert len(await _distinct_body_ids(db_session, ctx.model_id)) == 1, (
+        "the painted band (its geometry fact) joins the two bands into one body"
+    )
+
+
+@pytest.mark.asyncio
+async def test_deleting_edge_creates_a_second_body_on_split(
+    db_session: AsyncSession,
+    litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
+) -> None:
+    """Reconcile create path: one painted body splits into two when its fact goes.
+
+    A tie the fill paints as a band (tie + geometry fact) makes ONE component →
+    ONE body (ordinal 0). Deleting the fact (the fill no longer paints the
+    band) re-splits the component even though the tie stays, so the resolver
+    must CREATE a second body (ordinal 1) — exercising the create-on-split
+    branch of body reconciliation.
+    """
+    ctx = litho_model_with_two_uncorrelated_sand_layers
+
+    sec = await _add_section(db_session, ctx.project_id)
+
+    # One user-approved tie the fill paints as a band: tie + its geometry fact.
     edge = _canonical_edge(
         model_id=ctx.model_id,
         layer_x=ctx.layer_a_id,
         layer_y=ctx.layer_b_id,
         section_id=sec.id,
     )
-    db_session.add(edge)
+    fact = _canonical_fact(model_id=ctx.model_id, layer_x=ctx.layer_a_id, layer_y=ctx.layer_b_id)
+    db_session.add_all([edge, fact])
     await db_session.commit()
 
     await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
@@ -307,8 +368,8 @@ async def test_deleting_edge_creates_a_second_body_on_split(
     assert len(bodies_before) == 1
     assert bodies_before[0].body_ordinal == 0
 
-    # Uncorrelate by deleting the edge, then re-resolve.
-    await db_session.delete(edge)
+    # The fill stops painting the band: delete the fact (the tie stays), re-resolve.
+    await db_session.delete(fact)
     await db_session.commit()
 
     await ResolveLithoInstances(db_session).execute(model_id=ctx.model_id)
@@ -421,8 +482,7 @@ def _canonical_fact(*, model_id: UUID, layer_x: UUID, layer_y: UUID) -> BodyGeom
     BodyGeometryFactOrm
         A fact row ready to ``session.add``.
     """
-    a_id, b_id = sorted((layer_x, layer_y), key=str)
-    return BodyGeometryFactOrm(id=uuid7(), model_id=model_id, layer_a_id=a_id, layer_b_id=b_id)
+    return geometry_fact(model_id=model_id, layer_x=layer_x, layer_y=layer_y)
 
 
 @pytest.mark.asyncio
@@ -430,13 +490,13 @@ async def test_fact_edge_unions_two_uncorrelated_same_litho_layers(
     db_session: AsyncSession,
     litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
 ) -> None:
-    """A geometry fact unions like an approved tie (owner ruling 2026-08-12).
+    """A geometry fact unions (owner rulings 2026-08-12 and 2026-10-04).
 
-    *"every same litho that is connected should get the same body id"* — the
-    fact records observed geometric adjacency, and the resolver must union it
-    exactly as it unions a user-approved correlation edge. No tie exists in
-    this scene, so before the fact the two SAND layers are two bodies (the
-    pin above); with the fact they must be ONE.
+    *"every same litho that is connected should get the same body id"*, where
+    connected means painted as one mass (*"identity follows the drawing"*): the
+    fact records that the fill painted the two layers as one mass, and it is the
+    ONLY thing the resolver unions on. No tie exists in this scene, so before
+    the fact the two SAND layers are two bodies; with the fact they must be ONE.
     """
     ctx = litho_model_with_two_uncorrelated_sand_layers
     db_session.add(
@@ -465,7 +525,7 @@ async def test_fact_edge_across_lithologies_is_dropped(
     db_session: AsyncSession,
     litho_model_with_two_uncorrelated_sand_layers: _TwoSandLayerCtx,
 ) -> None:
-    """The one-lithology invariant filters facts exactly like ties.
+    """The one-lithology invariant filters facts.
 
     A fact can only be born same-formation (the union rule requires it), but
     a later litho edit can flip one endpoint's soil. The pure resolver's
