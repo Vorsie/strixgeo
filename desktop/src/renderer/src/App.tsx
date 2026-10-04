@@ -1014,6 +1014,26 @@ export default function App() {
     const off = window.electron.onMenuImportBorehole(() => void handleImportBoreholeXml?.())
     return off
   }, [handleImportBoreholeXml])
+
+  // File → Import CPT / Import boreholes → From DOV (draw box)… — the same
+  // bbox draw as the Data toolbar's DOV routes (owner 2026-10-04). The menu is
+  // reachable from any stage; AppShell routes to the Data stage's map once the
+  // draw starts. Skipped with no project open (nothing to import into) and
+  // while an import runs, where the toolbar disables the same routes.
+  const dovMenuBlocked = !project || importing || dovImporting
+  useEffect(() => {
+    const off = window.electron.onMenuImportCptDov(() => {
+      if (!dovMenuBlocked) handleImportDov()
+    })
+    return off
+  }, [handleImportDov, dovMenuBlocked])
+  useEffect(() => {
+    const off = window.electron.onMenuImportBoreholeDov(() => {
+      if (!dovMenuBlocked) handleImportBoreholeDov()
+    })
+    return off
+  }, [handleImportBoreholeDov, dovMenuBlocked])
+
   // Data → Import → CPTs from a PDF report: the picked report opens the
   // triage / calibrate / import dialog; its settled outcomes are booked
   // here like every CPT import (toast, manifest, session imports, list).
