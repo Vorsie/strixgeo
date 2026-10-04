@@ -69,6 +69,8 @@ export const CHROME_NL = {
   'api.code.bodyPartitionLocked': 'Een andere bewerking op de lichamen loopt nog op dit model. Probeer het zo opnieuw.',
   'api.code.lockTimeout': 'De database was te lang bezet. Probeer het zo opnieuw.',
   'api.code.dovUnreachable': 'DOV is nu niet bereikbaar; de voorspellingen laden zodra het weer bereikbaar is.',
+  'api.code.labBoreholeConflict': 'Boring {name} werd aan dit project toegevoegd door een andere labvoorvertoning terwijl deze liep. Importeer het bestand opnieuw om de boring te gebruiken.',
+  'api.code.labBoreholeConflictUnnamed': 'Een boring voor dit bestand werd aan dit project toegevoegd door een andere labvoorvertoning terwijl deze liep. Importeer het bestand opnieuw om de boring te gebruiken.',
   'app.backendRestarting': 'Opnieuw verbinden met de backend…',
   'app.quit': 'StrixGeo afsluiten',
   'app.reload': 'StrixGeo herladen',
