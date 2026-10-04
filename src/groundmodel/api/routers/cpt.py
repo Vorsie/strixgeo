@@ -277,6 +277,7 @@ async def import_cpt(
             )
             for i in result.issues
         ],
+        issues=[ValidationIssueSchema.from_issue(i) for i in result.issues],
     )
 
 
