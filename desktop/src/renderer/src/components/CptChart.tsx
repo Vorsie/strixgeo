@@ -146,21 +146,29 @@ export interface CptDataPoint {
  * tripping on variable sampling rates (typical DOV step is 0.02 m) while
  * catching real handoff gaps (typically 0.5–5 m).
  *
+ * A CPT digitised from a PDF also names its drilled stretches in its import
+ * provenance (owner ruling "a", 2026-10-04: "a drilled interval stays a gap").
+ * A step that spans one of them breaks too, even when it is narrower than the
+ * threshold: such a stretch can be as short as 0.1 m.
+ *
  * @param rows - Flat depth-ascending data array built from the plot arrays.
  * @param gapThresholdM - Minimum depth delta to qualify as a gap.
  *   Defaults to 0.20 m (10× the typical 2 cm DOV step).
+ * @param drilledIntervals - ``[top, base]`` drilled stretches (m); a step from
+ *   at or above ``top`` to at or below ``base`` breaks the line.
  * @returns A new array with null-sentinel rows inserted at every gap.
  */
 export function injectDepthGaps(
   rows: CptDataPoint[],
   gapThresholdM = 0.20,
+  drilledIntervals: ReadonlyArray<readonly [number, number]> = [],
 ): CptDataPoint[] {
   if (rows.length < 2) return rows
   const result: CptDataPoint[] = [rows[0]]
   for (let i = 1; i < rows.length; i++) {
     const prev = rows[i - 1]
     const curr = rows[i]
-    if (curr.depth - prev.depth > gapThresholdM) {
+    if (curr.depth - prev.depth > gapThresholdM || spansDrilled(prev.depth, curr.depth, drilledIntervals)) {
       // Sentinel at the midpoint so the axis label renders at a sensible
       // position; all channels null so every Line breaks here.
       result.push({
@@ -175,6 +183,44 @@ export function injectDepthGaps(
     result.push(curr)
   }
   return result
+}
+
+// Depths in the provenance are rounded to the millimetre, the stored scans to
+// 0.1 mm: a step "spans" a stretch when its ends lie within this of the
+// stretch's ends.
+const DRILLED_EDGE_TOLERANCE_M = 0.002
+
+/** True when the step from ``top`` to ``base`` spans a drilled stretch. */
+function spansDrilled(
+  top: number,
+  base: number,
+  drilledIntervals: ReadonlyArray<readonly [number, number]>,
+): boolean {
+  return drilledIntervals.some(
+    ([dTop, dBase]) =>
+      top <= dTop + DRILLED_EDGE_TOLERANCE_M && base >= dBase - DRILLED_EDGE_TOLERANCE_M,
+  )
+}
+
+/**
+ * The drilled stretches a PDF-digitised CPT names in its import provenance.
+ *
+ * @param provenance - The CPT's ``import_provenance`` (null for GEF / DOV).
+ * @returns ``[top, base]`` pairs in metres; empty when none or malformed.
+ */
+export function drilledIntervalsFromProvenance(
+  provenance: Record<string, unknown> | null | undefined,
+): Array<[number, number]> {
+  const raw = provenance?.drilled_intervals_m
+  if (!Array.isArray(raw)) return []
+  const out: Array<[number, number]> = []
+  for (const pair of raw) {
+    if (!Array.isArray(pair) || pair.length !== 2) return []
+    const [top, base] = pair as unknown[]
+    if (typeof top !== 'number' || typeof base !== 'number') return []
+    out.push([top, base])
+  }
+  return out
 }
 
 function makeLevelFmt(elevationM: number | null) {
@@ -276,8 +322,13 @@ export default function CptChart({
   // lines break instead of interpolating across real no-data gaps
   // (e.g. a borehole drilled through a layer after CPT refusal).
   // connectNulls={false} on every Line already handles the break;
-  // we just need the sentinels in the data array.
-  const data = injectDepthGaps(rawData)
+  // we just need the sentinels in the data array. A PDF-digitised CPT names
+  // its drilled stretches in its provenance; the line breaks across each one.
+  const data = injectDepthGaps(
+    rawData,
+    undefined,
+    drilledIntervalsFromProvenance(detail?.import_provenance),
+  )
 
   const maxDepth = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
 
