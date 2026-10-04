@@ -184,11 +184,16 @@ EXPECTED_BUNDLE_COLUMNS: dict[str, frozenset[str]] = {
             "u2_mpa",
         }
     ),
+    # ``deleted_dov_permkeys`` (2026-10-04, owner dogfeed 2026-10-01: a deleted
+    # DOV track stays deleted on a re-import): portable, rides along so a
+    # save + reopen keeps the memory. Additive, NO format_version bump - an
+    # older bundle without it restores to the empty default.
     "BoreholeOrm": frozenset(
         {
             "app_project_id",
             "borehole_type",
             "created_at",
+            "deleted_dov_permkeys",
             "drill_method",
             "elevation_m",
             "elevation_source",
