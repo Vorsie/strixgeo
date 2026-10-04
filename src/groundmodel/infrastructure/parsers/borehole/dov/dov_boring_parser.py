@@ -126,6 +126,7 @@ from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
 )
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
+    interval_params,
 )
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     make_issue as _issue,
@@ -480,6 +481,7 @@ class DovBoringParser(GroundModelLogger):
                         "INCOMPLETE_DRILL_SEGMENT",
                         f"DOV boring '{name}': drill segment with missing field "
                         f"(van={top}, tot={base}, methode={method!r})",
+                        {"top_m": top, "base_m": base, "method": method or None},
                     )
                 )
                 continue
@@ -496,6 +498,7 @@ class DovBoringParser(GroundModelLogger):
                         "INVALID_INTERVAL",
                         f"DOV boring '{name}': drill segment {top}–{base}m: "
                         f"base must be greater than top",
+                        interval_params("drill_segment", top, base, "base_not_below_top"),
                     )
                 )
                 continue
@@ -513,6 +516,7 @@ class DovBoringParser(GroundModelLogger):
                         ValidationLevel.WARNING,
                         "INVALID_INTERVAL",
                         f"DOV boring '{name}': drill segment {top}–{base}m: {exc}",
+                        interval_params("drill_segment", top, base, "invalid_value"),
                     )
                 )
         return segments
@@ -559,6 +563,7 @@ class DovBoringParser(GroundModelLogger):
                             "INCOMPLETE_FIELD_LOG",
                             f"DOV boring '{name}': {kind.value} interval with "
                             f"missing field (van={top}, tot={base}, value={value!r})",
+                            {"part": kind.value, "top_m": top, "base_m": base},
                         )
                     )
                     continue
@@ -574,6 +579,7 @@ class DovBoringParser(GroundModelLogger):
                             "INVALID_INTERVAL",
                             f"DOV boring '{name}': {kind.value} {top}–{base}m: "
                             f"base must be greater than top",
+                            interval_params(kind.value, top, base, "base_not_below_top"),
                         )
                     )
                     continue
@@ -591,6 +597,7 @@ class DovBoringParser(GroundModelLogger):
                             ValidationLevel.WARNING,
                             "INVALID_INTERVAL",
                             f"DOV boring '{name}': {kind.value} {top}–{base}m: {exc}",
+                            interval_params(kind.value, top, base, "invalid_value"),
                         )
                     )
         return intervals
