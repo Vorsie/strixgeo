@@ -990,8 +990,11 @@ still MATCHES, so offering it for deletion under "these no longer match" would s
 something false about a correlation that is still right.
 
 **A DOUBTED tie stops unioning** (owner ruling 2026-08-10, scoped 2026-08-11 after
-audit F31). A tie does two jobs — it draws the correlation, and it makes its two
-layers one body — and a flag that casts doubt on the union suspends the second:
+audit F31; since 2026-10-04 no tie unions on its own — identity follows the
+drawing, see [body-model.md](body-model.md) — so the rule now acts through the
+fill: a suspended tie is left out of the fill the recompute posts facts from).
+A tie used to do two jobs — draw the correlation, make its two layers one body —
+and a flag that casts doubt on the union suspends the second:
 ``class_changed`` (the two ends no longer describe the same ground — the original
 ruling's case, a body spanning NAD 8 and NAD 7 that a Build would have welded and
 exported) and ``ambiguous_band`` (the re-anchor could not be sure WHICH band the tie
