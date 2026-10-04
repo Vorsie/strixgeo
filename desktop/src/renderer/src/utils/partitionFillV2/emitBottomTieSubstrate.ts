@@ -35,9 +35,22 @@
  * of the bottom-tie line propagates OUTWARD only from the covered span (v1
  * ``computeBottomTieLine`` flat-extension), matching v1.
  *
+ * PLAIN 2/1/0 UNDER A SHALLOW TEST'S BOTTOM TIE (owner 2026-09-23, re-stated 2026-10-04 on section
+ * "test"). A gap whose shallow column's TD is tied to a contact of the deep column above the deep
+ * column's own TD (the shallow test's BOTTOM tie, ``shallowBottomTied``) declares the shallow column
+ * the boundary: the deep units below the tie onlap it or lens at their own level, and the rest under
+ * the shallow TD is the no-data void. The flat floor + curtain would close that void into a face and
+ * paint it with the bottom-tie formation (*"why is sub td filled below the drilling?"*, GEO-08/119-B15
+ * -> GEO-08/118-S15, a floor flat-extended from S14<->S15's base tie; *"bottom sand at S3 should just
+ * onlap the blue tie to the left"*, GEO-08/118-S8 -> GEO-19/100-S3, a floor from S3<->S2's base tie
+ * under S8). So such a gap gets NO floor and no curtain — unless a column BEYOND the shallow one reads
+ * the strip between the shallow anchor and the floor (``terminationRun``): then the deep-to-deep
+ * substrate legitimately carries the level under the shallow test (the standing exception).
+ *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
 
+import { terminationRun } from './emitContinuation'
 import { type LensLabel } from './emitLenses'
 import { type ColumnGeom, type SectionInput } from './sectionGeom'
 import { type InputCurve } from './types'
@@ -120,6 +133,9 @@ export function emitBottomTieSubstrate(
     const floorElev = Math.min(tieFloor, leftAnchor, rightAnchor)
     // Nothing to fill if both columns already anchor at/below the floor.
     if (leftAnchor <= floorElev + ELEV_EPS && rightAnchor <= floorElev + ELEV_EPS) continue
+    // Plain 2/1/0 under a shallow test's bottom tie: the void stays empty unless a column beyond
+    // the shallow one reads it (see the module docstring).
+    if (bottomTieVoid(section, gi, leftAnchor, rightAnchor, floorElev)) continue
 
     const label: LensLabel = { formationId: fid, bodyId: bid }
     const floorId = `btfloor${seq}:${gi}`
@@ -173,6 +189,58 @@ function deepestAnchorPerColumn(section: SectionInput): number[] {
     }
   }
   return deepest
+}
+
+/**
+ * Whether gap ``gi`` is a shallow test's bottom-tie void the floor must leave empty: the shallower
+ * column's TD carries a tie to a contact of the deeper column that lies ABOVE the deeper column's own
+ * TD (the ruling's bottom tie — a base<->base tie between the two TDs is this pass's own bracket, not
+ * a bottom tie), the deeper column has a unit entirely below the shallow column's anchor (a unit the
+ * floor would otherwise claim), and no column beyond the shallow one reads the strip between the
+ * shallow column's anchor and the floor.
+ */
+function bottomTieVoid(
+  section: SectionInput,
+  gi: number,
+  leftAnchor: number,
+  rightAnchor: number,
+  floorElev: number,
+): boolean {
+  const { columns } = section
+  const leftTd = deepestBase(columns[gi])
+  const rightTd = deepestBase(columns[gi + 1])
+  if (Math.abs(leftTd - rightTd) <= ELEV_EPS) return false
+  const shallowIdx = leftTd > rightTd ? gi : gi + 1
+  const deepIdx = shallowIdx === gi ? gi + 1 : gi
+  const shallow = columns[shallowIdx]
+  const deep = columns[deepIdx]
+  const shallowTd = Math.max(leftTd, rightTd)
+  const deepTd = Math.min(leftTd, rightTd)
+  const contactElev = (col: ColumnGeom, layerId: string, side: 'top' | 'base' | undefined): number | null => {
+    const u = col.units.find((x) => x.layerId === layerId)
+    if (!u) return null
+    return (side ?? 'top') === 'top' ? u.topElev : u.baseElev
+  }
+  const bottomTied = section.edges.some((e) => {
+    const sa = contactElev(shallow, e.a, e.aSide)
+    const db = contactElev(deep, e.b, e.bSide)
+    const sb = contactElev(shallow, e.b, e.bSide)
+    const da = contactElev(deep, e.a, e.aSide)
+    const pairs: [number | null, number | null][] = [[sa, db], [sb, da]]
+    return pairs.some(
+      ([s, d]) => s != null && d != null && Math.abs(s - shallowTd) <= ELEV_EPS && d > deepTd + ELEV_EPS,
+    )
+  })
+  if (!bottomTied) return false
+  const shallowAnchor = shallowIdx === gi ? leftAnchor : rightAnchor
+  if (shallowAnchor <= floorElev + ELEV_EPS) return false
+  // Only where the floor would CLAIM a unit of its own: a deep-column unit lying entirely below the
+  // shallow anchor terminates by its own ties (onlap / lens), never by the floor. A deep unit that
+  // merely straddles the anchor is the band the deep column carries across, and the floor keeps
+  // squaring off its base (dev CS1 gaps 8 and 22 under their bridge bands, frozen in the golden).
+  if (!deep.units.some((u) => u.topElev <= shallowAnchor + ELEV_EPS)) return false
+  const dir = shallowIdx < deepIdx ? -1 : 1
+  return !terminationRun(columns, deepIdx, dir, shallowAnchor, floorElev).reads
 }
 
 /** The deepest (lowest-elevation) base of a column — its TD. */
