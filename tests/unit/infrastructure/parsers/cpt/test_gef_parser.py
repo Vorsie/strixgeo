@@ -1106,3 +1106,79 @@ class TestRowsWithoutQc:
         data = "0.20; -9999.0; 0.05\n0.40; -9999.0; 0.06\n"
         with pytest.raises(ParseError, match="cone resistance"):
             parser.parse(_gef(header=self._VOID_QC_HEADER, data=data))
+
+
+# ---------------------------------------------------------------------------
+# Pre-drill declared but the depth column not shifted by it
+# ---------------------------------------------------------------------------
+
+
+class TestPreDrillNotApplied:
+    """A declared pre-drill whose depth column still starts at the surface is flagged.
+
+    The finding (PDF digitiser scoring, 2026-09-29): soundings 39 and 42 of the
+    camz-001 campaign declare a 0.35 m pre-drill (``#MEASUREMENTVAR= 13``) but
+    their depth column starts at 0.02 m, so the data is NOT shifted by the
+    pre-drill while the report sheets plot it from 0.37 m. The importer must
+    flag it — and keep the depths as read (data-integrity rule: never
+    auto-convert). A file whose first depth is at or below the pre-drill (the
+    normal case) and a file that declares no pre-drill raise nothing.
+    """
+
+    _PRE_DRILL_035 = _BASE_HEADER + "#MEASUREMENTVAR= 13, 0.350000, m, voorgegraven diepte\n"
+
+    def test_a_declared_pre_drill_with_data_starting_at_the_surface_is_a_warning(
+        self, parser: GEFParser
+    ) -> None:
+        """Declared 0.35 m, first depth 0.02 m: the data was not shifted — WARNING."""
+        data = "0.02; 1.0; 0.05\n0.04; 1.5; 0.06\n0.06; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._PRE_DRILL_035, data=data))
+        issue = next(i for i in result.issues if i.code == "PRE_DRILL_NOT_APPLIED")
+        assert issue.level == ValidationLevel.WARNING
+        # The message names the declared pre-drill and the first depth.
+        assert "0.35 m" in issue.message
+        assert "0.02 m" in issue.message
+        assert issue.details == {"pre_drill_m": 0.35, "first_depth_m": 0.02}
+
+    def test_the_depths_are_kept_as_read(self, parser: GEFParser) -> None:
+        """Flag, never shift: the stored depth column is the file's own."""
+        data = "0.02; 1.0; 0.05\n0.04; 1.5; 0.06\n0.06; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._PRE_DRILL_035, data=data))
+        assert result.data["depth_m"].to_list() == [0.02, 0.04, 0.06]
+
+    def test_data_starting_at_the_pre_drill_raises_nothing(self, parser: GEFParser) -> None:
+        """The normal case: the depth column starts at the pre-drill depth."""
+        data = "0.35; 1.0; 0.05\n0.37; 1.5; 0.06\n0.39; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._PRE_DRILL_035, data=data))
+        assert "PRE_DRILL_NOT_APPLIED" not in _codes(result)
+
+    def test_data_starting_within_the_tolerance_raises_nothing(self, parser: GEFParser) -> None:
+        """Boundary: a first depth 5 cm above the pre-drill is still read as applied."""
+        data = "0.30; 1.0; 0.05\n0.32; 1.5; 0.06\n0.34; 2.0; 0.07\n"
+        result = parser.parse(_gef(header=self._PRE_DRILL_035, data=data))
+        assert "PRE_DRILL_NOT_APPLIED" not in _codes(result)
+
+    def test_no_pre_drill_declared_raises_nothing(self, parser: GEFParser) -> None:
+        """No ``#MEASUREMENTVAR= 13`` at all: nothing to compare against."""
+        data = "0.02; 1.0; 0.05\n0.04; 1.5; 0.06\n0.06; 2.0; 0.07\n"
+        result = parser.parse(_gef(data=data))
+        assert "PRE_DRILL_NOT_APPLIED" not in _codes(result)
+
+    def test_a_zero_pre_drill_raises_nothing(self, parser: GEFParser) -> None:
+        """``#MEASUREMENTVAR= 13, 0`` declares no pre-drill."""
+        header = _BASE_HEADER + "#MEASUREMENTVAR= 13, 0.000000, m, voorgegraven diepte\n"
+        data = "0.02; 1.0; 0.05\n0.04; 1.5; 0.06\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "PRE_DRILL_NOT_APPLIED" not in _codes(result)
+
+    def test_the_first_depth_is_the_first_stored_row(self, parser: GEFParser) -> None:
+        """A surface row with a void qc is dropped, so the first STORED depth counts.
+
+        Sounding 39 opens with a 0.00 m row whose every value is void; the
+        first depth the series keeps is 0.02 m.
+        """
+        header = self._PRE_DRILL_035 + "#COLUMNVOID= 2, -9999.0\n"
+        data = "0.00; -9999.0; 0.05\n0.02; 1.0; 0.05\n0.04; 1.5; 0.06\n"
+        result = parser.parse(_gef(header=header, data=data))
+        issue = next(i for i in result.issues if i.code == "PRE_DRILL_NOT_APPLIED")
+        assert "0.02 m" in issue.message
