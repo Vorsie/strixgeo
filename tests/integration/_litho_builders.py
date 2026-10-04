@@ -9,8 +9,11 @@ copy, not twelve.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -111,3 +114,31 @@ def contact(
         source=source,
         confidence=confidence,
     )
+
+
+def geometry_fact(*, model_id: UUID, layer_x: UUID, layer_y: UUID) -> BodyGeometryFactOrm:
+    """Build the geometry fact the renderer posts for a painted mass.
+
+    Owner 2026-10-04, *"identity follows the drawing"*: only a geometry fact
+    unions two layers into one body; an accepted tie alone joins nothing. A
+    scene whose tie the fill WOULD paint as a band (2 ties, or a band the test
+    wants as one body) therefore seeds this row beside the tie, standing in for
+    the frontend's ``bodies/recompute``.
+
+    ``body_geometry_fact`` enforces ``layer_a_id < layer_b_id`` (CHECK), so the
+    endpoints are sorted here.
+
+    Parameters
+    ----------
+    model_id : UUID
+        The litho or geotech model the fact belongs to.
+    layer_x, layer_y : UUID
+        The two ``litho_layer`` endpoints (any order).
+
+    Returns
+    -------
+    BodyGeometryFactOrm
+        Unsaved row with a fresh uuid7 id.
+    """
+    a_id, b_id = sorted((layer_x, layer_y), key=str)
+    return BodyGeometryFactOrm(id=uuid7(), model_id=model_id, layer_a_id=a_id, layer_b_id=b_id)
