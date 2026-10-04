@@ -70,6 +70,16 @@ export interface PageCalibrationDict {
 // Triage digest
 // ---------------------------------------------------------------------------
 
+/**
+ * One note on a triaged sounding as a stable code + params (backend
+ * ``ReportSoundingNote``); rendered in the app language by
+ * ``utils/cptPdfNoteText.ts``.
+ */
+export interface CptPdfNote {
+  code: string
+  params: Record<string, unknown>
+}
+
 /** One sounding the triage offers (campaign) or lists apart (unknown). */
 export interface CptPdfSounding {
   key: string
@@ -88,7 +98,11 @@ export interface CptPdfSounding {
   curves: string[]
   clipped_points: number
   digitised: boolean
+  /** The notes as English sentences (what an older client renders). */
   warnings: string[]
+  /** The same notes as codes, one per warning, same order; absent from a
+   *  backend that predates them (then ``warnings`` is shown as is). */
+  notes?: CptPdfNote[]
 }
 
 /** A sheet set aside: a desk-study reprint, a repeat, or an unreadable sheet. */
@@ -153,6 +167,8 @@ export interface CptPdfDigitised {
   printed_values: [number, string][]
   header: CptPdfSheetHeader
   warnings: string[]
+  /** The same notes as codes (see {@link CptPdfSounding.notes}). */
+  notes?: CptPdfNote[]
   overlays: CptPdfOverlay[]
 }
 
@@ -275,6 +291,30 @@ export const cptPdfClient = {
   /** URL of a page thumbnail PNG. */
   pageUrl: (fileSha: string, page: number, projectId: string, dpi = 80): string =>
     `${_base}/cpt/pdf/page/${fileSha}/${page}.png?project_id=${projectId}&dpi=${dpi}`,
+
+  /**
+   * Fetch a page thumbnail PNG as a Blob.
+   *
+   * The renderer's CSP allows images only from ``'self'``, ``data:``,
+   * ``blob:`` and ``https:``, so an ``<img>`` cannot point at the local http
+   * backend; the caller shows the Blob through an object URL instead
+   * (``hooks/usePdfPageThumbnail``). Goes through ``fetchTracked`` like every
+   * other call, so a dead backend is noticed here too.
+   *
+   * @throws ApiError on a non-2xx answer.
+   */
+  pageBlob: async (fileSha: string, page: number, projectId: string, dpi = 80): Promise<Blob> => {
+    const res = await fetchTracked(cptPdfClient.pageUrl(fileSha, page, projectId, dpi))
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new ApiError(
+        messageForDetail(body.detail, detailMessage(body.detail) ?? `Page thumbnail failed: ${res.status}`),
+        res.status,
+        { detail: body.detail, method: 'GET', path: `/cpt/pdf/page/${fileSha}/${page}.png` },
+      )
+    }
+    return res.blob()
+  },
 
   /** Read one sounding (optionally through edited calibrations). */
   digitise: (body: CptPdfDigitiseBody): Promise<CptPdfDigitised> =>
