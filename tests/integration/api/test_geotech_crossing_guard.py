@@ -53,7 +53,11 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.logging.logger_factory import LoggerFactory
-from tests.integration.api.geotech_scene_helpers import accept_cpt_litho, correlate
+from tests.integration.api.geotech_scene_helpers import (
+    accept_cpt_litho,
+    correlate,
+    paint_accepted_ties,
+)
 
 # The two columns break their packing at DIFFERENT depths, which is what lets a
 # tie drawn between mismatched bands slope steeply enough to be crossed.
@@ -166,6 +170,9 @@ async def crossing_scene(
         contact_b=contact_b,
         section_id=section_id,
     )
+    # The fill paints the litho tie as a band: ONE litho body (identity follows the
+    # drawing, owner 2026-10-04) — the hand-drawn packing ties need that body.
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project_id": pid,
