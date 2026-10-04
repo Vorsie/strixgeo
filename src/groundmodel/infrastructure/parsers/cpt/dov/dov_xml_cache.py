@@ -5,7 +5,9 @@ representation is essentially immutable. Caching forever means a region you've
 imported once is near-instant on every subsequent import that overlaps it.
 
 Layout: one file per permkey, named ``<permkey>.xml``. The filename IS the cache
-key; no separate manifest or index file is needed.
+key; the cache itself needs no manifest. A side index a caller keeps in the same
+directory (the boring cache's ``_identificatie_index.jsonl``) is not ``*.xml``,
+so listing, eviction and the permkey namespace never see it.
 
 Concurrency: writes use a temp-file + ``Path.replace`` for atomicity, so two
 async tasks racing on the same permkey can't corrupt the cached file.
@@ -27,11 +29,21 @@ headroom so the next sweep isn't immediate). The sweep runs inline on
 the writing task — DOV imports already serialise on the network, and
 the sweep itself only touches files we own. ``max_bytes=None`` disables
 eviction (legacy behaviour, useful for tests).
+
+Put observer
+------------
+A cache can carry a side index over its files (the boring cache's
+``<identificatie>`` index, ``DovBoringIdentificatieIndex``). The optional
+``put_observer`` hears every SUCCESSFUL write - ``(permkey, xml_bytes)``, after
+the file is published - so the index stays current without this generic cache
+knowing what it indexes. An observer failure is logged and never breaks the
+write, like every other cache error.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import DOV_VALID_PERMKEY_RE
@@ -62,12 +74,22 @@ class DovXmlCache(GroundModelLogger):
         max_bytes``. Pass ``None`` to disable eviction (default).
         Settings translate ``DOV_CACHE_MAX_BYTES=0`` to ``None`` so
         users can disable eviction via the env var.
+    put_observer : Callable[[str, bytes], None] | None, optional
+        Called with ``(permkey, xml_bytes)`` after every successful ``put``
+        (see "Put observer" in the module docstring). ``None`` (default) =
+        nobody listens.
     """
 
-    def __init__(self, cache_dir: Path, max_bytes: int | None = None) -> None:
+    def __init__(
+        self,
+        cache_dir: Path,
+        max_bytes: int | None = None,
+        put_observer: Callable[[str, bytes], None] | None = None,
+    ) -> None:
         super().__init__(__name__)
         self._dir = cache_dir
         self._max_bytes = max_bytes
+        self._put_observer = put_observer
         self._writes_since_check = 0
         dir_ok = True
         try:
@@ -114,6 +136,37 @@ class DovXmlCache(GroundModelLogger):
             self.warning(f"DOV cache: listing failed at {self._dir}: {exc}")
             return []
 
+    @property
+    def directory(self) -> Path:
+        """The directory this cache stores its files in."""
+        return self._dir
+
+    def entries(self) -> list[tuple[str, int, int]]:
+        """Return ``(permkey, size_bytes, mtime_ns)`` of every cached XML, sorted by permkey.
+
+        One directory listing and no file opens: on Windows ``os.scandir``
+        carries size and mtime in the listing itself, so this stays cheap on a
+        cold cache where every first open of a file costs tens of
+        milliseconds (owner finding 2026-10-04: 582 files, 7.2 s cold scan).
+
+        Returns
+        -------
+        list[tuple[str, int, int]]
+            One tuple per ``*.xml`` file; ``[]`` on a listing error (logged).
+        """
+        found: list[tuple[str, int, int]] = []
+        try:
+            with os.scandir(self._dir) as it:
+                for entry in it:
+                    if not entry.name.endswith(".xml") or not entry.is_file():
+                        continue
+                    stat = entry.stat()
+                    found.append((entry.name[: -len(".xml")], stat.st_size, stat.st_mtime_ns))
+        except OSError as exc:
+            self.warning(f"DOV cache: listing failed at {self._dir}: {exc}")
+            return []
+        return sorted(found)
+
     def read_head(self, permkey: str, max_bytes: int) -> bytes | None:
         """Return the first ``max_bytes`` of the cached XML, or None on a miss / read error."""
         path = self._path_for(permkey)
@@ -158,6 +211,12 @@ class DovXmlCache(GroundModelLogger):
             except OSError:
                 pass
             return
+
+        if self._put_observer is not None:
+            try:
+                self._put_observer(permkey, xml_bytes)
+            except Exception as exc:  # noqa: BLE001 - a side index never breaks a write
+                self.warning(f"DOV cache: put observer failed for {permkey!r}: {exc}")
 
         self._writes_since_check += 1
         if self._max_bytes is not None and self._writes_since_check >= _EVICT_CHECK_INTERVAL:
