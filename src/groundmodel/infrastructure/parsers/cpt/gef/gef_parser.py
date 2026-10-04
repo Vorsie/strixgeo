@@ -18,6 +18,7 @@ from groundmodel.infrastructure.parsers.cpt.gef.gef_constants import (
     MVAR_STOP_CRITERION,
     MVAR_WATER_DEPTH,
     NUMERIC_CHARACTERS,
+    PRE_DRILL_APPLIED_TOLERANCE_M,
     PRESSURE_COLUMNS,
     QUANTITY_TO_COLUMN,
     UNIT_TO_MPA,
@@ -743,6 +744,7 @@ class GEFParser(GroundModelLogger):
             self._check_negative_values(df),
             self._check_null_values(df),
             self._check_pre_drill(header, df),
+            self._check_pre_drill_applied(header, df),
             self._check_net_area_ratio(header, cpt_type),
             self._check_rf_range(df),
             self._check_qc_spikes(df),
@@ -1090,6 +1092,62 @@ class GEFParser(GroundModelLogger):
                     )
                 ]
         return []
+
+    def _check_pre_drill_applied(
+        self, header: GEFHeader, df: pl.DataFrame
+    ) -> list[ValidationIssue]:
+        """Flag a declared pre-drill that the depth column was not shifted by.
+
+        A GEF that declares a pre-drill (``#MEASUREMENTVAR= 13``) normally
+        starts its depth column at (or just below) that depth. Soundings 39 and
+        42 of the camz-001 campaign declare 0.35 m yet start at 0.02 m, while
+        the report sheets plot them from 0.37 m — the file's depths are off by
+        the pre-drill. Which one is right cannot be told from the file, so the
+        depths are kept as read (data-integrity rule 3: never auto-convert) and
+        the engineer is told.
+
+        Parameters
+        ----------
+        header : GEFHeader
+            Parsed header; ``pre_drill_m`` is MVAR 13 (0 when absent).
+        df : pl.DataFrame
+            The data frame after rows without qc were dropped, so the first
+            depth is the first one the stored series keeps.
+
+        Returns
+        -------
+        list[ValidationIssue]
+            One ``PRE_DRILL_NOT_APPLIED`` WARNING when the first depth lies more
+            than ``PRE_DRILL_APPLIED_TOLERANCE_M`` above the declared pre-drill,
+            else empty. ``details`` carries ``pre_drill_m`` and
+            ``first_depth_m`` for a translated rendering.
+        """
+        if header.pre_drill_m <= 0 or "depth_m" not in df.columns:
+            return []
+        depths = df["depth_m"].drop_nulls()
+        if depths.is_empty():
+            return []
+        first_depth = float(depths.to_list()[0])
+        if first_depth >= header.pre_drill_m - PRE_DRILL_APPLIED_TOLERANCE_M:
+            return []
+        self.warning(
+            f"GEF: pre-drill {header.pre_drill_m:.2f} m declared (MVAR 13) but the "
+            f"depth column starts at {first_depth:.2f} m — depths kept as read"
+        )
+        return [
+            ValidationIssue(
+                ValidationLevel.WARNING,
+                "PRE_DRILL_NOT_APPLIED",
+                f"Pre-drill of {header.pre_drill_m:.2f} m declared (MEASUREMENTVAR 13) "
+                f"but the depth column starts at {first_depth:.2f} m — the depths "
+                "may not be shifted by the pre-drill; kept as read, check against "
+                "the report",
+                details={
+                    "pre_drill_m": round(header.pre_drill_m, 3),
+                    "first_depth_m": round(first_depth, 3),
+                },
+            )
+        ]
 
     def _check_net_area_ratio(self, header: GEFHeader, cpt_type: CPTType) -> list[ValidationIssue]:
         if cpt_type == CPTType.CPTU and header.net_area_ratio is None:
