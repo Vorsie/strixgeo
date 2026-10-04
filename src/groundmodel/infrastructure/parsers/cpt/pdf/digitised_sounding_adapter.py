@@ -111,6 +111,13 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                         "the sheet plots elevation: depth = printed ground level "
                         f"({header.ground_level_m} m) - plotted elevation"
                     ),
+                    # The numbers the sentence names, so the app says it in its
+                    # own language; none when no ground level was printed.
+                    params=(
+                        {}
+                        if header.ground_level_m is None
+                        else {"ground_level_m": header.ground_level_m}
+                    ),
                 )
             )
         if header.x is None or header.y is None or header.epsg is None:
@@ -226,6 +233,7 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                         "maximum and flagged, never interpolated"
                     ),
                     rows=[i for i, f in enumerate(flags) if f],
+                    params={"curve": kind.value, "count": count, "axis_max": axis_max},
                 )
             )
         return out
