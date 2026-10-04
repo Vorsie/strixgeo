@@ -27,11 +27,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.dov_borehole_orm_builders import (
+    apply_file_sample,
     build_borehole_orm,
     build_drill_segment_orms,
     build_field_log_orms,
     build_observation_layer_orms,
     build_observation_orm,
+    build_sample_orm,
 )
 from groundmodel.application.import_borehole_file_result import ImportBoreholeFileResult
 from groundmodel.application.imported_boring import ImportedBoring
@@ -39,6 +41,7 @@ from groundmodel.application.stale_investigation_caches import StaleInvestigatio
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
     borehole_full_tree_options,
@@ -296,6 +299,8 @@ class ImportBoreholeFile(GroundModelLogger):
             )
             if obs is not None:
                 self._session.add(obs)
+        for sample in entry.samples:
+            self._session.add(build_sample_orm(sample, orm.id))
         return ImportedBoring(
             borehole_id=orm.id, name=entry.name, test_id=entry.test_id, issues=entry.issues
         )
@@ -355,15 +360,53 @@ class ImportBoreholeFile(GroundModelLogger):
                 existing.observations.append(obs)
                 added += 1
 
+        samples_replaced, samples_added = self._refresh_samples(existing, entry)
+
         # The collar or the depths may have moved: every cached geometry
         # anchored on this borehole is rebuilt before it is trusted again.
         stale = await StaleInvestigationCaches(self._session).execute(borehole_id=existing.id)
         self.info(
             f"Borehole file refresh {existing.id}: {existing.n_drill_segments} segment(s), "
             f"{existing.n_field_log_intervals} field-log row(s), {replaced} observation(s) "
-            f"replaced, {added} added, {stale.surfaces} surface(s) + {stale.solids} solid(s) "
+            f"replaced, {added} added, {samples_replaced} sample(s) refreshed, "
+            f"{samples_added} added, {stale.surfaces} surface(s) + {stale.solids} solid(s) "
             f"staled in {ms_since(t_refresh)} ms"
         )
+
+    @staticmethod
+    def _refresh_samples(existing: BoreholeOrm, entry: DovBoringFileEntry) -> tuple[int, int]:
+        """Refresh the stored samples from the file, like the observation streams.
+
+        A file sample matches a stored one by DOV permkey, else (no permkey on
+        either side) by sample number + top depth; a match is updated IN PLACE
+        (same sample id, so its lab tests from a bbox import and its geotech
+        assignment survive); an unmatched file sample is added; stored samples
+        the file does not carry are kept (the file is not the whole record).
+
+        Returns
+        -------
+        tuple[int, int]
+            (refreshed, added) counts.
+        """
+        stored: list[SampleOrm] = list(existing.samples)
+        by_permkey = {s.dov_permkey: s for s in stored if s.dov_permkey}
+        by_number: dict[tuple[str | None, float], SampleOrm] = {
+            (s.sample_number, s.depth_top_m): s for s in stored if s.sample_number
+        }
+        refreshed = added = 0
+        for sample in entry.samples:
+            match = (
+                by_permkey.get(sample.permkey)
+                if sample.permkey
+                else by_number.get((sample.sample_number, sample.depth_top_m))
+            )
+            if match is not None:
+                apply_file_sample(match, sample)
+                refreshed += 1
+                continue
+            existing.samples.append(build_sample_orm(sample, existing.id))
+            added += 1
+        return refreshed, added
 
     async def _load_existing(self, ids: list[UUID]) -> dict[UUID, BoreholeOrm]:
         """Load the stored boreholes a refresh touches, with every child eager-loaded."""
