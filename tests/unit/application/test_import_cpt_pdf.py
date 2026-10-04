@@ -69,10 +69,11 @@ def _sounding(sid: str, page: int) -> DigitisedSounding:
     )
 
 
-def _listed(key: str, page: int, placed: bool) -> ReportSounding:
+def _listed(key: str, page: int, placed: bool, project_number: str | None = None) -> ReportSounding:
     return ReportSounding(
         key=key,
         sounding_id=key,
+        project_number=project_number,
         origin=CptOrigin.CAMPAIGN,
         page_numbers=(page,),
         graph_kind=GraphKind.VECTOR,
@@ -148,8 +149,10 @@ async def test_a_selected_sounding_goes_through_the_one_cpt_door(store: PdfRepor
     )
     assert [o.status for o in outcomes] == ["imported"]
     result, name, _ = persist.calls[0]
-    assert name == "110"
+    # No project number printed on the sheet: the campaign code stands in.
+    assert name == "CAMZ-001-S110"
     assert result.header.project_id == "CAMZ-001"
+    assert result.header.test_id == "110"
     assert result.import_provenance is not None
     assert result.import_provenance["report_file_name"] == "camz-001.pdf"
 
@@ -228,3 +231,39 @@ async def test_an_unknown_report_is_reported_as_such(store: PdfReportStore) -> N
         await _use_case(store, _Persist()).execute(
             PROJECT, "b" * 64, [PdfSoundingImportRequest(key="110")], confirm_refresh=False
         )
+
+
+@pytest.mark.asyncio
+async def test_the_sheet_project_number_is_the_stored_project_and_names_the_cpt(
+    store: PdfReportStore,
+) -> None:
+    """Ruling 2026-10-04: ids as the GEF stores them, name "<project>-S<number>"."""
+    report = store.recall(PROJECT, SHA)
+    assert report is not None
+    digest = report.digest
+    store.remember(
+        PROJECT,
+        CachedPdfReport(
+            path=report.path,
+            file_name=report.file_name,
+            digest=PdfReportDigest(
+                file_sha=digest.file_sha,
+                page_count=digest.page_count,
+                class_counts=digest.class_counts,
+                campaign=(_listed("110", 231, True, project_number="23.15-002"),),
+                unknown=(),
+                dropped=(),
+                fingerprint=digest.fingerprint,
+                ocr_available=False,
+            ),
+            soundings=report.soundings,
+        ),
+    )
+    persist = _Persist()
+    outcomes = await _use_case(store, persist).execute(
+        PROJECT, SHA, [PdfSoundingImportRequest(key="110")], confirm_refresh=False
+    )
+    result, name, _ = persist.calls[0]
+    assert (result.header.project_id, result.header.test_id) == ("23.15-002", "110")
+    assert name == "23.15-002-S110"
+    assert outcomes[0].name == "23.15-002-S110"
