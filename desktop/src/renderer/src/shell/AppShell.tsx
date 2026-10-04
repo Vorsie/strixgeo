@@ -299,6 +299,19 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     setActiveStage,
   ])
 
+  // A DOV bbox draw is drawn on the Data stage's map. The Data toolbar starts
+  // one from the Data stage itself, but File > Import CPT / Import boreholes >
+  // From DOV can start one from ANY stage (owner 2026-10-04), which would arm a
+  // draw on a map nobody sees. Route to Data when a draw STARTS; keyed on the
+  // draw type alone, so walking to another stage mid-draw is not bounced back,
+  // and the toolbar path's same-stage set is a no-op.
+  const bboxImportType = context.investigations.bboxImportType
+  useEffect(() => {
+    if (bboxImportType === null) return
+    log.info('shell', `bbox draw (${bboxImportType}) started → Data stage`)
+    setActiveStage('data')
+  }, [bboxImportType, setActiveStage])
+
   // Debt #43: the shell rework dropped the global "Esc backs out of the
   // detail view" behaviour. A gINT/Plaxis-trained engineer reflexively
   // hits Esc to leave a chart/borelog and nothing happened. This restores
