@@ -91,5 +91,15 @@ export const CPT_PDF = {
   'cptPdf.report.status.refused': 'not imported',
   'cptPdf.report.status.failed': 'failed',
   'cptPdf.report.noIssues': 'no remarks',
+  // The import report's remarks, one per backend issue code; the English
+  // sentence the backend sent stays the tooltip. {list} is the stretches,
+  // each written with ``cptPdf.drilledInterval``.
+  'cptPdf.issue.PDF_CLIPPED_POINTS':
+    '{count} {curve} point(s) drawn on the axis maximum ({axis_max}): the true value is at least that; kept at the maximum and flagged, never interpolated',
+  'cptPdf.issue.PDF_DEPTH_FROM_ELEVATION':
+    'Elevation axis: depth = printed ground level ({ground_level_m} m) - plotted elevation',
+  'cptPdf.issue.PDF_DRILLED_INTERVALS': 'Drilled without measurement: {list}; left empty, never interpolated',
+  'cptPdf.issue.PDF_NO_XY': 'No position on the sheet: type X and Y to place this sounding',
+  'cptPdf.issue.PDF_OCR_UNAVAILABLE': 'Read without OCR: the axis values were typed or taken from the grid',
   'cptPdf.toast.none': 'Nothing imported from the report',
 } as const
