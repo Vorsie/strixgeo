@@ -276,3 +276,57 @@ describe('handleImportCpt — a refresh is consented, never automatic', () => {
     expect(message).toContain('CPT-1')
   })
 })
+
+// A GEF that declares a pre-drill (#MEASUREMENTVAR= 13) but whose depth column
+// still starts at the surface (camz-001 soundings 39 and 42: 0.35 m declared,
+// data from 0.02 m) comes back with a PRE_DRILL_NOT_APPLIED warning. The import
+// summary must SAY so, naming the CPT, the declared pre-drill and the first
+// depth: the depths were kept as read and the engineer has to check them.
+describe('handleImportCpt — a pre-drill the depths were not shifted by is told', () => {
+  const PRE_DRILL_ISSUE = {
+    level: 'warning',
+    code: 'PRE_DRILL_NOT_APPLIED',
+    message: 'Pre-drill of 0.35 m declared ...',
+    rows: [],
+    details: { pre_drill_m: 0.35, first_depth_m: 0.02 },
+  }
+
+  it('warns with the CPT name, the declared pre-drill and the first depth', async () => {
+    importMock.mockResolvedValue({
+      cpt_id: 'C39',
+      has_errors: false,
+      issues: [PRE_DRILL_ISSUE],
+      refreshed: false,
+      name: '23.15-002_39',
+    })
+    const { toast, handles } = await renderImportHook()
+
+    await act(async () => {
+      await handles.current.handleImportCpt()
+    })
+
+    const warning = toast.mock.calls.find(([severity]) => severity === 'warning')
+    expect(warning).toBeDefined()
+    const [, message] = warning as [string, string]
+    expect(message).toContain('23.15-002_39')
+    expect(message).toContain('0.35 m')
+    expect(message).toContain('0.02 m')
+  })
+
+  it('says nothing extra for a CPT without the finding', async () => {
+    importMock.mockResolvedValue({
+      cpt_id: 'C1',
+      has_errors: false,
+      issues: [{ level: 'info', code: 'PRE_DRILL', message: '...', rows: [] }],
+      refreshed: false,
+      name: '23.15-002_112',
+    })
+    const { toast, handles } = await renderImportHook()
+
+    await act(async () => {
+      await handles.current.handleImportCpt()
+    })
+
+    expect(toast.mock.calls.some(([severity]) => severity === 'warning')).toBe(false)
+  })
+})
