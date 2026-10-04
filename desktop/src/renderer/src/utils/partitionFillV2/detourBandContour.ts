@@ -216,10 +216,10 @@ export function collectEnclosedLensDiamonds(
     if (ov && (ov.upper?.length || ov.lower?.length)) return
     // A lens is measured against the first column that READ its levels, crossing any blind
     // column on the way (owner 2026-08-21, ``terminationRun``). Mirror ``emitOne``'s target,
-    // width and run ties so the detour rides the EXACT diamond the emitter drew; a lens with
-    // no reading column that way is a full-thickness rectangle, not a diamond — skip it.
+    // width and run ties so the detour rides the EXACT diamond the emitter drew; a lens run flat to
+    // the section edge (``run.toEdge``) is a full-thickness rectangle, not a diamond — skip it.
     const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, lens.topElev, lens.baseElev)
-    if (!run.reads) return
+    if (run.toEdge) return
     const { topPt, apex, basePt } = enclosedLensDiamond(
       lens,
       col,
