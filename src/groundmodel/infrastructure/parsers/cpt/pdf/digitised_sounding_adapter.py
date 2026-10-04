@@ -9,6 +9,7 @@ import polars as pl
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
+from groundmodel.infrastructure.parsers.cpt.gef.gef_constants import PRE_DRILL_APPLIED_TOLERANCE_M
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
@@ -48,6 +49,17 @@ class DigitisedSoundingAdapter(GroundModelLogger):
     interpolated); an elevation-axis depth is stamped "derived from plotted
     elevation"; vector vertices are stored as they are, raster traces on the
     0.02 m grid.
+
+    Owner ruling "a" (2026-10-04): a drilled stretch stays a gap. The stored
+    series holds no row inside it (a stored row needs a qc, and the series
+    repair on load drops any row without one), its stretches are listed in
+    one ``PDF_DRILLED_INTERVALS`` issue and in ``drilled_intervals_m``, and
+    the chart breaks its lines there. A curve that starts below the surface
+    records that depth as ``pre_drill_m`` in the provenance only (the GEF
+    twin is ``#MEASUREMENTVAR= 13``): on CAMZ-001/005 it matches the GEF on
+    20 of 25 soundings, but a curve whose first metres are drawn off the
+    panel (qc at or below zero) also starts deep, so it is not written to the
+    CPT's pre-drill column.
     """
 
     def __init__(self) -> None:
@@ -75,8 +87,8 @@ class DigitisedSoundingAdapter(GroundModelLogger):
         GEFParseResult
             Header, frame (``depth_m``, ``qc_mpa`` and the other curves read),
             issues (``PDF_CLIPPED_POINTS``, ``PDF_DEPTH_FROM_ELEVATION``,
-            ``PDF_NO_XY``, ``PDF_OCR_UNAVAILABLE``), ``rf_source``,
-            ``elevation_source = PDF`` and ``import_provenance``.
+            ``PDF_NO_XY``, ``PDF_OCR_UNAVAILABLE``, ``PDF_DRILLED_INTERVALS``),
+            ``rf_source``, ``elevation_source = PDF`` and ``import_provenance``.
 
         Raises
         ------
@@ -109,6 +121,8 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                     message="the sheet prints no position: type X and Y to place this sounding",
                 )
             )
+        drilled = self._drilled(sounding, issues)
+        pre_drill = _pre_drill(table)
         raster = any(c.source is GraphKind.RASTER for c in sounding.curves.values())
         if not report.ocr_available and raster:
             issues.append(
@@ -163,7 +177,15 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                     sounding, header, report, sampling, elevation, clipped, rf_source
                 ),
                 "points_above_ground_dropped": above_ground,
+                "drilled_intervals_m": drilled,
+                "pre_drill_m": pre_drill,
             },
+        )
+        self.debug(
+            "sounding %s: %d drilled interval(s), pre-drill %.3f m",
+            header.test_id,
+            len(drilled),
+            pre_drill,
         )
         self.debug(
             "sounding %s: %d rows, %s, %d issue(s)",
@@ -209,6 +231,25 @@ class DigitisedSoundingAdapter(GroundModelLogger):
         return out
 
     @staticmethod
+    def _drilled(sounding: DigitisedSounding, issues: list[ValidationIssue]) -> list[list[float]]:
+        """Return the drilled stretches as ``[top, base]`` pairs; one INFO issue lists them."""
+        drilled = [[top, base] for top, base in sounding.drilled_intervals()]
+        if drilled:
+            listed = ", ".join(f"{top:.2f}-{base:.2f} m" for top, base in drilled)
+            issues.append(
+                ValidationIssue(
+                    level=ValidationLevel.INFO,
+                    code="PDF_DRILLED_INTERVALS",
+                    message=(
+                        f"{len(drilled)} drilled interval(s) without measurement ({listed}): "
+                        "left empty, never interpolated"
+                    ),
+                    params={"intervals": drilled},
+                )
+            )
+        return drilled
+
+    @staticmethod
     def _provenance(
         sounding: DigitisedSounding,
         header: PdfImportHeader,
@@ -240,6 +281,18 @@ class DigitisedSoundingAdapter(GroundModelLogger):
             "calibrations": [c.to_dict() for c in sounding.calibrations],
             "ocr_available": report.ocr_available,
         }
+
+
+def _pre_drill(table: pl.DataFrame) -> float:
+    """Return the depth of the first stored scan when it lies below the surface, else 0.
+
+    The same tolerance as the GEF pre-drill check: a first scan within
+    ``PRE_DRILL_APPLIED_TOLERANCE_M`` of the surface is the surface.
+    """
+    if table.is_empty():
+        return 0.0
+    first = float(table["depth_m"].min())  # type: ignore[arg-type]
+    return round(first, 3) if first > PRE_DRILL_APPLIED_TOLERANCE_M else 0.0
 
 
 def _cpt_type(kinds: set[PanelKind]) -> CPTType:
