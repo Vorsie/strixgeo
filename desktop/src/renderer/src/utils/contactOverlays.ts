@@ -105,3 +105,40 @@ export function buildContactOverlays(
   out.sort((a, b) => a.depth_m - b.depth_m)
   return out
 }
+
+/**
+ * Which overlay sources the detail pane draws.
+ *
+ * ``geology`` = stratigraphic boundaries (formation contacts of the
+ * geological model); ``litho`` = lithological boundaries (contacts of the
+ * lithostratigraphic model). Per-user UI chrome, never project data.
+ */
+export interface ContactOverlayVisibility {
+  geology: boolean
+  litho: boolean
+}
+
+/** Both sources visible: the behaviour before the switches existed. */
+export const DEFAULT_CONTACT_OVERLAY_VISIBILITY: Readonly<ContactOverlayVisibility> = {
+  geology: true,
+  litho: true,
+}
+
+/**
+ * Drop the overlays whose source the user switched off.
+ *
+ * Kept separate from ``buildContactOverlays`` so the builder stays a pure
+ * description of the models and the visibility choice stays a view filter.
+ *
+ * @param overlays   Overlays from ``buildContactOverlays``.
+ * @param visibility Per-source on/off switches.
+ * @returns          The overlays of the visible sources, order kept. The
+ *                   input array itself when both sources are visible.
+ */
+export function filterContactOverlays(
+  overlays: readonly ContactOverlay[],
+  visibility: Readonly<ContactOverlayVisibility>,
+): readonly ContactOverlay[] {
+  if (visibility.geology && visibility.litho) return overlays
+  return overlays.filter(o => visibility[o.source])
+}
