@@ -23,6 +23,7 @@ import {
   U2_AXIS_TICKS_KPA,
 } from '../utils/cptAxisScales'
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
+import { parseDrilledIntervals } from '../utils/drilledIntervals'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
@@ -211,16 +212,7 @@ function spansDrilled(
 export function drilledIntervalsFromProvenance(
   provenance: Record<string, unknown> | null | undefined,
 ): Array<[number, number]> {
-  const raw = provenance?.drilled_intervals_m
-  if (!Array.isArray(raw)) return []
-  const out: Array<[number, number]> = []
-  for (const pair of raw) {
-    if (!Array.isArray(pair) || pair.length !== 2) return []
-    const [top, base] = pair as unknown[]
-    if (typeof top !== 'number' || typeof base !== 'number') return []
-    out.push([top, base])
-  }
-  return out
+  return parseDrilledIntervals(provenance?.drilled_intervals_m) ?? []
 }
 
 function makeLevelFmt(elevationM: number | null) {
