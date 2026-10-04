@@ -4,11 +4,39 @@
 // 'unknown' group the user can tick". Owner answer 2: desk-study reprints are
 // named once — "Not imported, look these up yourself: GEO-22/040-S2, …".
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPdfDigest, CptPdfSounding } from '../../api/clients/cptPdf'
+import { setLanguage } from '../../i18n/languageSelect'
+
+const pageBlob = vi.fn()
+vi.mock('../../api/clients/cptPdf', async () => {
+  const actual = await vi.importActual<typeof import('../../api/clients/cptPdf')>('../../api/clients/cptPdf')
+  return {
+    ...actual,
+    cptPdfClient: { ...actual.cptPdfClient, pageBlob: (...a: unknown[]) => pageBlob(...a) },
+  }
+})
+
+import { clearPdfPageThumbnailCache } from '../../hooks/usePdfPageThumbnail'
 import CptPdfTriageList from './CptPdfTriageList'
+
+const realCreate = URL.createObjectURL
+const realRevoke = URL.revokeObjectURL
+beforeEach(() => {
+  clearPdfPageThumbnailCache()
+  pageBlob.mockReset()
+  pageBlob.mockImplementation(async (_sha: string, page: number) => new Blob([`png-${page}`], { type: 'image/png' }))
+  let n = 0
+  URL.createObjectURL = vi.fn(() => `blob:thumb-${++n}`)
+  URL.revokeObjectURL = vi.fn()
+})
+afterEach(() => {
+  URL.createObjectURL = realCreate
+  URL.revokeObjectURL = realRevoke
+  setLanguage('en')
+})
 
 function sounding(key: string, overrides: Partial<CptPdfSounding> = {}): CptPdfSounding {
   return {
@@ -72,13 +100,87 @@ function renderList(d: CptPdfDigest, selected: string[], onToggle = vi.fn(), onC
 }
 
 describe('CptPdfTriageList', () => {
-  it('lists every campaign sounding with a page thumbnail and a ticked box', () => {
+  it('lists every campaign sounding with a page thumbnail and a ticked box', async () => {
     renderList(digest(), ['110', '7'])
     const rows = screen.getAllByTestId('cpt-pdf-row-campaign')
     expect(rows).toHaveLength(2)
     expect(within(rows[0]).getByRole('checkbox')).toBeChecked()
-    const thumb = within(rows[0]).getByRole('img')
-    expect(thumb.getAttribute('src')).toContain(`/cpt/pdf/page/${'a'.repeat(64)}/231.png`)
+    // The page is fetched through the API client and shown from a blob: URL,
+    // which the renderer's CSP allows (a plain http <img> src is blocked).
+    const thumb = await within(rows[0]).findByRole('img')
+    expect(thumb.getAttribute('src')).toMatch(/^blob:/)
+    expect(pageBlob).toHaveBeenCalledWith('a'.repeat(64), 231, 'p1')
+  })
+
+  it('a thumbnail that is still loading or failed is a neutral box, never alt text', async () => {
+    pageBlob.mockReset()
+    pageBlob.mockRejectedValue(new Error('boom'))
+    renderList(digest(), ['110', '7'])
+    const row = screen.getAllByTestId('cpt-pdf-row-campaign')[0]
+    expect(within(row).getByTestId('cpt-pdf-thumbnail-placeholder')).toBeTruthy()
+    await waitFor(() => expect(pageBlob).toHaveBeenCalled())
+    expect(within(row).queryByRole('img')).toBeNull()
+    expect(row.textContent).not.toContain('Page 231 of the report')
+    expect(within(row).getByTestId('cpt-pdf-thumbnail-placeholder')).toBeTruthy()
+  })
+
+  it('in Dutch a row note reads in Dutch, rendered from its code', () => {
+    setLanguage('nl')
+    const d = digest({
+      campaign: [
+        sounding('110', {
+          warnings: ['22 point(s) on an axis maximum: the true value is higher'],
+          notes: [{ code: 'CLIPPED_POINTS', params: { count: 22 } }],
+        }),
+      ],
+    })
+    renderList(d, ['110'])
+    const row = screen.getAllByTestId('cpt-pdf-row-campaign')[0]
+    expect(row.textContent).toContain('22 punt(en) op een asmaximum: de echte waarde ligt hoger')
+    expect(row.textContent).not.toContain('the true value is higher')
+  })
+
+  it('a note code this build does not know shows the English sentence the backend sent', () => {
+    setLanguage('nl')
+    const d = digest({
+      campaign: [sounding('110', { warnings: ['a brand new check'], notes: [{ code: 'BRAND_NEW', params: {} }] })],
+    })
+    renderList(d, ['110'])
+    expect(screen.getAllByTestId('cpt-pdf-row-campaign')[0].textContent).toContain('a brand new check')
+  })
+
+  it('the row link says what it does: "Check axes…", with a tooltip that explains it', () => {
+    renderList(digest(), ['110'])
+    const link = within(screen.getAllByTestId('cpt-pdf-row-campaign')[0]).getByTestId('cpt-pdf-calibrate')
+    expect(link.textContent).toBe('Check axes…')
+    expect(link.getAttribute('title')).toBe(
+      'Show the axes the digitiser read on the page and move them if the orange curve does not sit on the printed one',
+    )
+  })
+
+  it('in Dutch the row link reads "Assen controleren…" with its Dutch tooltip', () => {
+    setLanguage('nl')
+    renderList(digest(), ['110'])
+    const link = within(screen.getAllByTestId('cpt-pdf-row-campaign')[0]).getByTestId('cpt-pdf-calibrate')
+    expect(link.textContent).toBe('Assen controleren…')
+    expect(link.getAttribute('title')).toBe(
+      'Toon de assen die op de pagina gelezen zijn en verschuif ze als de oranje curve niet op de gedrukte ligt',
+    )
+  })
+
+  it('under the summary one line explains that every row was read and when to open Check axes', () => {
+    renderList(digest(), ['110'])
+    expect(screen.getByTestId('cpt-pdf-explainer').textContent).toBe(
+      'Every row was read automatically. Open Check axes to compare the read curve with the sheet, or when a row asks you to type axis values.',
+    )
+  })
+
+  it('in Dutch the explainer line reads in Dutch', () => {
+    setLanguage('nl')
+    renderList(digest(), ['110'])
+    expect(screen.getByTestId('cpt-pdf-explainer').textContent).toBe(
+      'Elke rij is automatisch gelezen. Open Assen controleren om de gelezen curve met het blad te vergelijken, of wanneer een rij vraagt om aswaarden te typen.',
+    )
   })
 
   it('names each desk-study id once, in a block that starts collapsed', () => {
