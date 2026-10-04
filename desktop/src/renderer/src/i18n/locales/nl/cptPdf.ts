@@ -87,5 +87,12 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.report.status.refused': 'niet geïmporteerd',
   'cptPdf.report.status.failed': 'mislukt',
   'cptPdf.report.noIssues': 'geen opmerkingen',
+  'cptPdf.issue.PDF_CLIPPED_POINTS':
+    '{count} {curve}-punt(en) op het asmaximum ({axis_max}): de echte waarde ligt minstens zo hoog; op het maximum gehouden en gemarkeerd',
+  'cptPdf.issue.PDF_DEPTH_FROM_ELEVATION':
+    'Hoogte-as: diepte = gedrukt maaiveld ({ground_level_m} m) min geplotte hoogte',
+  'cptPdf.issue.PDF_DRILLED_INTERVALS': 'Voorboring zonder meting: {list}; leeg gelaten, nooit geïnterpoleerd',
+  'cptPdf.issue.PDF_NO_XY': 'Geen ligging op het blad: typ X en Y om deze sondering te plaatsen',
+  'cptPdf.issue.PDF_OCR_UNAVAILABLE': 'Gelezen zonder OCR: de aswaarden zijn getypt of van het raster genomen',
   'cptPdf.toast.none': 'Niets geïmporteerd uit het rapport',
 }
