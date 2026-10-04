@@ -102,6 +102,8 @@ export const PANELS = {
   'borelog.hideColumnAria': 'Hide {title} column',
   'chart.zMissing': 'Z missing',
   'chart.pdfDigitised': 'digitised from {file}, p. {pages}',
+  // Follows chart.pdfDigitised; {list} is the stretches, each written with cptPdf.drilledInterval.
+  'chart.pdfDrilled': ', drilled {list}',
   // CPT chart run-summary line, legend + recharts axis / tooltip chrome.
   'chart.runSummary': '{type} · {rows} rows · {depth} m',
   'chart.preDrill': 'Pre-drill {depth} m',
