@@ -3,7 +3,9 @@
 Owner ruling 2026-08-12: every set of same-lithology units whose fill regions
 connect shares one ``litho_layer.body_id`` ("how else are we going to extract
 qc or sample data by body"). The endpoint replaces a model's geometry facts
-from the frontend's partition evidence and re-runs the resolver.
+from the frontend's partition evidence and re-runs the resolver. Since owner
+2026-10-04 (*"identity follows the drawing"*) those facts are the ONLY union:
+an accepted tie the fill does not paint as a band joins nothing (RB12).
 
 Run via ``scripts\\run-integration-tests.ps1`` ONLY.
 """
@@ -26,6 +28,9 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
@@ -812,3 +817,45 @@ async def test_rb11_twin_class_rows_stay_granular_across_sections(
         .all()
     )
     assert len(set(ids)) == 2, "the twin-class layers stay TWO granular bodies"
+
+
+@pytest.mark.asyncio
+async def test_rb12_an_accepted_tie_with_no_painted_band_leaves_two_bodies(
+    scene: _Scene, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RB12 — owner 2026-10-04, "identity follows the drawing" (testproject_dev CS4).
+
+    Two ZAND bands joined by ONE accepted tie the fill does not paint as a band
+    (a lone top tie in the sub-TD zone: no base tie = no band). The renderer's
+    recompute carries no connectivity group for the pair, so no fact is written
+    and the bands stay TWO bodies — the tie is a surface statement. When the fill
+    paints the band (the base tie added), the group arrives and they are ONE.
+    """
+    a_id, b_id = _canonical_fact_pair(scene.layer_a_id, scene.layer_b_id)
+    db_session.add(
+        LithoContactCorrelationEdgeOrm(
+            id=uuid7(),
+            model_id=scene.model_id,
+            layer_a_id=a_id,
+            layer_b_id=b_id,
+            source="manual",
+            user_approved=True,
+            section_id=scene.section_id,
+        )
+    )
+    await db_session.commit()
+
+    unbanded = _merge_payload(scene)
+    unbanded["layer_groups"] = [[]]
+    resp = await async_client.post(_url(scene), json=unbanded)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["facts_written"] == 0
+    assert len(await _body_ids(db_session, scene)) == 2, (
+        "an accepted tie the fill does not band must not join the two bands"
+    )
+
+    resp2 = await async_client.post(_url(scene), json=_merge_payload(scene))
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["facts_written"] == 1
+    assert resp2.json()["bodies_merged"] == 1
+    assert len(await _body_ids(db_session, scene)) == 1, "the painted band joins them"
