@@ -128,6 +128,21 @@ instead spans the whole tie"*, and shown both readings on that gap and on Tie-se
   2026-09-16 PDF sliver — both stay filled).
 * The `declared` seam of `emitEnclosingFlood.closeInterval` still never fires on a bottom tie: the
   void past the tip is not a meeting of two masses.
+* **The void stays void (owner 2026-10-04, section "test").** Three leaks had filled it anyway:
+  - the bottom-tie FLOOR (`emitBottomTieSubstrate`) closed the space under the shallow TD into a
+    face and painted it with a base-tie formation from elsewhere (a flat extension of S14/S15's base
+    tie onto GEO-08/119-B15; GEO-19/100-S3/S2's base tie under GEO-08/118-S8). `bottomTieVoid` drops a
+    gap's floor + curtains when the shallow column's TD is tied to a contact above the deep column's
+    TD, the deep column has a unit entirely below the shallow anchor, and no column beyond reads the
+    strip. A deep unit merely straddling the anchor (a bridged band, dev CS1 gaps 8/22) keeps it;
+  - a bottom tie that RISES from the shallow TD (B15's TD tied 2.6 m higher, to S15's silt top) did
+    not count as one (`facingTdTied`), so the units below ran flat to the section edge instead of
+    lensing toward the shallow column;
+  - a top-tied sub-TD onlap on a jump tie that passes UNDER the shallow column (S3's bottom silty sand
+    on the GEO-08/118-S11 jump tie) was refused because its halfway apex sits above the unit's top; it
+    now onlaps like any other tie, unless a column beyond reads the unit's levels (then the substrate
+    carries it). Pinned in `partitionFillV2/ownerTestSubTdGaps.test.ts` (fixture
+    `__fixtures__/owner_test_subtd_2026-10-04.json`); CS1 golden byte-identical.
 
 Pinned in the owner's words: `partitionFillV2/ownerCs1SubTd.test.ts` (CS1 S13 → S6, fixture
 `__fixtures__/owner_cs1_s13_s6_2026-09-23.json`) and `ownerRulings.test.ts` rulings 3/4 (Tie-section
