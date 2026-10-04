@@ -11,13 +11,18 @@ export const DATA = {
   'data.toolbar.import': 'Import',
   'data.toolbar.drawingBbox': 'Drawing bbox…',
   'data.toolbar.menuLabel': '{label} actions',
-  'data.toolbar.importCptGef': 'Import CPT (.gef)',
-  'data.toolbar.importCptDov': 'Import CPT from DOV (draw bbox)',
-  'data.toolbar.importCptPdf': 'Import CPTs from a PDF report',
-  'data.toolbar.importBoreholeDov': 'Import Borehole from DOV (draw bbox)',
-  'data.toolbar.importDmt': 'Import DMT',
-  'data.toolbar.importLabTest': 'Import lab tests',
-  'data.toolbar.importMonitoring': 'Import Monitoring',
+  // One row per kind of investigation; CPT and Borehole open their import
+  // routes in a submenu (owner 2026-10-04: "one button for cpt's with
+  // suboptions, same for drillings"). The menu is titled Import, so the rows
+  // are nouns and the routes say only where the data comes from.
+  'data.toolbar.groupCpt': 'CPT',
+  'data.toolbar.groupBorehole': 'Borehole',
+  'data.toolbar.cptGef': '.gef files',
+  'data.toolbar.fromDov': 'From DOV (draw box)',
+  'data.toolbar.cptPdf': 'From a PDF report',
+  'data.toolbar.dmt': 'DMT',
+  'data.toolbar.labTests': 'Lab tests',
+  'data.toolbar.monitoring': 'Monitoring',
   'data.toolbar.phaseTag': 'Phase 4',
   'data.canvas.map': 'Map',
   'data.canvas.chart': 'Chart',
@@ -159,7 +164,7 @@ export const DATA = {
   // flags report. The flag MESSAGES come from the backend verbatim (English,
   // each naming its boring); only the chrome around them is catalogued.
   // -------------------------------------------------------------------------
-  'data.toolbar.importBoreholeXml': 'Import boreholes (DOV XML)',
+  'data.toolbar.boreholeXml': 'DOV XML files',
   'data.import.boreholeRefreshedOne': 'Refreshed existing borehole {name} from file',
   'data.import.flagsToReviewOne': '{n} flag to review',
   'data.import.flagsToReviewMany': '{n} flags to review',
