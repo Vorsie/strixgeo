@@ -27,6 +27,7 @@ import BoreholeTracksDialog from './borelog/components/BoreholeTracksDialog'
 import type { BoreholeTrackEditing } from '../hooks/useBoreholeTrackEdits'
 import LabSeriesSection from './labSeries/LabSeriesSection'
 import type { LabSeriesTestSummary } from '../api/client'
+import { useBoreholeLabSeries } from '../hooks/useBoreholeLabSeries'
 import {
   TOGGLEABLE_TRACK_IDS,
   trackLabel,
@@ -47,6 +48,7 @@ import {
 } from './borelog/constants'
 import {
   computeLayout,
+  countDovLabTests,
   humanizeObservationType,
   PxPerMContext,
 } from './borelog/utils'
@@ -73,7 +75,9 @@ import { TrackHeader } from './borelog/components/TrackHeader'
 //   - Samples track with clickable per-test icons
 //   - Groundwater horizontal dashed line
 // * Legend (HTML) — only items actually used in this borehole
-// * LabTestPanel slide-in (HTML overlay) when a sample is clicked
+// * LabTestPanel slide-in (HTML overlay) when a sample is clicked: the DOV
+//   results AND the sample's raw lab tests (owner ruling 2026-10-04, option a:
+//   one place for all lab data of a sample; nothing is listed below the log)
 //
 // The canvas is one big SVG element so patterns, click-targets, and the
 // groundwater line all share the same coordinate space. Layout is computed
@@ -127,11 +131,12 @@ interface Props {
   // read-only mounts (tests, previews) hide the "Tracks" button.
   trackEditing?: BoreholeTrackEditing
   // Active project id: when given, the raw lab tests (oedometer / triaxial
-  // readings) of this borehole's samples are listed under the log. Optional so
-  // tests and read-only mounts render the log alone.
+  // readings) of this borehole are fetched once, flagged on the samples track
+  // (flask) and listed in the sample slide-in. Optional so tests and read-only
+  // mounts render the log alone.
   projectId?: string
-  // Fired after a lab test in the Lab tests list was deleted (toast, Data-list
-  // refresh, dirty flag live with the caller).
+  // Fired after a raw lab test was deleted from the sample slide-in (toast,
+  // Data-list refresh, dirty flag live with the caller).
   onLabTestDeleted?: (deleted: LabSeriesTestSummary) => void
 }
 
@@ -169,6 +174,14 @@ export default function BoreholeLog({
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
   // Tracks panel (owner 2026-09-29) open/closed.
   const [tracksOpen, setTracksOpen] = useState(false)
+  // The borehole's raw lab tests: ONE request per borehole, grouped by sample
+  // in memory (never a request per sample).
+  const labSeries = useBoreholeLabSeries(projectId, borehole.id)
+  // Track-header count: DOV lab tests + raw lab tests.
+  const labTestCount = useMemo(
+    () => countDovLabTests(borehole.samples) + labSeries.tests.length,
+    [borehole.samples, labSeries.tests],
+  )
 
   // Vertical zoom — broadcast via PxPerMContext so deeply nested track
   // sub-components don't need prop drilling. ``zoomFactor`` is a multiplier
@@ -717,12 +730,17 @@ export default function BoreholeLog({
                 width={SAMPLES_TRACK_WIDTH}
                 y={SVG_Y_PAD}
                 title={t('borelog.samplesAndLabTests')}
-                subtitle={t(
+                subtitle={`${t(
                   borehole.samples.length === 1
                     ? 'borelog.sampleCountOne'
                     : 'borelog.sampleCountMany',
                   { n: borehole.samples.length },
-                )}
+                )} · ${t(
+                  labTestCount === 1 ? 'borelog.labTestCountOne' : 'borelog.labTestCountMany',
+                  { n: labTestCount },
+                )}`}
+                // The samples track is 220 px wide: room for both counts.
+                subtitleMaxChars={40}
                 onHide={() => hideTrack('samples_lab')}
               />
               <SamplesTrack
@@ -732,6 +750,7 @@ export default function BoreholeLog({
                 width={SAMPLES_TRACK_WIDTH}
                 selectedSampleId={selectedSampleId}
                 onSampleClick={setSelectedSampleId}
+                labSeriesBySample={labSeries.bySample}
               />
             </g>
           )}
@@ -833,17 +852,13 @@ export default function BoreholeLog({
             )}
             onSelectSample={setSelectedSampleId}
             onClose={() => setSelectedSampleId(null)}
+            projectId={projectId}
+            labSeries={labSeries.bySample.get(selectedSample.id)}
+            onLabTestDeleted={onLabTestDeleted}
           />
         )}
       </div>
 
-      {projectId && (
-        <LabSeriesSection
-          projectId={projectId}
-          boreholeId={borehole.id}
-          onLabTestDeleted={onLabTestDeleted}
-        />
-      )}
       <Legend borehole={borehole} />
     </div>
     </PxPerMContext.Provider>
