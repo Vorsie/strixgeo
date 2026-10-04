@@ -12,7 +12,8 @@
  * unit onlaps to the HALFWAY point of the tie and the untied units below it pinch at their own
  * level, so the space under the bottom tie past the tip and the pinch is the no-data void BY RULING.
  * The scan therefore measures each hole only ABOVE the gap's bottom tie (``gapBottomTie``); a gap
- * without one is scanned whole, as before. It stays a PERMANENT gate over EVERY gap of EVERY section
+ * without one only above its shallow column's TD (owner 2026-10-04, "no tie, no band": below a
+ * shallow TD the void is the default — ``gapScanFloor``). It stays a PERMANENT gate over EVERY gap of EVERY section
  * of both real fixtures (the dev project decode + the owner worked example): a hole under a
  * correlation band above the bottom tie — the seam-fence defect class — is still a red. A "defect
  * hole" is an interior coverage gap CAPPED ABOVE by a near-full-width band (fracSpan >= 0.9); the
@@ -25,6 +26,7 @@ import {
   HOLE_TOL_M,
   coveredHeightBelow,
   gapBottomTie,
+  gapScanFloor,
   loadSections,
   prepareSection,
   regionsForLayer,
@@ -46,8 +48,7 @@ describe('no gap in the render under a bottom test correlation (owner 2026-09-08
       it(`${file} / ${sec.name}: every gap is hole-free under its correlation bands above the bottom tie`, () => {
         const regions = computeSectionFillV2(columns, edges, undefined, alongM)
         for (let g = 0; g + 1 < columns.length; g++) {
-          const bottomTie = gapBottomTie(columns, edges, g)
-          const w = worstBandCappedHole(regions.filter((r) => r.gapIndex === g), bottomTie?.elevAt)
+          const w = worstBandCappedHole(regions.filter((r) => r.gapIndex === g), gapScanFloor(columns, edges, g))
           expect(
             w.gap,
             `${sec.name} gap ${g} (${names[g]} -> ${names[g + 1]}): hole ${w.gap.toFixed(3)}m under a correlation band at f=${w.frac.toFixed(2)}, elev [${w.lo.toFixed(2)}..${w.hi.toFixed(2)}]`,
@@ -57,13 +58,15 @@ describe('no gap in the render under a bottom test correlation (owner 2026-09-08
     }
   }
 
-  it("dev Cross-section 1, GEO-23/125-S7 -> S6: the sub-TD wedge under S7 stays filled — a deeper test beyond S7 reads the sand", () => {
+  it("dev Cross-section 1, GEO-23/125-S7 -> S6: the sub-TD wedge under S7 stays filled — stored jump ties close the sand under it", () => {
     // The owner's 2026-09-08 screenshot: a dark uncovered rectangle just under S7's bottom clay,
     // bounded by the dashed blue bottom tie. S7 (TD +4.23) ties its deepest clay base to S6's ZAND
-    // top (a bottom tie). This is NOT the 2026-09-23 void case: left of S7 (and the blind S7A)
-    // 1411-GEO-23/126-B2 reads sand at these levels, so the deep-to-deep substrate carries S6's sand
-    // under S7 to it, and the tie rises from S7's TD to the sand top, so the wedge between them is
-    // closed by the sand mass. The rectangle stays filled: no hole anywhere in the gap.
+    // top (a bottom tie). This is NOT the void case: the sand under S7 is CLOSED BY STORED TIES — S7's
+    // TD is jump-tied to 1411-GEO-23/126-B2's sand top across the blind S7A, and S6's clay top (the
+    // sand's base) is jump-tied to GEO-23/125-S8's clay top under them — so the polygon is closed on
+    // all sides and is a band (owner 2026-10-04: *"if the polygon is closed on all sides it is a
+    // band"*; a deeper test merely reading the level would no longer be enough). The rectangle stays
+    // filled: no hole anywhere in the gap.
     const sec = loadSections('dev_project_sections.json').sections.find((s) => s.name === 'Cross-section 1')!
     const { columns, alongM, names, edges } = prepareSection(sec)
     const g = names.indexOf('GEO-23/125-S7')
