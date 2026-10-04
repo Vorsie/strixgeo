@@ -219,7 +219,9 @@ contextBridge.exposeInMainWorld('electron', {
   // routed through the shared ``onMenuEvent`` factory above.
   onMenuImportCpt: (cb: () => void) => onMenuEvent('menu:import-cpt', cb),
   onMenuImportCptPdf: (cb: () => void) => onMenuEvent('menu:import-cpt-pdf', cb),
+  onMenuImportCptDov: (cb: () => void) => onMenuEvent('menu:import-cpt-dov', cb),
   onMenuImportBorehole: (cb: () => void) => onMenuEvent('menu:import-borehole', cb),
+  onMenuImportBoreholeDov: (cb: () => void) => onMenuEvent('menu:import-borehole-dov', cb),
 
   onMenuProjectNew: (cb: () => void) => onMenuEvent('menu:project-new', cb),
   onMenuProjectOpen: (cb: () => void) => onMenuEvent('menu:project-open', cb),
