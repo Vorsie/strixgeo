@@ -92,6 +92,8 @@ export const PANELS_NL = {
   'borelog.overrideDovModel': 'Kies zelf welk DOV-model dit venster toont',
   'borelog.loadingDovPredictions': 'DOV-voorspellingen laden',
   'borelog.dovUnavailable': 'DOV-lagenmodellen niet beschikbaar',
+  'borelog.stratigraphicBoundaries': 'Stratigrafische grenzen',
+  'borelog.lithologicalBoundaries': 'Lithologische grenzen',
   'borelog.zoomInVertical': 'Inzoomen (verticale schaal)',
   'borelog.zoomOutVertical': 'Uitzoomen (verticale schaal)',
   'borelog.resetZoom1x': 'Zoom herstellen naar 1×',
