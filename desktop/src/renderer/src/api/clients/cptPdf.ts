@@ -10,7 +10,8 @@
  * @module clients/cptPdf
  */
 
-import { _base, detailMessage, fetchTracked, post } from './shared'
+import { messageForDetail } from './apiCodeMessages'
+import { _base, ApiError, detailMessage, fetchTracked, post } from './shared'
 
 // ---------------------------------------------------------------------------
 // Calibration — the exact dict shape of the backend's PageCalibration.to_dict()
@@ -219,12 +220,32 @@ export interface CptPdfImportResult {
 // Client
 // ---------------------------------------------------------------------------
 
+/**
+ * The running job a triage POST was refused for, if any.
+ *
+ * The backend keys a triage job on the project and the report's SHA-256; a
+ * second upload of the same report while its job runs answers ``409`` with
+ * ``detail.job_id`` naming the running job. The caller attaches to that job's
+ * stream instead of failing (the job was spawned for this very report).
+ *
+ * @param err - A rejection of {@link cptPdfClient.startTriage}.
+ * @returns The running job id, or ``null`` for any other failure.
+ */
+export function runningTriageJobId(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null
+  const jobId = (err.detail as { job_id?: unknown } | null | undefined)?.job_id
+  return typeof jobId === 'string' && jobId.length > 0 ? jobId : null
+}
+
 /** Typed wrappers for the ``/cpt/pdf/*`` endpoints. */
 export const cptPdfClient = {
   /**
    * Upload a report and start its triage job.
    *
    * @returns ``{ job_id, file_sha }``; attach to {@link cptPdfClient.streamUrl}.
+   * @throws ApiError on a non-2xx answer; ``detail`` is the server's detail, so
+   *   a 409 "already running" refusal keeps the running ``job_id`` reachable
+   *   (see {@link runningTriageJobId}).
    */
   startTriage: async (
     filePath: string,
@@ -239,7 +260,11 @@ export const cptPdfClient = {
     const res = await fetchTracked(`${_base}/cpt/pdf/triage`, { method: 'POST', body: form })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      throw new Error(detailMessage(body.detail) ?? `Triage failed: ${res.status}`)
+      throw new ApiError(
+        messageForDetail(body.detail, detailMessage(body.detail) ?? `Triage failed: ${res.status}`),
+        res.status,
+        { detail: body.detail, method: 'POST', path: '/cpt/pdf/triage' },
+      )
     }
     return res.json()
   },
