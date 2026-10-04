@@ -42,7 +42,6 @@ import {
 } from './contactOverride'
 import { detectCrossingConflicts, edgeKey, type CrossingConflict } from './crossingConflicts'
 import { collectEnclosedLensDiamonds, type Corr0Diamond } from './detourBandContour'
-import { emitBottomTieSubstrate } from './emitBottomTieSubstrate'
 import { emitEnclosingFlood } from './emitEnclosingFlood'
 import { emitEnclosedLensCurves, type LensLabel } from './emitLenses'
 import { emitIntervalCurves } from './emitIntervals'
@@ -341,14 +340,13 @@ export function emitCurves(section: SectionInput, allowFirstUnitTopSeam = true):
   // tie-cross test (flag-ON); flag-OFF ignores them and keeps the original cap byte-identical.
   emitEnclosedLensCurves(survivingSection, curves, lensLabels, ties)
 
-  // Deep-to-deep FLAT-FLOOR substrate (design §4 increment-6): where a bottom-tie
-  // bracket reaches below a shallow column's TD, flatten the deepest band's base to
-  // that flat floor (v1 ``computeBottomTieLine`` + ``isDeepestBridge``). This fills
-  // the triangular sub-TD void the sloping TD line left (CS1 gap-0/gap-21). A strip
-  // with no bracket stays empty (owner §8 Q3 — ``tieElev`` null). Substrate curves
-  // carry an explicit bottom-tie label in ``lensLabels`` so the sub-TD wedge is
-  // stamped with the tie formation, not the shallow column's deepest unit.
-  emitBottomTieSubstrate(survivingSection, curves, lensLabels)
+  // NO LEVEL-MADE SUB-TD FILL (owner 2026-10-04, section "test"): the flat bottom-tie floor and its
+  // column curtains (the retired ``emitBottomTieSubstrate``) closed the space under a shallow TD into
+  // a face from LEVELS — a base<->base tie flat-extended across the section, the floor dropped to the
+  // deepest column TD — although no stored tie closed it. *"as long as the bottom of S11 is not
+  // correlated to 19/100-S3 the loop isn't closed and there is nothing to draw."* A sub-TD unit is
+  // drawn only from its own ties (band / onlap / lens); a jump tie's bridge (``emitSubstrateBridges``)
+  // is a stored tie and still closes a band across the shallow columns it skips.
 
   // SUB-TD per-side hugging lenses (owner ruling 2026-07-16 night: "0 correlations, left
   // or right = lens to the same side, INCLUDING sub-TD"). A 0-corr unit entirely below the
