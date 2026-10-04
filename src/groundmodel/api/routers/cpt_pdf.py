@@ -507,12 +507,7 @@ async def import_cpt_pdf(
                 code=o.code,
                 message=o.message,
                 diff=o.diff,
-                issues=[
-                    ValidationIssueSchema(
-                        level=i.level.value, code=i.code, message=i.message, rows=i.rows
-                    )
-                    for i in o.issues
-                ],
+                issues=[ValidationIssueSchema.from_issue(i) for i in o.issues],
             )
             for o in outcomes
         ]
