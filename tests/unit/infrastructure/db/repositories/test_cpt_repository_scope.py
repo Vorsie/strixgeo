@@ -30,9 +30,16 @@ class _CapturingSession:
         """Record the statement and return an empty result."""
         self.statements.append(statement)
 
+        class _Scalars:
+            def all(self) -> list[object]:
+                return []
+
         class _Result:
             def scalar_one_or_none(self) -> None:
                 return None
+
+            def scalars(self) -> _Scalars:
+                return _Scalars()
 
         return _Result()
 
