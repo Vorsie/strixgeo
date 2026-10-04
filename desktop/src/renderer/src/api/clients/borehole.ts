@@ -288,8 +288,13 @@ export interface ElevationPatchBody {
 export interface ImportFlag {
   level: 'error' | 'warning' | 'info' | string
   code: string
+  /** English sentence; shown as the raw tooltip next to the translation. */
   message: string
   rows: number[]
+  /** The message's variable parts (names, counts, depths, permkeys), keyed per
+   *  code; ``utils/importFlagText.ts`` renders the finding in the interface
+   *  language from them. Absent from an older backend (the message is shown). */
+  params?: Record<string, unknown>
 }
 
 /** What happened to one boring of an imported DOV XML file. */
