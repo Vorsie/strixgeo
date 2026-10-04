@@ -1,10 +1,13 @@
 // The borehole import report: per file -> per boring -> every flag.
 //
 // Owner 2026-09-28: "flag everything that is weird". The backend raises the
-// flags (each message names its boring, in English, verbatim); this panel is
-// where the engineer reads them after an Import boreholes (DOV XML) run. A
-// toast cannot carry 40 flags, so the toast summarises and this panel lists.
-// "Copy report" puts the same content on the clipboard as plain text.
+// flags (code + English message + structured params); this panel is where the
+// engineer reads them after an Import boreholes (DOV XML) run. Each flag reads
+// in the interface language (``utils/importFlagText.ts``, owner 2026-10-03:
+// "the flag texts are English inside the NL report"), the raw code stays as a
+// small tag and the backend's English sentence is the tooltip. A toast cannot
+// carry 40 flags, so the toast summarises and this panel lists. "Copy report"
+// puts the same translated content on the clipboard as plain text.
 //
 // Read-only and reversible: Close (default focus) dismisses, nothing is lost.
 
@@ -14,6 +17,7 @@ import type { ImportFlag } from '../api/client'
 import type { BoreholeImportReportFile } from '../hooks/useBoreholeXmlImport'
 import { useT, type Translator } from '../i18n/translate'
 import type { MessageKey } from '../i18n/locales/en'
+import { importFlagText } from '../utils/importFlagText'
 import { log } from '../utils/log'
 import Button from './ui/Button'
 import Modal from './ui/Modal'
@@ -52,7 +56,7 @@ function levelClass(level: string): string {
 export function formatImportReport(report: BoreholeImportReportFile[], t: Translator): string {
   const lines: string[] = []
   const flagLine = (indent: string, flag: ImportFlag): string =>
-    `${indent}[${t(levelKey(flag.level))}] ${flag.code}: ${flag.message}`
+    `${indent}[${t(levelKey(flag.level))}] ${flag.code}: ${importFlagText(flag, t)}`
   for (const file of report) {
     lines.push(file.fileName)
     if (file.outcome === 'failed')
@@ -72,7 +76,7 @@ export function formatImportReport(report: BoreholeImportReportFile[], t: Transl
   return lines.join('\n')
 }
 
-/** One flag row: level badge, code, the backend's message. */
+/** One flag row: level badge, code tag, the translated sentence (English tooltip). */
 function FlagRow({ flag, t }: { flag: ImportFlag; t: Translator }): JSX.Element {
   return (
     <li data-testid="import-flag" className="flex items-start gap-2 py-0.5">
@@ -81,10 +85,20 @@ function FlagRow({ flag, t }: { flag: ImportFlag; t: Translator }): JSX.Element 
       >
         {t(levelKey(flag.level))}
       </span>
-      <span className="shrink-0 font-mono text-[10px] text-text-secondary" title={flag.code}>
+      <span
+        data-testid="import-flag-code"
+        className="shrink-0 font-mono text-[10px] text-text-secondary"
+        title={flag.code}
+      >
         {flag.code}
       </span>
-      <span className="min-w-0 break-words text-text-primary">{flag.message}</span>
+      <span
+        data-testid="import-flag-text"
+        className="min-w-0 break-words text-text-primary"
+        title={flag.message}
+      >
+        {importFlagText(flag, t)}
+      </span>
     </li>
   )
 }
