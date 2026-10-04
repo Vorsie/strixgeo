@@ -40,6 +40,8 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.note.ELEVATION_AXIS_NO_GROUND_LEVEL': 'Hoogte-as zonder gedrukt maaiveld: typ het maaiveld',
   'cptPdf.note.CLIPPED_POINTS': '{count} punt(en) op een asmaximum: de echte waarde ligt hoger',
   'cptPdf.note.READ_FROM_IMAGE': 'Gelezen uit een afbeelding: vergelijk de oranje curve met het blad',
+  'cptPdf.note.DRILLED_INTERVALS': 'Voorboring: {list}',
+  'cptPdf.drilledInterval': '{top} tot {base} m',
   'cptPdf.selectAll': 'Alles selecteren',
   'cptPdf.selectNone': 'Niets selecteren',
   'cptPdf.importSelected': 'Selectie importeren ({n})',
