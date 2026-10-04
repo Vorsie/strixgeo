@@ -267,3 +267,61 @@ def test_startup_sweep_skipped_when_eviction_disabled(tmp_path: Path):
 
     DovXmlCache(tmp_path)  # default max_bytes=None
     assert len(list(tmp_path.glob("*.xml"))) == 10
+
+
+# ------------------------------------------------------------------
+# Put observer + entries (Reset to DOV boring index, owner finding 2026-10-04)
+# ------------------------------------------------------------------
+
+
+def test_put_observer_hears_every_successful_write(tmp_path: Path):
+    """The boring index records what the import writes - permkey and bytes, after the write."""
+    heard: list[tuple[str, bytes, bool]] = []
+    cache = DovXmlCache(
+        tmp_path,
+        put_observer=lambda k, b: heard.append((k, b, (tmp_path / f"{k}.xml").exists())),
+    )
+
+    cache.put("2001-000001", b"<a/>")
+
+    assert heard == [("2001-000001", b"<a/>", True)]
+
+
+def test_put_observer_is_not_called_when_the_write_fails(tmp_path: Path, monkeypatch):
+    """A file that never reached the cache must not be indexed."""
+    heard: list[str] = []
+    cache = DovXmlCache(tmp_path, put_observer=lambda k, b: heard.append(k))
+
+    def boom(fd):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "fsync", boom)
+    cache.put("2001-000001", b"<a/>")
+
+    assert heard == []
+
+
+def test_a_failing_put_observer_never_breaks_the_import(tmp_path: Path):
+    """The observer is a side index; its failure is logged, the cached file stays."""
+
+    def boom(permkey: str, xml: bytes) -> None:
+        raise OSError("index unwritable")
+
+    cache = DovXmlCache(tmp_path, put_observer=boom)
+    cache.put("2001-000001", b"<a/>")
+
+    assert cache.get("2001-000001") == b"<a/>"
+
+
+def test_entries_lists_the_xml_files_with_size_and_mtime(tmp_path: Path):
+    """One directory listing gives what the index compares against - no file is opened."""
+    cache = DovXmlCache(tmp_path)
+    cache.put("2001-000001", b"<a/>")
+    cache.put("2001-000002", b"<bb/>")
+    (tmp_path / "_side_index.jsonl").write_text("x")
+
+    entries = cache.entries()
+
+    assert [(k, size) for k, size, _ in entries] == [("2001-000001", 4), ("2001-000002", 5)]
+    stat = (tmp_path / "2001-000002.xml").stat()
+    assert entries[1][2] == stat.st_mtime_ns
