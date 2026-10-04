@@ -1,8 +1,10 @@
-// The borehole detail's "Lab tests" section (2026-09-29 brief): "listing each
-// test (kind, sample, stages/specimens, reading counts, flags badge) and a
-// viewer". It refetches when an import elsewhere reports a change.
+// The sample slide-in's "Raw tests" block (owner ruling 2026-10-04, option
+// a). It lists the raw tests it is handed (the borehole log fetches once per
+// borehole and groups by sample) with a flags badge, opens the readings
+// viewer per test, and deletes behind a ConfirmDialog. The block itself never
+// fetches the list.
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LabSeriesTestSummary } from '../../api/client'
@@ -24,7 +26,6 @@ vi.mock('../../api/client', async () => {
   }
 })
 
-import { notifyLabSeriesChanged } from '../../hooks/useLabSeriesRevision'
 import LabSeriesSection from './LabSeriesSection'
 
 function row(overrides: Partial<LabSeriesTestSummary> = {}): LabSeriesTestSummary {
@@ -37,73 +38,45 @@ function row(overrides: Partial<LabSeriesTestSummary> = {}): LabSeriesTestSummar
     kind: 'oedometer',
     test_type_token: null,
     lab_sample_number: '20/0568',
-    source_file_name: '200568B7-LstSMControleListing.txt',
+    source_file_name: '200568B7-oed.txt',
     n_specimens: 1,
     n_stages: 16,
     n_readings: 800,
     n_warnings: 2,
     n_errors: 0,
+    test_start_date: null,
     ...overrides,
   }
 }
 
-describe('LabSeriesSection', () => {
+describe('LabSeriesSection (the raw tests of one sample)', () => {
   beforeEach(() => {
     listForBorehole.mockReset()
     getForSample.mockReset()
     deleteTest.mockReset()
   })
 
-  it('lists each test with its kind, sample, counts and a flags badge', async () => {
-    listForBorehole.mockResolvedValue([
-      row(),
-      row({ id: 't2', kind: 'triaxial', test_type_token: 'CD', n_specimens: 3, n_stages: 3, n_readings: 3402, n_warnings: 0 }),
-    ])
-    render(<LabSeriesSection projectId="p" boreholeId="bh" />)
-    expect(await screen.findByText('Lab tests (2)')).toBeInTheDocument()
+  it('lists each test with a flags badge and never fetches the list itself', () => {
+    render(
+      <LabSeriesSection
+        projectId="p"
+        tests={[row(), row({ id: 't2', kind: 'triaxial', test_type_token: 'CD', n_warnings: 0 })]}
+      />,
+    )
+    expect(screen.getByText('Raw tests (2)')).toBeInTheDocument()
     const rows = screen.getAllByTestId('lab-series-row')
-    expect(within(rows[0]).getByText('Oedometer')).toBeInTheDocument()
-    expect(within(rows[0]).getByText('Sample 14.40 to 14.90 m')).toBeInTheDocument()
-    expect(within(rows[0]).getByText('1 specimen(s), 16 stage(s), 800 readings')).toBeInTheDocument()
     expect(within(rows[0]).getByText('2 warning(s), 0 error(s)')).toBeInTheDocument()
-    expect(within(rows[1]).getByText('Triaxial CD')).toBeInTheDocument()
     expect(within(rows[1]).getByText('No warnings')).toBeInTheDocument()
-    expect(listForBorehole).toHaveBeenCalledWith('p', 'bh')
-  })
-
-  it('opens the readings viewer for a test', async () => {
-    listForBorehole.mockResolvedValue([row()])
-    getForSample.mockResolvedValue([])
-    render(<LabSeriesSection projectId="p" boreholeId="bh" />)
-    fireEvent.click(await screen.findByRole('button', { name: 'View readings' }))
-    expect(await screen.findByTestId('lab-series-viewer')).toBeInTheDocument()
-    expect(getForSample).toHaveBeenCalledWith('p', 's1')
-  })
-
-  it('says how to import when the borehole has no lab test', async () => {
-    listForBorehole.mockResolvedValue([])
-    render(<LabSeriesSection projectId="p" boreholeId="bh" />)
-    fireEvent.click(await screen.findByText('Lab tests (0)'))
-    expect(screen.getByText(/No raw lab tests on this borehole/)).toBeInTheDocument()
-  })
-
-  it('refetches after an import reports a change', async () => {
-    listForBorehole.mockResolvedValue([])
-    render(<LabSeriesSection projectId="p" boreholeId="bh" />)
-    await screen.findByText('Lab tests (0)')
-    listForBorehole.mockResolvedValue([row()])
-    act(() => notifyLabSeriesChanged())
-    expect(await screen.findByText('Lab tests (1)')).toBeInTheDocument()
+    expect(listForBorehole).not.toHaveBeenCalled()
   })
 
   // Owner 2026-10-04: "Verwijderen" on the lab test row; irreversible, so a
-  // confirmation dialog with Cancel focused and the button "Delete lab test";
-  // after the delete the list refreshes. No undo.
+  // confirmation dialog with Cancel focused and the button "Delete lab test".
+  // No undo.
   describe('delete a lab test', () => {
     it('asks first: Cancel is focused and deletes nothing', async () => {
-      listForBorehole.mockResolvedValue([row()])
-      render(<LabSeriesSection projectId="p" boreholeId="bh" />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+      render(<LabSeriesSection projectId="p" tests={[row()]} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
       const dialog = await screen.findByRole('dialog')
       expect(within(dialog).getByRole('button', { name: 'Delete lab test' })).toBeInTheDocument()
       const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
@@ -113,28 +86,24 @@ describe('LabSeriesSection', () => {
       expect(deleteTest).not.toHaveBeenCalled()
     })
 
-    it('deletes on "Delete lab test", tells the parent and refreshes the list', async () => {
-      listForBorehole.mockResolvedValue([row()])
+    it('deletes on "Delete lab test" and tells the parent', async () => {
       deleteTest.mockResolvedValue(undefined)
       const onDeleted = vi.fn()
-      render(<LabSeriesSection projectId="p" boreholeId="bh" onLabTestDeleted={onDeleted} />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
-      listForBorehole.mockResolvedValue([])
+      render(<LabSeriesSection projectId="p" tests={[row()]} onLabTestDeleted={onDeleted} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
       fireEvent.click(
         within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete lab test' }),
       )
-      expect(await screen.findByText('Lab tests (0)')).toBeInTheDocument()
+      await vi.waitFor(() => expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' })))
       expect(deleteTest).toHaveBeenCalledWith('p', 't1')
-      expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
     it('a failed delete stays in the dialog with the reason and tells nobody', async () => {
-      listForBorehole.mockResolvedValue([row()])
       deleteTest.mockRejectedValue(new Error('Lab test not found'))
       const onDeleted = vi.fn()
-      render(<LabSeriesSection projectId="p" boreholeId="bh" onLabTestDeleted={onDeleted} />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+      render(<LabSeriesSection projectId="p" tests={[row()]} onLabTestDeleted={onDeleted} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
       const dialog = await screen.findByRole('dialog')
       fireEvent.click(within(dialog).getByRole('button', { name: 'Delete lab test' }))
       expect(await within(dialog).findByText(/Lab test not found/)).toBeInTheDocument()
