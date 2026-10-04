@@ -5,6 +5,7 @@
 // can be changed". A refresh of a stored test is irreversible: confirmation,
 // Cancel focused, an action-named button (docs/ux.md).
 
+import { StrictMode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -313,5 +314,47 @@ describe('LabSeriesImportDialog', () => {
     expect(alert.textContent).toContain('DOV not reachable')
     expect(alert.textContent).toContain('GEO-25/022-B17')
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled()
+  })
+
+  // 2026-10-03 race: React.StrictMode runs the preview effect twice in dev, so
+  // two POST /lab-series/preview ran at once for one file and both fetched the
+  // same DOV borehole. One preview per file selection.
+  describe('one preview per file selection', () => {
+    function mountStrict(files: string[]) {
+      const onFinished = vi.fn()
+      render(
+        <StrictMode>
+          <LabSeriesImportDialog projectId="p" filePaths={files} boreholes={BOREHOLES} onFinished={onFinished} />
+        </StrictMode>,
+      )
+      return onFinished
+    }
+
+    it('a StrictMode double mount posts ONE preview for the file', async () => {
+      preview.mockResolvedValue(pv())
+      mountStrict(['C:/lab/200568B7-LstSMControleListing.txt'])
+      await screen.findByText('20/0568')
+      expect(preview).toHaveBeenCalledTimes(1)
+    })
+
+    it('the next file gets its own single preview', async () => {
+      preview.mockResolvedValue(pv())
+      mountStrict(['C:/a.txt', 'C:/b.txt'])
+      await screen.findByText('File 1 of 2')
+      await screen.findByText('20/0568')
+      fireEvent.click(screen.getByRole('button', { name: 'Skip this file' }))
+      await screen.findByText('File 2 of 2')
+      await screen.findByText('20/0568')
+      expect(preview.mock.calls.map(c => c[0])).toEqual(['C:/a.txt', 'C:/b.txt'])
+    })
+
+    it('picking another borehole still re-previews (the guard is for the automatic preview only)', async () => {
+      preview.mockResolvedValue(pv())
+      mountStrict(['C:/lab/200568B7-LstSMControleListing.txt'])
+      await screen.findByText('20/0568')
+      fireEvent.change(screen.getByLabelText('Borehole in this project'), { target: { value: 'bh-8a' } })
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(2))
+      expect(preview.mock.calls[1][2]).toBe('bh-8a')
+    })
   })
 })
