@@ -130,7 +130,17 @@ export interface CptPlotResponse {
 export interface ImportCptResponse {
   cpt_id: string
   has_errors: boolean
-  issues: { level: string; code: string; message: string; rows: number[] }[]
+  /** Parse findings. ``details`` carries the numbers a finding's message
+   * names (e.g. ``pre_drill_m`` / ``first_depth_m`` on
+   * ``PRE_DRILL_NOT_APPLIED``) so the renderer can word it in the UI language;
+   * absent from a backend that predates it. */
+  issues: {
+    level: string
+    code: string
+    message: string
+    rows: number[]
+    details?: Record<string, number>
+  }[]
   /** True when the file was already in this project and the EXISTING row was
    * refreshed in place (same ``cpt_id``, series + header replaced from the
    * fresh parse). The endpoint answers 200 then, 201 for a new CPT. */
