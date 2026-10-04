@@ -1,6 +1,12 @@
 import type { ReactElement } from 'react'
 
-import type { SampleResponse } from '../../../api/client'
+import type { LabSeriesTestSummary, SampleResponse } from '../../../api/client'
+import {
+  LAB_FLASK_FILL,
+  LAB_FLASK_STROKE,
+  LAB_FLASK_STROKE_WIDTH,
+  labFlaskPathD,
+} from '../../mapMarkerStyle'
 import { LAB_TEST_ICONS } from '../labTestIcons'
 import { usePxPerM } from '../utils'
 import { useT } from '../../../i18n/translate'
@@ -15,6 +21,11 @@ import { useT } from '../../../i18n/translate'
  * Selected samples get a soft blue highlight rectangle behind the
  * marker; clicking a selected sample toggles back to ``null``.
  *
+ * A sample with at least one raw lab test (oedometer / triaxial) carries the
+ * flask at the right end of its row: the same glyph the map marker and the
+ * Data list use (owner 2026-10-04); the tests themselves open in the sample
+ * slide-in.
+ *
  * Even sample rows with no lab tests are clickable — the detail panel
  * still surfaces sampling metadata (depth range, sample number,
  * sampling method).
@@ -26,6 +37,7 @@ export function SamplesTrack({
   width,
   selectedSampleId,
   onSampleClick,
+  labSeriesBySample,
 }: {
   samples: SampleResponse[]
   x: number
@@ -33,6 +45,8 @@ export function SamplesTrack({
   width: number
   selectedSampleId: string | null
   onSampleClick: (id: string | null) => void
+  /** Raw lab tests keyed by sample id (the borehole's one fetch). */
+  labSeriesBySample?: ReadonlyMap<string, readonly LabSeriesTestSummary[]>
 }): ReactElement {
   const t = useT()
   const PX_PER_M = usePxPerM()
@@ -46,15 +60,17 @@ export function SamplesTrack({
         const selected = sample.id === selectedSampleId
 
         const tests = LAB_TEST_ICONS.filter(icon => icon.hasOn(sample))
-        const hasAnyTest = tests.length > 0
+        const rawCount = labSeriesBySample?.get(sample.id)?.length ?? 0
+        const hasAnyTest = tests.length > 0 || rawCount > 0
 
         // Multi-line SVG tooltip: sample number / depth range / lab-test count.
         // The depth line is unit-only (no words), so it stays verbatim.
         const numberLabel = sample.sample_number ?? t('lab.unnumbered')
         const depthLine = `${sample.depth_top_m.toFixed(2)} – ${sample.depth_base_m.toFixed(2)} m`
+        const testCount = tests.length + rawCount
         const testLine = t(
-          tests.length === 1 ? 'borelog.labTestCountOne' : 'borelog.labTestCountMany',
-          { n: tests.length },
+          testCount === 1 ? 'borelog.labTestCountOne' : 'borelog.labTestCountMany',
+          { n: testCount },
         )
         const tooltip = `${numberLabel}\n${depthLine}\n${testLine}`
 
@@ -96,7 +112,7 @@ export function SamplesTrack({
             <text x={x + 18} y={mid + 3} fontSize={10} fill="var(--borelog-badge-text)">
               {sample.sample_number ?? '#?'}
             </text>
-            {hasAnyTest && (
+            {tests.length > 0 && (
               <text x={x + 50} y={mid + 4} fontSize={11} fill="var(--borelog-badge-text)">
                 {tests.map(t => t.symbol).join(' ')}
               </text>
@@ -105,6 +121,19 @@ export function SamplesTrack({
               <text x={x + 50} y={mid + 3} fontSize={9} fill="var(--borelog-text-muted)" fontStyle="italic">
                 {t('borelog.noTests')}
               </text>
+            )}
+            {rawCount > 0 && (
+              <path
+                data-glyph="lab-flask"
+                data-testid={`sample-lab-flask-${sample.id}`}
+                // Right end of the row, vertically centred on the marker
+                // (the glyph is ~7 px high, its neck 2 px wide).
+                d={labFlaskPathD(x + width - 12, mid - 3.5)}
+                fill={LAB_FLASK_FILL}
+                stroke={LAB_FLASK_STROKE}
+                strokeWidth={LAB_FLASK_STROKE_WIDTH}
+                strokeLinejoin="round"
+              />
             )}
           </g>
         )
