@@ -17,8 +17,10 @@
  * *"bottom sand at S3 should just onlap the blue tie to the left, just as any other tie, cfr the
  * 2/1/0 zero rule"*. The engine ran it flat to S8's column under the jump tie instead. The sand above
  * it (-10.25..-16.85) has BOTH contacts tied to the left (its top to S8's TD, its base by the jump
- * tie to S11) and stays the band the jump tie carries; to the right, S2 beyond the shallow S7 reads
- * these levels and is tied, so gap 9 keeps its deep-to-deep bands (the standing exception).
+ * tie to S11) and stays the band the jump tie carries; to the right, S3's two sands are jump-tied to
+ * S2 across the shallow S7 (top AND base), so gap 9 keeps those bands — closed by stored ties, not by
+ * S2 merely reading the level (owner 2026-10-04, "no tie, no band"; this fixture predates his
+ * deletion of the S11 bottom <-> S3 and S2 <-> S3 base ties, see ``ownerTestNoTieNoBand.test.ts``).
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -186,7 +188,7 @@ describe('section "test" gap S8 -> S3: "bottom sand at S3 should just onlap the 
     for (const f of [0.05, 0.5, 0.95]) expect(formationsAt(regions, GAP_S8, f, -13), `f=${f}`).toEqual(['ZAND'])
   })
 
-  it('guard (the standing exception): S2 beyond the shallow S7 reads these levels, so gap S3 -> S7 keeps its bands', () => {
+  it("guard: S3's sands are jump-tied to S2 at top and base across the shallow S7, so gap S3 -> S7 keeps its bands", () => {
     expect(kept[GAP_S3 + 1].name).toBe(S7)
     for (const f of [0.05, 0.5, 0.95]) {
       expect(formationsAt(regions, GAP_S3, f, -18.3), `f=${f}`).toEqual(['ZAND (SL:M)'])
