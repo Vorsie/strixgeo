@@ -237,7 +237,20 @@ export interface CptPdfImportResult {
     n_errors: number
     n_warnings: number
   } | null
-  issues: { level: string; code: string; message: string; rows: number[] }[]
+  /** The parse findings. ``params`` / ``details`` carry the values the
+   *  English ``message`` names, so the report words each finding in the app
+   *  language; absent from an older backend. */
+  issues: CptPdfImportIssue[]
+}
+
+/** One parse finding of a PDF import result. */
+export interface CptPdfImportIssue {
+  level: string
+  code: string
+  message: string
+  rows: number[]
+  details?: Record<string, number>
+  params?: Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
