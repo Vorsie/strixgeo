@@ -147,9 +147,18 @@ export default function LabSeriesImportDialog({
     [filePath, projectId, fileName],
   )
 
+  // One automatic preview per file selection (2026-10-03 race): React.StrictMode
+  // runs this effect twice in dev, and two concurrent previews of one file both
+  // fetched the same missing borehole from DOV. The ref survives StrictMode's
+  // simulated remount, so the second run sees the file is already previewed.
+  // A borehole pick re-previews through ``loadPreview`` directly, unguarded.
+  const autoPreviewedRef = useRef<string | null>(null)
   useEffect(() => {
+    const selection = `${projectId}|${index}|${filePath ?? ''}`
+    if (autoPreviewedRef.current === selection) return
+    autoPreviewedRef.current = selection
     void loadPreview(null)
-  }, [loadPreview])
+  }, [loadPreview, projectId, index, filePath])
 
   // An unknown format: list the file, count it failed and move on. Held in
   // state (not advanced inside loadPreview) so ``advance`` reads the summary
