@@ -1,12 +1,13 @@
 """Use case: delete a whole borehole track (owner 2026-09-29).
 
 Irreversible from the app's point of view: the desktop asks first (Cancel
-default-focused, "Delete track"). A deleted DOV observation track comes back on
-the next DOV import of its area (the interpretation dedup keys on
-``dov_permkey``, which is gone - so Reset to DOV cannot, it reads by that
-permkey); a deleted DOV field-log track does not come back on an import, only
-through Reset to DOV when the boring XML is cached (see docs/domain-model.md,
-"Hand-edited tracks").
+default-focused, "Delete track"). A deleted DOV observation track STAYS deleted
+on a DOV bbox re-import (owner dogfeed 2026-10-01): its permkey is remembered
+on the borehole (``BoreholeOrm.deleted_dov_permkeys``) and the interpretation
+import skips it; Reset to DOV cannot bring it back either (it rewrites the
+tracks the borehole still holds). A deleted DOV field-log track does not come
+back on an import, only through Reset to DOV when the boring XML is cached
+(see docs/domain-model.md, "Hand-edited tracks").
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from groundmodel.application.borehole_track_helpers import (
     load_borehole_with_tracks,
     parse_track_id,
 )
+from groundmodel.domain.value_objects.track_source import TrackSource
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.shared.exceptions import NotFoundError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -82,6 +86,8 @@ class DeleteBoreholeTrack(GroundModelLogger):
                 f"{observation.observation_type} (source={observation.source}, "
                 f"dov_permkey={observation.dov_permkey})"
             )
+            _remember_deleted_dov_permkey(borehole, observation)
+            detail += f"; {len(borehole.deleted_dov_permkeys or [])} deleted DOV permkey(s) kept"
             borehole.observations.remove(observation)
         await self._session.flush()
         self.success(
@@ -89,3 +95,19 @@ class DeleteBoreholeTrack(GroundModelLogger):
             f"{removed} interval(s) removed"
         )
         return removed
+
+
+def _remember_deleted_dov_permkey(borehole: BoreholeOrm, observation: ObservationOrm) -> None:
+    """Record a deleted DOV track's permkey so a DOV re-import cannot bring it back.
+
+    Owner dogfeed 2026-10-01. A hand-made track has no permkey and nothing to
+    remember; a field-log track needs none either (a re-import never re-adds the
+    field logs of a borehole the project already holds). A NEW list is assigned
+    so SQLAlchemy sees the array change.
+    """
+    permkey = observation.dov_permkey
+    if not permkey or observation.source == TrackSource.MANUAL.value:
+        return
+    remembered = list(borehole.deleted_dov_permkeys or [])
+    if permkey not in remembered:
+        borehole.deleted_dov_permkeys = [*remembered, permkey]
