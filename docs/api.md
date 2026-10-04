@@ -46,8 +46,8 @@ PATCH  /borehole/{borehole_id}/elevation — Update the manually-entered surface
 
 ```
 POST   /borehole/{borehole_id}/tracks — Create a hand-typed track {kind, intervals[]}; 201, stored with source = "manual".
-PUT    /borehole/{borehole_id}/tracks/{track_id} — Replace every interval of one track; an import keeps source = "dov" + dov_permkey and gets edited_manually_at.
-DELETE /borehole/{borehole_id}/tracks/{track_id} — Delete one whole track with its intervals; 204.
+PUT    /borehole/{borehole_id}/tracks/{track_id} — Replace every interval of one track; an import keeps source = "dov" + dov_permkey and gets edited_manually_at — or answers edited_manually_at null when the new intervals equal what DOV published (the undo of a first edit).
+DELETE /borehole/{borehole_id}/tracks/{track_id} — Delete one whole track with its intervals; 204. A DOV observation track's permkey is remembered on the borehole (deleted_dov_permkeys) so a DOV bbox re-import does not bring it back.
 POST   /borehole/{borehole_id}/tracks/reset-dov[?track_id=] — Reset every DOV track (or one) to the cached DOV XML; 200 {tracks[], discarded_edits, kept_manual}.
 ```
 
