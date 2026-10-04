@@ -14,6 +14,7 @@ from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.application.pdf_sounding_import_outcome import PdfSoundingImportOutcome
 from groundmodel.application.pdf_sounding_import_request import PdfSoundingImportRequest
+from groundmodel.domain.services.cpt_display_name import cpt_display_name
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report import CachedPdfReport
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding_adapter import (
@@ -156,7 +157,7 @@ class ImportCptPdf(GroundModelLogger):
                 code="pdf_sounding_unreadable",
                 message=str(exc),
             )
-        name = result.header.test_id
+        name = _display_name(result.header.project_id, result.header.test_id)
         if any(i.code == "PDF_NO_XY" for i in result.issues):
             return PdfSoundingImportOutcome(
                 key=request.key,
@@ -239,6 +240,15 @@ class ImportCptPdf(GroundModelLogger):
         return self._adapter.to_parse_result(sounding, header, identity)
 
 
+def _display_name(project_id: str, test_id: str) -> str:
+    """Return the name the CPT is shown under ("23.15-002-S110").
+
+    The "PDF" stand-in project id names no project, so it never prefixes a
+    sounding number.
+    """
+    return cpt_display_name("" if project_id == PDF_FALLBACK_PROJECT_ID else project_id, test_id)
+
+
 def _pick(name: str, typed: _T | None, printed: _T | None, sources: dict[str, str]) -> _T | None:
     """Return the typed value when there is one, else the printed one; note which."""
     if typed is not None:
@@ -260,8 +270,11 @@ def _header(
     sources: dict[str, str] = {}
     typed_xy = request.x is not None and request.y is not None
     return PdfImportHeader(
+        # The ids a GEF of the same sounding carries (owner ruling 2026-10-04):
+        # the sheet's project number, so a later GEF import is matched as the
+        # same CPT. The campaign code stands in when the sheet prints none.
         test_id=listed.sounding_id or listed.key,
-        project_id=report_code or PDF_FALLBACK_PROJECT_ID,
+        project_id=listed.project_id or report_code or PDF_FALLBACK_PROJECT_ID,
         x=_pick("x", request.x if typed_xy else None, listed.x, sources),
         y=_pick("y", request.y if typed_xy else None, listed.y, sources),
         epsg=_pick("epsg", request.epsg if typed_xy else None, listed.epsg, sources),
