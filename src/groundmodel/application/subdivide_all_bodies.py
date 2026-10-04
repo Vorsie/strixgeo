@@ -74,8 +74,13 @@ What it persists (one transaction, single commit at the end)
    pairs inside the body and every bridged jump pair arrive PENDING for the
    accept/reject flow and the divide gate.  ``source='auto'`` on all.
 
-3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances`` from the
-   ACCEPTED edges; ``litho_layer.body_id`` is stamped in the same step.
+3. **``BodyOrm`` rows** — created by ``ResolveLithoInstances``;
+   ``litho_layer.body_id`` is stamped in the same step. Since owner 2026-10-04
+   (*"identity follows the drawing"*) the edges union nothing: the fresh bands
+   start one body each, and the geotech recompute the desktop schedules after
+   the subdivide posts the framed fill's geometry facts, which join the bands
+   the fill paints as one mass. The litho body grouping (step 4) reads the
+   litho model's stamps, so it follows the litho drawing the same way.
 
 Idempotency on re-run
 ---------------------
