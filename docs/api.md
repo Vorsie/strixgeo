@@ -350,8 +350,12 @@ bbox import stores) is refreshed in place — same `borehole_id`, header values
 the file carries, drill segments + field log replaced, each interpretation
 whose DOV permkey matches a stored observation replaced in place (the
 observation id survives; its layers are new rows), other interpretations
-added, stored observations the file does not carry kept, a manual collar
-elevation kept, the TIN/solid caches staled:
+added, stored observations the file does not carry kept, each sample
+(`<monster>`) whose DOV permkey (else sample number + top depth) matches a
+stored sample updated in place (same sample id; its grain-size curves with a
+matching permkey replaced, its other lab tests and geotech assignment kept),
+other samples added, stored samples the file does not carry kept, a manual
+collar elevation kept, the TIN/solid caches staled:
 
 * any duplicate, no `confirm_refresh` → `409` with
   `detail.code = "borehole_refresh_confirmation_required"` and
@@ -367,7 +371,12 @@ elevation kept, the TIN/solid caches staled:
 The body is `{boreholes: [{borehole_id, name, test_id, has_errors, issues,
 refreshed, imported}], file_issues}`; a NEW boring without a usable position
 is not persisted (`imported: false`, `borehole_id: null`, a `NOT_IMPORTED`
-error) while its siblings are. One commit per file.
+error) while its siblings are. One commit per file. Every issue is
+`{level, code, message, rows, params}`: `message` is English (logs, tooltip);
+`params` (additive, defaults `{}`) carries the message's variable parts so the
+desktop renders the finding in the interface language
+(`desktop/.../utils/importFlagText.ts`); a client that ignores `params` keeps
+showing `message`. `POST /cpt/import` issues carry the same field.
 
 DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
 ground-surface build `POST .../ground-surface/build`) answer `422` naming the
