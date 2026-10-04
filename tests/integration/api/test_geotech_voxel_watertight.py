@@ -73,6 +73,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import Geolog
 from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import paint_accepted_ties
 from tests.unit.domain.services.voxel_litho.strat_invariants import (
     assert_no_overlap_sampled,
     vertical_ray_intervals,
@@ -570,6 +571,10 @@ async def gvw_scene(
         contact_b=c_bh_klei,
         section_id=section_id,
     )
+
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project": gvw_project,
