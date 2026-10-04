@@ -667,6 +667,9 @@ export const SECTIONS = {
   'sections.lens.perpendicularSection': 'Perpendicular section…',
 
   'sections.tie.accept': 'Accept tie',
+  // Owner ruling 2026-10-04, "identity follows the drawing": an accepted tie the
+  // fill does not paint as a band joins nothing, so its bands stay two bodies.
+  'sections.tie.acceptedNotBanded': 'Accepted, not banded: the bands stay separate bodies',
   'sections.tie.reject': 'Reject tie',
   'sections.tie.proposed': 'Proposed tie-section. Right-click to Accept or Reject',
   'sections.tie.keepFlagged': 'Keep them flagged',
