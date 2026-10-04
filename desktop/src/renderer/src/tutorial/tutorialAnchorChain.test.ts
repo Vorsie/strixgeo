@@ -39,6 +39,20 @@ describe('resolveChainTestid (owner ruling 2)', () => {
     expect(resolveChainTestid(three, present(...three))).toBe('project-crs-horizontal')
   })
 
+  it('a chain through a submenu group row: button, then group row, then the route', () => {
+    // Owner 2026-10-04: the routes sit behind a group row. Menu closed ->
+    // the button; menu open, group closed -> the group row; group open ->
+    // the route itself.
+    const chain = ['stage-tab-data', 'import-menu-button', 'import-group-cpt', 'import-verb-cpt-dov']
+    expect(resolveChainTestid(chain, present('stage-tab-data', 'import-menu-button'))).toBe(
+      'import-menu-button',
+    )
+    expect(
+      resolveChainTestid(chain, present('stage-tab-data', 'import-menu-button', 'import-group-cpt')),
+    ).toBe('import-group-cpt')
+    expect(resolveChainTestid(chain, present(...chain))).toBe('import-verb-cpt-dov')
+  })
+
   it('skips a missing outer link and still resolves a present inner one', () => {
     // The menu button is gone but the item is somehow present → highlight it.
     expect(resolveChainTestid(CHAIN, present('import-verb-cpt-dov'))).toBe('import-verb-cpt-dov')
