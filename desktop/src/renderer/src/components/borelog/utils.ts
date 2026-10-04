@@ -23,6 +23,7 @@ import { createContext, useContext } from 'react'
 import type {
   BoreholeDetailResponse,
   ObservationResponse,
+  SampleResponse,
 } from '../../api/client'
 import type { ToggleableTrackId } from '../../hooks/useHiddenBoreholeLogTracks'
 import type { Translator } from '../../i18n/translate'
@@ -235,6 +236,28 @@ export function humanizeObservationType(t: Translator, token: string): string {
 export function truncate(s: string, max: number): string {
   if (s.length <= max) return s
   return s.slice(0, max - 1) + '…'
+}
+
+/**
+ * Count the DOV lab-test records over every sample (grain size, Atterberg,
+ * CaCO3, organic, water and the scalar catch-all; one record = one test).
+ * The samples-track header adds the raw lab tests to this count.
+ *
+ * @param samples - The borehole's samples.
+ * @returns The number of DOV lab-test records.
+ */
+export function countDovLabTests(samples: readonly SampleResponse[]): number {
+  let n = 0
+  for (const s of samples) {
+    n +=
+      s.grain_sizes.length +
+      s.atterberg_limits_tests.length +
+      s.caco3_content_tests.length +
+      s.organic_content_tests.length +
+      s.water_content_tests.length +
+      s.scalar_lab_tests.length
+  }
+  return n
 }
 
 /** Round ``value`` to ``decimals`` places. Standard
