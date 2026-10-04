@@ -1,11 +1,11 @@
-// Ruwe labproeven — Dutch (Belgium) twin of 'locales/en/labSeries.ts'.
+// Ruwe laboproeven — Dutch (Belgium) twin of 'locales/en/labSeries.ts'.
 // BE register: "labo" (not "lab"), "samendrukkingsproef", "zetting",
 // "poriënwaterspanning". The lab's own column labels stay verbatim (not here).
 
 import type { Messages } from '../en'
 
 export const LAB_SERIES_NL: Partial<Messages> = {
-  'labSeries.dialog.title': 'Labproef importeren: {file}',
+  'labSeries.dialog.title': 'Laboproef importeren: {file}',
   'labSeries.dialog.progress': 'Bestand {i} van {n}',
   'labSeries.dialog.loading': 'Bestand wordt gelezen…',
   'labSeries.dialog.kindOedometer': 'Samendrukkingsproef',
@@ -54,11 +54,11 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.level.warning': 'Waarschuwing',
   'labSeries.level.info': 'Opmerking',
 
-  'labSeries.refresh.title': 'Bewaarde labproef vervangen?',
+  'labSeries.refresh.title': 'Bewaarde laboproef vervangen?',
   'labSeries.refresh.body': '{file} heeft dezelfde labo-identiteit als een bewaarde proef, maar een andere inhoud. Bewaard: {old} metingen; in het bestand: {new} metingen. De bewaarde metingen worden vervangen. Dit kan niet ongedaan worden gemaakt.',
   'labSeries.refresh.confirm': 'Metingen vervangen',
 
-  'labSeries.toast.summary': 'Labproeven: {imported} geïmporteerd, {replaced} vervangen, {unchanged} ongewijzigd, {skipped} overgeslagen, {failed} mislukt',
+  'labSeries.toast.summary': 'Laboproeven: {imported} geïmporteerd, {replaced} vervangen, {unchanged} ongewijzigd, {skipped} overgeslagen, {failed} mislukt',
   'labSeries.toast.dovFetched': 'Boringen opgehaald uit DOV: {names}',
   'labSeries.toast.dovFetchedOne': 'Boring {name} uit DOV gehaald',
   'labSeries.toast.deleted': 'Labtest {file} verwijderd',
