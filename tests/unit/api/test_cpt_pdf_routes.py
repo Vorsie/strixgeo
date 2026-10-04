@@ -45,6 +45,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_store import (
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.report_fingerprint import ReportFingerprint
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSounding
+from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
 from groundmodel.shared.exceptions import CptRefreshConfirmationRequiredError
 
 from ..infrastructure.parsers.cpt.pdf import _synthetic_cpt_pdf as synth
@@ -80,6 +81,8 @@ class _FakeTriager:
             y=200000.0,
             epsg=31370,
             curves=("qc", "fs"),
+            warnings=("2 point(s) on an axis maximum: the true value is higher",),
+            notes=(ReportSoundingNote("CLIPPED_POINTS", {"count": 2}),),
         )
         digest = PdfReportDigest(
             file_sha=file_sha,
@@ -195,6 +198,19 @@ def test_digitise_returns_the_series_the_calibration_and_an_overlay(
     assert isinstance(body["assumptions"], list)
     png = base64.b64decode(body["overlays"][0]["png_base64"])
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_digitise_carries_the_notes_as_codes_next_to_the_english_warnings(
+    client: TestClient, report_bytes: bytes
+) -> None:
+    """The overlay answer keeps ``warnings`` and adds ``notes`` (code + params), additively."""
+    sha, _ = _triage(client, report_bytes)
+    body = client.post(
+        "/cpt/pdf/digitise",
+        json={"project_id": str(PROJECT), "file_sha": sha, "sounding_id": "S1"},
+    ).json()
+    assert body["warnings"] == ["2 point(s) on an axis maximum: the true value is higher"]
+    assert body["notes"] == [{"code": "CLIPPED_POINTS", "params": {"count": 2}}]
 
 
 def test_digitise_re_reads_through_an_edited_calibration(
