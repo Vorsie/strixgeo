@@ -6,21 +6,35 @@
 
 ## What a body is
 
-* A **body** = a resolver connected-component over TWO edge kinds unioned
-  together: approved layer↔layer `LithoContactCorrelationEdge`s AND
-  `body_geometry_fact` rows (owner ruling 2026-08-12: *"every same litho that
-  is connected should get the same body id"*). The resolver stamps
-  `litho_layer.body_id` on every member. Applies to litho AND geotech models
-  (packing bodies drive qc/sample-per-body extraction).
+* **A body is a painted mass: geometry facts union, ties do not** (owner
+  ruling 2026-10-04, verbatim *"b, identity follows the drawing"*). A **body**
+  = a resolver connected-component over `body_geometry_fact` rows ONLY; the
+  resolver stamps `litho_layer.body_id` on every member. Applies to litho AND
+  geotech models (packing bodies drive qc/sample-per-body extraction). It
+  narrows the 2026-08-12 ruling (*"every same litho that is connected should
+  get the same body id"*) to connected **as painted**.
+* **An accepted tie joins nothing on its own.** Ties stay the ground truth for
+  the fill (2/1/0 input), tie status, the frame warning and the geotech tie
+  flags; a tie the fill does not paint as a band is a surface statement and its
+  bands stay two bodies. The case that set the rule (testproject_dev, CS4):
+  ZAND (SL:M) on GEO-08/116-S20 25.18–25.60 m and GEO-08/116-S21 24.50–25.50 m,
+  joined by ONE manual top tie that jumps three shallower ST-17/051 soundings.
+  In the sub-TD zone a lone top tie makes no band (no base tie = no band,
+  [section-fill.md](section-fill.md) §8), so the fill paints nothing between
+  them, no fact is posted, and they are **two bodies**; add the base tie, the
+  fill paints the band, the recompute posts its fact, and they are **one**. The
+  resolver still reads the ties to name the "accepted, not banded" ones
+  (`ResolveResult.unbanded_ties`, INFO-logged), and the section's tie hover says
+  *"Accepted, not banded: the bands stay separate bodies"*
+  (`components/sections/tieBanding.ts`, read from the stamped `body_id`s).
 * A **geometry fact** is an observed geometric adjacency between two
   same-unit layers, read off the partition fill (tie-born band/onlap/lens
   regions only — fallback paint NEVER defines identity) per section, plus
   cross-section at shared columns and fence crossings (the stage-2 rule in
-  `merge_bodies_across_sections.py`). Facts exist because a tie is overloaded:
-  it defines the 2/1/0 fill geometry AND body membership, so "same body,
-  different boundary drawing" (the owner's silt-onlap case) needs its own
-  record. Facts draw NOTHING — the fill never reads them, so persisting a
-  merge can never redraw a section.
+  `merge_bodies_across_sections.py`). The renderer omits suspended-review ties
+  (`class_changed`, `ambiguous_band`) from the fill it posts facts from, so a
+  doubted tie cannot carry a union either. Facts draw NOTHING — the fill never
+  reads them, so persisting a merge can never redraw a section.
 * Facts are written ONLY by `RecomputeBodies`
   (`POST .../bodies/recompute`): advisory-locked wholesale replace per model
   from the frontend's partition evidence, empty payloads refused (never a
@@ -42,9 +56,15 @@
   name is reported in the diff.
 * `ResolveLithoInstances` runs inline on every correlation-mutating use case
   (correlate / uncorrelate / accept / delete contact / delete layer /
-  cross-merge update) to keep instance ordinals coherent — persisted facts
-  ride every one of those runs, so a tie edit cannot revert a geometric
-  merge; stale facts self-heal at the next recompute.
+  cross-merge update) to keep instance ordinals coherent. It reads the
+  PERSISTED facts, so a tie edit changes no body until the debounced recompute
+  posts the new picture (stale facts self-heal there; debt #286). **Fact
+  lifecycle:** a model with no facts yet resolves to one body per band. The
+  desktop posts facts (`useProjectBodyRecompute`): once per model per project
+  open (when sections + layers have loaded; the geotech one waits for the litho
+  frame), and on every mutation nonce (tie / layer / geotech verbs, subdivide,
+  divide, boundary saves). Facts also ride the bundle and restore before the
+  post-restore reconcile, and the project-open recompute re-posts them.
 * **One body = one litho unit** (owner ruling 2026-10-03, verbatim: *"a zand
   and zand/matig siltig are 2 different lithologies, never weld those"*). A
   band of unit X and a band of unit Y never share a body, whatever their main
@@ -53,7 +73,8 @@
   layer's own formation row; a geotech band's `source_litho_formation_id`)
   before soil and class, so a tie or a geometry fact across two units is kept
   (it states a shared surface — a packing tie across two units is flagged
-  `frame_mismatch` at draw time) but never joins bodies. Ordinals are numbered
+  `frame_mismatch` at draw time) but never joins bodies (since 2026-10-04 no tie
+  joins bodies at all; a fact across two units is dropped too). Ordinals are numbered
   per unit (`_mass_unit_key`): ZAND bodies #0.., ZAND (SL:M) bodies #0..; a
   geotech body numbers within its litho unit + NAD class. The fill's class key
   (`packingClassOf.ts` / `packing_class_key.py`, `UNIT|SOIL|CLASS`) carries the
