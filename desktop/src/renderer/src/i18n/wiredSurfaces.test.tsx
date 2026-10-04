@@ -112,7 +112,9 @@ describe('wired surfaces', () => {
   it('WS4 — DataToolbar import verbs follow the language, with no language prop', () => {
     renderDataToolbar()
     fireEvent.click(screen.getByRole('button', { name: /Import/ }))
-    expect(within(screen.getByRole('menu')).getByText('Import CPT (.gef)')).toBeInTheDocument()
+    // The CPT routes sit in the CPT group's submenu (owner 2026-10-04).
+    fireEvent.click(within(screen.getByRole('menu')).getByText('CPT'))
+    expect(within(screen.getAllByRole('menu')[1]).getByText('.gef files')).toBeInTheDocument()
 
     // act() because the flip arrives through useSyncExternalStore, not through
     // an event React already owns — without it the re-render is queued past the
@@ -120,15 +122,17 @@ describe('wired surfaces', () => {
     act(() => setLanguage('nl'))
 
     expect(screen.getByRole('button', { name: /Importeren/ })).toBeInTheDocument()
-    const menu = screen.getByRole('menu')
-    expect(within(menu).getByText('Sondering (CPT) importeren (.gef)')).toBeInTheDocument()
+    const [menu, submenu] = screen.getAllByRole('menu')
+    expect(within(menu).getByText('Sondering (CPT)')).toBeInTheDocument()
+    expect(within(menu).getByText('Boring')).toBeInTheDocument()
+    expect(within(submenu).getByText('.gef-bestanden')).toBeInTheDocument()
     // "kader tekenen" — the owner's bbox ruling, decisions batch 2026-08-27.
-    expect(within(menu).getByText('Boring importeren uit DOV (kader tekenen)')).toBeInTheDocument()
+    expect(within(submenu).getByText('Uit DOV (kader tekenen)')).toBeInTheDocument()
     // One tag per not-yet-available verb (DMT, monitoring); the lab-test verb
     // went live with the raw lab import (2026-09-29).
     expect(within(menu).getAllByText('Fase 4')).toHaveLength(2)
     // Owner 2026-09-30: a generic lab importer, no program name in the label.
-    expect(within(menu).getByText('Laboproeven importeren')).toBeInTheDocument()
+    expect(within(menu).getByText('Laboproeven')).toBeInTheDocument()
   })
 
   it('WS5 — strings from a NON-i18n source are untouched by the flip', () => {
