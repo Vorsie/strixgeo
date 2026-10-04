@@ -13,6 +13,13 @@
  *
  * The near-miss control is the same scene with the facing log carried all the way down:
  * that test DID read the ground, so the interbed still pinches against it.
+ *
+ * NO TIE, NO BAND (owner 2026-10-04, section "test": *"as long as the bottom of S11 is not
+ * correlated to 19/100-S3 the loop isn't closed and there is nothing to draw"*). Where NO column in
+ * that direction ever read the interbed's ground, it used to run flat at full thickness to the
+ * section edge under the short test — a band made from levels, which no tie closes. It is now a lens
+ * at its own level toward the short test, and the rest under the short TD is the no-data void. The
+ * crossing to a column that DID read the ground (the third case) is a lens too and stands.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -164,21 +171,22 @@ const run3 = (columns: PartitionColumn[]): SectionRegion[] => {
   }
 }
 
-describe('an interbed facing ground its neighbour never read continues to that column', () => {
-  it('the interbed reaches the short test at full thickness', () => {
+describe('an interbed facing ground its neighbour never read', () => {
+  it('"no tie, no band": with nothing beyond the short test, the untied interbed lenses at its own level and runs no band under it', () => {
     const regions = run([shortLog, deepLog])
-    // Beside the SHORT test (fraction 0.05) at the interbed's own levels: the short log
-    // read nothing here, so there is nothing for a pinch to meet and the interbed is what
-    // stands. Sampled top, middle and bottom of its own span — full thickness, not a taper.
+    // Beside the DEEP test the interbed stands at its own level...
+    expect(paintedAt(regions, 0.95, 7.2), 'beside the deep test').toBe('VEEN')
+    // ...and it closes before the short test: nothing under the short test's TD at its levels.
     for (const e of [7.7, 7.2, 6.7]) {
-      expect(paintedAt(regions, 0.05, e), `beside the short test at ${e}`).toBe('VEEN')
+      expect(paintedAt(regions, 0.05, e), `beside the short test at ${e}`).toBeNull()
     }
   })
 
-  it('an interbed enclosed in one lithology continues the same way', () => {
+  it('an interbed enclosed in one lithology lenses the same way', () => {
     const regions = run([shortLog, deepLogEnclosed])
+    expect(paintedAt(regions, 0.95, 7.2), 'beside the deep test').toBe('VEEN')
     for (const e of [7.7, 7.2, 6.7]) {
-      expect(paintedAt(regions, 0.05, e), `beside the short test at ${e}`).toBe('VEEN')
+      expect(paintedAt(regions, 0.05, e), `beside the short test at ${e}`).toBeNull()
     }
   })
 
