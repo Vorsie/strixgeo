@@ -58,7 +58,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Hier komt data binnen. Open het om te zien welke importmogelijkheden StrixGeo vandaag biedt, sonderingen en boringen, uit lokale bestanden of rechtstreeks uit DOV.',
   'tutorial.import-cpt-dov.title': 'Sonderingen importeren uit DOV',
   'tutorial.import-cpt-dov.body':
-    "Kies 'Sondering (CPT) importeren uit DOV' en teken een kader op de kaart. Elke sondering die DOV binnen dat kader heeft, stroomt binnen met haar diepteserie en locatie. Deze stap vinkt zichzelf af zodra je eerste sondering binnen is.",
+    "Kies 'Sondering (CPT)', dan 'Uit DOV (kader tekenen)', en teken een kader op de kaart. Elke sondering die DOV binnen dat kader heeft, stroomt binnen met haar diepteserie en locatie. Deze stap vinkt zichzelf af zodra je eerste sondering binnen is.",
   'tutorial.import-filter-date.title': 'Filter op datum',
   'tutorial.import-filter-date.body':
     'Lange lijsten worden onhandig. Stel een datumbereik in om enkel de onderzoeken uit de betreffende periode te tonen, en wis het om ze weer allemaal te zien.',
@@ -70,10 +70,10 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     'Niet elke sondering hoort in je dataset. Verwijder er een om ze uit dit project te verbergen, een omkeerbare, projectlokale verberging die je altijd kunt herstellen. De data zelf wordt nooit gewist.',
   'tutorial.import-borehole-dov.title': 'Boringen importeren uit DOV',
   'tutorial.import-borehole-dov.body':
-    "Boringen komen op dezelfde manier binnen: kies 'Boring importeren uit DOV' en teken een kader op de kaart. Deze stap vinkt af zodra je eerste boring binnen is.",
+    "Boringen komen op dezelfde manier binnen: kies 'Boring', dan 'Uit DOV (kader tekenen)', en teken een kader op de kaart. Deze stap vinkt af zodra je eerste boring binnen is.",
   'tutorial.import-gef.title': 'Lokale GEF-bestanden importeren',
   'tutorial.import-gef.body':
-    "Sonderingen op schijf? 'Sondering (CPT) importeren (.gef)' leest standaard GEF-bestanden rechtstreeks van je computer, handig voor sonderingen die niet in DOV zitten.",
+    "Sonderingen op schijf? Kies 'Sondering (CPT)', dan '.gef-bestanden': dat leest standaard GEF-bestanden rechtstreeks van je computer, handig voor sonderingen die niet in DOV zitten.",
   'tutorial.import-more.title': 'Meer bronnen op komst',
   'tutorial.import-more.body':
     "DMT, laboproeven en monitoringdata staan op de planning, voorlopig zie je ze in het menu met de vermelding 'Phase 4'.",
