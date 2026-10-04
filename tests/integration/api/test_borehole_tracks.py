@@ -15,10 +15,9 @@ main's rules these tests pin:
 * the provenance rides the ``.strix`` bundle, and an older bundle without it
   restores as untouched DOV data.
 
-Re-import-restores: no borehole refresh path exists on develop (the DOV bbox
-import SKIPS boreholes and interpretations it already holds, and there is no
-XML import branch yet), so the rule is documented in docs/domain-model.md and
-not tested here.
+Re-import: a DOV bbox re-import never touches a held borehole's tracks (an
+edited track keeps its edits, a deleted one stays deleted) - pinned in
+``test_borehole_track_dov_reimport.py``.
 """
 
 from __future__ import annotations
@@ -639,3 +638,94 @@ async def test_a_fourth_admixture_on_a_coded_row_is_refused(
     assert [(e["loc"], e["code"]) for e in errors] == [
         ("intervals.0.admixtures", "too_many_admixtures")
     ]
+
+
+# --- Undo of the first edit (owner dogfeed 2026-10-01): "an undo that restores
+# a track to exactly its DOV content clears the edited mark, an undo that leaves
+# a difference keeps it". The PUT answers ``edited_manually_at: null`` itself;
+# the renderer only shows it. ---------------------------------------------------
+
+# The fixture's coded track exactly as DOV published it (what Ctrl+Z sends back).
+_DOV_CODED_INTERVALS = [
+    {
+        "top_m": 0.0,
+        "base_m": 2.0,
+        "main_soil_codes": ["FZ"],
+        "admixtures": [{"soil_code": "KL", "amount": "W", "locally": False}],
+    },
+    {"top_m": 2.0, "base_m": 5.0, "main_soil_codes": ["KL"]},
+]
+_DOV_COLOUR_INTERVALS = [
+    {"top_m": 0.0, "base_m": 1.5, "value": "groenbruin"},
+    {"top_m": 1.5, "base_m": 5.0, "value": "grijs"},
+]
+
+
+async def test_undo_back_to_the_dov_content_answers_not_edited(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edit the coded track and the colour log, then PUT DOV's content back: stamp cleared."""
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)
+    _seed_dov_cache(tmp_path)
+    coded_id = str(dov_borehole["coded_id"])
+    for suffix, interval in (
+        (f"/{coded_id}", {"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}),
+        ("/field_log:color", {"top_m": 0.0, "base_m": 5.0, "value": "zwart"}),
+    ):
+        edit = await async_client.put(_url(dov_borehole, suffix), json={"intervals": [interval]})
+        assert edit.status_code == 200, edit.text
+        assert edit.json()["edited_manually_at"] is not None
+
+    for suffix, intervals in (
+        (f"/{coded_id}", _DOV_CODED_INTERVALS),
+        ("/field_log:color", _DOV_COLOUR_INTERVALS),
+    ):
+        undo = await async_client.put(_url(dov_borehole, suffix), json={"intervals": intervals})
+        assert undo.status_code == 200, undo.text
+        assert undo.json()["edited_manually_at"] is None, suffix
+        assert undo.json()["source"] == "dov"
+
+    detail = await _detail(async_client, dov_borehole)
+    coded = next(o for o in detail["observations"] if o["id"] == coded_id)
+    assert coded["edited_manually_at"] is None
+    assert coded["dov_permkey"] == "1990-000123"
+    assert {r["edited_manually_at"] for r in detail["field_log_intervals"]} == {None}
+
+
+async def test_an_undo_that_leaves_a_difference_keeps_the_stamp(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two edits, undo the second: back to the FIRST edit, not to DOV - still edited."""
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)
+    _seed_dov_cache(tmp_path)
+    url = _url(dov_borehole, f"/{dov_borehole['coded_id']}")
+    first = [{"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}]
+    second = [{"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["KL"]}]
+    for intervals in (first, second, first):
+        resp = await async_client.put(url, json={"intervals": intervals})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["edited_manually_at"] is not None
+
+
+async def test_without_cached_dov_xml_an_undo_keeps_the_stamp(
+    async_client: AsyncClient,
+    dov_borehole: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty cache: the original is unknown, so the track stays marked as edited."""
+    monkeypatch.setattr(settings, "dov_cache_dir", tmp_path)  # an empty cache
+    url = _url(dov_borehole, f"/{dov_borehole['coded_id']}")
+    edit = await async_client.put(
+        url, json={"intervals": [{"top_m": 0.0, "base_m": 5.0, "main_soil_codes": ["GL"]}]}
+    )
+    assert edit.status_code == 200, edit.text
+    undo = await async_client.put(url, json={"intervals": _DOV_CODED_INTERVALS})
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["edited_manually_at"] is not None
