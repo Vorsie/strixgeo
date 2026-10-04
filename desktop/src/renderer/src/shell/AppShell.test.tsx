@@ -295,3 +295,32 @@ describe('AppShell open-detail → Data stage (#3)', () => {
     expect(mockSetActiveStage).not.toHaveBeenCalled()
   })
 })
+
+// Owner 2026-10-04: File > Import CPT > From DOV (draw box) and its borehole twin
+// start the same bbox draw as the Data toolbar's verbs. The box is drawn on the
+// Data stage's map, so a draw that STARTS while another stage is showing routes
+// the shell to Data; otherwise the menu would arm a draw on a map nobody sees.
+describe('AppShell bbox draw → Data stage (File menu DOV import)', () => {
+  it('a bbox draw that starts on another stage switches to the Data stage', () => {
+    mockStage = 'lithology'
+    const { ctx } = makeCtx({ bboxImportType: null })
+    const { rerender } = render(<AppShell context={ctx} />)
+    vi.clearAllMocks()
+
+    const { ctx: drawing } = makeCtx({ bboxImportType: 'cpt' })
+    rerender(<AppShell context={drawing} />)
+
+    expect(mockSetActiveStage).toHaveBeenCalledWith('data')
+  })
+
+  it('no draw starting means no stage switch', () => {
+    mockStage = 'lithology'
+    const { ctx } = makeCtx({ bboxImportType: null })
+    const { rerender } = render(<AppShell context={ctx} />)
+    vi.clearAllMocks()
+
+    rerender(<AppShell context={makeCtx({ bboxImportType: null }).ctx} />)
+
+    expect(mockSetActiveStage).not.toHaveBeenCalled()
+  })
+})
