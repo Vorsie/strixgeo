@@ -219,22 +219,36 @@ const has = existsSync(INPUT)
 // ===========================================================================
 // (b) A zero-seed fillable face is a topology-defect, never painted from a synthetic label.
 // ===========================================================================
-;(has ? describe : describe.skip)('(b) a zero-seed fillable face is a topology-defect, never invented', () => {
-  // Tie-section 6 (x=0, elLo=-10.45): a sub-TD substrate face bounded by btcurtain0R/btfloor0/tie3
-  // — no column edge. Owner rule: "zero formations -> never invent a lithology; classify explicitly
-  // and fail the gate if it lies in the fillable domain." The seed classifier must call it
-  // zero-seed-defect (its 8n carry-seed RESOLUTION is a separate, recorded layer). Fixture history:
-  // the original -4.13 flood face moved to -4.595 in S49 (flood apex fix) and RESOLVED to
-  // single-seed in S56 (the 8l band-promotion delete reconnected it to a real column seed — an
-  // improvement, so the rule-pin moves to this still-zero-seed substrate face; the RULE never moved).
-  it('a substrate-bounded face with no column seed classifies zero-seed-defect', () => {
-    const raw = JSON.parse(readFileSync(INPUT, 'utf8')) as { sections: RawSection[] }
-    const tie6 = prepareRealSection(raw.sections.find((s) => s.name === 'Tie-section 6')!)
-    const probes = probeSection(tie6)
-    const face = findByBounds(probes, 0, -10.45)
-    expect(face, 'the Tie-6 x=0 el=-10.45 substrate face exists').toBeTruthy()
-    expect(face!.classification, 'a substrate face has no column seed -> zero-seed-defect').toBe('zero-seed-defect')
-    expect(face!.seedFormations.length, 'it has ZERO column-seed formations').toBe(0)
+describe('(b) a zero-seed fillable face is a topology-defect, never invented', () => {
+  // Owner rule: "zero formations -> never invent a lithology; classify explicitly and fail the gate
+  // if it lies in the fillable domain." FIXTURE HISTORY (the same move as case (c)): the pin sat on
+  // Tie-section 6's sub-TD SUBSTRATE face (bounded by btcurtain0R/btfloor0/tie3), and before that on
+  // a flood face that S56 healed. The flat-floor substrate was RETIRED 2026-10-04 (owner, "no tie, no
+  // band": a polygon is closed only by stored ties), so that face no longer exists. The RULE never
+  // moved; the pin moves to a hand-built arrangement whose one face is bounded by a tie and closings
+  // alone — no column edge at all.
+  it('a face bounded only by a tie and closings classifies zero-seed-defect', () => {
+    const curves = [
+      { id: 'col0:u0', kind: 'column-vertical', points: [{ x: 0, y: 10 }, { x: 0, y: 5 }] },
+      { id: 'col1:u0', kind: 'column-vertical', points: [{ x: 40, y: 10 }, { x: 40, y: 5 }] },
+      { id: 'tie0:0', kind: 'tie', points: [{ x: 0, y: 5 }, { x: 40, y: 5 }] },
+      { id: 'closeL', kind: 'closing', points: [{ x: 0, y: 5 }, { x: 0, y: 0 }] },
+      { id: 'closeB', kind: 'closing', points: [{ x: 0, y: 0 }, { x: 40, y: 0 }] },
+      { id: 'closeR', kind: 'closing', points: [{ x: 40, y: 0 }, { x: 40, y: 5 }] },
+    ]
+    const arr = buildArrangement(curves as never)
+    const segCurve = buildSegCurveMap(arr)
+    const cols = [
+      // Both tests drilled to 0, so the face under the tie lies in the FILLABLE domain (not the
+      // explicit void below every TD); only the column verticals' curves stop at the tie.
+      { investigationId: 'L', x: 0, surfaceElevM: 10, units: [{ layerId: 'l0', formationId: KLEI, bodyId: null, topElev: 10, baseElev: 0 }] },
+      { investigationId: 'R', x: 40, surfaceElevM: 10, units: [{ layerId: 'r0', formationId: KLEI, bodyId: null, topElev: 10, baseElev: 0 }] },
+    ]
+    const seeds = arr.faces.map((face) => ({ face, seed: classifyFaceSeed(face, segCurve, cols as never) }))
+    const below = seeds.find(({ face }) => Math.max(...face.polygon.map((p) => p.y)) <= 5 + 1e-6)
+    expect(below, 'the face under the tie exists').toBeTruthy()
+    expect(below!.seed.classification, 'no column seed -> zero-seed-defect').toBe('zero-seed-defect')
+    expect(below!.seed.seedFormations.length, 'it has ZERO column-seed formations').toBe(0)
   })
 })
 
