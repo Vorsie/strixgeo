@@ -26,6 +26,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+
 
 async def existing_dov_permkeys(
     session: AsyncSession,
@@ -86,3 +88,32 @@ async def existing_dov_permkey_to_id(
     )
     result = await session.execute(stmt)
     return {permkey: row_id for row_id, permkey in result.all() if permkey}
+
+
+async def deleted_dov_permkeys(session: AsyncSession, borehole_ids: Iterable[UUID]) -> set[str]:
+    """Return the DOV permkeys of the tracks the user deleted from these boreholes.
+
+    Owner dogfeed 2026-10-01: a deleted DOV track must not come back on a bbox
+    re-import. The interpretation persister skips these permkeys next to the
+    ones ``existing_dov_permkeys`` reports, so refresh-on-duplicate only ever
+    attaches what the borehole never held.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        The orchestrator's open AsyncSession.
+    borehole_ids : Iterable[UUID]
+        The in-scope boreholes.
+
+    Returns
+    -------
+    set[str]
+        The union of their ``deleted_dov_permkeys``; ``set()`` when
+        ``borehole_ids`` is empty (no query issued).
+    """
+    id_list = list(borehole_ids)
+    if not id_list:
+        return set()
+    stmt = select(BoreholeOrm.deleted_dov_permkeys).where(BoreholeOrm.id.in_(id_list))
+    result = await session.execute(stmt)
+    return {permkey for keys in result.scalars() for permkey in (keys or []) if permkey}
