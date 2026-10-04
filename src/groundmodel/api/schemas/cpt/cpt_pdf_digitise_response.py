@@ -34,7 +34,11 @@ class CptPdfDigitiseResponse(BaseModel):
         The sheet's header: ``x``, ``y``, ``epsg``, ``ground_level_m``,
         ``z_epsg``, ``test_date``.
     warnings:
-        What to check before importing.
+        What to check before importing, in English (kept for older clients).
+    notes:
+        The same notes as ``{"code", "params"}`` dicts, one per warning and in
+        the same order; the desktop renders them in the app language. Empty
+        by default, so an answer built without them still validates.
     overlays:
         One overlay PNG per page.
     """
@@ -49,4 +53,5 @@ class CptPdfDigitiseResponse(BaseModel):
     printed_values: list[list[Any]]
     header: dict[str, Any]
     warnings: list[str]
+    notes: list[dict[str, Any]] = []
     overlays: list[CptPdfOverlay]
