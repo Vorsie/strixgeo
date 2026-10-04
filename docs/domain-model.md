@@ -66,17 +66,25 @@ Geophysical: MASW, Seismic CPT
   all-or-nothing: a DOV track with no cached XML refuses the whole reset
   (`BoreholeResetNoDovSourceError`). A coded interval carries at most
   `MAX_ADMIXTURES_PER_INTERVAL` (3) admixtures when typed by hand.
-  **Re-import restores:** a CONSENTED refresh of the borehole from its source
-  (a future XML import branch, a future DOV refresh) must rewrite the imported
-  tracks from the fresh parse (dropping `edited_manually_at`) and leave the
-  manual tracks alone. No such automatic refresh exists — the DOV bbox import SKIPS
-  an interpretation it already holds (by `dov_permkey`) — so hand edits
-  survive a re-import, while a DELETED DOV observation track comes back on the
-  next DOV import of its area (its permkey is gone); a deleted DOV field-log
-  track does not come back on an import (field logs of an existing borehole are
-  not re-imported), only through Reset to DOV when the boring XML is cached.
-  Build the restore together with the refresh path, never as a silent
-  overwrite.
+  **The badge follows the content (2026-10-01).** A save that puts a DOV
+  track back to EXACTLY what DOV published (the undo of a first edit) clears
+  `edited_manually_at`: an untouched DOV track compares with its stored rows
+  (they ARE DOV's content), an edited one with the cached DOV XML the reset
+  reads (`dov_original_*_intervals`); "exactly" = `same_track_content`, the
+  editor's own cleaning (1 mm grain, stripped text, depth order, admixtures as
+  a set). No usable XML = the stamp stays.
+  **Re-import never touches a held borehole's tracks (2026-10-01).** The DOV
+  bbox import skips a borehole the project already holds (`'DOV'` + `test_id`)
+  and only attaches interpretations it never held (refresh-on-duplicate): a
+  stored track (edited or not) is never overwritten, and a DOV observation
+  track the user DELETED stays deleted — `DeleteBoreholeTrack` records its
+  permkey in `BoreholeOrm.deleted_dov_permkeys` (array, rides the bundle) and
+  `ImportInterpretationsDov` skips it (`interpretation_dedup_verdict`,
+  `skipped_deleted_by_user`). A deleted DOV field-log track does not come back
+  on an import either (field logs of a held borehole are not re-imported), only
+  through Reset to DOV. A CONSENTED refresh of a held borehole from its source
+  (the XML-file import's Replace dialog) is the only path that rewrites
+  imported tracks; never a silent overwrite.
 
 **Interpretation primitives by model kind (post-A4 Shape A):**
 - Geological models: ``FormationContact`` rows are the boundary-centric
