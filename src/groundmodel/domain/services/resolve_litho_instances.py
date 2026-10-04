@@ -1,11 +1,20 @@
 """Pure domain service — assign instance ordinals over a litho model.
 
-An *instance* is one connected component of correlated litho layers. Two
-layers belong to the same instance iff a path of user-approved correlation
-edges connects them AND they belong to the same litho UNIT. Uncorrelated layers —
-including two same-formation layers stacked at one column, or two laterally-
-separate columns never linked — are distinct instances and receive distinct
-ordinals.
+An *instance* (a body) is one connected component of PAINTED litho layers. Two
+layers belong to the same instance iff a path of geometry facts connects them
+AND they belong to the same litho UNIT. A geometry fact is what the section fill
+painted as one mass (the renderer posts them at ``bodies/recompute``). Layers the
+fill never joins — two same-formation layers stacked at one column, two columns
+never linked, or two bands joined only by a tie the fill does not paint as a
+band — are distinct instances and receive distinct ordinals.
+
+Identity follows the drawing (owner ruling 2026-10-04, verbatim *"b, identity
+follows the drawing"*): an accepted tie NEVER unions on its own. The CS4 case:
+two ZAND (SL:M) bands on S20 / S21 joined by one top tie in the sub-TD zone,
+where a lone top tie makes no band, so the fill paints nothing between them —
+two bodies. Add the base tie, the fill paints the band, its fact unions — one
+body. The ties still travel in (``ties``) so the resolver can name the
+"accepted, not banded" ones (``ResolveResult.unbanded_ties``).
 
 One-unit invariant (owner directive 2026-06-03, tightened 2026-10-03): a body
 is a single litho UNIT. An edge whose two endpoints sit in different litho units
@@ -131,7 +140,11 @@ class LayerNode:
 
 @dataclass(frozen=True)
 class LayerEdge:
-    """One user-approved correlation edge between two layers.
+    """One layer-to-layer link: a geometry fact or an accepted tie.
+
+    The resolver receives both kinds as this shape, in separate arguments: a
+    geometry fact (``edges``) unions its two layers, an accepted tie (``ties``)
+    never does (owner 2026-10-04, identity follows the drawing).
 
     Attributes
     ----------
@@ -152,7 +165,7 @@ class LayerSeparation:
     Owner ruling 2026-08-31 (debt #278, R5): the "Separate" verb is the
     counterpart to Dissolve, so the engineer can state *"these two are NOT the
     same body"* and have the resolver honour it PERMANENTLY. Where a
-    ``LayerEdge`` (a tie or a geometry fact) UNIONS its two layers, a separation
+    ``LayerEdge`` geometry fact UNIONS its two layers, a separation
     FORBIDS its two anchors from ever landing in one body — even when a chain of
     edges would otherwise connect them.
 
@@ -267,6 +280,10 @@ class ResolveResult:
         ALWAYS EMPTY since owner 2026-09-02 (and already empty since separations
         went dormant, 2026-09-01): a union never enters the partition, so nothing
         can suppress it. Kept for signature / caller compatibility.
+    unbanded_ties : tuple[LayerEdge, ...]
+        Accepted same-unit ties whose two bands the fill did NOT paint as one mass
+        ("accepted, not banded": the bands stay separate bodies). Cross-unit and
+        dangling ties are never listed.
     """
 
     instances: list[InstanceAssignment]
@@ -274,6 +291,7 @@ class ResolveResult:
     layer_to_formation: dict[UUID, UUID]
     inert_unions: tuple[LayerUnion, ...] = ()
     suppressed_unions: tuple[LayerUnion, ...] = ()
+    unbanded_ties: tuple[LayerEdge, ...] = ()
 
 
 def _bfs_reachable(seed: UUID, adjacency: dict[UUID, set[UUID]]) -> list[UUID]:
@@ -460,9 +478,9 @@ def same_mass(a: LayerNode, b: LayerNode) -> bool:
     """Whether two layers describe ONE mass — the body-identity predicate.
 
     A body is a single litho UNIT, and a geotechnical body is a single litho
-    unit AND a single packing density. A machine edge (a tie or a geometry fact)
-    may only merge two layers this returns ``True`` for; the edge loop drops one
-    that fails it.
+    unit AND a single packing density. A geometry fact may only merge two layers
+    this returns ``True`` for; the edge loop drops one that fails it. (A tie never
+    merges at all since 2026-10-04 — identity follows the drawing.)
 
     Rules:
 
@@ -530,6 +548,7 @@ def resolve_litho_instances(
     edges: list[LayerEdge],
     separations: Sequence[LayerSeparation] = (),
     unions: Sequence[LayerUnion] = (),
+    ties: Sequence[LayerEdge] = (),
 ) -> ResolveResult:
     """Resolve instances (connected components) and assign group ordinals.
 
@@ -538,8 +557,10 @@ def resolve_litho_instances(
     layers : list[LayerNode]
         Every accepted layer in the model (singletons included).
     edges : list[LayerEdge]
-        User-approved correlation edges (layer-id endpoints). Endpoints not
-        present in ``layers`` are ignored (dangling-edge guard).
+        The PAINTED connectivity: geometry facts (layer-id endpoints), the only
+        thing that unions two layers into one body (owner 2026-10-04, identity
+        follows the drawing). Endpoints not present in ``layers`` are ignored
+        (dangling-edge guard).
     separations : Sequence[LayerSeparation], optional
         DORMANT since the owner removed the Separate / Rejoin verbs
         (2026-09-01). Formerly a cannot-link constraint (debt #278, R5); the arg
@@ -560,6 +581,10 @@ def resolve_litho_instances(
         is resolved client-side (``geotechGroupOrdinals``); the "never a mixed
         body" guard runs at write time in the body-unions router. Restore the live
         merge here only if the ruling ever reverts.
+    ties : Sequence[LayerEdge], optional
+        The model's accepted ties. They NEVER union (identity follows the
+        drawing); they are read only to report the same-unit ties whose two bands
+        landed in different bodies (``ResolveResult.unbanded_ties``).
 
     Returns
     -------
@@ -575,6 +600,11 @@ def resolve_litho_instances(
     node_ids: set[UUID] = set(node_map)
 
     surviving_edges: list[tuple[UUID, UUID]] = []
+    # Only the PAINTED connectivity unions (owner 2026-10-04, "identity follows
+    # the drawing"): ``edges`` are the geometry facts the renderer posted for the
+    # masses the section fill painted. An accepted tie is NOT in this loop — a tie
+    # the fill does not paint as a band (the CS4 lone top tie in the sub-TD zone)
+    # joins nothing; where the fill DOES paint the band, its fact carries the union.
     for e in edges:
         a = node_map.get(e.layer_a_id)
         b = node_map.get(e.layer_b_id)
@@ -686,7 +716,49 @@ def resolve_litho_instances(
         layer_to_formation=layer_to_formation,
         inert_unions=tuple(inert_unions),
         suppressed_unions=tuple(suppressed_unions),
+        unbanded_ties=_unbanded_ties(ties, node_map, components),
     )
+
+
+def _unbanded_ties(
+    ties: Sequence[LayerEdge],
+    node_map: dict[UUID, LayerNode],
+    components: list[list[UUID]],
+) -> tuple[LayerEdge, ...]:
+    """Return the accepted ties whose two bands the fill did NOT paint as one mass.
+
+    Owner 2026-10-04 (*"identity follows the drawing"*): a tie never unions on its
+    own, so a same-unit tie whose ends land in two components is an "accepted, not
+    banded" tie — a surface statement, the bands stay separate bodies. A tie across
+    two units is never one body by design (one body = one unit), and a dangling tie
+    names a layer that left the model; neither is reported.
+
+    Parameters
+    ----------
+    ties : Sequence[LayerEdge]
+        The accepted ties of the model.
+    node_map : dict[UUID, LayerNode]
+        Every accepted layer by id.
+    components : list[list[UUID]]
+        The resolved components (layer ids).
+
+    Returns
+    -------
+    tuple[LayerEdge, ...]
+        The unbanded ties, in input order.
+    """
+    component_of: dict[UUID, int] = {
+        lid: index for index, comp in enumerate(components) for lid in comp
+    }
+    out: list[LayerEdge] = []
+    for tie in ties:
+        a = node_map.get(tie.layer_a_id)
+        b = node_map.get(tie.layer_b_id)
+        if a is None or b is None or not same_mass(a, b):
+            continue
+        if component_of[tie.layer_a_id] != component_of[tie.layer_b_id]:
+            out.append(tie)
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
