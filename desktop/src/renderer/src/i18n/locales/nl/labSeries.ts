@@ -60,6 +60,7 @@ export const LAB_SERIES_NL: Partial<Messages> = {
 
   'labSeries.toast.summary': 'Labproeven: {imported} geïmporteerd, {replaced} vervangen, {unchanged} ongewijzigd, {skipped} overgeslagen, {failed} mislukt',
   'labSeries.toast.dovFetched': 'Boringen opgehaald uit DOV: {names}',
+  'labSeries.toast.dovFetchedOne': 'Boring {name} uit DOV gehaald',
 
   'labSeries.section.title': 'Labproeven ({n})',
   'labSeries.section.loading': 'Labproeven worden geladen…',
