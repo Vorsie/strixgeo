@@ -10,6 +10,7 @@
 import type { CptPdfNote, CptPdfSounding } from '../api/clients/cptPdf'
 import type { MessageKey } from '../i18n/locales/en'
 import type { MessageParams, Translator } from '../i18n/translate'
+import { drilledIntervalsText, parseDrilledIntervals } from './drilledIntervals'
 
 /** Catalogue key per known note code. A typed map, so a key missing from the
  *  EN catalogue is a ``tsc`` error rather than a key rendered on screen. */
@@ -24,20 +25,6 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
 }
 
-/** The ``[top, base]`` pairs of a ``DRILLED_INTERVALS`` note, or null when malformed. */
-function drilledIntervals(params: Record<string, unknown>): Array<[number, number]> | null {
-  const raw = params.intervals
-  if (!Array.isArray(raw) || raw.length === 0) return null
-  const out: Array<[number, number]> = []
-  for (const pair of raw) {
-    if (!Array.isArray(pair) || pair.length !== 2) return null
-    const [top, base] = pair as unknown[]
-    if (typeof top !== 'number' || typeof base !== 'number') return null
-    out.push([top, base])
-  }
-  return out
-}
-
 /**
  * The params of a note as its sentence shows them. A drilled-interval note
  * carries its stretches as a list; the sentence names each one ("32.0 to
@@ -48,12 +35,9 @@ function drilledIntervals(params: Record<string, unknown>): Array<[number, numbe
 function noteParams(note: CptPdfNote, t: Translator): MessageParams | null {
   const params = note.params ?? {}
   if (note.code !== 'DRILLED_INTERVALS') return messageParams(params)
-  const intervals = drilledIntervals(params)
-  if (intervals === null) return null
-  const list = intervals
-    .map(([top, base]) => t('cptPdf.drilledInterval', { top: top.toFixed(1), base: base.toFixed(1) }))
-    .join(', ')
-  return { ...messageParams(params), list }
+  const intervals = parseDrilledIntervals(params.intervals)
+  if (intervals === null || intervals.length === 0) return null
+  return { ...messageParams(params), list: drilledIntervalsText(intervals, t) }
 }
 
 /** Keep only the params a message can show (strings and numbers). */
