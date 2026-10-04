@@ -67,6 +67,8 @@ import { lensEnclosingMatrix } from './lensEnclosure'
 import { type ColumnGeom, type UnitGeom } from './sectionGeom'
 import { type CombHost } from './tiedRawPiece'
 import { type InputCurve, type Point } from './types'
+import { columnDeepestBase } from './columnMetrics'
+import { withFloorCrossings } from './floorCrossing'
 
 /** Small epsilon in metres for elevation comparisons before the 1 mm snap. */
 const ELEV_EPS = 1e-6
@@ -464,6 +466,7 @@ function emitLens(
   const apexX = ovApex ? ovApex.apexX : colX + apexFrac * (facingX - colX)
   const apexElev = ovApex ? ovApex.apexElev : lensMid
   const label: LensLabel = { formationId: u.formationId, bodyId: u.bodyId }
+  const start = out.length
   let emitted: boolean
   if (ovApex) {
     emitted = emitOverriddenLensClosing(iu, colX, { x: apexX, y: apexElev }, label, nextId, out, lensLabels)
@@ -502,6 +505,13 @@ function emitLens(
   // the ZAND face owns below it). See ``clampFloodFlankToTie`` in emitFloodWedge.
   const gapTies = activeTies.filter((t) => t.gapIndex === gapIndex)
   emitFloodWedge(colX, facingX, facing, u.topElev, u.baseElev, apexX, apexElev, null, nextFloodId, lensLabels, out, undefined, lensMatrix, gapTies, undefined, col)
+  // A lens STRADDLING the gap's shallow-TD floor (a unit of the deep column whose top is above the
+  // facing TD and whose base is below it) crosses the floor line mid-flank; give the flanks and the
+  // wedges a vertex there so the floor splits them (``floorCrossing``). Without it the above-floor
+  // pieces dead-end and the vacated wedge under a neighbouring onlap loses its face (the owner's
+  // 2026-08-18 channel scene, exposed once the flat sub-TD run to the section edge was retired).
+  const floor = Math.max(columnDeepestBase(col), columnDeepestBase(facing))
+  for (let ci = start; ci < out.length; ci++) out[ci] = { ...out[ci], points: withFloorCrossings(out[ci].points, floor) }
   return true
 }
 
