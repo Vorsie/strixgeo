@@ -212,16 +212,33 @@ describe('tutorialCatalogue owner rulings 2026-09-05', () => {
     expect(bare).toEqual([])
   })
 
-  it('ruling 5: the DOV import steps chain through the Import menu', () => {
+  it('ruling 5: the DOV import steps chain through the Import menu and its group row', () => {
+    // Owner 2026-10-04: "one button for cpt's with suboptions, same for
+    // drillings" - each route now sits behind its group row, so the chain
+    // walks menu button -> group row -> route.
     expect(stepById('import-cpt-dov')?.anchors).toEqual([
       'stage-tab-data',
       'import-menu-button',
+      'import-group-cpt',
       'import-verb-cpt-dov',
+    ])
+    expect(stepById('import-gef')?.anchors).toEqual([
+      'stage-tab-data',
+      'import-menu-button',
+      'import-group-cpt',
+      'import-verb-cpt-gef',
     ])
     expect(stepById('import-borehole-dov')?.anchors).toEqual([
       'stage-tab-data',
       'import-menu-button',
+      'import-group-borehole',
       'import-verb-borehole-dov',
+    ])
+    // DMT stays a top-level row: no group hop.
+    expect(stepById('import-more')?.anchors).toEqual([
+      'stage-tab-data',
+      'import-menu-button',
+      'import-verb-dmt',
     ])
   })
 
