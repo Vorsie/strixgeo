@@ -29,6 +29,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSou
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants import (
     NOTE_CLIPPED_POINTS,
+    NOTE_DRILLED_INTERVALS,
     NOTE_ELEVATION_AXIS,
     NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
     NOTE_NO_POSITION_PRINTED,
@@ -144,7 +145,14 @@ class PdfReportTriager(GroundModelLogger):
             listed[origin] = []
             for sounding in merged:
                 key = _unique_key(sounding, keys)
-                entry = _report_sounding(key, origin, sounding, evidence, self._ocr is not None)
+                entry = _report_sounding(
+                    key,
+                    origin,
+                    sounding,
+                    evidence,
+                    self._ocr is not None,
+                    campaign_code=_first(list(report.fingerprint.campaign_codes)),
+                )
                 self.debug("sounding %s: notes %s", key, [n.code for n in entry.notes])
                 listed[origin].append(entry)
                 soundings[key] = sounding
@@ -225,8 +233,13 @@ def _report_sounding(
     sounding: DigitisedSounding,
     evidence: dict[int, PageEvidence],
     ocr: bool,
+    campaign_code: str | None = None,
 ) -> ReportSounding:
-    """Combine a merged sounding with its sheets' header evidence and warnings."""
+    """Combine a merged sounding with its sheets' header evidence and warnings.
+
+    ``campaign_code`` is the report's campaign code, the stand-in project id
+    of a sounding whose sheets print no project number.
+    """
     pages = [evidence[n] for n in sounding.page_numbers if n in evidence]
     ground = _first([p.ground_level_m for p in pages])
     if ground is None:
@@ -270,6 +283,15 @@ def _report_sounding(
             f"{clipped} point(s) on an axis maximum: the true value is higher",
             count=clipped,
         )
+    drilled = [[top, base] for top, base in sounding.drilled_intervals()]
+    if drilled:
+        listed = ", ".join(f"{top:.1f} to {base:.1f} m" for top, base in drilled)
+        note(
+            NOTE_DRILLED_INTERVALS,
+            f"drilled: {listed}",
+            intervals=drilled,
+            count=len(drilled),
+        )
     if kind is GraphKind.RASTER:
         note(NOTE_READ_FROM_IMAGE, "read from an image: check the orange curve against the sheet")
     return ReportSounding(
@@ -290,4 +312,6 @@ def _report_sounding(
         digitised=bool(sounding.curves),
         warnings=tuple(warnings),
         notes=tuple(notes),
+        project_number=_first([p.project for p in pages]),
+        campaign_code=campaign_code,
     )
