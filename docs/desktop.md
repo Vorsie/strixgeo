@@ -321,14 +321,21 @@ owner rulings are in [parsers-cpt-pdf.md](parsers-cpt-pdf.md).
   re-posted with `confirm_refresh`. Ends on `CptPdfImportReport` (per-sounding
   status + the digitiser's remarks).
 - `CptPdfTriageList` — campaign soundings with an 80 dpi page thumbnail
-  (`GET /cpt/pdf/page/...png`), all ticked; unknown-origin soundings apart and
-  unticked; a collapsed "Not imported" block naming the desk-study ids once plus
-  the repeated / unread sheets; the "tick reading unavailable" note when the
-  backend has no OCR.
+  (`GET /cpt/pdf/page/...png`, fetched through `cptPdfClient.pageBlob` and shown
+  from a `blob:` URL by `usePdfPageThumbnail`, because the renderer CSP blocks an
+  http `<img>`; a bounded in-memory cache keeps a scrolled list from refetching),
+  all ticked; unknown-origin soundings apart and unticked; a collapsed "Not
+  imported" block naming the desk-study ids once plus the repeated / unread
+  sheets; the "tick reading unavailable" note when the backend has no OCR. Row
+  notes come from the backend as codes (`notes[]`, `ReportSoundingNote`) and are
+  rendered in the app language by `utils/cptPdfNoteText.ts` (`cptPdf.note.<code>`),
+  falling back to the English `warnings[i]` for an unknown code. The row link
+  "Check axes…" opens the calibration overlay; one line under the summary says
+  when to open it.
 - `CptPdfCalibrationOverlay` — the backend's overlay PNG (frames cyan, digitised
   curve orange) with an SVG of draggable frame corners on top; per panel the two
   tick values of each axis (`NumericInput`), the quantity (`<select>`), and an
-  eyedropper (one-pixel canvas read → curve colour → re-extract). "Re-extract"
+  eyedropper (one-pixel canvas read → curve colour → re-extract). "Read again"
   posts the calibration dicts to `/cpt/pdf/digitise`; the header fields the sheet
   did not print (X, Y, EPSG default 31370, ground level, date) are typed here.
   The dict edits are pure functions in `cptPdfCalibrationEdits.ts`; an axis anchor
