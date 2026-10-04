@@ -725,6 +725,7 @@ export const SECTIONS_NL = {
   // koppelingen + aandachtspunten
   // ---------------------------------------------------------------------------
   'sections.tie.accept': 'Koppeling aanvaarden',
+  'sections.tie.acceptedNotBanded': 'Aanvaard, niet als band getekend: de banden blijven aparte lichamen',
   'sections.tie.reject': 'Koppeling verwerpen',
   'sections.tie.proposed': 'Voorgesteld koppelprofiel. Rechtsklik om te aanvaarden of te verwerpen',
   'sections.tie.keepFlagged': 'Gemarkeerd laten',
