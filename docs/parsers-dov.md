@@ -166,7 +166,22 @@ imported as further observations). Stream tag → type: the tags seen on real
 files (`lithologischebeschrijving`, `informelestratigrafie`,
 `formelestratigrafie`, `gecodeerdelithologie`) plus the other four derived
 by DOV's naming rule (`DOV_FILE_STREAM_TAGS`); an unknown tag is flagged,
-never dropped silently. Samples (`monster`) in a file are NOT imported.
+never dropped silently.
+
+Samples (`<monster>`, root level next to `<boring>`) are imported with the
+boring they name in `bemonsterdObject` (permkey first, else the
+identificatie / alternative name): the DOV `identificator` is the permkey,
+any other `identificator` the sample number; `bemonsteringsplaats/van|tot`
+the interval (no `tot` = spot sample); `monstertype` and
+`bemonsteringsinstrument` are codelist URIs reduced to their last segment
+(the token the WFS row carries). Root-level `<observatie>` elements naming a
+sample by permkey (`geobserveerd_object`) are read when they are a grain-size
+curve (`DovGrainSizeParser.parse_observation_element`, the bbox parser);
+other observations are flagged, not imported. The `<monster>` shape was
+verified on a live `/data/monster/{permkey}.xml` download (2026-10-04); none
+of the owner's five files carries a sample, so the file placement is
+UNVERIFIED and pinned by the synthetic
+`tests/fixtures/dov_boring_files_synthetic/boring_met_monsters.xml`.
 
 Every boring carries import flags (`ValidationIssue`s, each message naming
 the boring; a flag never refuses a boring):
@@ -194,9 +209,19 @@ the boring; a flag never refuses a boring):
 | `INTERPRETATION_WITHOUT_BORING` | warning | file level: an interpretation names a boring the file does not hold |
 | `DUPLICATE_BORING_IN_FILE` | warning | the same identificatie twice in one file (second dropped) |
 | `NOT_IMPORTED` | error | a NEW boring without a usable position was not persisted |
+| `SAMPLES_PRESENT` | info | samples imported with the boring (count, grain-size curves) |
+| `SAMPLE_WITHOUT_DEPTH` | warning | a sample without `bemonsteringsplaats/van` (not imported) |
+| `SAMPLE_WITHOUT_BORING` | warning | file level: a sample names a boring the file does not hold |
+| `SAMPLE_OBSERVATIONS_NOT_IMPORTED` | info | a sample's lab observations other than grain size (parameters listed) |
 
 The parsers' own codes (`INVALID_INTERVAL`, `NO_COORDINATES`, …) ride in the
-same list. Re-import consent: see `docs/api.md`.
+same list. Every finding carries `params` (the message's variable parts:
+counts, names, depths, permkeys); the desktop renders it in the interface
+language from the `importFlags.code.<CODE>` catalogue entry
+(`utils/importFlagText.ts`), the raw code as a tag and the English `message`
+as the tooltip. A new code needs a params dict here AND a catalogue entry
+there (`test_dov_boring_file_flag_params.py` pins the params, the panel's NL
+test the sentences). Re-import consent: see `docs/api.md`.
 
 **Virtuele Boring** (`virtuele_boring_client.py`):
 DOV's per-point subsurface model API. ``GET /dov/virtuele-boring/lagenmodellen``
