@@ -10185,3 +10185,29 @@ synchronously from every tie gesture.
 **When to revisit.** When a tester reports a refused packing tie right after a
 litho tie, or a Parameters tree that disagrees with the section for longer than
 the recompute debounce.
+
+## 287. Sub-TD "no tie, no band" follow-ups (S — Tier E) — STATUS: OPEN
+
+**What.** The 2026-10-04 ruling (*"as long as the bottom of S11 is not correlated
+to 19/100-S3 the loop isn't closed and there is nothing to draw"*) retired the
+litho engine's level-made sub-TD fills (flat-floor substrate, the "a column
+beyond reads it" onlap guards, the flat run to the section edge). Three
+level-based pieces were left standing on purpose and need the owner's word:
+(a) the geotech constructive arm (`geotechHierarchicalFill/constructive/
+terminationRun.ts` + `bandContinuation.ts`) still mirrors the 2026-08-21 flat
+run to the run's edge; the geotech frame is clipped to the litho cover, so it
+cannot paint outside it, but the two arms no longer read a blind column the same
+way; (b) the installer #37 straddle sliver (`emitSubTdLenses`) still fills a
+top-tied deep unit flat under the shallow TD where nothing beyond reads the
+strip — not closed by a stored base tie (worked example Cross-section 2 gap 0
+now shows a 0.37 m sliver over the void; section "test" GEO-19/100-S1 -> GEO-08/118-S6
+carries a 2.5 m ZAND (SL:M) sliver flat under S6's TD, -7.81..-10.36); (c) a zero-tie unit whose levels a column
+BEYOND the shallow one read still crosses the blind column as a lens and closes
+against that reader (dev CS1 S7's interbeds toward 1411-B2) — a lens, kept, but
+its reach is decided by a level.
+
+**Why deferred.** Each is an explicit earlier owner ruling the new one does not
+name; changing them without his word risks re-opening shipped dogfeed fixes.
+
+**When to revisit.** On the owner's first dogfeed of the "no tie, no band" build
+(section "test" S11 -> S3, worked example Cross-section 2 gap 0, dev CS1 S7A).
