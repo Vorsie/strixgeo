@@ -5,7 +5,12 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../api/client'
-import { buildContactOverlays } from './contactOverlays'
+import {
+  buildContactOverlays,
+  DEFAULT_CONTACT_OVERLAY_VISIBILITY,
+  filterContactOverlays,
+  type ContactOverlay,
+} from './contactOverlays'
 
 const CPT_ID = 'cpt-1'
 const BH_ID = 'bh-1'
@@ -118,5 +123,39 @@ describe('buildContactOverlays', () => {
 
   it('returns empty list when no models are present', () => {
     expect(buildContactOverlays([], [], [], [], CPT_ID, 'cpt')).toEqual([])
+  })
+})
+
+// Owner 2026-10-04 (Data-stage dogfeed): "make it so that i can turn off
+// lithological boundaries and stratigraphic boundaries". Two independent
+// switches: stratigraphic = source 'geology', lithological = source 'litho'.
+describe('filterContactOverlays: the two Data-stage boundary switches', () => {
+  const overlays: ContactOverlay[] = [
+    { depth_m: 1, color: '#111', label: 'Geo A', source: 'geology', key: 'geology:a' },
+    { depth_m: 2, color: '#222', label: 'Litho B', source: 'litho', key: 'litho:b' },
+    { depth_m: 3, color: '#333', label: 'Geo C', source: 'geology', key: 'geology:c' },
+  ]
+
+  it('both switches on: every boundary is drawn (today\'s behaviour)', () => {
+    expect(filterContactOverlays(overlays, { geology: true, litho: true })).toEqual(overlays)
+  })
+
+  it('lithological boundaries off: no litho line reaches the chart', () => {
+    const out = filterContactOverlays(overlays, { geology: true, litho: false })
+    expect(out.some(o => o.source === 'litho')).toBe(false)
+    expect(out.map(o => o.key)).toEqual(['geology:a', 'geology:c'])
+  })
+
+  it('stratigraphic boundaries off: no geology line reaches the chart', () => {
+    const out = filterContactOverlays(overlays, { geology: false, litho: true })
+    expect(out.map(o => o.key)).toEqual(['litho:b'])
+  })
+
+  it('both off: the chart draws no boundary at all', () => {
+    expect(filterContactOverlays(overlays, { geology: false, litho: false })).toEqual([])
+  })
+
+  it('the default visibility shows both kinds', () => {
+    expect(DEFAULT_CONTACT_OVERLAY_VISIBILITY).toEqual({ geology: true, litho: true })
   })
 })
