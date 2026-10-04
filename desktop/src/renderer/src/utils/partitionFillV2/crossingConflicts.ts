@@ -10,8 +10,8 @@
  *   - ADJACENT ties (``|ci - cj| === 1``) → emitted as ``tie`` curves by
  *     ``emitCurves.resolveTies``.
  *   - JUMP ties / BRIDGES (``|ci - cj| >= 2``) → emitted as deep-to-deep
- *     substrate bridge curves by ``emitSubstrate.emitSubstrateBridges`` AND feed
- *     the flat-floor substrate reach in ``emitBottomTieSubstrate``.
+ *     substrate bridge curves by ``emitSubstrate.emitSubstrateBridges`` (they also fed the
+ *     flat-floor substrate reach of ``emitBottomTieSubstrate``, retired 2026-10-04).
  *
  * Before this module the crossing check lived in ``emitCurves.pruneCrossingTies``
  * and saw ONLY the adjacent ties. A bridge crossing another bridge — or a bridge
