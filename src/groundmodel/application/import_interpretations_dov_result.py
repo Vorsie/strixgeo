@@ -27,6 +27,10 @@ class ImportInterpretationsDovResult:
         Refresh-on-duplicate counter: interpretations whose
         ``dov_permkey`` was already stored under the matched borehole.
         We see them in the WFS response but skip the persist step.
+    skipped_deleted_by_user : int
+        Interpretations whose ``dov_permkey`` the user deleted from the
+        matched borehole (``BoreholeOrm.deleted_dov_permkeys``, owner dogfeed
+        2026-10-01): a deleted track stays deleted on a re-import.
     failed : int
         Number of interpretations that could not be downloaded, parsed,
         or persisted. Per-row failures are isolated.
@@ -39,6 +43,7 @@ class ImportInterpretationsDovResult:
     attached: int = 0
     skipped_no_borehole: int = 0
     skipped_already_present: int = 0
+    skipped_deleted_by_user: int = 0
     failed: int = 0
     per_stream: dict[str, int] = field(default_factory=dict)
     # WFS gap counter. Increments once per ``(borehole, observation_type)``
