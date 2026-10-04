@@ -44,6 +44,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result impor
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import (
     BoreholeWfsRow,
 )
+from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_identificatie_index import (
+    DovBoringIdentificatieIndex,
+)
 from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_parser import (
     DovBoringParser,
 )
@@ -98,8 +101,14 @@ class ImportBoreholeDov(GroundModelLogger):
         # collide (DOV's YYYY-NNNNNN permkey format isn't unique across
         # resource types).
         cache_max_bytes = settings.dov_cache_max_bytes or None
+        # Every boring written to the cache is recorded in the boornummer ->
+        # permkey index a Reset to DOV reads (owner finding 2026-10-04: a cold
+        # scan of the boring cache took 7.2 s), so a fresh import never forces
+        # a scan. The index reads through its own uncapped cache instance.
+        boring_dir = settings.dov_cache_dir / "boring"
+        boring_index = DovBoringIdentificatieIndex(DovXmlCache(boring_dir))
         self._boring_cache = DovXmlCache(
-            settings.dov_cache_dir / "boring", max_bytes=cache_max_bytes
+            boring_dir, max_bytes=cache_max_bytes, put_observer=boring_index.record
         )
         self._interpretation_cache = DovXmlCache(
             settings.dov_cache_dir / "interpretatie", max_bytes=cache_max_bytes
