@@ -66,6 +66,7 @@ export const LAB_SERIES = {
   // Result toast.
   'labSeries.toast.summary': 'Lab tests: {imported} imported, {replaced} replaced, {unchanged} unchanged, {skipped} skipped, {failed} failed',
   'labSeries.toast.dovFetched': 'Boreholes fetched from DOV: {names}',
+  'labSeries.toast.dovFetchedOne': 'Borehole {name} fetched from DOV',
 
   // Borehole detail: the Lab tests list.
   'labSeries.section.title': 'Lab tests ({n})',
