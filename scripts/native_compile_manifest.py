@@ -302,6 +302,8 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.cpt.pdf.raster_panel",
     "groundmodel.infrastructure.parsers.cpt.pdf.report_fingerprint",
     "groundmodel.infrastructure.parsers.cpt.pdf.report_sounding",
+    "groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note",
+    "groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants",
     "groundmodel.infrastructure.parsers.cpt.pdf.report_triage",
     "groundmodel.infrastructure.parsers.cpt.pdf.series_resampling",
     "groundmodel.infrastructure.parsers.cpt.pdf.series_score",
