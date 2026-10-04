@@ -78,8 +78,8 @@ function setup(detail: BoreholeDetailResponse = borehole()) {
     resetToDov: vi.fn(async () => ({ tracks: [], discarded_edits: 1, kept_manual: 1 })),
   }
   const onClose = vi.fn()
-  render(<BoreholeTracksDialog open borehole={detail} editing={editing} onClose={onClose} />)
-  return { editing, onClose, detail }
+  const view = render(<BoreholeTracksDialog open borehole={detail} editing={editing} onClose={onClose} />)
+  return { editing, onClose, detail, rerender: view.rerender }
 }
 
 function trackRow(label: RegExp): HTMLElement {
@@ -98,6 +98,29 @@ describe('BoreholeTracksDialog — the track list', () => {
     expect(within(strat).getByText('Manual')).toBeTruthy()
     // The fixture's field log is grouped into one track per kind.
     expect(screen.getAllByRole('row', { name: /Field log:/ }).length).toBeGreaterThan(0)
+  })
+
+  // Owner dogfeed 2026-10-01: "after editing a DOV track and pressing Ctrl+Z the
+  // values come back but the track still reads Edited by hand". The backend
+  // decides (the undo's PUT answers edited_manually_at: null when the track
+  // holds exactly DOV's content again); the list only shows what the refetched
+  // borehole says - an undo back to DOV reads DOV, one that leaves a
+  // difference keeps "Edited by hand".
+  it('the badge follows the refetched borehole after an undo: back to DOV reads DOV', () => {
+    const edited = borehole()
+    edited.observations[0] = { ...edited.observations[0], edited_manually_at: '2026-10-01T09:00:00Z' }
+    const { editing, onClose, rerender } = setup(edited)
+    expect(within(trackRow(/Coded lithology/)).getByText('Edited by hand')).toBeTruthy()
+
+    // The undo's refetch: the PUT answered edited_manually_at null.
+    rerender(<BoreholeTracksDialog open borehole={borehole()} editing={editing} onClose={onClose} />)
+    const coded = trackRow(/Coded lithology/)
+    expect(within(coded).getByText('DOV')).toBeTruthy()
+    expect(within(coded).queryByText('Edited by hand')).toBeNull()
+
+    // An undo that leaves a difference: the refetch still carries the stamp.
+    rerender(<BoreholeTracksDialog open borehole={edited} editing={editing} onClose={onClose} />)
+    expect(within(trackRow(/Coded lithology/)).getByText('Edited by hand')).toBeTruthy()
   })
 
   it('a field-log kind the borehole already has cannot be added twice', () => {
