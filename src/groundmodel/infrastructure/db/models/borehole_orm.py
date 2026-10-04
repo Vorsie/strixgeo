@@ -6,7 +6,8 @@ from datetime import date, datetime
 from uuid import UUID
 
 from geoalchemy2 import Geometry, WKBElement
-from sqlalchemy import Date, DateTime, Double, Index, Integer, String, func
+from sqlalchemy import Date, DateTime, Double, Index, Integer, String, func, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -91,6 +92,18 @@ class BoreholeOrm(Base):
     # write and never the source of truth.
     n_drill_segments: Mapped[int | None] = mapped_column(Integer, nullable=True)
     n_field_log_intervals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # The DOV permkeys of the interpretation tracks the user DELETED from this
+    # borehole (owner dogfeed 2026-10-01: "a deleted DOV track comes back on a
+    # DOV bbox re-import"). A re-import keeps refreshing a held borehole with
+    # interpretations DOV published since, so a permkey missing from the
+    # borehole is not proof that it is new: this list is. An array on the row
+    # (not a table): it rides the ``.strix`` bundle through the generic column
+    # serialiser with no format bump, and dies with the borehole. Additive -
+    # empty for every row written before migration c8d9e0f1a2b4.
+    deleted_dov_permkeys: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False, default=list, server_default=text("'{}'")
+    )
 
     # ``created_at`` and ``updated_at`` are timestamps — they record WHEN the
     # row was inserted or last changed, NOT what changed. We deliberately do
