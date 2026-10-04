@@ -98,3 +98,36 @@ describe('messageForDetail — FastAPI validation list shape', () => {
     expect(messageForDetail([{ loc: ['body'] }], 'HTTP 422')).toBe('HTTP 422')
   })
 })
+
+// Owner dogfeed 2026-10-03: the lab preview's 409 ``lab_borehole_conflict``
+// showed the server's English sentence in a Dutch app. It names the borehole
+// when the backend knows it, and tells the engineer to open the preview again.
+describe('lab_borehole_conflict, translated at the presentation boundary', () => {
+  const named = {
+    code: 'lab_borehole_conflict',
+    borehole_name: 'GEO-19/122-B7A',
+    message: 'Borehole GEO-19/122-B7A was stored in this project by another request at the same moment.',
+  }
+  const unnamed = { code: 'lab_borehole_conflict', borehole_name: null, message: 'x.txt: the borehole …' }
+
+  it('English names the borehole and says to open the preview again', () => {
+    const msg = messageForDetail(named, 'fallback', 'en')
+    expect(msg).toContain('GEO-19/122-B7A')
+    expect(msg).toMatch(/preview again/i)
+  })
+
+  it('Dutch names the borehole and says to open the voorbeeld again', () => {
+    const msg = messageForDetail(named, 'fallback', 'nl')
+    expect(msg).toContain('GEO-19/122-B7A')
+    expect(msg).toMatch(/opnieuw/i)
+    expect(msg).not.toMatch(/another request/i)
+  })
+
+  it('without a borehole name the copy does not print a placeholder', () => {
+    for (const language of ['en', 'nl'] as const) {
+      const msg = messageForDetail(unnamed, 'fallback', language)
+      expect(msg).not.toMatch(/\{|null|undefined/)
+      expect(msg).not.toBe(unnamed.message)
+    }
+  })
+})
