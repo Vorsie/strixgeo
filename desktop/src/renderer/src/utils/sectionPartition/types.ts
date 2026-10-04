@@ -199,7 +199,7 @@ export interface PartitionRegion {
   debugSrc?: string
   /**
    * Set on a v2 region painted by a FALLBACK label authority — the sub-TD substrate
-   * wedge (``emitBottomTieSubstrate``) or a flood-closure wedge (``emitLonePinch`` /
+   * wedge (the retired ``emitBottomTieSubstrate``, 2026-10-04) or a flood-closure wedge (``emitLonePinch`` /
    * ``emitFloodWedge``): no drilled column vertical bounds its face, so the paint is
    * inferred fill, not drilled data. Tie-born band / onlap / lens regions never carry
    * it. OPTIONAL and absent-when-false so v1 and every existing consumer (deep-equal
