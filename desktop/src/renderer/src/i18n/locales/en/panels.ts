@@ -13,6 +13,7 @@ export const PANELS = {
   'map.terrain': 'Terrain',
   'map.opacity': 'Opacity',
   'map.visibleOnMap': 'Visible on map',
+  'map.legendLabTests': 'Boreholes with lab tests',
   'map.boreholeType': 'Borehole type',
   'map.borehole': 'Borehole',
   'map.editMetadata': 'Edit metadata',
