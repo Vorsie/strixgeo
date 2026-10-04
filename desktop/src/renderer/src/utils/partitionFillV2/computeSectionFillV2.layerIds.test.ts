@@ -12,8 +12,9 @@
  *   * a tie-born band spanning the gap names BOTH columns' producing layers;
  *   * a single-column unit's fill names only its OWN layer — never the
  *     different-formation neighbour that merely abuts it;
- *   * a FALLBACK region (the sub-TD substrate wedge) carries NO layerIds —
- *     inferred fill names no layer.
+ *   * the sub-TD wedge under the sloping tied base is NOT painted at all — the flat-floor
+ *     substrate that used to fill it (a fallback region naming no layer) is retired (owner
+ *     2026-10-04, "no tie, no band").
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -62,9 +63,9 @@ function regionAt(regions: SectionRegion[], gap: number, f: number, e: number): 
   return regions.find((r) => r.gapIndex === gap && inPoly(f, e, r.polygon))
 }
 
-/** The substrate fixture from computeSectionFillV2.fallback.test.ts: a SAND band tied
- *  top-top + base-base over a sloping base, CLAY above (untied), a sub-TD substrate
- *  wedge on the shallow side. */
+/** The fixture from computeSectionFillV2.fallback.test.ts: a SAND band tied top-top +
+ *  base-base over a sloping base, CLAY above (untied), the no-data void under the tied base on
+ *  the shallow side. */
 function fixture(): { columns: PartitionColumn[]; edges: CorrelationEdge[] } {
   const columns = [
     col('L', 10, [
@@ -89,10 +90,8 @@ function assertLayerIds(regions: SectionRegion[]): void {
   const band = regionAt(regions, 0, 0.5, 5)
   expect(band?.formationId).toBe(SAND)
   expect([...(band?.layerIds ?? [])].sort()).toEqual(['L-sand', 'R-sand'])
-  // The sub-TD substrate wedge is INFERRED fill — no producing layer, ever.
-  const wedge = regionAt(regions, 0, 0.9, -1)
-  expect(wedge?.fallback).toBe(true)
-  expect(wedge?.layerIds).toBeUndefined()
+  // Under the tied base, below the shallow TD: the no-data void — no region, so no layer.
+  expect(regionAt(regions, 0, 0.9, -1)).toBeUndefined()
   // Every CLAY region names only clay layers — the abutting SAND is not evidence.
   const clays = regions.filter((r) => r.formationId === CLAY)
   expect(clays.length).toBeGreaterThanOrEqual(1)
@@ -106,12 +105,12 @@ describe('computeSectionFillV2 — regions name their producing layers on both l
     setTwoSidedTerminations(false)
   })
 
-  it('flag OFF (boundary-composition vote): band names both sand layers; fallback names none', () => {
+  it('flag OFF (boundary-composition vote): band names both sand layers; the sub-TD void names none', () => {
     const { columns, edges } = fixture()
     assertLayerIds(computeSectionFillV2(columns, edges, undefined, [0, 40]))
   })
 
-  it('flag ON (seeded paint-bucket): band names both sand layers; fallback names none', () => {
+  it('flag ON (seeded paint-bucket): band names both sand layers; the sub-TD void names none', () => {
     const prev = setTwoSidedTerminations(true)
     try {
       const { columns, edges } = fixture()
