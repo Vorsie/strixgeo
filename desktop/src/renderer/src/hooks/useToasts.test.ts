@@ -12,7 +12,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { TOAST_TIMEOUT_MS, useToasts } from './useToasts'
+import { TOAST_LONG_TIMEOUT_MS, TOAST_TIMEOUT_MS, useToasts } from './useToasts'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -210,5 +210,45 @@ describe('useToasts — a recurring toast replaces itself', () => {
     })
 
     expect(result.current.toasts).toHaveLength(2)
+  })
+})
+
+// Owner finding 2026-10-04 ("import report disappears automatically, a bit
+// too fast"): a summary of several outcomes takes longer to read than a
+// one-fact toast, so its caller may ask for the long window. It still goes
+// away on its own: it reports, it does not ask.
+describe('useToasts: a long summary stays long enough to read', () => {
+  it('a toast asked to stay longer is still on screen after the ordinary window', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => {
+      result.current.toast('success', '2 imported', undefined, { durationMs: TOAST_LONG_TIMEOUT_MS })
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_TIMEOUT_MS + 100)
+    })
+    expect(result.current.toasts).toHaveLength(1)
+    expect(result.current.toasts[0].sticky).toBe(false)
+  })
+
+  it('and it still goes away on its own once its own window has passed', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => {
+      result.current.toast('success', '2 imported', undefined, { durationMs: TOAST_LONG_TIMEOUT_MS })
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_LONG_TIMEOUT_MS)
+    })
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('a longer window never makes an error expire', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => {
+      result.current.toast('error', 'nothing imported', undefined, { durationMs: TOAST_LONG_TIMEOUT_MS })
+    })
+    act(() => {
+      vi.advanceTimersByTime(TOAST_LONG_TIMEOUT_MS * 10)
+    })
+    expect(result.current.toasts).toHaveLength(1)
   })
 })
