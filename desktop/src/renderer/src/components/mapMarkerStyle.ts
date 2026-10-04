@@ -114,3 +114,90 @@ export function markerTooltipElement(lines: TooltipLines): HTMLElement {
   }
   return container
 }
+
+/** Inputs of {@link boreholeMarkerSvg}. */
+export interface BoreholeMarkerSvgInput {
+  /** Square fill: the active filter axis colour. */
+  fill: string
+  /** The single, primary selection (enlarged, dark-red stroke). */
+  selected: boolean
+  /** A marquee pick or an inspector-row hover (dashed blue ring). */
+  ringed: boolean
+  /** The borehole carries at least one lab test: draw the flask badge. */
+  hasLabTests: boolean
+}
+
+/** The markup + geometry a Leaflet ``divIcon`` needs for a borehole marker. */
+export interface BoreholeMarkerSvg {
+  /** Inline SVG markup (no user text: safe as divIcon ``html``). */
+  html: string
+  /** Icon width / height, px. */
+  width: number
+  height: number
+  /** Icon anchor ``[x, y]`` = the square's centre, so the position stays put. */
+  anchor: [number, number]
+  /** Top of the square's box inside the icon (the flask's headroom), px. */
+  squareTop: number
+}
+
+/** Room the lab-test flask badge takes above and right of the square, px. */
+const LAB_FLASK_SPAN_PX = 6
+
+/**
+ * The borehole marker: a filled SQUARE (shape = source kind, docs/ux.md), with
+ * a small flask badge at its top-right corner when the borehole carries lab
+ * tests (owner 2026-10-04 — the same flask the Data list shows).
+ *
+ * Sizes match the CPT markers' radii (RADIUS = 4 → 9px square,
+ * RADIUS_SELECTED = 7 → 14px square) so both families read at the same visual
+ * weight. The badge adds headroom ABOVE and room to the RIGHT only, and the
+ * anchor follows the square's centre, so a borehole never moves on the map
+ * when its first lab test arrives.
+ *
+ * Parameters
+ * ----------
+ * input : BoreholeMarkerSvgInput
+ *     Fill, selection / ring state and whether to draw the flask.
+ *
+ * Returns
+ * -------
+ * BoreholeMarkerSvg
+ *     The markup, icon size, anchor and the square's top offset.
+ */
+export function boreholeMarkerSvg(input: BoreholeMarkerSvgInput): BoreholeMarkerSvg {
+  const { fill, selected, hasLabTests } = input
+  const ringed = input.ringed && !selected
+  const size = selected ? 14 : 9
+  // Stroke: selection → dark-red, marquee / hover → blue, default → dark brown.
+  const stroke = selected ? '#7f1d1d' : ringed ? '#2563eb' : '#3f2a1a'
+  const strokeWidth = selected || ringed ? 2 : 1.2
+  // Pulling stroke-width / 2 inward keeps the stroke inside the viewbox;
+  // otherwise selection growth pixels get clipped by the icon's rect.
+  const inset = strokeWidth / 2
+  const rectSize = size - strokeWidth
+  // The ring needs 2 px around the square.
+  const boxSize = ringed ? size + 4 : size
+  const offset = ringed ? 2 : 0
+  const top = hasLabTests ? LAB_FLASK_SPAN_PX : 0
+  const width = hasLabTests ? offset + size + LAB_FLASK_SPAN_PX : boxSize
+  const height = boxSize + top
+  const ringMarkup = ringed
+    ? `<rect x="-2" y="${top - 2}" width="${size + 4}" height="${size + 4}" ` +
+      `fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="2 2" />`
+    : ''
+  // Flask badge: neck + conical body, ~7 px, white with a dark outline so it
+  // reads on light and dark basemaps; it overlaps the square's corner by 1 px.
+  const fx = offset + size - 1
+  const flaskMarkup = hasLabTests
+    ? `<path data-glyph="lab-flask" d="M${fx + 2.5},0.5 h2 v2 l2.2,3.8 v0.7 h-6.4 v-0.7 l2.2,-3.8 z" ` +
+      `fill="#ffffff" stroke="#1f2937" stroke-width="0.9" stroke-linejoin="round" />`
+    : ''
+  const html =
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+    ringMarkup +
+    `<rect x="${inset + offset}" y="${inset + offset + top}" width="${rectSize}" height="${rectSize}" ` +
+    `fill="${fill}" fill-opacity="0.9" stroke="${stroke}" stroke-width="${strokeWidth}" />` +
+    flaskMarkup +
+    `</svg>`
+  return { html, width, height, anchor: [boxSize / 2, top + boxSize / 2], squareTop: top }
+}
