@@ -5,9 +5,8 @@
  * ruling 8i(e) "everything must lens" generalised below the facing TD).
  *
  * THE GAP THIS CLOSES. A 0-corr unit that sits ENTIRELY below the FACING column's TD
- * is swept by the deep-to-deep substrate (``emitBottomTieSubstrate`` / the bridge
- * bands): the enclosing formation floods full-width and the minority slot renders
- * ABSENT (CS1 col14 gap14 u4 SILT below col15's TD −3.24; CS1 col18 gap17 u2 SILT +
+ * was swept by the deep-to-deep substrate (the retired flat floor / the bridge bands):
+ * the enclosing formation flooded full-width and the minority slot rendered ABSENT (CS1 col14 gap14 u4 SILT below col15's TD −3.24; CS1 col18 gap17 u2 SILT +
  * u3 VEEN below col17's TD 10.42). The owner ruled the lens is UNCONDITIONAL — the
  * unit must still hug its column with a lens on its 0-corr side, even sub-TD.
  *
@@ -32,8 +31,9 @@
  * hugging lens is a statement about where this unit MEETS the facing test's reading, and below
  * that test's TD there is no reading to meet — so the facing column is NOT the boundary. The
  * lens is still a lens, still pinches, but it is measured against the first column that DID read
- * these levels (``terminationRun``), crossing the blind ones on the way. Only a run that meets no
- * reading column at all runs flat to the section edge (``emitContinuation``). The pass itself is
+ * these levels (``terminationRun``), crossing the blind ones on the way. A run that meets no
+ * reading column at all lenses toward the adjacent column (the 2026-08-21 flat run to the section
+ * edge is retired, owner 2026-10-04 "no tie, no band"). The pass itself is
  * unchanged — it still owns every unit entirely below the facing TD, still defers nothing to
  * the sweep, and the F5 corr-1 sub-TD onlap is untouched (an onlap HAS a tie to follow).
  *
@@ -47,15 +47,22 @@
  * read that construction on CS1 S13 -> S6 as *"not plain 2/1/0 ... it now onlaps the sand above,
  * which only has one tie and should onlap halfway that tie but instead spans the whole tie"*.
  *
+ * NO TIE, NO BAND (owner 2026-10-04, section "test": *"as long as the bottom of S11 is not correlated
+ * to 19/100-S3 the loop isn't closed and there is nothing to draw"*; *"if the polygon is closed on all
+ * sides it is a band"*). Below a shallow TD only STORED ties close a polygon. The level test that used
+ * to suppress an onlap ("a column beyond reads these levels, the substrate carries it") is replaced by
+ * a tie test (``bridgeUnderFacing``: a stored jump tie passing under the shallow column below the
+ * unit closes the strip); a level read by a far test closes nothing.
+ *
  * ONE IMPLEMENTATION (audit item 4). The corr-0 termination is emitted by the SHARED
  * ``emitCorr0Termination`` (``emitTerminationSweep.ts``) — the SAME emission authority the
  * ordinary above-TD sweep uses — called in its SUB-TD geometry context (``subTd = true``):
  * the deep-to-deep substrate is the flood the lens holes INTO, so the helper emits ONLY the
  * bare 8b-capped ``emitLensClosing`` pair (top corner → apex → base corner, at
  * ``LENS_PINCH_FRACTION`` for parity), NO facing flood wedge (the facing is above the TD and
- * carries no matrix at this elevation). The substrate's own rules (owner §8 Q3 empty voids,
- * ruling 6 tie-bounded floor, the deep-to-deep flat floor + the 8n(b) band∩column anchoring
- * in ``emitSubstrateBridges``) are UNTOUCHED — only the lens closings enter the curve set.
+ * carries no matrix at this elevation). The bridge rules (owner §8 Q3 empty voids, the 8n(b)
+ * band∩column anchoring in ``emitSubstrateBridges``) are UNTOUCHED — only the lens closings enter
+ * the curve set.
  *
  * Pure module — no React, no Date.now / Math.random, no I/O.
  */
@@ -88,6 +95,78 @@ function columnTD(col: ColumnGeom): number {
   let min = Infinity
   for (const u of col.units) if (u.baseElev < min) min = u.baseElev
   return min
+}
+
+/**
+ * A STORED jump tie (a correlation edge whose endpoints skip at least one column) as the straight
+ * bridge line ``emitSubstrateBridges`` draws for it: the only thing that can close a strip below a
+ * shallow test's TD (owner 2026-10-04, *"if the polygon is closed on all sides it is a band"*).
+ */
+interface BridgeLine {
+  loCi: number
+  hiCi: number
+  loX: number
+  hiX: number
+  loElev: number
+  hiElev: number
+  /** The two tied layers — a unit's own jump tie is not a bridge UNDER that unit. */
+  layerIds: readonly [string, string]
+}
+
+/** Every stored jump tie of the section as a bridge line (same geometry as ``emitSubstrateBridges``). */
+function bridgeLines(section: SectionInput): BridgeLine[] {
+  const { columns } = section
+  const loc = new Map<string, { ci: number; ui: number }>()
+  columns.forEach((c, ci) => c.units.forEach((u, ui) => loc.set(u.layerId, { ci, ui })))
+  const out: BridgeLine[] = []
+  for (const e of section.edges) {
+    const la = loc.get(e.a)
+    const lb = loc.get(e.b)
+    if (!la || !lb || Math.abs(la.ci - lb.ci) < 2) continue
+    const [lo, loSide, hi, hiSide] = la.ci < lb.ci ? [la, e.aSide, lb, e.bSide] : [lb, e.bSide, la, e.aSide]
+    const loU = columns[lo.ci].units[lo.ui]
+    const hiU = columns[hi.ci].units[hi.ui]
+    const loX = columns[lo.ci].x
+    const hiX = columns[hi.ci].x
+    if (Math.abs(hiX - loX) < 1e-9) continue
+    out.push({
+      loCi: lo.ci,
+      hiCi: hi.ci,
+      loX,
+      hiX,
+      loElev: (loSide ?? 'top') === 'top' ? loU.topElev : loU.baseElev,
+      hiElev: (hiSide ?? 'top') === 'top' ? hiU.topElev : hiU.baseElev,
+      layerIds: [e.a, e.b],
+    })
+  }
+  return out
+}
+
+/**
+ * Whether a stored jump tie spanning gap ``gapIndex`` passes UNDER the facing (shallow) column — at
+ * ``facingX``, below ``ceiling`` (the lower of the shallow TD and the unit's own top). Such a bridge
+ * is a drawn statement that the ground under the shallow test continues to a deeper test beyond it,
+ * so the strip between the shallow TD and the bridge is closed by stored ties (the bottom tie on top,
+ * the bridge below — dev Cross-section 1 gap 17: GEO-23/125-S7's clay under the blind S7A, closed by
+ * the jump tie from 1411-B2's sand top to S7's TD), and an onlap flank drawn into it would only cut
+ * that band. A bridge ABOVE the unit closes nothing under it. ``ownLayerId`` excludes the unit's own
+ * jump tie. This REPLACES the retired level test ("a column beyond reads
+ * these levels"): a level a far test merely read closes nothing; only stored ties do (owner
+ * 2026-10-04, *"if the polygon is closed on all sides it is a band"*).
+ */
+function bridgeUnderFacing(
+  bridges: readonly BridgeLine[],
+  gapIndex: number,
+  facingX: number,
+  ceiling: number,
+  ownLayerId?: string,
+): boolean {
+  return bridges.some((b) => {
+    if (b.loCi > gapIndex || b.hiCi < gapIndex + 1) return false
+    if (ownLayerId != null && b.layerIds.includes(ownLayerId)) return false
+    const elev = b.loElev + ((facingX - b.loX) / (b.hiX - b.loX)) * (b.hiElev - b.loElev)
+    return elev < ceiling - ELEV_EPS
+  })
 }
 
 /**
@@ -148,12 +227,13 @@ export function emitSubTdLenses(
   // the sweep uses, so ``labelFaces`` / the walkthrough diag treat it identically.
   let oseq = 0
   const nextOflankId = (): string => `subtdo${oseq++}`
+  const bridges = bridgeLines(section)
   for (let gi = 0; gi + 1 < columns.length; gi++) {
     const left = columns[gi]
     const right = columns[gi + 1]
     // Each side's units lens toward the facing column when they sit below the FACING TD.
-    emitSideSubTd(gi, 'left', gi, left, right, columns, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
-    emitSideSubTd(gi, 'right', gi + 1, right, left, columns, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
+    emitSideSubTd(gi, 'left', gi, left, right, columns, bridges, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
+    emitSideSubTd(gi, 'right', gi + 1, right, left, columns, bridges, activeTies, bridgeGapAnchored, planAt, lensLabels, nextId, nextFloodId, nextOflankId, out)
   }
 }
 
@@ -210,7 +290,7 @@ function emitSubTdOnlap(
   colX: number,
   facingX: number,
   facingTD: number,
-  stripReadBeyond: boolean,
+  bridgedUnder: boolean,
   lensLabels: Map<string, LensLabel>,
   nextOflankId: () => string,
   out: InputCurve[],
@@ -242,14 +322,14 @@ function emitSubTdOnlap(
   // test's TD void floor). There the apex above the unit's top is just the tie rising, the free BASE
   // flank stays under the tie, and the onlap is the ordinary one (owner 2026-10-04, section "test",
   // GEO-19/100-S3's bottom silty sand under the GEO-08/118-S11 jump tie toward GEO-08/118-S8: *"bottom
-  // sand at S3 should just onlap the blue tie to the left, just as any other tie"*). Only where the
-  // strip is a GENUINE hole (``stripReadBeyond`` false): when a deeper column BEYOND the shallow facing
-  // reads these levels, the deep-to-deep substrate carries the unit across and a flank would only cut
-  // a seam into it (the same guard the bottom-tie onlap below uses).
+  // sand at S3 should just onlap the blue tie to the left, just as any other tie"*). Only where no
+  // OTHER stored jump tie passes under the facing column below the unit (``bridgedUnder`` false): a
+  // bridge band of drawn ties closes that strip and a flank would only cut a seam into it. A level a
+  // far test read closes nothing (owner 2026-10-04, "no tie, no band").
   const apexElev = halfwayOnTie(tiedElev, facingTiedElev)
   const spanLo = Math.min(u.topElev, u.baseElev)
   const spanHi = Math.max(u.topElev, u.baseElev)
-  const tieRunsUnderFacing = !baseTied && facingTiedElev < facingTD - ELEV_EPS && !stripReadBeyond
+  const tieRunsUnderFacing = !baseTied && facingTiedElev < facingTD - ELEV_EPS && !bridgedUnder
   if ((apexElev > spanHi + ELEV_EPS && !tieRunsUnderFacing) || apexElev < spanLo - ELEV_EPS) return false
   return emitSubTdOnlapFlank(u, baseTied, tiedElev, facingTiedElev, colX, facingX, lensLabels, nextOflankId, out)
 }
@@ -271,6 +351,7 @@ function emitSideSubTd(
   col: ColumnGeom,
   facing: ColumnGeom,
   columns: readonly ColumnGeom[],
+  bridges: readonly BridgeLine[],
   activeTies: readonly ResolvedTie[],
   bridgeGapAnchored: ReadonlySet<string>,
   planAt: ReadonlyMap<string, TerminationPlan>,
@@ -284,10 +365,8 @@ function emitSideSubTd(
   // THE BOTTOM TIE MAKES THE SHALLOW COLUMN A BOUNDARY (owner 2026-09-07, re-ruled 2026-09-23 "plain
   // 2/1/0 everywhere"). When a tie in this gap lands on the FACING column's TD (its deepest contact)
   // from a deep unit's top, the tied unit onlaps to the HALFWAY point of that tie and every untied
-  // unit below it is a LENS at its own level toward the shallow column when no column beyond it read
-  // these levels — never a flat run to the edge (``emitContinuation``). Absent a bottom tie the
-  // 2026-08-21 continuous-band law stands: a unit whose direction never meets a reading column runs
-  // flat to the edge.
+  // unit below it is a LENS at its own level. Here the flag only keeps the straddle sliver (below)
+  // out of that configuration: the onlap owns the wedge and the rest is the no-data void.
   const facingTdTied =
     Number.isFinite(facingTD) &&
     activeTies.some((t) => {
@@ -324,15 +403,15 @@ function emitSideSubTd(
   // the lens is measured against the first column that READ these levels in the blind direction
   // (``terminationRun``), crossing blind columns on the way — the ordinary lens (``emitCorr0Termination``
   // in its sub-TD flood context, the bare 8b-capped closing at ``LENS_PINCH_FRACTION`` about the unit's
-  // own mid-elevation). A run that meets NO reading column runs FLAT to the section edge
-  // (``emitContinuation``) — EXCEPT below a bottom tie, where the shallow column IS the boundary the
-  // tie declares and the unit lenses toward it at its own level (owner 2026-09-23, plain 2/1/0: TS4's
-  // clay under GEO-19/081-S5, CS1's silty sand under S13; the 2026-09-07 shared-apex wedge riding the
-  // onlap's base flank is gone). A reading column beyond the shallow one still wins, bottom tie or
-  // not (dev CS1: S7's lenses cross the blind S7A toward 1411-B2, which read them).
+  // own mid-elevation). A run that meets NO reading column lenses toward the adjacent (shallow)
+  // column at its own level (owner 2026-09-23 under a bottom tie, 2026-10-04 everywhere — "no tie,
+  // no band": the flat run to the section edge under shallow tests no tie reaches is retired). A
+  // reading column beyond the shallow one still sets where the lens closes, bottom tie or not (dev
+  // CS1: S7's lenses cross the blind S7A toward 1411-B2, which read them): that is a lens at its own
+  // level, not a band.
   const emitCorr0SubTd = (pu: UnitGeom, hostUnitIndex: number, eff: EffectiveCorr): void => {
     const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev)
-    if (!run.reads && !facingTdTied && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) return
+    if (run.toEdge && emitContinuation(pu, colX, run.column.x, lensLabels, nextId, out)) return
     const target = run.reads ? run.column : facing
     emitCorr0Termination(
       pu, hostUnitIndex, eff, col, target, side, colX, target.x, gapIndex, Infinity,
@@ -360,14 +439,15 @@ function emitSideSubTd(
       // deep unit CONTINUES to the facing column (2/1/0), so it reaches under the shallow column's TD
       // to meet its base; an UNTIED lone straddler stays a pinch/lens by 2/1/0 and is NOT filled here
       // (that also skips the near-coincident-column artifact — CS1 gap21, a 0.04 m untied straddler at
-      // two tests 0.2 m apart). The base must be untied on this side (a base tie is owned by
-      // ``emitBottomTieSubstrate`` / a bridge — ``!piece.eff.baseTied`` guards the double-fill). And it
-      // fills ONLY a GENUINE hole: ``terminationRun`` looks past the shallow facing column, and when a
-      // DEEP column beyond it READS the strip's levels (CS1 gap14/15: a jump-tie substrate carries a
-      // ZAND band across the shallow col15 into the strip), the deep-to-deep substrate already owns the
-      // sub-TD zone → skip, or the fill would re-partition an already-covered strip (the golden CS1
-      // cascade). Only where nothing beyond reads it — the facing is the section edge or all beyond are
-      // shallow (CS2 gap0: B1 is the leftmost column, nothing left of it) — is the strip a real hole.
+      // two tests 0.2 m apart). The base must be untied on this side (a base tie is owned by a tie or
+      // a bridge — ``!piece.eff.baseTied`` guards the double-fill). And it fires ONLY where nothing
+      // beyond the shallow facing column reads the strip's levels (``terminationRun``) — the facing
+      // is the section edge or every column beyond is shallower too (CS2 gap0: B1 is the leftmost
+      // column). This is a RESTRICTION, never a source of fill: it keeps the flat strip to the one
+      // case the owner asked for (installer #37) and out of every gap where a deeper test beyond the
+      // shallow one exists (CS1 gap14/15; worked example Cross-section 2 gaps 1-3 measured
+      // 2026-10-04 — with the level guard lifted the strip painted a flat glauconitic band across
+      // three gaps that no tie closes, against the "no tie, no band" ruling).
       // The fill is GAP-LOCAL (a flat band from the near column to the FACING column at
       // [facingTD .. base]), NOT the cross-section continuation: a near column only MARGINALLY deeper
       // than its facing (TS4 gap0: 1411-B8A 0.04 m below GEO-20/034-S5's TD) must not paint a
@@ -410,8 +490,8 @@ function emitSideSubTd(
       // A split piece has no plan → its inherited corr-1 onlap rides the host tie only when a plan
       // exists for the unsplit host (the bridge case); an interbed-cut piece is corr-0 and lenses above.
       if (eff.corr === 1) {
-        const stripReadBeyond = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev).reads
-        if (plan && emitSubTdOnlap(pu, plan, side, colX, facingX, facingTD, stripReadBeyond, lensLabels, nextOflankId, out)) continue
+        const bridgedUnder = bridgeUnderFacing(bridges, gapIndex, facingX, Math.min(facingTD, pu.topElev), pu.layerId)
+        if (plan && emitSubTdOnlap(pu, plan, side, colX, facingX, facingTD, bridgedUnder, lensLabels, nextOflankId, out)) continue
         // Plain 2/1/0 below the facing TD (owner 2026-09-23): a sub-TD unit whose TOP is tied to
         // the facing column's TD (the bottom tie) and whose base is free onlaps to the HALFWAY point
         // of that tie — the onlap the above-TD sweep (``drawTermination``) would have drawn had the
@@ -424,17 +504,16 @@ function emitSideSubTd(
             Math.abs(nearElev(t) - pu.topElev) <= ELEV_EPS &&
             Math.abs(facingElev(t) - facingTD) <= ELEV_EPS,
         )
-        // Only where the strip is a GENUINE hole: when a deeper column BEYOND the shallow facing
-        // reads these levels, the deep-to-deep substrate / a jump-tie bridge already carries the
-        // unit across the shallow test (dev Cross-section 1 gap 22, GEO-23/125-S5B -> S11: the
-        // 19->23 bridge), and a flank here would cut an unlabelled sliver out of it — the same
-        // ``terminationRun`` guard the straddle-sliver branch uses.
+        // Only where the strip is a GENUINE hole: when a stored jump tie passes under the shallow
+        // facing column below the unit's top, that bridge already closes the strip (dev Cross-section
+        // 1 gap 22, GEO-23/125-S5B -> S11: the 19->23 bridge), and a flank here would cut an
+        // unlabelled sliver out of it — the same bridge guard the straddle-sliver branch uses.
         if (
           bottomTie &&
           eff.topTied &&
           !eff.baseTied &&
           pu.baseElev < facingTD - ELEV_EPS &&
-          !terminationRun(columns, colIndex, side === 'left' ? 1 : -1, facingTD, pu.baseElev).reads
+          !bridgeUnderFacing(bridges, gapIndex, facingX, Math.min(facingTD, pu.topElev))
         ) {
           emitSubTdOnlapFlank(pu, false, pu.topElev, facingTD, colX, facingX, lensLabels, nextOflankId, out)
         }
