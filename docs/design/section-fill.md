@@ -52,37 +52,53 @@ bounding contacts are correlated to that neighbour**:
 Owner-validated on real `test.strix` ("LOOKS PERFECT": S1 sand = one band, S7 =
 lower-band + upper-lens, no wriggly).
 
-## Deep-to-deep substrate pass (shipped 2026-06-21, owner-dogfed 2D+3D)
+## Below a shallow TD: no tie, no band (owner ruling 2026-10-04)
 
-Below a shallow test's TD the deep stratigraphy runs as straight deep-to-deep
-bands via a dedicated `computeBracketSubstrate` pass:
+Below a shallow test's TD nothing was drilled, so the fill there comes from **stored ties only**.
+Owner, on section "test" (GEO-08/118-S11 -> S10 -> S8 -> GEO-19/100-S3): *"as long as the bottom of
+S11 is not correlated to 19/100-S3 the loop isn't closed and there is nothing to draw"*, and
+*"bridge bands can close a polygon; if the polygon is closed on all sides it is a band"*. The rule:
 
-* `computeSectionFillV2` caps each gap's `emitGap` output at the gap's shallow
-  TD = `max(leftFloorElev, rightFloorElev)` (output-clip via
-  `clipPolyAboveElev`; fully-above regions pass through verbatim so above-TD
-  output is byte-identical).
-* `computeBracketSubstrate` fills below: per maximal run of consecutive shallow
-  gaps it brackets the nearest deep anchor each side (L,R), runs the same
-  reduce/match/`emitGap` machinery on (L,R) (shared helper `emitGapBetween`),
-  clips below the run's shallow TD, and slices per intervening gap at each
-  column's along-fraction.
-* `alongM` is threaded from the overlay (`ColumnScreen.along`) +
-  `buildVoxelRequest` so the 3D voxel build inherits identical geometry;
-  uniform-spacing fallback when absent (keeps the gate + old callers firing).
+* **A loop closes only through stored ties.** A deep column's unit below a shallow TD is drawn from
+  its own ties and nothing else: **two ties = band** to the tied partner, **one tie = onlap** to the
+  halfway point of that tie, **zero ties = lens** at its own level. Everything else under the shallow
+  TD is the no-data void.
+* **A jump tie closes across the columns it skips.** A stored tie whose endpoints skip shallower
+  columns is drawn as a bridge (`emitSubstrate.emitSubstrateBridges`) through every intervening
+  column at the along-interpolated elevation (real `alongM`); two bridges over the same pair that
+  bracket one unit top and base are a band straight through the pass-through columns
+  (`BracketStrip`). A chain of stored ties through a shallow TD point closes the same way (dev CS1
+  S7A/S7/S6: the sand under S7 is closed by the S7-TD -> 1411-B2 sand-top jump tie and the S6
+  clay-top -> S8 clay-top jump tie — it stays filled).
+* **A level read by a far test closes nothing.** Retired on 2026-10-04 (git history has them):
+  - the flat-floor substrate (`emitBottomTieSubstrate`: a floor at the deepest base-tie level,
+    flat-extended across the whole section, plus column curtains — the bottom Boom-clay floors on
+    CS1 and the "test" floor under S10/S8 are gone; a base<->base tie between two TDs now gives the
+    band a sloping base TD to TD);
+  - the level guards that suppressed an onlap because "a column beyond reads these levels, the
+    substrate carries it" (`emitSubTdLenses`; replaced by a tie test, `bridgeUnderFacing`: a stored
+    jump tie under the shallow column below the unit closes the strip);
+  - the 2026-08-21 flat run to the section edge of a unit no column reads (`emitContinuation` via
+    `terminationRun`): a unit below the adjacent column's TD that no column in that direction reads
+    now lenses toward that column (`terminationRun` returns the adjacent column, `toEdge = false`).
+    Only a unit RESTING on the adjacent column's ground (no overlap, not below its TD) still runs to
+    the edge.
+* **Still standing:** a zero-tie unit whose levels a column BEYOND the shallow one did read crosses
+  the blind column and closes against that reader as a lens (the 2026-08-21 relocation — a lens at its
+  own level, not a band; dev CS1 S7's interbeds toward 1411-B2); the straddle sliver below
+  (installer #37) where nothing beyond reads; the bottom-tie void rule (below).
+* This SUPERSEDES the 2026-09-23 exception "where a deeper test beyond the shallow one reads the level,
+  nothing changes" (dev CS1 S7 -> S6, worked example GEO-02/145-S13 -> S14). The owner accepted that
+  such gaps show the void unless he ties them. On CS1 S7 -> S6 the stored jump ties already close the
+  band, so it is unchanged; on the 2026-09-16 worked example the S13 glauconitic sand now onlaps its
+  bottom tie halfway.
 
-Layered dogfeed fixes, ALL gate-guarded:
-
-* one-sided clay pinch tapers to a point at the cap (`emitOneSidedPinch` apex
-  clamp);
-* band-path lens apex anchored to `LENS_PINCH_FRACTION` instead of linear
-  strip-remap (carve deferred per-gap to avoid a masked void);
-* under-column fills render BENEATH gap overlays in `PartitionFillOverlay`
-  (2D-render-order only — NOT carried to 3D);
-* matched silt over a shallow TD merges to one slanted quad
-  (`mergeSplitBodyRegions`, area-preserving guard);
-* an explicit top-correlated band dips below a shallow neighbour's TD instead
-  of lensing (`facingBandTd` / `reanchorBandToFacing` — band top from the
-  correlation, base owned by the substrate).
+Pinned in the owner's words: `partitionFillV2/ownerTestNoTieNoBand.test.ts` (fixture
+`__fixtures__/owner_test_notie_2026-10-04.json`, his DB after he deleted the base<->base bottom ties:
+nothing under S10's and S8's TDs, S3's clean sand onlaps halfway, the matig siltig below it lenses,
+no floor/curtain curve, every bridge a stored jump tie). The two band-capped-hole scans
+(`__fixtures__/bandCappedHoleScan.ts`, `gapScanFloor`) measure a gap without a bottom tie only above
+its shallow TD.
 
 ## Outer-edge terminations (owner ruling 2026-09-07)
 
@@ -122,34 +138,32 @@ instead spans the whole tie"*, and shown both readings on that gap and on Tie-se
   NO column beyond the shallow one reads the level, the shallow column is the boundary the tie
   declares and the unit lenses toward it, instead of running flat to the section edge
   (`emitContinuation`). The 2026-09-07 shared-apex wedge (`emitBottomTieWedge`) is gone.
-* **Where a deeper test beyond the shallow one reads the level, nothing changes**: the deep-to-deep
-  substrate carries the band under the shallow test as before (dev CS1 GEO-23/125-S7 → S6, the owner's
-  2026-09-08 "gap under a bottom test correlation"; worked example GEO-02/145-S13 → S14, his
-  2026-09-16 PDF sliver — both stay filled).
+* **A deeper test beyond the shallow one reading the level does not fill the void** (2026-10-04,
+  "no tie, no band" above): only stored ties close it. Dev CS1 GEO-23/125-S7 → S6 stays filled
+  because jump ties close the sand under S7; worked example GEO-02/145-S13 → S14's glauconitic sand
+  onlaps its bottom tie halfway like any other.
 * The `declared` seam of `emitEnclosingFlood.closeInterval` still never fires on a bottom tie: the
   void past the tip is not a meeting of two masses.
 * **The void stays void (owner 2026-10-04, section "test").** Three leaks had filled it anyway:
-  - the bottom-tie FLOOR (`emitBottomTieSubstrate`) closed the space under the shallow TD into a
-    face and painted it with a base-tie formation from elsewhere (a flat extension of S14/S15's base
-    tie onto GEO-08/119-B15; GEO-19/100-S3/S2's base tie under GEO-08/118-S8). `bottomTieVoid` drops a
-    gap's floor + curtains when the shallow column's TD is tied to a contact above the deep column's
-    TD, the deep column has a unit entirely below the shallow anchor, and no column beyond reads the
-    strip. A deep unit merely straddling the anchor (a bridged band, dev CS1 gaps 8/22) keeps it;
+  - the bottom-tie FLOOR closed the space under the shallow TD into a face and painted it with a
+    base-tie formation from elsewhere (a flat extension of S14/S15's base tie onto GEO-08/119-B15;
+    GEO-19/100-S3/S2's base tie under GEO-08/118-S8). The floor is now retired outright ("no tie, no
+    band", above);
   - a bottom tie that RISES from the shallow TD (B15's TD tied 2.6 m higher, to S15's silt top) did
     not count as one (`facingTdTied`), so the units below ran flat to the section edge instead of
     lensing toward the shallow column;
   - a top-tied sub-TD onlap on a jump tie that passes UNDER the shallow column (S3's bottom silty sand
     on the GEO-08/118-S11 jump tie) was refused because its halfway apex sits above the unit's top; it
-    now onlaps like any other tie, unless a column beyond reads the unit's levels (then the substrate
-    carries it). Pinned in `partitionFillV2/ownerTestSubTdGaps.test.ts` (fixture
-    `__fixtures__/owner_test_subtd_2026-10-04.json`); CS1 golden byte-identical.
+    now onlaps like any other tie, unless another stored jump tie passes under the shallow column
+    below the unit (then that bridge closes the strip; the level test is retired). Pinned in
+    `partitionFillV2/ownerTestSubTdGaps.test.ts` (fixture `__fixtures__/owner_test_subtd_2026-10-04.json`).
 
 Pinned in the owner's words: `partitionFillV2/ownerCs1SubTd.test.ts` (CS1 S13 → S6, fixture
 `__fixtures__/owner_cs1_s13_s6_2026-09-23.json`) and `ownerRulings.test.ts` rulings 3/4 (Tie-section
 4 gap 1: tip at 0.5, clay lens within its own span, void under the tie past the tip, hole-free above
 the shallow TD). The two permanent band-capped-hole scans (`bottomTieRenderHole.test.ts`,
 `zandGlSeamHole.test.ts`, shared `__fixtures__/bandCappedHoleScan.ts`) measure holes only ABOVE a
-gap's bottom tie (`gapBottomTie`); a gap without one is scanned whole.
+gap's bottom tie (`gapBottomTie`); a gap without one only above its shallow TD (`gapScanFloor`).
 
 ## Stacked enclosed lenses come apart (owner 2026-09-23)
 
@@ -318,11 +332,11 @@ Four guards, each real-data-proven, keep it from over-firing:
 * **Untied straddlers stay pinches** (2/1/0 — a lone marginally-deeper unit is NOT a declared
   continuation): CS1 gap21's 0.04 m untied straddler at two tests 0.2 m apart is skipped (its tiny
   fill only slivered a neighbouring lens).
-* **A GENUINE hole only** (`terminationRun` in the facing direction returns `reads=false`): when a
-  deep column BEYOND the shallow facing already covers the strip via the deep-to-deep substrate/bridge
-  (CS1 gaps 14/15, a jump-tie substrate carries a ZAND band across the shallow column into the strip),
-  the substrate owns it and the fill would re-partition an already-covered strip — so it is skipped
-  and the CS1 golden stays byte-identical.
+* **Only where nothing beyond reads the strip** (`terminationRun` in the facing direction returns
+  `reads=false`). This is a RESTRICTION on the sliver, never a source of fill: with it lifted on
+  2026-10-04 the sliver painted a flat glauconitic band across worked-example Cross-section 2 gaps 1-3
+  that no tie closes, so it keeps the sliver to the edge case the owner asked for (CS1 gaps 14/15
+  stay skipped).
 * **Gap-local, not the cross-section `terminationRun` continuation**: a near column only MARGINALLY
   deeper than its facing (TS4 gap0: 1411-B8A 0.04 m below GEO-20/034-S5's TD) must not paint a
   section-wide sliver across the next gap's bottom-tie wedge.
