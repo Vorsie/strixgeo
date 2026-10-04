@@ -41,7 +41,8 @@ export const SPINE_STAGES: readonly { label: SpineLabel; testid: string }[] = [
  * weight, never coverage.
  */
 export const TUTORIAL_VERB_TESTIDS: readonly string[] = [
-  'import-menu-button', 'import-verb-cpt-dov', 'import-verb-cpt-gef', 'data-inspector-search',
+  'import-menu-button', 'import-group-cpt', 'import-group-borehole', 'import-verb-cpt-dov',
+  'import-verb-cpt-gef', 'data-inspector-search',
   'data-inspector-sort', 'data-row-remove', 'data-filter-testtype-cpt', 'data-filter-testtype-borehole',
   'section-create', 'axis-geology', 'axis-litho', 'axis-geotech', 'section-control-buffer',
   'section-control-spacing', 'section-control-vexag', 'section-control-snap', 'section-dem-line',
