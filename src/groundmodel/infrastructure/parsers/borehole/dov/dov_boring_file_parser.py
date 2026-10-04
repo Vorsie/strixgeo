@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 # defusedxml — guards against billion-laughs entity expansion + external DTD
@@ -60,12 +61,31 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_file_constants i
     DOV_FILE_MAX_LISTED_GAPS,
     DOV_FILE_METHOD_TAG,
     DOV_FILE_NAME_TAG,
+    DOV_FILE_OBSERVED_OBJECT_TAG,
+    DOV_FILE_OBSERVED_OBJECT_TYPE_TAG,
+    DOV_FILE_OBSERVED_SAMPLE_TYPE,
     DOV_FILE_PERMKEY_TAG,
     DOV_FILE_POSITION_META_TAG,
     DOV_FILE_RELIABILITY_TAG,
     DOV_FILE_REMARK_MAX_CHARS,
     DOV_FILE_REMARK_TAG,
     DOV_FILE_REMARK_TEXT_TAG,
+    DOV_FILE_SAMPLE_ASSIGNED_BY_TAG,
+    DOV_FILE_SAMPLE_COMPOSITION_TAG,
+    DOV_FILE_SAMPLE_DATE_TAG,
+    DOV_FILE_SAMPLE_DESCRIPTION_TAG,
+    DOV_FILE_SAMPLE_DOV_AUTHORITY,
+    DOV_FILE_SAMPLE_FROM_TAG,
+    DOV_FILE_SAMPLE_IDENTIFIER_TAG,
+    DOV_FILE_SAMPLE_INSTRUMENT_TAG,
+    DOV_FILE_SAMPLE_METHOD_TAG,
+    DOV_FILE_SAMPLE_PLACE_TAG,
+    DOV_FILE_SAMPLE_TAG,
+    DOV_FILE_SAMPLE_TIME_TAG,
+    DOV_FILE_SAMPLE_TO_TAG,
+    DOV_FILE_SAMPLE_TYPE_TAG,
+    DOV_FILE_SAMPLED_OBJECT_NAME_TAG,
+    DOV_FILE_SAMPLED_OBJECT_TAG,
     DOV_FILE_START_DEPTH_TAG,
     DOV_FILE_STRATIGRAPHY_TYPES,
     DOV_FILE_STREAM_TAGS,
@@ -78,6 +98,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_file_constants i
     FLAG_FILE_HOLDS_MANY_BORINGS,
     FLAG_GROUNDWATER_ASSUMED,
     FLAG_INTERPRETATION_WITHOUT_BORING,
+    FLAG_INVALID_INTERVAL,
     FLAG_LITHOLOGY_GAPS_OR_OVERLAPS,
     FLAG_MULTIPLE_LITHOLOGICAL_DESCRIPTIONS,
     FLAG_NAME_FROM_ALTERNATIVE,
@@ -86,6 +107,10 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_file_constants i
     FLAG_PURPOSE_NOT_GEOTECHNICAL,
     FLAG_RELIABILITY_NOT_GOOD,
     FLAG_REMARK_PRESENT,
+    FLAG_SAMPLE_OBSERVATIONS_NOT_IMPORTED,
+    FLAG_SAMPLE_WITHOUT_BORING,
+    FLAG_SAMPLE_WITHOUT_DEPTH,
+    FLAG_SAMPLES_PRESENT,
     FLAG_START_DEPTH_NOT_ZERO,
     FLAG_STRATIGRAPHY_PRESENT,
     FLAG_UNKNOWN_INTERPRETATION_STREAM,
@@ -107,20 +132,31 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.borehole.dov.dov_file_interpretation import (
     DovFileInterpretation,
 )
+from groundmodel.infrastructure.parsers.borehole.dov.dov_file_sample import DovFileSample
 from groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_parser import (
     DovInterpretationParser,
 )
-from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import float_value, text
+from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
+from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import date_iso, float_value, text
+from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
+    DOV_OBSERVATIE_PARAMETER_TAG,
+    DOV_OBSERVATIE_PARAMETERGROEP_TAG,
+    DOV_OBSERVATIE_WRAPPER_TAG,
+    DOV_PARAMETERGROEP_GRAIN_SIZE,
+)
+from groundmodel.infrastructure.parsers.lab.dov.dov_grain_size_parser import DovGrainSizeParser
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
+    interval_params,
     make_issue,
 )
 from groundmodel.infrastructure.parsers.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-# Signature of the per-boring flag callback the flag steps receive.
-_FlagFn = Callable[[ValidationLevel, str, str], None]
+# Signature of the per-boring flag callback the flag steps receive:
+# (level, code, English message, params for the desktop catalogue).
+_FlagFn = Callable[[ValidationLevel, str, str, dict[str, Any]], None]
 
 # Runs of whitespace (incl. the non-breaking space DOV dossier remarks carry)
 # collapse to one space when a remark is quoted.
@@ -143,6 +179,7 @@ class DovBoringFileParser(GroundModelLogger):
         super().__init__(__name__)
         self._boring_parser = DovBoringParser()
         self._interpretation_parser = DovInterpretationParser()
+        self._grain_size_parser = DovGrainSizeParser()
 
     def parse(
         self, xml_bytes: bytes, name: str = "", *, today: date | None = None
@@ -228,8 +265,16 @@ class DovBoringFileParser(GroundModelLogger):
                     FLAG_INTERPRETATION_WITHOUT_BORING,
                     f"{name}: {len(orphans)} interpretation(s) ({tags}) belong to boring "
                     f"{boring_ref!r}, which is not in this file; not imported",
+                    {
+                        "file": name,
+                        "count": len(orphans),
+                        "tags": sorted({o.tag for o in orphans}),
+                        "boring": boring_ref,
+                    },
                 )
             )
+
+        self._attach_samples(root, result, name)
 
         n_flags = sum(len(e.issues) for e in result.borings) + len(result.issues)
         self.success(
@@ -279,14 +324,15 @@ class DovBoringFileParser(GroundModelLogger):
             issues=issues,
         )
 
-        def flag(level: ValidationLevel, code: str, message: str) -> None:
-            _flag(issues, display, level, code, message)
+        def flag(level: ValidationLevel, code: str, message: str, params: dict[str, Any]) -> None:
+            _flag(issues, display, level, code, message, params)
 
         if n_borings > 1:
             flag(
                 ValidationLevel.INFO,
                 FLAG_FILE_HOLDS_MANY_BORINGS,
                 f"the file holds {n_borings} borings; each is imported as its own borehole",
+                {"count": n_borings},
             )
         if alternatives:
             listed = "; ".join(f"{n} ({t or 'no type'})" for n, t in alternatives)
@@ -294,6 +340,10 @@ class DovBoringFileParser(GroundModelLogger):
                 ValidationLevel.INFO,
                 FLAG_NAME_FROM_ALTERNATIVE,
                 f"named by its alternative name {listed}; DOV identificatie {test_id!r}",
+                {
+                    "alternatives": [{"name": n, "type": t or None} for n, t in alternatives],
+                    "test_id": test_id,
+                },
             )
         self._flag_header(boring_elem, bh_result, flag, today)
         self._flag_interpretations(entry, flag)
@@ -319,6 +369,7 @@ class DovBoringFileParser(GroundModelLogger):
                         FLAG_UNKNOWN_INTERPRETATION_STREAM,
                         f"{display}: interpretation <{stream.tag}> is not a stream this "
                         "importer knows; not imported",
+                        {"tag": stream.tag},
                     )
                 )
                 continue
@@ -350,6 +401,181 @@ class DovBoringFileParser(GroundModelLogger):
         return parsed
 
     # ------------------------------------------------------------------
+    # Samples
+    # ------------------------------------------------------------------
+
+    def _attach_samples(
+        self, root: ET.Element, result: DovBoringFileParseResult, name: str
+    ) -> None:
+        """Attach every ``<monster>`` of the file to the boring it names, and flag.
+
+        A sample names its boring in ``bemonsterdObject`` by permkey and/or
+        name; the permkey wins, the name may be the identificatie or the
+        alternative name. Lab observations name their sample by permkey; a
+        grain-size curve is parsed with the bbox import's grain-size parser,
+        any other observation is flagged (no XML parser for it yet).
+        """
+        sample_elems = root.findall(DOV_FILE_SAMPLE_TAG)
+        if not sample_elems:
+            return
+        observations: dict[str, list[ET.Element]] = {}
+        for obs in root.findall(DOV_OBSERVATIE_WRAPPER_TAG):
+            target = obs.find(DOV_FILE_OBSERVED_OBJECT_TAG)
+            kind = text(target, DOV_FILE_OBSERVED_OBJECT_TYPE_TAG).lower()
+            if kind == DOV_FILE_OBSERVED_SAMPLE_TYPE:
+                observations.setdefault(text(target, DOV_FILE_PERMKEY_TAG), []).append(obs)
+        by_permkey = {e.permkey: e for e in result.borings if e.permkey}
+        by_name = {e.test_id: e for e in result.borings} | {e.name: e for e in result.borings}
+        self.info(
+            f"DOV boring file {name!r}: {len(sample_elems)} sample(s), "
+            f"{sum(len(v) for v in observations.values())} sample observation(s)"
+        )
+
+        linked: set[int] = set()
+        total = len(sample_elems)
+        for i, elem in enumerate(sample_elems, 1):
+            number, permkey = _sample_identifiers(elem)
+            label = number or permkey or "?"
+            target = elem.find(DOV_FILE_SAMPLED_OBJECT_TAG)
+            boring_permkey = text(target, DOV_FILE_PERMKEY_TAG)
+            boring_name = text(target, DOV_FILE_SAMPLED_OBJECT_NAME_TAG)
+            entry = by_permkey.get(boring_permkey) or by_name.get(boring_name)
+            if entry is None:
+                boring_ref = boring_name or boring_permkey or "?"
+                self.warning(
+                    f"DOV boring file {name!r} [{i}/{total}]: sample {label!r} names boring "
+                    f"{boring_ref!r}, which the file does not hold; not imported"
+                )
+                result.issues.append(
+                    make_issue(
+                        ValidationLevel.WARNING,
+                        FLAG_SAMPLE_WITHOUT_BORING,
+                        f"{name}: sample {label!r} belongs to boring {boring_ref!r}, which is "
+                        "not in this file; not imported",
+                        {"file": name, "sample": label, "boring": boring_ref},
+                    )
+                )
+                continue
+            linked.add(id(entry))
+            sample = self._parse_sample(elem, entry, number, permkey, label)
+            if sample is None:
+                continue
+            self._attach_observations(
+                sample, observations.pop(permkey, []) if permkey else [], entry, label
+            )
+            entry.samples.append(sample)
+            self.debug(
+                f"DOV boring file {name!r} [{i}/{total}]: sample {label!r} "
+                f"{sample.depth_top_m}-{sample.depth_base_m} m -> {entry.name!r} "
+                f"({len(sample.grain_sizes)} grain-size curve(s))"
+            )
+
+        for entry in result.borings:
+            if id(entry) not in linked or not entry.samples:
+                continue
+            n_curves = sum(len(s.grain_sizes) for s in entry.samples)
+            _flag(
+                entry.issues,
+                entry.name,
+                ValidationLevel.INFO,
+                FLAG_SAMPLES_PRESENT,
+                f"{len(entry.samples)} sample(s) in the file, imported with the borehole "
+                f"({n_curves} grain-size curve(s))",
+                {"count": len(entry.samples), "grain_size": n_curves},
+            )
+        if observations:
+            # Observations of a sample the file does not carry (or that was not
+            # imported): log what they name so a mismatch is visible.
+            self.warning(
+                f"DOV boring file {name!r}: {sum(len(v) for v in observations.values())} "
+                f"sample observation(s) name no imported sample (permkeys "
+                f"{sorted(observations)}); not imported"
+            )
+
+    def _parse_sample(
+        self,
+        elem: ET.Element,
+        entry: DovBoringFileEntry,
+        number: str | None,
+        permkey: str | None,
+        label: str,
+    ) -> DovFileSample | None:
+        """Build one sample, or flag it and return None when it has no usable interval."""
+        place = elem.find(DOV_FILE_SAMPLE_PLACE_TAG)
+        top = float_value(place, DOV_FILE_SAMPLE_FROM_TAG)
+        base = float_value(place, DOV_FILE_SAMPLE_TO_TAG)
+        if top is None:
+            self.warning(f"DOV boring file: sample {label!r} of {entry.name!r} has no depth")
+            _flag(
+                entry.issues,
+                entry.name,
+                ValidationLevel.WARNING,
+                FLAG_SAMPLE_WITHOUT_DEPTH,
+                f"sample {label!r} has no depth interval (bemonsteringsplaats); not imported",
+                {"sample": label},
+            )
+            return None
+        if base is None:
+            # A spot sample: DOV writes those as top == base itself.
+            base = top
+        if base < top:
+            self.warning(f"DOV boring file: sample {label!r} interval {top}-{base} m inverted")
+            _flag(
+                entry.issues,
+                entry.name,
+                ValidationLevel.WARNING,
+                FLAG_INVALID_INTERVAL,
+                f"sample {label!r} {top}-{base} m: base above top; not imported",
+                interval_params("sample", top, base, "base_not_below_top"),
+            )
+            return None
+        method = elem.find(DOV_FILE_SAMPLE_METHOD_TAG)
+        return DovFileSample(
+            sample_key=uuid7(),
+            permkey=permkey,
+            sample_number=number,
+            depth_top_m=top,
+            depth_base_m=base,
+            description=text(elem, DOV_FILE_SAMPLE_DESCRIPTION_TAG),
+            sample_type=_codelist_token(text(elem, DOV_FILE_SAMPLE_TYPE_TAG)),
+            composition=text(elem, DOV_FILE_SAMPLE_COMPOSITION_TAG) or None,
+            instrument=_codelist_token(text(method, DOV_FILE_SAMPLE_INSTRUMENT_TAG)),
+            sampling_date=date_iso(elem.find(DOV_FILE_SAMPLE_TIME_TAG), DOV_FILE_SAMPLE_DATE_TAG),
+        )
+
+    def _attach_observations(
+        self,
+        sample: DovFileSample,
+        observations: list[ET.Element],
+        entry: DovBoringFileEntry,
+        label: str,
+    ) -> None:
+        """Parse the sample's grain-size curves; flag every other observation."""
+        skipped: list[str] = []
+        for obs in observations:
+            group = text(obs, DOV_OBSERVATIE_PARAMETERGROEP_TAG).strip()
+            obs_permkey = _dov_identifier(obs)
+            if group != DOV_PARAMETERGROEP_GRAIN_SIZE.strip():
+                skipped.append(text(obs, DOV_OBSERVATIE_PARAMETER_TAG) or group or "?")
+                continue
+            parsed = self._grain_size_parser.parse_observation_element(
+                obs, sample_id=sample.sample_key, name=f"{entry.name} sample {label}"
+            )
+            entry.issues.extend(parsed.issues)
+            if parsed.grain_size.diameters_mm:
+                sample.grain_sizes.append((obs_permkey, parsed))
+        if skipped:
+            _flag(
+                entry.issues,
+                entry.name,
+                ValidationLevel.INFO,
+                FLAG_SAMPLE_OBSERVATIONS_NOT_IMPORTED,
+                f"sample {label!r}: {len(skipped)} lab observation(s) not imported "
+                f"({', '.join(skipped)}); only grain-size curves are read from a file",
+                {"sample": label, "count": len(skipped), "parameters": skipped},
+            )
+
+    # ------------------------------------------------------------------
     # Flags
     # ------------------------------------------------------------------
 
@@ -370,6 +596,7 @@ class DovBoringFileParser(GroundModelLogger):
                 f"purpose (doel) is {purpose!r}, not {DOV_FILE_GEOTECHNICAL_PURPOSE!r}"
                 if purpose
                 else "no purpose (doel) given",
+                {"purpose": purpose or None, "expected": DOV_FILE_GEOTECHNICAL_PURPOSE},
             )
 
         master = boring_elem.find(DOV_FILE_DRILLMASTER_TAG)
@@ -381,6 +608,7 @@ class DovBoringFileParser(GroundModelLogger):
                 f"drill master (boormeester) is {master_name!r}"
                 if master_name
                 else "no drill master (boormeester) given",
+                {"drillmaster": master_name or None},
             )
 
         location = boring_elem.find(DOV_FILE_LOCATION_TAG)
@@ -394,6 +622,7 @@ class DovBoringFileParser(GroundModelLogger):
                 FLAG_ELEVATION_ZERO,
                 f"ground elevation is 0.00 m TAW (method: {method!r}); kept as a real "
                 "value; check it is not a placeholder",
+                {"method": text(elevation_meta, DOV_FILE_METHOD_TAG) or None},
             )
         for meta_tag, what in (
             (DOV_FILE_POSITION_META_TAG, "position"),
@@ -406,6 +635,7 @@ class DovBoringFileParser(GroundModelLogger):
                     ValidationLevel.WARNING,
                     FLAG_RELIABILITY_NOT_GOOD,
                     f"{what} reliability (betrouwbaarheid) is {reliability!r}",
+                    {"subject": what, "reliability": reliability},
                 )
 
         if borehole.start_date is not None and borehole.start_date > today:
@@ -414,6 +644,7 @@ class DovBoringFileParser(GroundModelLogger):
                 FLAG_DATE_IN_FUTURE,
                 f"start date (datum_aanvang) {borehole.start_date.isoformat()} is after "
                 f"today ({today.isoformat()})",
+                {"date": borehole.start_date.isoformat(), "today": today.isoformat()},
             )
 
         start_depth = float_value(boring_elem, DOV_FILE_START_DEPTH_TAG)
@@ -422,6 +653,7 @@ class DovBoringFileParser(GroundModelLogger):
                 ValidationLevel.WARNING,
                 FLAG_START_DEPTH_NOT_ZERO,
                 f"the boring starts at {start_depth:.2f} m (diepte_van), not at the surface",
+                {"depth_m": start_depth},
             )
 
         if not bh_result.field_log:
@@ -429,6 +661,7 @@ class DovBoringFileParser(GroundModelLogger):
                 ValidationLevel.INFO,
                 FLAG_NO_FIELD_LOG,
                 "no field log (colour / moisture / consistency) in <details>",
+                {},
             )
 
         details = boring_elem.find(DOV_BORING_DETAILS_TAG)
@@ -442,6 +675,7 @@ class DovBoringFileParser(GroundModelLogger):
                 f"assumed groundwater depth (aangenomengrondwaterstand) "
                 f"{'not given' if depth is None else f'{depth:.2f} m'}; not imported as "
                 "the water table (an assumption, not a reading)",
+                {"depth_m": depth},
             )
 
         for remark in boring_elem.findall(DOV_FILE_REMARK_TAG):
@@ -450,12 +684,19 @@ class DovBoringFileParser(GroundModelLogger):
                 continue
             if len(quoted) > DOV_FILE_REMARK_MAX_CHARS:
                 quoted = quoted[: DOV_FILE_REMARK_MAX_CHARS - 1].rstrip() + "…"
-            flag(ValidationLevel.INFO, FLAG_REMARK_PRESENT, f'remark: "{quoted}"')
+            flag(
+                ValidationLevel.INFO, FLAG_REMARK_PRESENT, f'remark: "{quoted}"', {"remark": quoted}
+            )
 
         for attachment in boring_elem.findall(DOV_FILE_ATTACHMENT_TAG):
-            title = text(attachment, DOV_FILE_ATTACHMENT_TITLE_TAG) or "untitled"
-            url = text(attachment, DOV_FILE_ATTACHMENT_URL_TAG) or "no url"
-            flag(ValidationLevel.INFO, FLAG_ATTACHMENT_PRESENT, f"attachment {title!r}: {url}")
+            title = text(attachment, DOV_FILE_ATTACHMENT_TITLE_TAG) or None
+            url = text(attachment, DOV_FILE_ATTACHMENT_URL_TAG) or None
+            flag(
+                ValidationLevel.INFO,
+                FLAG_ATTACHMENT_PRESENT,
+                f"attachment {title or 'untitled'!r}: {url or 'no url'}",
+                {"title": title, "url": url},
+            )
 
     @staticmethod
     def _flag_interpretations(entry: DovBoringFileEntry, flag: _FlagFn) -> None:
@@ -471,6 +712,7 @@ class DovBoringFileParser(GroundModelLogger):
                 FLAG_NO_LITHOLOGICAL_DESCRIPTION,
                 "no lithological description in the file; the borehole has no layers "
                 "to show or segment",
+                {},
             )
         elif len(descriptions) > 1:
             counts = ", ".join(str(d.n_layers) for d in descriptions[1:])
@@ -480,6 +722,12 @@ class DovBoringFileParser(GroundModelLogger):
                 f"{len(descriptions)} lithological descriptions; the one with the most "
                 f"layers ({descriptions[0].n_layers}, permkey {descriptions[0].permkey}) is "
                 f"used, the others ({counts} layers) are imported as further observations",
+                {
+                    "count": len(descriptions),
+                    "used_layers": descriptions[0].n_layers,
+                    "used_permkey": descriptions[0].permkey,
+                    "other_layers": [d.n_layers for d in descriptions[1:]],
+                },
             )
 
         for interp in entry.interpretations:
@@ -489,6 +737,11 @@ class DovBoringFileParser(GroundModelLogger):
                     ValidationLevel.INFO,
                     FLAG_STRATIGRAPHY_PRESENT,
                     f"{label} present ({interp.n_layers} layers, permkey {interp.permkey})",
+                    {
+                        "stream": interp.observation_type.value,
+                        "layers": interp.n_layers,
+                        "permkey": interp.permkey,
+                    },
                 )
             reliability = interp.result.observation.reliability
             if reliability and reliability != DOV_FILE_GOOD_RELIABILITY:
@@ -497,14 +750,21 @@ class DovBoringFileParser(GroundModelLogger):
                     FLAG_RELIABILITY_NOT_GOOD,
                     f"{label} (permkey {interp.permkey}) reliability (betrouwbaarheid) is "
                     f"{reliability!r}",
+                    {
+                        "subject": "interpretation",
+                        "stream": interp.observation_type.value,
+                        "permkey": interp.permkey,
+                        "reliability": reliability,
+                    },
                 )
 
         primary = entry.primary_lithology
         if primary is not None:
-            problems = _gaps_and_overlaps(
+            places = _gaps_and_overlaps(
                 (layer.top_m, layer.base_m) for layer in primary.result.observation.layers
             )
-            if problems:
+            if places:
+                problems = [_describe_place(p) for p in places]
                 listed = "; ".join(problems[:DOV_FILE_MAX_LISTED_GAPS])
                 more = (
                     f" (+{len(problems) - DOV_FILE_MAX_LISTED_GAPS} more)"
@@ -516,6 +776,11 @@ class DovBoringFileParser(GroundModelLogger):
                     FLAG_LITHOLOGY_GAPS_OR_OVERLAPS,
                     f"the used lithological description is not continuous; "
                     f"{len(problems)} place(s): {listed}{more}",
+                    {
+                        "count": len(places),
+                        "places": places[:DOV_FILE_MAX_LISTED_GAPS],
+                        "more": max(0, len(places) - DOV_FILE_MAX_LISTED_GAPS),
+                    },
                 )
 
     @staticmethod
@@ -533,6 +798,7 @@ class DovBoringFileParser(GroundModelLogger):
                     FLAG_DEPTH_MISMATCH,
                     f"total depth (diepte_tot) {total:.2f} m but the deepest drill segment "
                     f"ends at {deepest:.2f} m",
+                    {"total_m": total, "end_m": deepest, "against": "drill_segment"},
                 )
         primary = entry.primary_lithology
         if primary is not None and primary.result.observation.layers:
@@ -543,6 +809,7 @@ class DovBoringFileParser(GroundModelLogger):
                     FLAG_DEPTH_MISMATCH,
                     f"total depth (diepte_tot) {total:.2f} m but the lithological "
                     f"description ends at {deepest:.2f} m",
+                    {"total_m": total, "end_m": deepest, "against": "lithological_description"},
                 )
 
 
@@ -552,6 +819,7 @@ def _flag(
     level: ValidationLevel,
     code: str,
     message: str,
+    params: dict[str, Any],
 ) -> None:
     """Append one file-import flag, its message prefixed with the boring's name.
 
@@ -566,12 +834,47 @@ def _flag(
         INFO for "worth knowing", WARNING for "check before trusting".
     code, message : str
         Flag code and its human-readable tail.
+    params : dict[str, Any]
+        The message's variable parts for the desktop catalogue (the boring's
+        name is NOT repeated here: the report groups flags under it).
     """
-    issues.append(make_issue(level, code, f"{display}: {message}"))
+    issues.append(make_issue(level, code, f"{display}: {message}", params))
 
 
-def _gaps_and_overlaps(intervals: Iterable[tuple[float, float]]) -> list[str]:
-    """Describe where a layer list is not continuous from the surface down.
+def _dov_identifier(elem: ET.Element) -> str | None:
+    """Return the ``identificator`` DOV itself assigned (the permkey), or None."""
+    return _sample_identifiers(elem)[1]
+
+
+def _sample_identifiers(elem: ET.Element) -> tuple[str | None, str | None]:
+    """Split a sample's ``identificator`` list into (own number, DOV permkey).
+
+    DOV writes one ``identificator`` per authority: the one ``toegekend_door``
+    ``DOV`` is the permkey, the first other one (``DATABEHEERDER``, a lab, ...)
+    is the sample number the engineer knows.
+    """
+    number: str | None = None
+    permkey: str | None = None
+    for ident in elem.findall(DOV_FILE_SAMPLE_IDENTIFIER_TAG):
+        value = text(ident, DOV_FILE_SAMPLE_IDENTIFIER_TAG)
+        if not value:
+            continue
+        if text(ident, DOV_FILE_SAMPLE_ASSIGNED_BY_TAG) == DOV_FILE_SAMPLE_DOV_AUTHORITY:
+            permkey = permkey or value
+        else:
+            number = number or value
+    return number, permkey
+
+
+def _codelist_token(value: str) -> str | None:
+    """Reduce a DOV codelist URI to its token (``…/bemonsteringstype/geroerd`` -> ``geroerd``)."""
+    if not value:
+        return None
+    return last_path_segment(value) if "/" in value else value
+
+
+def _gaps_and_overlaps(intervals: Iterable[tuple[float, float]]) -> list[dict[str, Any]]:
+    """List where a layer list is not continuous from the surface down.
 
     Parameters
     ----------
@@ -580,17 +883,26 @@ def _gaps_and_overlaps(intervals: Iterable[tuple[float, float]]) -> list[str]:
 
     Returns
     -------
-    list[str]
-        One human-readable entry per gap / overlap (and one when the first
-        layer does not start at the surface); empty when continuous.
+    list[dict[str, Any]]
+        One ``{"kind", "from_m", "to_m"}`` per place, ``kind`` one of
+        ``"start"`` (the first layer starts below the surface; ``to_m`` is
+        None), ``"gap"`` or ``"overlap"``; empty when continuous. Structured
+        so the desktop can say it in the user's language.
     """
     ordered = sorted(intervals)
-    problems: list[str] = []
+    places: list[dict[str, Any]] = []
     if ordered and ordered[0][0] > DOV_FILE_DEPTH_TOLERANCE_M:
-        problems.append(f"starts at {ordered[0][0]:.2f} m, not at the surface")
+        places.append({"kind": "start", "from_m": ordered[0][0], "to_m": None})
     for (_, base), (top, _) in zip(ordered, ordered[1:], strict=False):
         if top - base > DOV_FILE_DEPTH_TOLERANCE_M:
-            problems.append(f"gap {base:.2f} to {top:.2f} m")
+            places.append({"kind": "gap", "from_m": base, "to_m": top})
         elif base - top > DOV_FILE_DEPTH_TOLERANCE_M:
-            problems.append(f"overlap {top:.2f} to {base:.2f} m")
-    return problems
+            places.append({"kind": "overlap", "from_m": top, "to_m": base})
+    return places
+
+
+def _describe_place(place: dict[str, Any]) -> str:
+    """Render one ``_gaps_and_overlaps`` place as the English log / tooltip text."""
+    if place["kind"] == "start":
+        return f"starts at {place['from_m']:.2f} m, not at the surface"
+    return f"{place['kind']} {place['from_m']:.2f} to {place['to_m']:.2f} m"
