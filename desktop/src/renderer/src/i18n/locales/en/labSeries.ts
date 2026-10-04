@@ -69,19 +69,14 @@ export const LAB_SERIES = {
   'labSeries.toast.dovFetchedOne': 'Borehole {name} fetched from DOV',
   'labSeries.toast.deleted': 'Lab test {file} deleted',
 
-  // Borehole detail: the Lab tests list.
-  'labSeries.section.title': 'Lab tests ({n})',
-  'labSeries.section.loading': 'Loading lab tests…',
-  'labSeries.section.failed': 'Could not load the lab tests.',
-  'labSeries.section.empty': 'No raw lab tests on this borehole. Use Import > Import lab tests.',
-  'labSeries.section.sample': 'Sample {top} to {base} m',
-  'labSeries.section.counts': '{specimens} specimen(s), {stages} stage(s), {readings} readings',
+  // Sample slide-in: the sample's raw tests, below the DOV results.
+  'labSeries.panel.title': 'Raw tests ({n})',
+  'labSeries.panel.stages': '{n} stage(s)',
+  'labSeries.panel.expand': 'Show readings',
+  'labSeries.panel.collapse': 'Hide readings',
   'labSeries.section.flags': '{warnings} warning(s), {errors} error(s)',
   'labSeries.section.noFlags': 'No warnings',
-  'labSeries.section.open': 'View readings',
   'labSeries.section.delete': 'Delete',
-  'labSeries.section.expand': 'Show lab tests',
-  'labSeries.section.collapse': 'Hide lab tests',
 
   // Delete a lab test (irreversible: Cancel default-focused, no undo).
   'labSeries.delete.title': 'Delete this lab test?',
