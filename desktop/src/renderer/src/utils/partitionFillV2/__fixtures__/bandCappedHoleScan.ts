@@ -11,8 +11,14 @@
  * THE FLOOR (owner 2026-09-23, "let's go with plain 2 / 1 / 0 everywhere"). Below a shallow test's
  * TD the deep unit tied to that TD onlaps only to the HALFWAY point of its bottom tie and the untied
  * units below pinch at their own level, so the space under the bottom tie past the tip and the
- * pinch is the no-data void BY RULING — not a defect. ``gapBottomTieFloor`` finds that tie and the
- * scan measures each hole only above it. A gap without a bottom tie is scanned whole, as before.
+ * pinch is the no-data void BY RULING — not a defect. ``gapBottomTie`` finds that tie and the
+ * scan measures each hole only above it.
+ *
+ * NO TIE, NO BAND (owner 2026-10-04). Below a shallow test's TD the no-data void is the default
+ * everywhere, bottom tie or not: only stored ties fill it (a jump-tie band, an onlap, a lens at its
+ * own level), and those fills are pinned by the owner-ruling tests on his own picks. So a gap
+ * WITHOUT a bottom tie is scanned only above its shallow column's TD (``gapScanFloor``); a gap with
+ * one keeps the tie as its floor, exactly as before.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -126,6 +132,18 @@ export function gapBottomTie(columns: readonly PartitionColumn[], edges: readonl
     }
   }
   return best
+}
+
+/**
+ * The scan floor of gap ``g``: its bottom tie where it has one (2026-09-23), else its shallow
+ * column's TD (2026-10-04, "no tie, no band" — see the module note).
+ */
+export function gapScanFloor(columns: readonly PartitionColumn[], edges: readonly CorrelationEdge[], g: number): (frac: number) => number {
+  const tie = gapBottomTie(columns, edges, g)
+  if (tie) return tie.elevAt
+  const tdOf = (c: PartitionColumn): number => Math.min(...c.units.map((u) => c.surfaceElevM - u.baseDepthM))
+  const shallowTD = Math.max(tdOf(columns[g]), tdOf(columns[g + 1]))
+  return () => shallowTD
 }
 
 /**
