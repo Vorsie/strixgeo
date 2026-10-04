@@ -11,13 +11,17 @@ export const DATA_NL = {
   // FLAG alt: CPT importeren (.gef) — THE call of this whole review. The owner
   // writes "sonderingen"; BE practice says sondering, the file format and the
   // international literature say CPT. Ruling here propagates to ~30 strings.
-  'data.toolbar.importCptGef': 'Sondering (CPT) importeren (.gef)',
-  'data.toolbar.importCptDov': 'Sondering (CPT) importeren uit DOV (kader tekenen)',
-  'data.toolbar.importCptPdf': 'Sonderingen uit een pdf-rapport importeren',
-  'data.toolbar.importBoreholeDov': 'Boring importeren uit DOV (kader tekenen)',
-  'data.toolbar.importDmt': 'DMT importeren',
-  'data.toolbar.importLabTest': 'Laboproeven importeren',
-  'data.toolbar.importMonitoring': 'Monitoring importeren',
+  // One row per kind of investigation; Sondering and Boring open their import
+  // routes in a submenu (owner 2026-10-04). The menu is titled Importeren, so
+  // the rows are nouns.
+  'data.toolbar.groupCpt': 'Sondering (CPT)',
+  'data.toolbar.groupBorehole': 'Boring',
+  'data.toolbar.cptGef': '.gef-bestanden',
+  'data.toolbar.fromDov': 'Uit DOV (kader tekenen)',
+  'data.toolbar.cptPdf': 'Uit een pdf-rapport',
+  'data.toolbar.dmt': 'DMT',
+  'data.toolbar.labTests': 'Laboproeven',
+  'data.toolbar.monitoring': 'Monitoring',
   'data.toolbar.phaseTag': 'Fase 4',
   'data.canvas.map': 'Kaart',
   'data.canvas.chart': 'Grafiek',
@@ -162,7 +166,7 @@ export const DATA_NL = {
   // -------------------------------------------------------------------------
   // lokale DOV-boring-XML-import (useBoreholeXmlImport).
   // -------------------------------------------------------------------------
-  'data.toolbar.importBoreholeXml': 'Boringen importeren (DOV-XML)',
+  'data.toolbar.boreholeXml': 'DOV-XML-bestanden',
   'data.import.boreholeRefreshedOne': 'Bestaande boring {name} vernieuwd uit bestand',
   'data.import.flagsToReviewOne': '{n} melding om na te kijken',
   'data.import.flagsToReviewMany': '{n} meldingen om na te kijken',
