@@ -106,19 +106,40 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
           click: () => send('menu:project-close'),
         },
         { type: 'separator' },
+        // One submenu per kind of investigation (owner 2026-10-04), mirroring
+        // the Data toolbar's Import menu. The "From DOV" items start the same
+        // bbox draw as the toolbar; the renderer routes to the Data stage's map.
         {
-          label: menuLabel('importCpt', language),
-          accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => send('menu:import-cpt'),
+          label: menuLabel('importCptMenu', language),
+          submenu: [
+            {
+              label: menuLabel('importCptGef', language),
+              accelerator: 'CmdOrCtrl+Shift+C',
+              click: () => send('menu:import-cpt'),
+            },
+            {
+              label: menuLabel('importFromDov', language),
+              click: () => send('menu:import-cpt-dov'),
+            },
+            {
+              label: menuLabel('importCptPdf', language),
+              click: () => send('menu:import-cpt-pdf'),
+            },
+          ],
         },
         {
-          label: menuLabel('importCptPdf', language),
-          click: () => send('menu:import-cpt-pdf'),
-        },
-        {
-          label: menuLabel('importBorehole', language),
-          accelerator: 'CmdOrCtrl+Shift+B',
-          click: () => send('menu:import-borehole'),
+          label: menuLabel('importBoreholeMenu', language),
+          submenu: [
+            {
+              label: menuLabel('importFromDov', language),
+              click: () => send('menu:import-borehole-dov'),
+            },
+            {
+              label: menuLabel('importBoreholeXml', language),
+              accelerator: 'CmdOrCtrl+Shift+B',
+              click: () => send('menu:import-borehole'),
+            },
+          ],
         },
         {
           label: menuLabel('importDmt', language),
