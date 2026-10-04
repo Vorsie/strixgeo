@@ -67,6 +67,7 @@ export const LAB_SERIES = {
   'labSeries.toast.summary': 'Lab tests: {imported} imported, {replaced} replaced, {unchanged} unchanged, {skipped} skipped, {failed} failed',
   'labSeries.toast.dovFetched': 'Boreholes fetched from DOV: {names}',
   'labSeries.toast.dovFetchedOne': 'Borehole {name} fetched from DOV',
+  'labSeries.toast.deleted': 'Lab test {file} deleted',
 
   // Borehole detail: the Lab tests list.
   'labSeries.section.title': 'Lab tests ({n})',
@@ -78,8 +79,15 @@ export const LAB_SERIES = {
   'labSeries.section.flags': '{warnings} warning(s), {errors} error(s)',
   'labSeries.section.noFlags': 'No warnings',
   'labSeries.section.open': 'View readings',
+  'labSeries.section.delete': 'Delete',
   'labSeries.section.expand': 'Show lab tests',
   'labSeries.section.collapse': 'Hide lab tests',
+
+  // Delete a lab test (irreversible: Cancel default-focused, no undo).
+  'labSeries.delete.title': 'Delete this lab test?',
+  'labSeries.delete.body': '{file} on the sample at {top} to {base} m: every specimen, stage and reading of this test is deleted. The sample stays. This cannot be undone.',
+  'labSeries.delete.confirm': 'Delete lab test',
+  'labSeries.delete.failed': 'Not deleted: {message}',
 
   // Readings viewer.
   'labSeries.viewer.title': '{kind} {type} on sample {sample}',
