@@ -111,6 +111,8 @@ export const PANELS_NL = {
   'borelog.hideColumnAria': 'Kolom {title} verbergen',
   'chart.zMissing': 'Z ontbreekt',
   'chart.pdfDigitised': 'gedigitaliseerd uit {file}, blz. {pages}',
+  // Volgt op chart.pdfDigitised; {list} = de trajecten, elk via cptPdf.drilledInterval.
+  'chart.pdfDrilled': ', voorboring {list}',
   // Samenvattingsregel van de sondeergrafiek, legende + recharts as-/tooltipchrome.
   // FLAG alt: {type} · {rows} metingen · {depth} m — "rows"=data-rijen; "metingen"
   // matches the refresh-dialog wording ("Readings"→"Metingen").
