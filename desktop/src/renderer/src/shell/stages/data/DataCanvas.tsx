@@ -22,6 +22,7 @@ import { buildContactOverlays, filterContactOverlays } from '../../../utils/cont
 import { useContactOverlayVisibility } from '../../../hooks/useContactOverlayVisibility'
 import { useT } from '../../../i18n/translate'
 import { useBoreholeTrackEdits } from '../../../hooks/useBoreholeTrackEdits'
+import type { LabSeriesTestSummary } from '../../../api/client'
 
 /**
  * Center canvas for the Data stage.
@@ -51,7 +52,9 @@ export default function DataCanvas(): JSX.Element {
     // Bed overrides (owner ruling 2026-09-06) — optional on the bus; the Data
     // stage always has it, but read defensively.
     bedOverrides,
+    toasts,
     investigations: {
+      refreshBoreholeList,
       detailMap,
       plotMap,
       boreholeDetailMap,
@@ -203,6 +206,18 @@ export default function DataCanvas(): JSX.Element {
   ])
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
+  // A lab test deleted from the borehole's Lab tests list (owner 2026-10-04).
+  // The delete wrote to the database: the project is dirty until File > Save
+  // writes the .strix without the test (else the reopen restores it from the
+  // old file), and the Data list re-reads the lab-test counts (flask icon).
+  const handleLabTestDeleted = useCallback(
+    (deleted: LabSeriesTestSummary): void => {
+      markMutated?.()
+      toasts.toast('success', t('labSeries.toast.deleted', { file: deleted.source_file_name }))
+      void refreshBoreholeList?.()
+    },
+    [markMutated, toasts, t, refreshBoreholeList],
+  )
   const handleOpenSectionFromMap = useCallback(
     (sectionId: string): void => {
       handleSelectSection(sectionId)
@@ -307,6 +322,7 @@ export default function DataCanvas(): JSX.Element {
               onToggleContactOverlay={contactOverlayVisibility.toggle}
               trackEditing={trackEditing}
               projectId={project?.id}
+              onLabTestDeleted={handleLabTestDeleted}
             />
           ) : (
             <LoadingState label={t('data.canvas.loadingBorehole')} />
