@@ -225,6 +225,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result",
     "groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row",
     "groundmodel.infrastructure.parsers.borehole.dov.cached_dov_track_source",
+    "groundmodel.infrastructure.parsers.borehole.dov.dov_boring_identificatie_index",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_boring_parser",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_client",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_constants",
