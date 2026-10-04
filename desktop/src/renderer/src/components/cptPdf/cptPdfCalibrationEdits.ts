@@ -142,3 +142,102 @@ export function setCurveColour(
   const unit = (c: number): number => Math.round((c / 255) * 1000) / 1000
   return withPanel(cal, index, p => ({ ...p, curve_colour: [unit(rgb[0]), unit(rgb[1]), unit(rgb[2])] }))
 }
+
+// ---------------------------------------------------------------------------
+// User edits kept apart from the detected calibration (owner dogfeed
+// 2026-10-04: "give the values that are selected right now in grey"). The
+// overlay keeps the digitiser's own calibration (``detected``) untouched and
+// the user's edits sparse beside it: a field the user left empty means "use
+// the detected value". ``applyEdits`` is the one place the two merge, for the
+// re-read, the import and the drawing.
+
+/** The tick values the user typed on one axis; a missing tick = the detected one. */
+export interface TickEdit {
+  a?: number
+  b?: number
+}
+
+/** What the user changed on one panel; every field is optional. */
+export interface PanelEdit {
+  /** The dragged frame (calibration units). */
+  frame?: FrameDict
+  /** Typed tick values per axis. */
+  ticks?: Partial<Record<PanelAxis, TickEdit>>
+  /** The quantity the user named. */
+  kind?: PanelKindValue
+  /** The eyedropper pick, RGB 0..255. */
+  colourRgb?: [number, number, number]
+}
+
+/** Sparse edits: page index -> panel index -> what changed. */
+export type CalibrationEdits = Record<number, Record<number, PanelEdit>>
+
+function panelEditIsEmpty(edit: PanelEdit): boolean {
+  const ticks = Object.values(edit.ticks ?? {}).some(t => t && (t.a !== undefined || t.b !== undefined))
+  return !edit.frame && !ticks && edit.kind === undefined && !edit.colourRgb
+}
+
+/** True when the user changed anything at all. */
+export function hasEdits(edits: CalibrationEdits): boolean {
+  return Object.values(edits).some(panels => Object.values(panels).some(e => !panelEditIsEmpty(e)))
+}
+
+/**
+ * Patch one panel's edit; the result never keeps an empty panel entry.
+ *
+ * ``patch`` replaces the given fields; pass a field as ``undefined`` to drop it.
+ */
+export function patchPanelEdit(
+  edits: CalibrationEdits,
+  page: number,
+  panel: number,
+  patch: PanelEdit,
+): CalibrationEdits {
+  const merged: PanelEdit = { ...(edits[page]?.[panel] ?? {}), ...patch }
+  const pagePanels = { ...(edits[page] ?? {}) }
+  if (panelEditIsEmpty(merged)) delete pagePanels[panel]
+  else pagePanels[panel] = merged
+  const next = { ...edits }
+  if (Object.keys(pagePanels).length === 0) delete next[page]
+  else next[page] = pagePanels
+  return next
+}
+
+function applyPanelEdit(cal: PageCalibrationDict, index: number, edit: PanelEdit): PageCalibrationDict {
+  let c = cal
+  if (edit.frame) {
+    // Two corner moves reproduce the drag: an anchor on a moved edge follows it.
+    c = moveFrameCorner(c, index, 'top-left', edit.frame.x0, edit.frame.y0)
+    c = moveFrameCorner(c, index, 'bottom-right', edit.frame.x1, edit.frame.y1)
+  }
+  for (const axis of ['value', 'depth'] as const) {
+    const tick = edit.ticks?.[axis]
+    if (!tick || (tick.a === undefined && tick.b === undefined)) continue
+    const [a, b] = axisValues(c.panels[index], axis)
+    c = setAxisValues(c, index, axis, tick.a ?? a, tick.b ?? b)
+  }
+  if (edit.kind !== undefined) c = setPanelKind(c, index, edit.kind)
+  if (edit.colourRgb) c = setCurveColour(c, index, edit.colourRgb)
+  return c
+}
+
+/** The calibration that goes out: the user's edits over the detected one. */
+export function applyEdits(detected: PageCalibrationDict[], edits: CalibrationEdits): PageCalibrationDict[] {
+  return detected.map((cal, page) => {
+    const panels = edits[page]
+    if (!panels) return cal
+    return Object.entries(panels).reduce(
+      (c, [panel, edit]) => (panelEditIsEmpty(edit) ? c : applyPanelEdit(c, Number(panel), edit)),
+      cal,
+    )
+  })
+}
+
+/**
+ * A detected value as the chart prints it (``0``, ``32``, ``6.02``): a point
+ * separator, float noise rounded off at 6 decimals, empty when unknown.
+ */
+export function formatDetectedValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return ''
+  return String(Math.round(value * 1e6) / 1e6)
+}
