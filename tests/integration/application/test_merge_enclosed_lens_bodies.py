@@ -268,10 +268,12 @@ async def test_no_enclosed_lens_is_noop(
 
 
 # ---------------------------------------------------------------------------
-# MB3 — SAME-formation enclosed lens merges INTO its matrix body
-# (owner ruling 2026-07-13). A ZAND lens (distinct formation row, same
-# litho_main_soil_code="ZAND") enclosed by ZAND matrix top/bottom must end up
-# sharing ONE body_id after the merge, not three separate bodies.
+# MB3 — the merge writes ties; ties never make bodies.
+# The 2026-07-13 expectation (a ZAND lens on its own formation row merging into
+# its ZAND matrix body) is superseded twice: owner 2026-10-03 "never weld" (two
+# litho units are two bodies, whatever the soil) and owner 2026-10-04 "identity
+# follows the drawing" (a tie unions nothing; only the geometry facts the fill
+# posts do). With no fact in the scene, the three layers stay three bodies.
 # ---------------------------------------------------------------------------
 
 
@@ -280,9 +282,10 @@ async def test_same_litho_enclosed_lens_merges_into_matrix_body(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """A same-litho enclosed lens (ZAND · ZAND-lens · ZAND on one column) resolves
-    to ONE body after the merge — the enclosed same-formation unit merges into its
-    matrix body rather than staying its own body.
+    """A same-soil enclosed lens (ZAND · ZAND-lens · ZAND on one column) stays apart.
+
+    The merge's ties are surface statements only (identity follows the drawing),
+    and the lens row is another litho unit (never weld): three bodies.
     """
     geo = _geo_model(project, name="Geo MELB MB3")
     litho = _litho_model(project, geo, name="Litho MELB MB3")
@@ -332,7 +335,7 @@ async def test_same_litho_enclosed_lens_merges_into_matrix_body(
         section_id=section.id,
     )
 
-    # After the merge all three accepted ZAND layers must share one body_id.
+    # After the merge the three accepted ZAND layers keep three body ids.
     body_ids = (
         (
             await db_session.execute(
@@ -347,7 +350,7 @@ async def test_same_litho_enclosed_lens_merges_into_matrix_body(
     )
     assert len(body_ids) == 3, f"Expected 3 accepted ZAND layers; got {len(body_ids)}"
     assert all(b is not None for b in body_ids), "Every merged layer must carry a body_id"
-    assert len(set(body_ids)) == 1, (
-        f"Same-formation enclosed lens must merge into its matrix body — expected "
-        f"one shared body_id, got {len(set(body_ids))} distinct: {set(body_ids)}"
+    assert len(set(body_ids)) == 3, (
+        f"Merge ties must not join bodies (identity follows the drawing) — expected "
+        f"three body ids, got {len(set(body_ids))} distinct: {set(body_ids)}"
     )
