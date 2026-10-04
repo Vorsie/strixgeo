@@ -71,4 +71,7 @@ def make_crs_bounds_issue(
         level=ValidationLevel.WARNING,
         code=COORDINATES_OUTSIDE_CRS_BOUNDS_CODE,
         message=message,
+        # Variable parts for the desktop catalogue (translate at the
+        # presentation boundary); the English message stays the tooltip.
+        params={"x": x, "y": y, "crs": label},
     )
