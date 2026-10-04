@@ -234,6 +234,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.borehole.dov.dov_client",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_constants",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_file_interpretation",
+    "groundmodel.infrastructure.parsers.borehole.dov.dov_file_sample",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_client",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_parser",
     "groundmodel.infrastructure.parsers.borehole.dov.dov_sample_client",
