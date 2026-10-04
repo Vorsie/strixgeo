@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import pymupdf
 
@@ -26,6 +26,16 @@ from groundmodel.infrastructure.parsers.cpt.pdf.page_evidence import PageEvidenc
 from groundmodel.infrastructure.parsers.cpt.pdf.page_triage import PageTriage
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_digest import PdfReportDigest
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSounding
+from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
+from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants import (
+    NOTE_CLIPPED_POINTS,
+    NOTE_ELEVATION_AXIS,
+    NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
+    NOTE_NO_POSITION_PRINTED,
+    NOTE_READ_FROM_IMAGE,
+    NOTE_TICKS_NOT_READ,
+    NOTE_TICKS_UNAVAILABLE_NO_OCR,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -134,9 +144,9 @@ class PdfReportTriager(GroundModelLogger):
             listed[origin] = []
             for sounding in merged:
                 key = _unique_key(sounding, keys)
-                listed[origin].append(
-                    _report_sounding(key, origin, sounding, evidence, self._ocr is not None)
-                )
+                entry = _report_sounding(key, origin, sounding, evidence, self._ocr is not None)
+                self.debug("sounding %s: notes %s", key, [n.code for n in entry.notes])
+                listed[origin].append(entry)
                 soundings[key] = sounding
 
         digest = PdfReportDigest(
@@ -225,25 +235,43 @@ def _report_sounding(
     kind = pages[0].graph_kind if pages and pages[0].graph_kind else GraphKind.VECTOR
     clipped = sum(int(c.clipped.sum()) for c in sounding.curves.values())
     elevation = any(c.depth_reference is DepthReference.ELEVATION for c in sounding.calibrations)
+    # Each note travels twice: as an English sentence (``warnings``, what
+    # older clients render) and as a code + params (``notes``, rendered by the
+    # desktop in the app language). One append keeps the two lists aligned.
     warnings: list[str] = []
+    notes: list[ReportSoundingNote] = []
+
+    def note(code: str, english: str, **params: Any) -> None:
+        """Record one note as its English sentence and as its code + params."""
+        warnings.append(english)
+        notes.append(ReportSoundingNote(code=code, params=params))
+
     if not sounding.curves:
-        warnings.append(
-            "tick reading unavailable: type the axis values"
-            if not ocr
-            else "axis values not read: type two tick values per axis"
-        )
+        if ocr:
+            note(NOTE_TICKS_NOT_READ, "axis values not read: type two tick values per axis")
+        else:
+            note(NOTE_TICKS_UNAVAILABLE_NO_OCR, "tick reading unavailable: type the axis values")
     if placed is None:
-        warnings.append("no position printed: type X and Y before importing")
+        note(NOTE_NO_POSITION_PRINTED, "no position printed: type X and Y before importing")
     if elevation:
-        warnings.append(
-            "elevation axis: depth = printed ground level - plotted elevation"
-            if ground is not None
-            else "elevation axis without a printed ground level: type the ground level"
-        )
+        if ground is not None:
+            note(
+                NOTE_ELEVATION_AXIS,
+                "elevation axis: depth = printed ground level - plotted elevation",
+            )
+        else:
+            note(
+                NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
+                "elevation axis without a printed ground level: type the ground level",
+            )
     if clipped:
-        warnings.append(f"{clipped} point(s) on an axis maximum: the true value is higher")
+        note(
+            NOTE_CLIPPED_POINTS,
+            f"{clipped} point(s) on an axis maximum: the true value is higher",
+            count=clipped,
+        )
     if kind is GraphKind.RASTER:
-        warnings.append("read from an image: check the orange curve against the sheet")
+        note(NOTE_READ_FROM_IMAGE, "read from an image: check the orange curve against the sheet")
     return ReportSounding(
         key=key,
         sounding_id=sounding.sounding_id,
@@ -261,4 +289,5 @@ def _report_sounding(
         clipped_points=clipped,
         digitised=bool(sounding.curves),
         warnings=tuple(warnings),
+        notes=tuple(notes),
     )
