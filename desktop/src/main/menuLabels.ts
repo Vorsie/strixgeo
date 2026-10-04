@@ -20,8 +20,9 @@
 // Constants in a dedicated file (CLAUDE.md §Code Conventions). The Dutch strings
 // reuse the renderer catalogues' wording for the same concepts — ``common.save``
 // ("Opslaan"), ``project.close`` ("Project sluiten"), ``updater.checking``
-// ("Controleren op updates…"), ``data.toolbar.importCptGef`` ("Sondering (CPT)
-// importeren"), ``settings.title`` ("Instellingen") — so the menu and the
+// ("Controleren op updates…"), ``data.toolbar.groupCpt`` ("Sondering (CPT)"),
+// ``data.toolbar.fromDov`` ("Uit DOV (kader tekenen)"), ``settings.title``
+// ("Instellingen") — so the menu and the
 // renderer never disagree on a term. No em-dashes in user-facing copy (CLAUDE.md).
 
 /** Interface languages the native menu supports. Mirrors the renderer's
@@ -48,9 +49,12 @@ export type MenuLabelId =
   | 'save'
   | 'saveAs'
   | 'closeProject'
-  | 'importCpt'
+  | 'importCptMenu'
+  | 'importCptGef'
+  | 'importFromDov'
   | 'importCptPdf'
-  | 'importBorehole'
+  | 'importBoreholeMenu'
+  | 'importBoreholeXml'
   | 'importDmt'
   | 'settings'
   | 'quit'
@@ -90,12 +94,16 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   save: { en: 'Save', nl: 'Opslaan' },
   saveAs: { en: 'Save As…', nl: 'Opslaan als…' },
   closeProject: { en: 'Close Project', nl: 'Project sluiten' },
-  importCpt: { en: 'Import CPT…', nl: 'Sondering (CPT) importeren…' },
-  importBorehole: { en: 'Import boreholes (DOV XML)…', nl: 'Boringen importeren (DOV-XML)…' },
-  importCptPdf: {
-    en: 'Import CPTs from a PDF Report…',
-    nl: 'Sonderingen uit een pdf-rapport importeren…',
-  },
+  // One import submenu per kind of investigation (owner 2026-10-04: "one
+  // button for cpt's with suboptions, same for drillings"). The submenu titles
+  // carry the verb, so the routes inside say only where the data comes from;
+  // the route wording matches the Data toolbar's Import menu.
+  importCptMenu: { en: 'Import CPT', nl: 'Sondering (CPT) importeren' },
+  importCptGef: { en: '.gef files…', nl: '.gef-bestanden…' },
+  importFromDov: { en: 'From DOV (draw box)…', nl: 'Uit DOV (kader tekenen)…' },
+  importCptPdf: { en: 'From a PDF report…', nl: 'Uit een pdf-rapport…' },
+  importBoreholeMenu: { en: 'Import boreholes', nl: 'Boringen importeren' },
+  importBoreholeXml: { en: 'DOV XML files…', nl: 'DOV-XML-bestanden…' },
   importDmt: { en: 'Import DMT…', nl: 'DMT importeren…' },
   settings: { en: 'Settings…', nl: 'Instellingen…' },
   quit: { en: 'Quit', nl: 'Afsluiten' },
