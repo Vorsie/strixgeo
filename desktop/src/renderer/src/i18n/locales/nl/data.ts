@@ -54,6 +54,8 @@ export const DATA_NL = {
   'data.import.refreshedMany': '{n} vernieuwd uit bestand',
   'data.import.leftUnchangedOne': '{name} ongewijzigd gelaten',
   'data.import.leftUnchangedMany': '{n} ongewijzigd gelaten',
+  'data.import.preDrillNotApplied':
+    '{name}: een voorboring van {preDrill} m is opgegeven, maar de diepten beginnen op {firstDepth} m. De diepten zijn overgenomen zoals in het bestand; vergelijk ze met het verslag.',
   'data.import.noCptsInArea': 'Geen sonderingen in dit gebied gevonden',
   'data.import.noBoreholesInArea': 'Geen boringen in dit gebied gevonden',
   // FLAG alt: {n} waarnemingen — "waarn." is a compact toast abbreviation for
