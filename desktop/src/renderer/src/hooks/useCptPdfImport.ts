@@ -15,10 +15,16 @@ import type { CptPdfImportResult } from '../api/clients/cptPdf'
 import { t } from '../i18n/translate'
 import { log } from '../utils/log'
 import { addAllToSet } from '../utils/sets'
+import { TOAST_LONG_TIMEOUT_MS, type ToastOptions } from './useToasts'
 
 interface Deps {
   project: { id: string } | null
-  toast: (type: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
+  toast: (
+    type: 'success' | 'error' | 'warning',
+    message: string,
+    replaceKey?: string,
+    options?: ToastOptions,
+  ) => void
   refreshList: () => Promise<void>
   unhideCpts: (ids: Iterable<string>) => void
   addToManifest: (kind: 'cpt' | 'borehole', ids: string[]) => void
@@ -89,9 +95,14 @@ export function useCptPdfImport({
       else if (unchanged.length > 1) parts.push(t('data.import.leftUnchangedMany', { n: unchanged.length }))
       if (failed.length > 0) parts.push(t('data.import.countFailed', { n: failed.length }))
       const nothing = touched.length === 0
+      // A summary of several soundings takes longer to read than one fact
+      // (owner 2026-10-04: "disappears automatically, a bit too fast"). The
+      // dialog's report stays until Close; this toast is the echo of it.
       toast(
         nothing && failed.length > 0 ? 'error' : 'success',
         parts.length > 0 ? parts.join(', ') : t('cptPdf.toast.none'),
+        undefined,
+        results.length > 1 ? { durationMs: TOAST_LONG_TIMEOUT_MS } : undefined,
       )
       if (nothing) return
 
