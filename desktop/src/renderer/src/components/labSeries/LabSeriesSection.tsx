@@ -1,20 +1,24 @@
-// The borehole detail's "Lab tests" section: every raw lab test imported on
-// one of the borehole's samples (kind, sample, specimens / stages / readings,
-// a flags badge) with a "View readings" button that opens the viewer and a
-// "Delete" verb (owner 2026-10-04). The delete is irreversible: a
-// ConfirmDialog with Cancel focused and "Delete lab test"; no undo. The parent
-// hears about it through ``onLabTestDeleted`` (toast, Data-list refresh, dirty
-// flag); every mounted list re-reads through useLabSeriesRevision.
+// The sample slide-in's "Raw tests" block (owner ruling 2026-10-04, option a:
+// "one place for all lab data of a sample"). It sits BELOW the DOV results in
+// LabTestPanel and lists the sample's raw lab tests (oedometer / triaxial):
+// kind, file name, date, stages and a flags badge. Each test expands to the
+// readings viewer (the same charts as before); collapsing closes it.
 //
-// Collapsible; open by default when the borehole carries tests. Re-reads when
-// an import reports a change (useLabSeriesRevision).
+// "Delete" is irreversible: a ConfirmDialog with Cancel focused and "Delete
+// lab test"; no undo. The caller hears about it through ``onLabTestDeleted``
+// (toast, Data-list refresh, dirty flag); every mounted list re-reads through
+// useLabSeriesRevision, so the borelog's flask and counts follow.
+//
+// The list itself is passed in: the borehole log fetches the borehole's raw
+// tests ONCE and groups them by sample (useBoreholeLabSeries), so opening a
+// sample never fires a request of its own.
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import { api } from '../../api/client'
 import type { LabSeriesTestSummary } from '../../api/client'
-import { notifyLabSeriesChanged, useLabSeriesRevision } from '../../hooks/useLabSeriesRevision'
+import { notifyLabSeriesChanged } from '../../hooks/useLabSeriesRevision'
 import { useT } from '../../i18n/translate'
 import { log } from '../../utils/log'
 import Button from '../ui/Button'
@@ -23,8 +27,9 @@ import LabSeriesViewer from './LabSeriesViewer'
 
 interface Props {
   projectId: string
-  boreholeId: string
-  /** Fired after a lab test was deleted (the list itself re-reads). */
+  /** The sample's raw tests (already filtered to the sample). */
+  tests: readonly LabSeriesTestSummary[]
+  /** Fired after a lab test was deleted (the borehole's list re-reads). */
   onLabTestDeleted?: (deleted: LabSeriesTestSummary) => void
 }
 
@@ -35,41 +40,22 @@ interface PendingDelete {
   error: string | null
 }
 
-type Load = { state: 'loading' } | { state: 'failed' } | { state: 'ready'; rows: LabSeriesTestSummary[] }
-
 /**
- * Lab tests list of one borehole.
+ * Raw lab tests of one sample, with the readings viewer and the delete verb.
  *
- * @returns The section element.
+ * @returns The block element.
  */
-export default function LabSeriesSection({
-  projectId,
-  boreholeId,
-  onLabTestDeleted,
-}: Props): JSX.Element {
+export default function LabSeriesSection({ projectId, tests, onLabTestDeleted }: Props): JSX.Element {
   const t = useT()
-  const revision = useLabSeriesRevision()
-  const [load, setLoad] = useState<Load>({ state: 'loading' })
-  const [open, setOpen] = useState<boolean | null>(null)
-  const [viewing, setViewing] = useState<LabSeriesTestSummary | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    api.labSeries
-      .listForBorehole(projectId, boreholeId)
-      .then(rows => alive && setLoad({ state: 'ready', rows }))
-      .catch(() => alive && setLoad({ state: 'failed' }))
-    return () => {
-      alive = false
-    }
-  }, [projectId, boreholeId, revision])
+  const expanded = tests.find(r => r.id === expandedId) ?? null
 
   async function confirmDelete(): Promise<void> {
     if (!pendingDelete || pendingDelete.busy) return
     const { row } = pendingDelete
     setPendingDelete({ row, busy: true, error: null })
-    log.info('labSeries', `deleting lab test ${row.id} (${row.source_file_name}) on borehole ${boreholeId}`)
+    log.info('labSeries', `deleting lab test ${row.id} (${row.source_file_name}) on sample ${row.sample_id}`)
     try {
       await api.labSeries.deleteTest(projectId, row.id)
     } catch (err) {
@@ -80,96 +66,69 @@ export default function LabSeriesSection({
     }
     log.success('labSeries', `lab test ${row.id} deleted`)
     setPendingDelete(null)
-    if (viewing?.id === row.id) setViewing(null)
+    if (expandedId === row.id) setExpandedId(null)
     onLabTestDeleted?.(row)
     notifyLabSeriesChanged()
   }
 
-  const rows = load.state === 'ready' ? load.rows : []
-  // Open by default when there is something to show; the user's toggle wins.
-  const expanded = open ?? rows.length > 0
-
   return (
-    <section className="border-t border-border-subtle text-[11px]" data-testid="lab-series-section">
-      <button
-        type="button"
-        onClick={() => setOpen(!expanded)}
-        aria-expanded={expanded}
-        title={expanded ? t('labSeries.section.collapse') : t('labSeries.section.expand')}
-        className="flex items-center gap-1 w-full px-3 py-1 font-semibold text-text-primary hover:bg-surface-app"
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        {t('labSeries.section.title', { n: rows.length })}
-      </button>
-      {expanded && (
-        <div className="px-3 pb-2 max-h-48 overflow-y-auto">
-          {load.state === 'loading' && <p className="text-text-muted">{t('labSeries.section.loading')}</p>}
-          {load.state === 'failed' && <p className="text-status-danger">{t('labSeries.section.failed')}</p>}
-          {load.state === 'ready' && rows.length === 0 && (
-            <p className="text-text-muted">{t('labSeries.section.empty')}</p>
-          )}
-          <ul className="space-y-1">
-            {rows.map(r => {
-              const flagged = r.n_warnings + r.n_errors > 0
-              return (
-                <li
-                  key={r.id}
-                  data-testid="lab-series-row"
-                  className="flex items-center gap-3 border border-border-subtle rounded px-2 py-1"
+    <section data-testid="lab-series-section">
+      <div className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">
+        {t('labSeries.panel.title', { n: tests.length })}
+      </div>
+      <ul className="space-y-1 mt-2 text-[11px]">
+        {tests.map(r => {
+          const flagged = r.n_warnings + r.n_errors > 0
+          const isOpen = r.id === expandedId
+          const kind =
+            r.kind === 'triaxial'
+              ? `${t('labSeries.dialog.kindTriaxial')}${r.test_type_token ? ` ${r.test_type_token}` : ''}`
+              : t('labSeries.dialog.kindOedometer')
+          return (
+            <li key={r.id} data-testid="lab-series-row" className="border border-gray-200 rounded px-2 py-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(isOpen ? null : r.id)}
+                  aria-expanded={isOpen}
+                  title={isOpen ? t('labSeries.panel.collapse') : t('labSeries.panel.expand')}
+                  className="flex items-center gap-1 grow min-w-0 text-left hover:text-gray-900"
                 >
-                  <span className="font-medium w-28 shrink-0">
-                    {r.kind === 'triaxial'
-                      ? `${t('labSeries.dialog.kindTriaxial')}${r.test_type_token ? ` ${r.test_type_token}` : ''}`
-                      : t('labSeries.dialog.kindOedometer')}
-                  </span>
-                  <span className="shrink-0">
-                    {t('labSeries.section.sample', {
-                      top: r.sample_depth_top_m.toFixed(2),
-                      base: r.sample_depth_base_m.toFixed(2),
-                    })}
-                  </span>
-                  <span className="text-text-secondary grow">
-                    {t('labSeries.section.counts', {
-                      specimens: r.n_specimens,
-                      stages: r.n_stages,
-                      readings: r.n_readings,
-                    })}
-                  </span>
-                  <span
-                    className={
-                      flagged
-                        ? 'px-1.5 rounded border border-status-amber text-status-amber'
-                        : 'text-text-muted'
-                    }
-                  >
-                    {flagged
-                      ? t('labSeries.section.flags', { warnings: r.n_warnings, errors: r.n_errors })
-                      : t('labSeries.section.noFlags')}
-                  </span>
-                  <Button size="sm" onClick={() => setViewing(r)} title={r.source_file_name}>
-                    {t('labSeries.section.open')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setPendingDelete({ row: r, busy: false, error: null })}
-                    title={r.source_file_name}
-                    data-testid="lab-series-delete"
-                  >
-                    {t('labSeries.section.delete')}
-                  </Button>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-      {viewing && (
+                  {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <span className="font-medium shrink-0">{kind}</span>
+                  <span className="text-gray-500 truncate">{r.source_file_name}</span>
+                </button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setPendingDelete({ row: r, busy: false, error: null })}
+                  title={r.source_file_name}
+                  data-testid="lab-series-delete"
+                >
+                  {t('labSeries.section.delete')}
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 pl-4 text-[10px] text-gray-500">
+                {r.test_start_date && <span>{r.test_start_date}</span>}
+                <span>{t('labSeries.panel.stages', { n: r.n_stages })}</span>
+                <span
+                  className={flagged ? 'px-1 rounded border border-status-amber text-status-amber' : 'text-gray-400'}
+                >
+                  {flagged
+                    ? t('labSeries.section.flags', { warnings: r.n_warnings, errors: r.n_errors })
+                    : t('labSeries.section.noFlags')}
+                </span>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {expanded && (
         <LabSeriesViewer
           projectId={projectId}
-          sampleId={viewing.sample_id}
-          testId={viewing.id}
-          onClose={() => setViewing(null)}
+          sampleId={expanded.sample_id}
+          testId={expanded.id}
+          onClose={() => setExpandedId(null)}
         />
       )}
       <ConfirmDialog
