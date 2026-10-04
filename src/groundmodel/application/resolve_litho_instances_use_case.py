@@ -1,8 +1,10 @@
 """Resolve-litho-instances use case — layer-granularity body reconciliation.
 
-Loads accepted ``litho_layer`` rows + user-approved correlation edges
-(whose endpoints FK ``litho_layer.id``), runs the pure layer-level
-resolver, reconciles one ``body`` row per connected component, stamps
+Loads accepted ``litho_layer`` rows, the model's geometry facts (the masses
+the section fill painted, posted by the renderer at ``bodies/recompute``) and
+its accepted ties (endpoints FK ``litho_layer.id``), runs the pure layer-level
+resolver — only the facts union; a tie never does (owner 2026-10-04, identity
+follows the drawing) — reconciles one ``body`` row per connected component, stamps
 ``litho_layer.body_id`` on every member layer, and marks changed
 surfaces stale. It no longer writes ``geological_formation.instance_ordinal``
 — body identity ``(formation_id, body_ordinal)`` is the durable record
@@ -159,8 +161,9 @@ async def _run_resolver(
 ]:
     """Resolve instances over layers, reconcile bodies, stamp body_id.
 
-    Loads accepted litho layers + user-approved correlation edges (layer-id
-    endpoints), runs the pure ``resolve_litho_instances`` domain service,
+    Loads accepted litho layers, the geometry facts (the only union) and the
+    accepted ties (read for the unbanded-tie report only; owner 2026-10-04,
+    identity follows the drawing), runs the pure ``resolve_litho_instances`` domain service,
     reconciles one ``body`` row per connected component, stamps
     ``litho_layer.body_id`` on every member layer, and marks surfaces stale
     when an instance ordinal changed. No inner commit — the caller owns the
@@ -294,11 +297,20 @@ tuple[tuple[UUID, UUID], ...]]
         r.id: (r.depth_top_m, r.parent_litho_layer_id) for r in layer_rows
     }
 
-    # 2. User-approved edges, MINUS the ones under review — endpoints already FK
+    # 2. User-approved ties, MINUS the ones under review — endpoints already FK
     #    litho_layer.id.
     #
-    #    A tie does two jobs: it draws the correlation, and it unions its two layers
-    #    into one body. A hand edit that breaks the class match keeps the tie and
+    #    Since 2026-10-04 a tie does NOT union its two layers (owner: "identity
+    #    follows the drawing"): bands are one body only where the section fill
+    #    paints them as one mass, and that evidence is the geometry facts (2b). The
+    #    ties are read only so the resolver can name the accepted ties the fill did
+    #    not band (logged below). The review filter that follows predates the
+    #    ruling and still decides which ties count as live for that report; the
+    #    renderer drops the same suspended ties from the fill it posts facts from,
+    #    so a suspended tie can no longer carry a union by either road.
+    #
+    #    History of the filter: a tie used to union. A hand edit that breaks the
+    #    class match keeps the tie and
     #    flags it (flag-not-drop), and until 2026-08-10 the flagged tie went on
     #    unioning — which left one body spanning two packing classes. The owner met
     #    that on his own model: a body holding NAD 8 and NAD 7 at once, and pressing
@@ -339,17 +351,19 @@ tuple[tuple[UUID, UUID], ...]]
             )
         )
     ).all()
-    edges = [LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in edge_rows]
+    ties = [LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in edge_rows]
 
-    # 2b. Geometry facts union like ties (owner ruling 2026-08-12: "every same
-    #     litho that is connected should get the same body id"). A fact records
-    #     observed geometric adjacency in the partition fill — connectivity a
-    #     tie cannot state without redrawing the fill, because a tie defines
-    #     both the 2/1/0 geometry AND body membership. Facts are written only
-    #     by RecomputeBodies (full replace per model) and ride the SAME guards
-    #     as ties inside the pure resolver: the one-lithology filter and the
-    #     dangling-endpoint guard, so a rejected or deleted layer neutralises a
-    #     stale fact until the next recompute refreshes it.
+    # 2b. Geometry facts — the ONLY union (owner ruling 2026-10-04, "identity
+    #     follows the drawing"; it narrows 2026-08-12's "every same litho that is
+    #     connected should get the same body id" to connected AS PAINTED). A fact
+    #     records that the partition fill painted two layers as one mass (a tie-
+    #     born band, two onlaps meeting, a lens touching its host — never fallback
+    #     paint). Facts are written only by RecomputeBodies (full replace per
+    #     model) and pass the pure resolver's one-unit filter and dangling-
+    #     endpoint guard, so a rejected or deleted layer neutralises a stale fact
+    #     until the next recompute refreshes it. A model with NO facts yet (before
+    #     its first recompute) resolves to one body per band; the renderer's
+    #     project-open recompute posts the facts and re-stamps.
     fact_rows = (
         await session.execute(
             select(
@@ -358,7 +372,7 @@ tuple[tuple[UUID, UUID], ...]]
             ).where(BodyGeometryFactOrm.model_id == model_id)
         )
     ).all()
-    edges.extend(LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in fact_rows)
+    facts = [LayerEdge(layer_a_id=a, layer_b_id=b) for a, b in fact_rows]
 
     # 2c. User "Separate" rulings (debt #278 R5) — cannot-link constraints that
     #     forbid two anchors from ever landing in one body, however the ties and
@@ -397,7 +411,7 @@ tuple[tuple[UUID, UUID], ...]]
     ).all()
 
     logger.debug(
-        f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} edge(s), "
+        f"_run_resolver: {len(nodes)} layer(s), {len(edge_rows)} tie(s), "
         f"{len(fact_rows)} geometry fact(s), {len(separation_rows)} separation(s), "
         f"{len(union_rows)} union(s)"
     )
@@ -405,7 +419,19 @@ tuple[tuple[UUID, UUID], ...]]
     # Body identity is geometry-only (owner 2026-09-02): a "Join with…" is a GROUP
     # relation, not a merge, so the union rows are NOT passed as must-links. The
     # resolve is identical whether or not groups exist.
-    result = resolve_litho_instances(layers=nodes, edges=edges, separations=separations, unions=())
+    result = resolve_litho_instances(
+        layers=nodes, edges=facts, separations=separations, unions=(), ties=ties
+    )
+    if result.unbanded_ties:
+        # Load-bearing for "why are these two bodies?" (owner 2026-10-04): a tie the
+        # fill does not paint as a band joins nothing. INFO, not DEBUG — the
+        # lessons-learned rule for logs a dogfeed question hangs on.
+        logger.info(
+            f"_run_resolver: model {model_id} — {len(result.unbanded_ties)} accepted "
+            f"tie(s) not banded by the fill: their bands stay separate bodies"
+        )
+        for tie in result.unbanded_ties:
+            logger.debug(f"_run_resolver: unbanded tie ({tie.layer_a_id}, {tie.layer_b_id})")
 
     # DORMANT backstop (owner 2026-09-02): with ``unions=()`` above, the resolver
     # never marks a union inert or suppressed, so ``inert_unions`` / ``suppressed_
@@ -698,8 +724,8 @@ class _RunResolverLogger(GroundModelLogger):
 class ResolveLithoInstances(GroundModelLogger):
     """Re-run the litho-instance resolver for one model and commit the result.
 
-    Loads accepted litho layers + user-approved layer-level correlation
-    edges, runs the pure domain resolver, reconciles one ``body`` row per
+    Loads accepted litho layers + geometry facts (the union) + accepted ties
+    (never a union since 2026-10-04), runs the pure domain resolver, reconciles one ``body`` row per
     connected component, stamps ``litho_layer.body_id``, and marks changed
     surfaces stale.
 
