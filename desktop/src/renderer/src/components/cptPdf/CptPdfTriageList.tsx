@@ -6,9 +6,17 @@
 // sheet printed twice is named there with its notice; soundings of unknown
 // origin are listed apart and start unticked. Presentational: the dialog owns
 // the selection.
+//
+// Owner dogfeed 2026-10-04: the thumbnails are fetched through the API client
+// and shown from blob: URLs (the CSP blocks an http <img>); the row notes are
+// rendered from their codes in the app language; "Check axes" (was
+// "Calibrate") names what the overlay is for, and one line under the summary
+// says when to open it.
 
-import { cptPdfClient, type CptPdfDigest, type CptPdfSounding } from '../../api/clients/cptPdf'
+import type { CptPdfDigest, CptPdfSounding } from '../../api/clients/cptPdf'
+import { usePdfPageThumbnail } from '../../hooks/usePdfPageThumbnail'
 import { useT } from '../../i18n/translate'
+import { cptPdfNoteTexts } from '../../utils/cptPdfNoteText'
 
 interface Props {
   digest: CptPdfDigest
@@ -27,6 +35,18 @@ function pageSpan(pages: number[]): string {
   const first = pages[0]
   const last = pages[pages.length - 1]
   return first === last ? `${first}` : `${first}–${last}`
+}
+
+const THUMBNAIL_BOX = 'h-16 w-12 flex-none border border-border-subtle'
+
+/** A page thumbnail, or a neutral box of the same size while it loads or after a failure. */
+function PageThumbnail({ fileSha, page, projectId }: { fileSha: string; page: number; projectId: string }): JSX.Element {
+  const t = useT()
+  const { url } = usePdfPageThumbnail(fileSha, page, projectId)
+  if (url === null) {
+    return <div data-testid="cpt-pdf-thumbnail-placeholder" aria-hidden="true" className={`${THUMBNAIL_BOX} bg-surface-app`} />
+  }
+  return <img src={url} alt={t('cptPdf.thumbnailAlt', { page })} className={`${THUMBNAIL_BOX} bg-white object-contain`} />
 }
 
 interface RowProps {
@@ -53,6 +73,7 @@ function SoundingRow({
   const t = useT()
   const firstPage = sounding.page_numbers[0]
   const label = sounding.sounding_id ?? sounding.key
+  const notes = cptPdfNoteTexts(sounding, t)
   return (
     <li
       data-testid={testid}
@@ -65,12 +86,7 @@ function SoundingRow({
         aria-label={label}
         onChange={e => onToggle(sounding.key, e.target.checked)}
       />
-      <img
-        src={cptPdfClient.pageUrl(fileSha, firstPage, projectId)}
-        alt={t('cptPdf.thumbnailAlt', { page: firstPage })}
-        loading="lazy"
-        className="h-16 w-12 flex-none border border-border-subtle bg-white object-contain"
-      />
+      <PageThumbnail fileSha={fileSha} page={firstPage} projectId={projectId} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="font-semibold">{label}</span>
@@ -87,10 +103,10 @@ function SoundingRow({
           </span>
           {edited && <span className="text-accent">{t('cptPdf.edited')}</span>}
         </div>
-        {sounding.warnings.length > 0 && (
+        {notes.length > 0 && (
           <ul className="mt-0.5 list-disc pl-4 text-amber-700 dark:text-amber-400">
-            {sounding.warnings.map(w => (
-              <li key={w}>{w}</li>
+            {notes.map((text, i) => (
+              <li key={i}>{text}</li>
             ))}
           </ul>
         )}
@@ -98,6 +114,7 @@ function SoundingRow({
       <button
         type="button"
         data-testid="cpt-pdf-calibrate"
+        title={t('cptPdf.calibrateHint')}
         className="flex-none rounded px-2 py-0.5 text-xs text-accent hover:bg-surface-app"
         onClick={() => onCalibrate(sounding.key)}
       >
@@ -142,6 +159,9 @@ export default function CptPdfTriageList({
         {digest.report_code
           ? t('cptPdf.summary', { n: digest.campaign.length, report: digest.report_code })
           : t('cptPdf.summaryNoCode', { n: digest.campaign.length })}
+      </p>
+      <p data-testid="cpt-pdf-explainer" className="text-xs text-text-secondary">
+        {t('cptPdf.explainer')}
       </p>
       {!digest.ocr_available && (
         <p data-testid="cpt-pdf-ocr-unavailable" className="text-xs text-amber-700 dark:text-amber-400">
