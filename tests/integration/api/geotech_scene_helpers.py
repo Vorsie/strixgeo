@@ -7,12 +7,25 @@ extract on the second copy; the counterweight expired when the third caller
 arrived).
 
 Everything here talks to the API the way the desktop does, so a scene built with
-these helpers is a scene the product can actually produce.
+these helpers is a scene the product can actually produce — except
+``paint_band``, which stands in for the renderer's ``bodies/recompute`` (the
+section fill is client-side TypeScript, so a Python scene seeds its result).
 """
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
+from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
+from tests.integration._litho_builders import geometry_fact
 
 
 def two_layer_qc(
@@ -189,3 +202,96 @@ async def correlate(
         },
     )
     assert resp.status_code in (200, 201), resp.text
+
+
+async def paint_band(
+    session: AsyncSession,
+    model_id: str | UUID,
+    *pairs: tuple[str | UUID, str | UUID],
+) -> None:
+    """Record that the section fill painted each layer pair as ONE mass, then resolve.
+
+    Owner 2026-10-04, *"identity follows the drawing"*: a tie alone joins no
+    bodies; the renderer posts a geometry fact for every mass the fill paints and
+    only those facts union. In the app a tie between two same-unit bands that the
+    fill draws as a band (the ordinary case: 2 ties, or 1 tie whose two onlaps
+    meet) yields that fact at the next ``bodies/recompute``. A Python scene cannot
+    run the client-side fill, so it seeds the fact here and re-runs the resolver,
+    exactly as the recompute endpoint would.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        The test session; committed by the resolver run.
+    model_id : str | UUID
+        The litho or geotech model the layers belong to.
+    *pairs : tuple[str | UUID, str | UUID]
+        The layer-id pairs the fill painted as one mass.
+    """
+    mid = UUID(str(model_id))
+    await _add_facts_and_resolve(session, mid, [(UUID(str(a)), UUID(str(b))) for a, b in pairs])
+
+
+async def paint_accepted_ties(session: AsyncSession, model_id: str | UUID) -> int:
+    """Record that the fill painted EVERY accepted tie of a model, then resolve.
+
+    The ordinary case in the app: a same-unit tie the fill draws as a band (2 ties,
+    or 1 tie whose two onlaps meet at the halfway point) yields a geometry fact at
+    the next ``bodies/recompute``. A scene written before 2026-10-04 (when a tie
+    still unioned by itself) calls this where it relied on that, so its bodies are
+    the ones the drawing makes. Cross-unit ties get a fact too; the resolver's
+    one-unit filter drops it, as it drops the renderer's.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        The test session; committed by the resolver run.
+    model_id : str | UUID
+        The litho or geotech model.
+
+    Returns
+    -------
+    int
+        The number of facts added (pairs already painted are skipped).
+    """
+    mid = UUID(str(model_id))
+    ties = (
+        await session.execute(
+            select(
+                LithoContactCorrelationEdgeOrm.layer_a_id,
+                LithoContactCorrelationEdgeOrm.layer_b_id,
+            ).where(
+                LithoContactCorrelationEdgeOrm.model_id == mid,
+                LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+            )
+        )
+    ).all()
+    return await _add_facts_and_resolve(session, mid, [(a, b) for a, b in ties])
+
+
+async def _add_facts_and_resolve(
+    session: AsyncSession, model_id: UUID, pairs: list[tuple[UUID, UUID]]
+) -> int:
+    """Insert the not-yet-recorded facts for ``pairs``, commit, resolve the model."""
+    existing = {
+        (a, b)
+        for a, b in (
+            await session.execute(
+                select(BodyGeometryFactOrm.layer_a_id, BodyGeometryFactOrm.layer_b_id).where(
+                    BodyGeometryFactOrm.model_id == model_id
+                )
+            )
+        ).all()
+    }
+    added = 0
+    for x, y in pairs:
+        fact = geometry_fact(model_id=model_id, layer_x=x, layer_y=y)
+        key = (fact.layer_a_id, fact.layer_b_id)
+        if key in existing:
+            continue
+        existing.add(key)
+        session.add(fact)
+        added += 1
+    await session.commit()
+    await ResolveLithoInstances(session).execute(model_id=model_id, commit=True)
+    return added
