@@ -107,11 +107,11 @@ export interface LabelledFace {
    */
   defect?: FaceDefect
   /**
-   * True when the face's paint came from a FALLBACK label authority — the sub-TD substrate
-   * label (``emitBottomTieSubstrate``) or the flood-closure label (``emitLonePinch`` /
-   * ``emitFloodWedge``): no column vertical bounds the face, so the litho is inferred fill,
-   * not drilled data. Stamped by ``labelOneFace`` (the one place both label authorities
-   * live), so the flag-ON seed path inherits it through its ``...base`` spreads and the
+   * True when the face's paint came from a FALLBACK label authority — the flood-closure label
+   * (``emitLonePinch`` / ``emitFloodWedge``): no column vertical bounds the face, so the litho is
+   * inferred fill, not drilled data. (The second authority, the sub-TD flat-floor substrate, is
+   * retired — owner 2026-10-04, "no tie, no band".) Stamped by ``labelOneFace`` (the one place
+   * the label authority lives), so the flag-ON seed path inherits it through its ``...base`` spreads and the
    * marker cannot flip with ``twoSidedTerminationsEnabled()``. Forwarded onto the sliced
    * region (``slice.ts``) as ``SectionRegion.fallback``.
    */
@@ -493,7 +493,6 @@ function labelOneFace(
     // auto-match) is NOT promoted — it falls to ``classifyFace`` and terminates (LENS).
     let hasAnchorSpan = false
     let lensLabel: LensLabel | undefined
-    let substrateLabel: LensLabel | undefined
     let floodLabel: LensLabel | undefined
     for (const id of face.boundingCurveIds) {
       const m = COL_RE.exec(id)
@@ -504,8 +503,7 @@ function labelOneFace(
         // pinch apex, bounded only by these curves + the interval brackets + the
         // pinch's own ``close`` curves (never a full facing column vertical — the wedge
         // triangles are corner->conv->apex). Its label carries the bracket/facing
-        // matrix formation, so the wedge reads as a BAND. Same trick as the sub-TD
-        // substrate wedge (btfloor/btcurtain) — a face with no column vertical is
+        // matrix formation, so the wedge reads as a BAND — a face with no column vertical is
         // stamped from the flood label below.
         //
         // ``bandseam`` is the RULING-8d mismatched-first-unit midpoint seam (emitEnclosingFlood).
@@ -525,16 +523,6 @@ function labelOneFace(
         // vertical). A LABELLED flood (emitLonePinch's vacated-wedge closure, the sweep wedges)
         // still disqualifies, and the floor still anchors band classification below.
         if (!(id.startsWith('flood') && l === undefined)) nonLensBoundary = true
-        hasAnchorSpan = true
-        nTie++
-      } else if (id.startsWith('btfloor') || id.startsWith('btcurtain')) {
-        // A deep-to-deep flat-floor SUBSTRATE curve (emitBottomTieSubstrate): its
-        // label carries the bottom-tie formation. The sub-TD wedge below every
-        // column TD is bounded only by these curves (no column vertical reaches
-        // there), so it is labelled from here as a BAND (the tie fill is authoritative).
-        const l = lensLabels?.get(id)
-        if (l) substrateLabel = l
-        nonLensBoundary = true
         hasAnchorSpan = true
         nTie++
       } else if (id.startsWith('onlap')) {
@@ -608,15 +596,6 @@ function labelOneFace(
         enclosedLens: true,
         ...(lensLabel.layerId !== undefined ? { layerIds: [lensLabel.layerId] } : {}),
       }
-    }
-    // A sub-TD substrate wedge is bounded only by flat-floor + curtain curves — no
-    // column vertical reaches below TD, so ``units`` is empty. Stamp it from the
-    // bottom-tie label as an authoritative BAND (quad). A face that ALSO has a column
-    // vertical is real drilled data — the column label wins (handled below), so the
-    // substrate label only applies when there is no column vertical.
-    if (substrateLabel && units.length === 0) {
-      // ``fallback``: the paint is the substrate label's carry, not drilled data (see LabelledFace).
-      return { face, formationId: substrateLabel.formationId, bodyId: substrateLabel.bodyId, klass: 'band', units, fallback: true }
     }
     // A lone-side flood wedge is bounded only by flood/close/bracket curves (its
     // corner->conv->apex triangles never carry a full facing column vertical), so
