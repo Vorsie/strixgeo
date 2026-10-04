@@ -42,6 +42,10 @@ export const CPT_PDF = {
     'elevation axis without a printed ground level: type the ground level',
   'cptPdf.note.CLIPPED_POINTS': '{count} point(s) on an axis maximum: the true value is higher',
   'cptPdf.note.READ_FROM_IMAGE': 'read from an image: check the orange curve against the sheet',
+  // A drilled stretch without measurement (owner ruling "a", 2026-10-04);
+  // {list} is the stretches, each written with ``cptPdf.drilledInterval``.
+  'cptPdf.note.DRILLED_INTERVALS': 'Drilled: {list}',
+  'cptPdf.drilledInterval': '{top} to {base} m',
   'cptPdf.selectAll': 'Select all',
   'cptPdf.selectNone': 'Select none',
   'cptPdf.importSelected': 'Import selected ({n})',
