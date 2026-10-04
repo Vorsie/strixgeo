@@ -40,6 +40,8 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_interpretation_dedup import interpretation_dedup_verdict
+from groundmodel.application.dov_interpretation_verdict import DovInterpretationVerdict
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
@@ -48,7 +50,10 @@ from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
-from groundmodel.infrastructure.db.repositories.dov_dedup import existing_dov_permkeys
+from groundmodel.infrastructure.db.repositories.dov_dedup import (
+    deleted_dov_permkeys,
+    existing_dov_permkeys,
+)
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import BoreholeWfsRow
 from groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_client import (
     DovInterpretationClient,
@@ -215,21 +220,40 @@ class ImportInterpretationsDov(GroundModelLogger):
         # Phase 3 — per-row dedup against ``Observation.dov_permkey`` for
         # refresh-on-duplicate: when an existing borehole is in scope,
         # its already-stored interpretations skip; only NEW
-        # interpretations on it persist.
+        # interpretations on it persist. A stored track is never
+        # overwritten, so a hand edit on it survives the re-import; a track
+        # the user DELETED is remembered on its borehole and skipped too
+        # (owner dogfeed 2026-10-01: "a deleted track stays deleted").
         existing_permkeys = await existing_dov_permkeys(
             self._session,
             ObservationOrm,
             "borehole_id",
             test_id_to_borehole_id.values(),
         )
+        user_deleted = await deleted_dov_permkeys(self._session, test_id_to_borehole_id.values())
+        self.info(
+            f"DOV interpretation phase 3 (dedup): {len(existing_permkeys)} permkey(s) "
+            f"already held, {len(user_deleted)} deleted by the user"
+        )
 
         t_persist = time.perf_counter()
         total = len(parsed)
         for i, (row, parse_result) in enumerate(parsed, 1):
-            if row.permkey in existing_permkeys:
+            verdict = interpretation_dedup_verdict(
+                row.permkey, stored=existing_permkeys, deleted_by_user=user_deleted
+            )
+            if verdict is DovInterpretationVerdict.ALREADY_PRESENT:
                 # Already stored under this borehole — skip silently. The
                 # parent debug log already reports the in-scope set.
                 result.skipped_already_present += 1
+                continue
+            if verdict is DovInterpretationVerdict.DELETED_BY_USER:
+                result.skipped_deleted_by_user += 1
+                self.debug(
+                    f"DOV interpretation [{i}/{total}]: '{row.permkey}' "
+                    f"({row.observation_type.value}) was deleted by the user on "
+                    f"'{row.test_id}' — not re-attached"
+                )
                 continue
             try:
                 orm = self._build_orm(row, parse_result)
@@ -295,6 +319,7 @@ class ImportInterpretationsDov(GroundModelLogger):
             f"DOV interpretation import done in {ms_since(t_total)} ms: "
             f"fetched={result.fetched} attached={result.attached} "
             f"skipped_already_present={result.skipped_already_present} "
+            f"skipped_deleted_by_user={result.skipped_deleted_by_user} "
             f"skipped_no_borehole={result.skipped_no_borehole} "
             f"failed={result.failed} wfs_gaps={result.wfs_gaps}  "
             f"per-stream={result.per_stream}"
