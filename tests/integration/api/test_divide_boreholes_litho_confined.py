@@ -53,6 +53,7 @@ from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import paint_accepted_ties
 
 # ---------------------------------------------------------------------------
 # NAD class → lithology family helper (mirrors LITHO_ABSOLUTE_MIN_NAD's inverse)
@@ -450,6 +451,10 @@ async def cs1_scene(
     )
     # BH-1 KLEI has no correlation → standalone KLEI body.
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": cs1_project,
         "litho_model_id": litho_model_id,
@@ -643,6 +648,5 @@ async def test_divide_boreholes_litho_confined(
     # And the committed confidence tells the distance truth: 300 m from the
     # nearest donor is beyond the 200 m medium rung — 'low', honestly.
     assert all(r.confidence == "low" for r in zand_layers), (
-        f"DB-4: 300 m donors must stamp 'low'; got "
-        f"{[r.confidence for r in zand_layers]}"
+        f"DB-4: 300 m donors must stamp 'low'; got {[r.confidence for r in zand_layers]}"
     )
