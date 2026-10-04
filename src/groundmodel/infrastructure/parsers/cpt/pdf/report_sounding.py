@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from groundmodel.domain.services.cpt_display_name import cpt_display_name
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_origin import CptOrigin
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
@@ -48,6 +49,12 @@ class ReportSounding:
     notes : tuple of ReportSoundingNote
         The same notes as stable codes + params, one per warning and in the
         same order; the desktop renders them in the app language.
+    project_number : str or None
+        The project number printed in the sheet's sounding block
+        ("23.15-002"), the project id a GEF of the same sounding carries.
+    campaign_code : str or None
+        The report's campaign code ("CAMZ-001"), the stand-in project id when
+        the sheet prints no project number.
     """
 
     key: str
@@ -67,11 +74,26 @@ class ReportSounding:
     digitised: bool = True
     warnings: tuple[str, ...] = field(default_factory=tuple)
     notes: tuple[ReportSoundingNote, ...] = field(default_factory=tuple)
+    project_number: str | None = None
+    campaign_code: str | None = None
 
     @property
     def sheet_count(self) -> int:
         """Return how many sheets the sounding was printed on."""
         return len(self.page_numbers)
+
+    @property
+    def project_id(self) -> str | None:
+        """Return the project id the sounding is stored under, if any.
+
+        The sheet's project number, else the report's campaign code.
+        """
+        return self.project_number or self.campaign_code
+
+    @property
+    def display_name(self) -> str:
+        """Return the name the imported CPT is shown under ("23.15-002-S110")."""
+        return cpt_display_name(self.project_id or "", self.sounding_id or self.key)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the sounding as a JSON-ready dict for the UI."""
@@ -94,4 +116,7 @@ class ReportSounding:
             "digitised": self.digitised,
             "warnings": list(self.warnings),
             "notes": [n.to_dict() for n in self.notes],
+            "project_number": self.project_number,
+            "campaign_code": self.campaign_code,
+            "display_name": self.display_name,
         }
