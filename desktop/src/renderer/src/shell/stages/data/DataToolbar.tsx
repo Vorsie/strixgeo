@@ -67,10 +67,16 @@ export default function DataToolbar(): JSX.Element {
     if (paths.length > 0) setLabFiles(paths)
   }
 
-  function finishLabImport(summary: LabSeriesImportSummary): void {
+  async function finishLabImport(summary: LabSeriesImportSummary): Promise<void> {
     setLabFiles(null)
     const written = summary.imported + summary.replaced
     const fetched = summary.dovFetched
+    const fetchedLine =
+      fetched.length === 1
+        ? t('labSeries.toast.dovFetchedOne', { name: fetched[0].name })
+        : fetched.length > 1
+          ? t('labSeries.toast.dovFetched', { names: fetched.map(b => b.name).join(', ') })
+          : null
     shell.toasts.toast(
       summary.failed > 0 && written === 0 ? 'error' : 'success',
       t('labSeries.toast.summary', {
@@ -79,16 +85,20 @@ export default function DataToolbar(): JSX.Element {
         unchanged: summary.unchanged,
         skipped: summary.skipped,
         failed: summary.failed,
-      }) +
-        (fetched.length > 0
-          ? `. ${t('labSeries.toast.dovFetched', { names: fetched.map(b => b.name).join(', ') })}`
-          : ''),
+      }) + (fetchedLine ? `. ${fetchedLine}` : ''),
     )
-    // A borehole fetched from DOV was written by the preview, even when its
-    // file was then skipped: it joins the list, and the project is dirty.
     if (fetched.length > 0) {
-      void shell.investigations.adoptImportedBoreholes?.(fetched.map(b => b.id))
+      // A borehole fetched from DOV was written by the preview, even when its
+      // file was then skipped: it joins the list (unhidden, in the manifest,
+      // marked new since the last save, the list refetched), the project is
+      // dirty, and the first one is selected so the engineer sees where it
+      // went (owner dogfeed 2026-10-04: "where can i see them").
       shell.coordinator?.markMutated?.()
+      await shell.investigations.adoptImportedBoreholes?.(fetched.map(b => b.id))
+      shell.coordinator?.setSelectedBoreholeId?.(fetched[0].id)
+    } else if (written > 0) {
+      // The borehole's lab-test count changed (the flask icon in the list).
+      await shell.investigations.refreshBoreholeList?.()
     }
     if (written === 0) return
     // The import wrote to the database: the project is dirty until File > Save
@@ -167,7 +177,7 @@ export default function DataToolbar(): JSX.Element {
           projectId={shell.project.id}
           filePaths={labFiles}
           boreholes={shell.visibleBoreholes.map(b => ({ id: b.id, name: b.name }))}
-          onFinished={finishLabImport}
+          onFinished={s => void finishLabImport(s)}
         />
       )}
       {bedOverrides && (
