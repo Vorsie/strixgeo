@@ -25,14 +25,30 @@ export const CPT_PDF = {
   'cptPdf.pages': 'p. {pages}',
   'cptPdf.groundLevel': 'Z {z} m',
   'cptPdf.noPosition': 'no position',
-  'cptPdf.calibrate': 'Calibrate…',
+  'cptPdf.calibrate': 'Check axes…',
+  'cptPdf.calibrateHint':
+    'Show the axes the digitiser read on the page and move them if the orange curve does not sit on the printed one',
+  'cptPdf.explainer':
+    'Every row was read automatically. Open Check axes to compare the read curve with the sheet, or when a row asks you to type axis values.',
   'cptPdf.edited': 'edited',
   'cptPdf.thumbnailAlt': 'Page {page} of the report',
+  // Per-row notes, one key per backend ``ReportSoundingNote`` code. The EN
+  // wording is the backend's own English sentence, so EN reads as before.
+  'cptPdf.note.TICKS_UNAVAILABLE_NO_OCR': 'tick reading unavailable: type the axis values',
+  'cptPdf.note.TICKS_NOT_READ': 'axis values not read: type two tick values per axis',
+  'cptPdf.note.NO_POSITION_PRINTED': 'no position printed: type X and Y before importing',
+  'cptPdf.note.ELEVATION_AXIS': 'elevation axis: depth = printed ground level - plotted elevation',
+  'cptPdf.note.ELEVATION_AXIS_NO_GROUND_LEVEL':
+    'elevation axis without a printed ground level: type the ground level',
+  'cptPdf.note.CLIPPED_POINTS': '{count} point(s) on an axis maximum: the true value is higher',
+  'cptPdf.note.READ_FROM_IMAGE': 'read from an image: check the orange curve against the sheet',
   'cptPdf.selectAll': 'Select all',
   'cptPdf.selectNone': 'Select none',
   'cptPdf.importSelected': 'Import selected ({n})',
   'cptPdf.importing': 'Importing…',
-  'cptPdf.overlay.title': 'Calibrate sounding {id}',
+  'cptPdf.overlay.title': 'Check the axes of sounding {id}',
+  'cptPdf.overlay.intro':
+    'Drag the frame corners onto the printed axes and type the value at two tick marks per axis, then Read again.',
   'cptPdf.overlay.loading': 'Reading the sounding…',
   'cptPdf.overlay.page': 'Page {page}',
   'cptPdf.overlay.panel': 'Panel',
@@ -47,7 +63,7 @@ export const CPT_PDF = {
   'cptPdf.overlay.cornerHandle': 'Drag the {corner} corner of the {kind} frame',
   'cptPdf.overlay.cornerTopLeft': 'top-left',
   'cptPdf.overlay.cornerBottomRight': 'bottom-right',
-  'cptPdf.overlay.reextract': 'Re-extract',
+  'cptPdf.overlay.reextract': 'Read again',
   'cptPdf.overlay.use': 'Use this calibration',
   'cptPdf.overlay.back': 'Back to the list',
   'cptPdf.overlay.assumptions': 'Assumptions',
