@@ -36,12 +36,17 @@ const OVERLAP_EPS = 1e-6
 
 /** The column a termination measures against, and the gaps its geometry spans. */
 export interface TerminationRun {
-  /** The first column in this direction that READ the unit's levels, or — when none did —
+  /** The first column in this direction that READ the unit's levels, or — when none did — the
+   *  ADJACENT column when the unit lies below its TD (the shallow test the unit lenses toward), else
    *  the outermost column in that direction (the section edge the unit runs to). */
   column: ColumnGeom
-  /** ``true`` when ``column`` actually read the ground: an ordinary pinch measures against
-   *  it. ``false`` = nothing in this direction ever read it; the unit runs to the edge. */
+  /** ``true`` when ``column`` actually read the ground: an ordinary pinch measures against it,
+   *  crossing the blind columns on the way. ``false`` = nothing in this direction ever read it. */
   reads: boolean
+  /** ``true`` only when nothing read the unit AND it does not lie below the adjacent column's TD
+   *  (a unit resting exactly on that column's ground): the one case still run flat to the section
+   *  edge (``emitContinuation``). A sub-TD unit no column reads lenses instead (owner 2026-10-04). */
+  toEdge: boolean
   /** The gap-index half-open range ``[gapLo, gapHi)`` the run crosses. */
   gapLo: number
   gapHi: number
@@ -62,9 +67,10 @@ export function terminationRun(
 ): TerminationRun {
   const hi = Math.max(topElev, baseElev)
   const lo = Math.min(topElev, baseElev)
-  const span = (index: number, reads: boolean): TerminationRun => ({
+  const span = (index: number, reads: boolean, toEdge = false): TerminationRun => ({
     column: columns[index],
     reads,
+    toEdge,
     gapLo: Math.min(nearIndex, index),
     gapHi: Math.max(nearIndex, index),
   })
@@ -86,10 +92,21 @@ export function terminationRun(
       if (Math.min(fu.topElev, hi) - Math.max(fu.baseElev, lo) > OVERLAP_EPS) return span(i, true)
     }
   }
-  // Nothing in this direction ever read the ground: the outermost column IS the edge the
-  // unit runs to (``last`` stays ``nearIndex`` only when there is no column that way at all,
-  // which degenerates the continuation into a no-op the caller's ordinary path absorbs).
-  return span(last, false)
+  // Nothing in this direction ever read the ground. When the unit lies below the ADJACENT column's
+  // TD - ground no test that way drilled - NO TIE, NO BAND (owner 2026-10-04, section "test": *"as
+  // long as the bottom of S11 is not correlated to 19/100-S3 the loop isn't closed and there is
+  // nothing to draw"*): the 2026-08-21 flat run to the section edge was a band made from levels,
+  // under shallow tests no tie reaches. The unit lenses at its own level toward the adjacent column
+  // and the rest under those TDs is the no-data void. Only a unit that merely rests on the adjacent
+  // column's ground (no overlap, not below its TD) still runs flat to the edge (``last`` stays
+  // ``nearIndex`` only when there is no column that way at all - the caller's ordinary path absorbs
+  // that degenerate case).
+  const adjacent = nearIndex + dir
+  if (adjacent >= 0 && adjacent < columns.length && columns[adjacent].units.length > 0) {
+    const adjacentTd = Math.min(...columns[adjacent].units.map((u) => u.baseElev))
+    if (hi <= adjacentTd + OVERLAP_EPS) return span(adjacent, false)
+  }
+  return span(last, false, true)
 }
 
 /** The ties whose gaps the run crosses — the reach shorteners a relocated diamond can meet. */
@@ -101,13 +118,14 @@ export function runGapTies<T extends { gapIndex: number }>(
 }
 
 /**
- * Run a unit to the SECTION EDGE at full thickness — the one case with nothing to pinch at.
+ * Run a unit flat at full thickness from its own column to ``edgeX`` (a closed rectangle).
  *
- * Emits the top contact, a CURTAIN on the edge column, and the base contact: with the unit's
- * own column-vertical that is a closed rectangle. The curtain idiom is the substrate's
- * (``emitBottomTieSubstrate``'s ``btcurtain``) — a vertical on a column line where that column
- * has no footprint edge of its own to close against. This is the ONLY flat termination the law
- * allows, and it sits on the section's own boundary, not on a test.
+ * Emits the top contact, a CURTAIN on the far column, and the base contact: with the unit's
+ * own column-vertical that is a closed rectangle — a vertical on a column line where that column
+ * has no footprint edge of its own to close against. Callers: a unit ``terminationRun`` sends to
+ * the section edge (``toEdge`` — one resting on the adjacent column's ground, never one below its
+ * TD: owner 2026-10-04, "no tie, no band"), and the gap-local straddle sliver of
+ * ``emitSubTdLenses``.
  *
  * ``colX``/``edgeX`` are the unit's own column and the edge column in along-metres; ``nextId``
  * is the calling emitter's id allocator so ids stay in that emitter's space. Returns ``false``
