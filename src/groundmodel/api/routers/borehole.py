@@ -102,7 +102,9 @@ MAX_BOREHOLE_XML_UPLOAD_BYTES = 50 * 1024 * 1024
 def _issue_schemas(issues: list[ValidationIssue]) -> list[ValidationIssueSchema]:
     """Serialise parse / import findings for the response."""
     return [
-        ValidationIssueSchema(level=i.level.value, code=i.code, message=i.message, rows=i.rows)
+        ValidationIssueSchema(
+            level=i.level.value, code=i.code, message=i.message, rows=i.rows, params=i.params
+        )
         for i in issues
     ]
 
