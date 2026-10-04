@@ -1151,6 +1151,7 @@ export function useGeologicalModel({
   markMutated,
   bedStaleNonce = 0,
   sectionsStaleNonce = 0,
+  bodiesRecomputedNonceByModel,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -1219,6 +1220,15 @@ export function useGeologicalModel({
    * nonce does. Optional / defaults to 0 for the geoModel test mocks.
    */
   sectionsStaleNonce?: number
+  /**
+   * Per-model counter bumped by ``App`` when a debounced body recompute changed
+   * that model's bodies or staled its built solids (owner 2026-10-04: "adding a
+   * new correlation doesn't mark the litho stale"). The recompute runs ~2.5 s
+   * AFTER the edit's own solids re-read, so without this the stale flag it sets
+   * never reaches the Build badge. Each solids instance keys on ITS model's
+   * entry. Optional for the geoModel test mocks.
+   */
+  bodiesRecomputedNonceByModel?: Readonly<Record<string, number>>
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -2566,9 +2576,13 @@ export function useGeologicalModel({
   // counters into one refresh key re-reads the solids on either, so the Build
   // badge turns amber without a project reopen after a bed is drawn (owner
   // 2026-09-13). A colon-joined string never collides the way a sum would.
+  // A completed body recompute that changed the litho bodies folds in too: it
+  // stales the solids AFTER the edit's own re-read (owner 2026-10-04).
+  const lithoRecomputedNonce =
+    activeLithoModel !== null ? (bodiesRecomputedNonceByModel?.[activeLithoModel.id] ?? 0) : 0
   const lithoSolidsRefreshKey = useMemo(
-    () => `${lithoLayersVersion}:${bedStaleNonce}`,
-    [lithoLayersVersion, bedStaleNonce],
+    () => `${lithoLayersVersion}:${bedStaleNonce}:${lithoRecomputedNonce}`,
+    [lithoLayersVersion, bedStaleNonce, lithoRecomputedNonce],
   )
 
   // Litho body solids — lifted from LithologyCanvas so the toolbar, canvas,
@@ -2631,9 +2645,14 @@ export function useGeologicalModel({
   // directly above it.
   // Same combined key on the geotech side — a band edit OR a bed change re-reads
   // the geotech voxel solids' staleness.
+  // ...and a geotech body recompute that changed the packing bodies.
+  const geotechRecomputedNonce =
+    activeGeotechModel !== null
+      ? (bodiesRecomputedNonceByModel?.[activeGeotechModel.id] ?? 0)
+      : 0
   const geotechSolidsRefreshKey = useMemo(
-    () => `${geotechLayersVersion}:${bedStaleNonce}`,
-    [geotechLayersVersion, bedStaleNonce],
+    () => `${geotechLayersVersion}:${bedStaleNonce}:${geotechRecomputedNonce}`,
+    [geotechLayersVersion, bedStaleNonce, geotechRecomputedNonce],
   )
   const geotechSolidsResult = useLithoSolids(
     project?.id ?? null,
