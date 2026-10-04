@@ -209,6 +209,8 @@ function emitSubTdOnlap(
   side: 'left' | 'right',
   colX: number,
   facingX: number,
+  facingTD: number,
+  stripReadBeyond: boolean,
   lensLabels: Map<string, LensLabel>,
   nextOflankId: () => string,
   out: InputCurve[],
@@ -234,10 +236,21 @@ function emitSubTdOnlap(
   // guard in ``emitSubTdOnlapFlank``, guarding the over-reach direction — never a formationId
   // comparison. (A BOTTOM-tie onlap deliberately has no such clamp: its tie rises from the unit's
   // top to the shallow TD, so its apex always sits above the unit and the flank stays under the tie.)
+  //
+  // ONE EXCEPTION: a TOP-tied onlap whose tie runs on UNDER the facing column (its facing end lies
+  // strictly below the facing TD — a jump tie crossing beneath a shallow test, not a tie riding that
+  // test's TD void floor). There the apex above the unit's top is just the tie rising, the free BASE
+  // flank stays under the tie, and the onlap is the ordinary one (owner 2026-10-04, section "test",
+  // GEO-19/100-S3's bottom silty sand under the GEO-08/118-S11 jump tie toward GEO-08/118-S8: *"bottom
+  // sand at S3 should just onlap the blue tie to the left, just as any other tie"*). Only where the
+  // strip is a GENUINE hole (``stripReadBeyond`` false): when a deeper column BEYOND the shallow facing
+  // reads these levels, the deep-to-deep substrate carries the unit across and a flank would only cut
+  // a seam into it (the same guard the bottom-tie onlap below uses).
   const apexElev = halfwayOnTie(tiedElev, facingTiedElev)
   const spanLo = Math.min(u.topElev, u.baseElev)
   const spanHi = Math.max(u.topElev, u.baseElev)
-  if (apexElev > spanHi + ELEV_EPS || apexElev < spanLo - ELEV_EPS) return false
+  const tieRunsUnderFacing = !baseTied && facingTiedElev < facingTD - ELEV_EPS && !stripReadBeyond
+  if ((apexElev > spanHi + ELEV_EPS && !tieRunsUnderFacing) || apexElev < spanLo - ELEV_EPS) return false
   return emitSubTdOnlapFlank(u, baseTied, tiedElev, facingTiedElev, colX, facingX, lensLabels, nextOflankId, out)
 }
 
@@ -285,8 +298,13 @@ function emitSideSubTd(
       // onlapping deep unit (the ``drawTermination`` bottom-tie partner), never a shallow tie that
       // merely lands near the facing TD. Without this the gate
       // would fire on the ordinary continuous-band case (CS1 S7 gaps 16/17) and convert it to a wedge.
+      // OR the tie RISES from the facing TD to a contact above it, on a near column that is itself
+      // deeper (owner 2026-10-04, section "test" GEO-08/119-B15 -> GEO-08/118-S15: B15's bottom tied
+      // to the top of S15's silt -4.27, 2.6 m above B15's TD): the shallow test's bottom tie all the
+      // same, and *"everything below that silt should lens left"*.
       const nearElev = side === 'left' ? t.left.y : t.right.y
-      return col.units.some((u) => Math.abs(u.topElev - nearElev) <= ELEV_EPS && u.baseElev < facingTD - ELEV_EPS)
+      if (col.units.some((u) => Math.abs(u.topElev - nearElev) <= ELEV_EPS && u.baseElev < facingTD - ELEV_EPS)) return true
+      return nearElev > facingTD + ELEV_EPS && columnTD(col) < facingTD - ELEV_EPS && col.units.some((u) => Math.abs(u.topElev - nearElev) <= ELEV_EPS)
     })
   const left = side === 'left' ? col : facing
   const right = side === 'left' ? facing : col
@@ -392,7 +410,8 @@ function emitSideSubTd(
       // A split piece has no plan → its inherited corr-1 onlap rides the host tie only when a plan
       // exists for the unsplit host (the bridge case); an interbed-cut piece is corr-0 and lenses above.
       if (eff.corr === 1) {
-        if (plan && emitSubTdOnlap(pu, plan, side, colX, facingX, lensLabels, nextOflankId, out)) continue
+        const stripReadBeyond = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, pu.topElev, pu.baseElev).reads
+        if (plan && emitSubTdOnlap(pu, plan, side, colX, facingX, facingTD, stripReadBeyond, lensLabels, nextOflankId, out)) continue
         // Plain 2/1/0 below the facing TD (owner 2026-09-23): a sub-TD unit whose TOP is tied to
         // the facing column's TD (the bottom tie) and whose base is free onlaps to the HALFWAY point
         // of that tie — the onlap the above-TD sweep (``drawTermination``) would have drawn had the
