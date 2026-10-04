@@ -25,11 +25,17 @@ Scene
 
 Test assertions
 ---------------
-BM-1  Correlate the two LOOSE bands → after the resolver, ONE body id.
-BM-2  Correlate a LOOSE band to the facing DENSE band → the two keep DIFFERENT
-      body ids: a tie between two masses is a contact, not one mass.
+BM-1  Correlate the two LOOSE bands, the fill paints them as one mass → after
+      the resolver, ONE body id.
+BM-2  Correlate a LOOSE band to the facing DENSE band (even with a painted
+      fact) → the two keep DIFFERENT body ids: a tie between two masses is a
+      contact, not one mass.
 BM-3  The litho model is untouched: its two correlated sand layers still share
       one body (the packing filter is inert without a packing class).
+
+Since owner 2026-10-04 (*"identity follows the drawing"*) only the geometry facts
+the renderer posts for painted masses union; ``paint_band`` stands in for that
+``bodies/recompute`` (the fill is client-side).
 
 ⚠ NOT RUN by the author — the integration suite must go through the wrapper:
     .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_geotech_body_mass.py
@@ -50,7 +56,7 @@ from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
-from .geotech_scene_helpers import accept_cpt_litho, two_layer_qc
+from .geotech_scene_helpers import accept_cpt_litho, paint_band, two_layer_qc
 
 
 @pytest_asyncio.fixture
@@ -160,6 +166,9 @@ async def bm_scene(
         },
     )
     assert correlate.status_code in (200, 201), correlate.text
+    # The fill paints the tied sands as one band: the recompute's fact makes them
+    # ONE litho body (the packing-tie guard and the subdivide read that body).
+    await paint_band(db_session, litho_model_id, (contacts[0], contacts[1]))
 
     geotech_model_id = await SubdivideAllBodies(db_session).execute(
         project_id=bm_project.id, litho_model_id=litho.json()["id"]
@@ -195,7 +204,7 @@ async def _bands(session: AsyncSession, model_id: str, cpt_id: str) -> list[Lith
 async def test_bm1_same_packing_bands_become_one_body(
     db_session: AsyncSession, bm_scene: dict, async_client: AsyncClient
 ) -> None:
-    """BM-1 — a tie between two bands of the same soil AND density is one mass."""
+    """BM-1 — a painted tie between two bands of the same soil AND density is one mass."""
     pid = str(bm_scene["project"].id)
     left = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_a_id"])
     right = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_b_id"])
@@ -210,6 +219,8 @@ async def test_bm1_same_packing_bands_become_one_body(
     )
     assert resp.status_code in (200, 201), resp.text
     await db_session.commit()
+    await paint_band(db_session, bm_scene["geotech_model_id"], (left[0].id, right[0].id))
+    db_session.expire_all()
     left = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_a_id"])
     right = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_b_id"])
     assert left[0].body_id is not None
@@ -236,6 +247,9 @@ async def test_bm2_different_packing_bands_stay_two_bodies(
     )
     assert resp.status_code in (200, 201), resp.text
     await db_session.commit()
+    # Even a fact across the density change must not weld (one mass = one class).
+    await paint_band(db_session, bm_scene["geotech_model_id"], (left[0].id, right[1].id))
+    db_session.expire_all()
     left = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_a_id"])
     right = await _bands(db_session, bm_scene["geotech_model_id"], bm_scene["cpt_b_id"])
     assert left[0].body_id != right[1].body_id
