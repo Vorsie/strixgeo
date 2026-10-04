@@ -56,6 +56,10 @@ export interface UseShellContextValueArgs {
   handleImportBoreholeXml?: ShellContextValue['investigations']['handleImportBoreholeXml']
   handleBboxDrawn: ShellContextValue['investigations']['handleBboxDrawn']
   pendingCptPins: ShellContextValue['investigations']['pendingCptPins']
+  // Required KEY (value may be undefined in partial shells): the lab import's
+  // DOV-fetched borehole reaches the list only through this; omitting it at the
+  // App call site silently dropped the refresh (owner dogfeed 2026-10-04).
+  adoptImportedBoreholes: ShellContextValue['investigations']['adoptImportedBoreholes']
   visibleCpts: ShellContextValue['visibleCpts']
   visibleBoreholes: ShellContextValue['visibleBoreholes']
   // Whole hook result; the body passes it as geoModel and the dep
@@ -217,6 +221,7 @@ export function useShellContextValue(
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
     handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, sections,
+    handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, adoptImportedBoreholes, visibleCpts, visibleBoreholes, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
@@ -307,6 +312,7 @@ export function useShellContextValue(
       handleImportBoreholeXml,
       handleBboxDrawn,
       pendingCptPins,
+      adoptImportedBoreholes,
     },
     visibleCpts,
     visibleBoreholes,
