@@ -60,7 +60,10 @@ Geophysical: MASW, Seismic CPT
   **Reset to DOV (2026-09-30)** is the consented restore
   (`ResetBoreholeTracksToDov`, `borehole_track_dov_reset.py`): it re-reads the
   DOV XML the bbox import cached (interpretations by `dov_permkey`, the boring
-  by its `<identificatie>` = `test_id`) and rewrites the DOV tracks from the
+  by its `<identificatie>` = `test_id`, found through the persistent
+  `boring/_identificatie_index.jsonl` that `DovBoringIdentificatieIndex` keeps
+  next to the cached files, so a reset opens one boring file instead of
+  scanning the cache) and rewrites the DOV tracks from the
   fresh parse — observations in place (same id), field logs wholesale —
   dropping `edited_manually_at` and leaving the manual tracks alone. It is
   all-or-nothing: a DOV track with no cached XML refuses the whole reset
