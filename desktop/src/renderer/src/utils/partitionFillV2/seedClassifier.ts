@@ -399,8 +399,9 @@ export function classifyFaceSeed(
  * the SAME face after the fact). The four classes:
  *
  *   - ``carry-seed`` (ruling 8n) — a SUBSTRATE face (``btfloor``/``btcurtain``): the deep-to-deep
- *     band∩column intersect carried straight down IS the seed (no column reaches sub-TD by
- *     construction, so a column-edge seed CANNOT exist there — the carry is the seed). Unambiguous.
+ *     band∩column intersect carried straight down IS the seed. UNREACHABLE since 2026-10-04: the
+ *     flat-floor substrate that emitted those curves is retired (owner, "no tie, no band"); the
+ *     class is kept so the recorded seed-gate tallies keep their vocabulary.
  *   - ``unterminated-litho`` (ruling 8o) — a FLOOD face (``floodsw``/``flood``) whose boundary
  *     carries EXACTLY ONE unterminated lithology (the enclosing fill the hole fills with). The flood
  *     curves on the boundary resolve to a single formation → that IS the 8o answer, unambiguous.
