@@ -5,7 +5,7 @@
 // RGB → re-extract), a 'Re-extract' that posts the calibration dict, the
 // assumptions listed, the clipped-point count, XY/Z/date editable when not read".
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPdfDigitised, CptPdfSounding, PageCalibrationDict } from '../../api/clients/cptPdf'
@@ -194,9 +194,140 @@ describe('CptPdfCalibrationOverlay', () => {
       fireEvent.change(input, { target: { value } })
     }
     fireEvent.click(screen.getByTestId('cpt-pdf-use'))
-    expect(onDone).toHaveBeenCalledWith({
-      calibrations: [calibration()],
-      header: { x: 67000, y: 224800, epsg: 31370 },
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calibrations: [calibration()],
+        header: { x: 67000, y: 224800, epsg: 31370 },
+      }),
+    )
+  })
+
+  // Owner dogfeed 2026-10-04: "with assen controleren, you should give the
+  // values that are selected right now in grey" / "i can type but the text is
+  // white on white" / "you also need a reset button to auto pick".
+  describe('the values the digitiser read are grey hints, not typed text', () => {
+    it('each tick field starts EMPTY and shows the value the digitiser read as its grey placeholder', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const expected: Array<[string, string]> = [
+        ['cpt-pdf-value-tick-a', '0'],
+        ['cpt-pdf-value-tick-b', '20'],
+        ['cpt-pdf-depth-tick-a', '0'],
+        ['cpt-pdf-depth-tick-b', '14'],
+      ]
+      for (const [id, hint] of expected) {
+        const input = screen.getByTestId(id) as HTMLInputElement
+        expect(input.value).toBe('')
+        expect(input.placeholder).toBe(hint)
+      }
+    })
+
+    it('a header field the sheet did not print starts empty, with its default as the grey hint', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const epsg = screen.getByTestId('cpt-pdf-header-epsg') as HTMLInputElement
+      expect(epsg.value).toBe('')
+      expect(epsg.placeholder).toBe('31370')
+    })
+
+    it('typing ONE tick sends that value, and the read value for the tick left empty', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const tickA = screen.getByTestId('cpt-pdf-value-tick-a')
+      fireEvent.focus(tickA)
+      fireEvent.change(tickA, { target: { value: '2' } })
+      fireEvent.click(screen.getByTestId('cpt-pdf-reextract'))
+      await waitFor(() => expect(digitise).toHaveBeenCalledTimes(2))
+      expect(digitise.mock.calls[1][0].calibrations[0].panels[0].value_scale).toMatchObject({
+        value_a: 2,
+        value_b: 20,
+      })
+      // The typed tick is shown as typed; the untouched one stays a hint.
+      expect((screen.getByTestId('cpt-pdf-value-tick-b') as HTMLInputElement).value).toBe('')
+    })
+  })
+
+  it('reopening a sounding keeps the typed tick as typed and the read values as grey hints', async () => {
+    const { onDone } = renderOverlay()
+    await screen.findByTestId('cpt-pdf-overlay-image')
+    const tickB = screen.getByTestId('cpt-pdf-value-tick-b')
+    fireEvent.focus(tickB)
+    fireEvent.change(tickB, { target: { value: '32' } })
+    fireEvent.blur(tickB)
+    fireEvent.click(screen.getByTestId('cpt-pdf-use'))
+    const settled = onDone.mock.calls[0][0]
+    cleanup()
+    digitise.mockClear()
+    render(
+      <CptPdfCalibrationOverlay
+        projectId="p1"
+        fileSha={SHA}
+        sounding={sounding()}
+        initial={settled}
+        onDone={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    )
+    await screen.findByTestId('cpt-pdf-overlay-image')
+    expect(digitise.mock.calls[0][0].calibrations[0].panels[0].value_scale).toMatchObject({ value_a: 0, value_b: 32 })
+    const reopened = screen.getByTestId('cpt-pdf-value-tick-b') as HTMLInputElement
+    expect(reopened.value).toBe('32')
+    expect(reopened.placeholder).toBe('20')
+    expect((screen.getByTestId('cpt-pdf-reset') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('every field in the overlay follows the theme: themed background, themed text, grey hint', async () => {
+    renderOverlay()
+    await screen.findByTestId('cpt-pdf-overlay-image')
+    const fields = within(screen.getByTestId('cpt-pdf-overlay')).getAllByRole('textbox')
+    // tick A/B on two axes + x, y, epsg (the sheet printed no position).
+    expect(fields.length).toBeGreaterThanOrEqual(7)
+    for (const field of [...fields, screen.getByTestId('cpt-pdf-panel-kind')]) {
+      const classes = field.className.split(/\s+/)
+      expect(classes, field.getAttribute('data-testid') ?? '').toEqual(
+        expect.arrayContaining(['bg-surface-overlay', 'text-text-primary', 'placeholder:text-text-muted']),
+      )
+    }
+  })
+
+  describe('"Pick automatically again" drops every edit back to the digitiser\'s own reading', () => {
+    it('is disabled while nothing was edited', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const reset = screen.getByTestId('cpt-pdf-reset')
+      expect(reset.textContent).toBe('Pick automatically again')
+      expect((reset as HTMLButtonElement).disabled).toBe(true)
+    })
+
+    it('after an edit it clears the edits and reads the page again through the digitiser\'s own calibration', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const tickB = screen.getByTestId('cpt-pdf-value-tick-b')
+      fireEvent.focus(tickB)
+      fireEvent.change(tickB, { target: { value: '32' } })
+      fireEvent.blur(tickB)
+      fireEvent.change(screen.getByTestId('cpt-pdf-panel-kind'), { target: { value: 'fs' } })
+      const x = screen.getByTestId('cpt-pdf-header-x')
+      fireEvent.focus(x)
+      fireEvent.change(x, { target: { value: '67000' } })
+      fireEvent.blur(x)
+      const reset = screen.getByTestId('cpt-pdf-reset') as HTMLButtonElement
+      expect(reset.disabled).toBe(false)
+      fireEvent.click(reset)
+      await waitFor(() => expect(digitise).toHaveBeenCalledTimes(2))
+      // No calibration posted = the server detects the axes itself.
+      expect(digitise.mock.calls[1][0]).toEqual({ project_id: 'p1', file_sha: SHA, sounding_id: '110' })
+      await waitFor(() => expect(reset.disabled).toBe(true))
+      expect((screen.getByTestId('cpt-pdf-value-tick-b') as HTMLInputElement).value).toBe('')
+      expect((screen.getByTestId('cpt-pdf-header-x') as HTMLInputElement).value).toBe('')
+      expect((screen.getByTestId('cpt-pdf-panel-kind') as HTMLSelectElement).value).toBe('qc')
+    })
+
+    it('reads "Automatisch opnieuw kiezen" in Dutch', async () => {
+      setLanguage('nl')
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      expect(screen.getByTestId('cpt-pdf-reset').textContent).toBe('Automatisch opnieuw kiezen')
     })
   })
 })
