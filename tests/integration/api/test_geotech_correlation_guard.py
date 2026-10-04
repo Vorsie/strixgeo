@@ -48,6 +48,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import paint_accepted_ties
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -356,6 +357,9 @@ async def gc_scene(
     )
 
     # Materialise geotech layers (one band per CPT due to uniform qc)
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied pair ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
     result = await SubdivideAllBodies(db_session).execute(
         project_id=gc_project.id,
         litho_model_id=UUID(litho_model_id),
@@ -599,6 +603,9 @@ async def test_gc4_surface_tie_with_one_shared_adjacent_body_is_allowed(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied pair ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
     result = await SubdivideAllBodies(db_session).execute(
         project_id=pid,
         litho_model_id=UUID(litho_model_id),
@@ -758,6 +765,9 @@ async def gc_lens_scene(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied pair ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
     result = await SubdivideAllBodies(db_session).execute(
         project_id=gc_project.id,
         litho_model_id=UUID(litho_model_id),
@@ -974,6 +984,9 @@ async def gc_sand_lens_scene(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied pair ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
     result = await SubdivideAllBodies(db_session).execute(
         project_id=gc_project.id,
         litho_model_id=UUID(litho_model_id),
