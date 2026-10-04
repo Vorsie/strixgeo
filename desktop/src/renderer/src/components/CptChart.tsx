@@ -25,7 +25,12 @@ import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
-import type { ContactOverlay } from '../utils/contactOverlays'
+import {
+  DEFAULT_CONTACT_OVERLAY_VISIBILITY,
+  type ContactOverlay,
+  type ContactOverlayVisibility,
+} from '../utils/contactOverlays'
+import { ContactOverlayToggles } from './ContactOverlayToggles'
 import { useT } from '../i18n/translate'
 
 interface Props {
@@ -70,6 +75,11 @@ interface Props {
   // / undefined means "no overlay" (renders unchanged). The chart is
   // informative-only — never interactive on these lines.
   contactOverlays?: readonly ContactOverlay[]
+  // Per-source on/off switches for those lines (owner 2026-10-04). The
+  // caller filters ``contactOverlays``; the chart only renders the two
+  // switches, and only when ``onToggleContactOverlay`` is wired.
+  contactOverlayVisibility?: Readonly<ContactOverlayVisibility>
+  onToggleContactOverlay?: (source: ContactOverlay['source']) => void
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -225,6 +235,8 @@ export default function CptChart({
   onChangeVirtueleBoringOverrideModel,
   virtueleBoringLoading = false,
   contactOverlays,
+  contactOverlayVisibility = DEFAULT_CONTACT_OVERLAY_VISIBILITY,
+  onToggleContactOverlay,
 }: Props) {
   // Lazy-load the catalogue when the model dropdown is present —
   // most CPT detail views never need it (engineers leaving overlays
@@ -635,6 +647,14 @@ export default function CptChart({
               {/* i18n-exempt: Rf is a CPT channel symbol (international notation) */}
               Rf
             </button>
+          )}
+          {/* Stratigraphic / lithological boundary switches (owner
+              2026-10-04), in the same pill style as the DOV toggle. */}
+          {onToggleContactOverlay !== undefined && (
+            <ContactOverlayToggles
+              visibility={contactOverlayVisibility}
+              onToggle={onToggleContactOverlay}
+            />
           )}
           {/* DOV Virtuele Boring overlay toggle + override picker.
               The button flips visibility; the dropdown picks which
