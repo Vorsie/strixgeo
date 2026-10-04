@@ -206,7 +206,36 @@ class DovGrainSizeParser(GroundModelLogger):
             raise ParseError(
                 f"DOV grain-size XML for '{name}': missing <{DOV_OBSERVATIE_WRAPPER_TAG}> element"
             )
+        return self.parse_observation_element(observatie, sample_id=sample_id, name=name)
 
+    def parse_observation_element(
+        self,
+        observatie: ET.Element,
+        *,
+        sample_id: UUID,
+        name: str = "",
+    ) -> GrainSizeParseResult:
+        """Parse one already-located ``<observatie>`` element.
+
+        The element-level entry point: ``parse`` (a per-observation download)
+        and the local DOV borehole file import (observations inside a
+        ``dov-schema`` file next to the borings) both end here, so the curve,
+        pre-treatment and validation rules exist once.
+
+        Parameters
+        ----------
+        observatie : ET.Element
+            The ``<observatie>`` element.
+        sample_id : UUID
+            UUID of the ``Sample`` this observation belongs to.
+        name : str
+            Display name for log messages.
+
+        Returns
+        -------
+        GrainSizeParseResult
+            Same contract as :meth:`parse`.
+        """
         issues: list[ValidationIssue] = []
 
         # Sanity: the orchestrator should have filtered by parametergroep
