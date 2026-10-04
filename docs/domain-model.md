@@ -66,8 +66,9 @@ Geophysical: MASW, Seismic CPT
   preserved end-to-end since the A2.5 backfill); the ``layer_*_side``
   columns pick each endpoint's 'top'/'base' contact.
 - **Bodies** (``BodyOrm``) are single-lithology units traced across a
-  section — the resolver's connected components of approved layer↔layer
-  correlation edges, with ``body_id`` stamped on every member
+  section — the resolver's connected components of the geometry facts the
+  section fill paints (owner 2026-10-04: identity follows the drawing; a tie
+  alone joins nothing), with ``body_id`` stamped on every member
   ``litho_layer``. A body's lateral SHAPE (bands / onlaps / lenses) is NOT
   stored: it is derived geometrically client-side by the partition fill
   (``utils/partitionFillV2/computeSectionFillV2.ts`` + ``PartitionFillOverlay``)
