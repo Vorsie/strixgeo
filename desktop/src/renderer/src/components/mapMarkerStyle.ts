@@ -144,6 +144,34 @@ export interface BoreholeMarkerSvg {
 const LAB_FLASK_SPAN_PX = 6
 
 /**
+ * The lab-test flask glyph (neck + conical body, ~7 px) as an SVG path.
+ *
+ * Single source of the flask the map's borehole marker and the borelog's
+ * samples track both draw (owner 2026-10-04: the same glyph everywhere a
+ * borehole or sample carries lab tests).
+ *
+ * Parameters
+ * ----------
+ * neckLeft : number
+ *     Left edge of the 2 px neck; the body spans 2.2 px either side of it.
+ * top : number
+ *     Top of the glyph's ~7 px high box (the neck starts 0.5 px below it).
+ *
+ * Returns
+ * -------
+ * string
+ *     The path's ``d`` attribute.
+ */
+export function labFlaskPathD(neckLeft: number, top: number): string {
+  return `M${neckLeft},${top + 0.5} h2 v2 l2.2,3.8 v0.7 h-6.4 v-0.7 l2.2,-3.8 z`
+}
+
+/** Fill / stroke of the flask glyph: white with a dark outline (reads on any ground). */
+export const LAB_FLASK_FILL = '#ffffff'
+export const LAB_FLASK_STROKE = '#1f2937'
+export const LAB_FLASK_STROKE_WIDTH = 0.9
+
+/**
  * The borehole marker: a filled SQUARE (shape = source kind, docs/ux.md), with
  * a small flask badge at its top-right corner when the borehole carries lab
  * tests (owner 2026-10-04 — the same flask the Data list shows).
@@ -189,8 +217,8 @@ export function boreholeMarkerSvg(input: BoreholeMarkerSvgInput): BoreholeMarker
   // reads on light and dark basemaps; it overlaps the square's corner by 1 px.
   const fx = offset + size - 1
   const flaskMarkup = hasLabTests
-    ? `<path data-glyph="lab-flask" d="M${fx + 2.5},0.5 h2 v2 l2.2,3.8 v0.7 h-6.4 v-0.7 l2.2,-3.8 z" ` +
-      `fill="#ffffff" stroke="#1f2937" stroke-width="0.9" stroke-linejoin="round" />`
+    ? `<path data-glyph="lab-flask" d="${labFlaskPathD(fx + 2.5, 0)}" ` +
+      `fill="${LAB_FLASK_FILL}" stroke="${LAB_FLASK_STROKE}" stroke-width="${LAB_FLASK_STROKE_WIDTH}" stroke-linejoin="round" />`
     : ''
   const html =
     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
