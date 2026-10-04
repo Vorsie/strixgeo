@@ -13,7 +13,7 @@ export const OUTPUTS_NL = {
   'params.perUnit': 'Per eenheid',
   'params.methods': 'Methodes',
   'params.pickTab': 'Kies hierboven een tabblad.',
-  'params.perTestBlurb': 'Eén regel per sondering / boring / labproef; de kolommen zijn parameters.',
+  'params.perTestBlurb': 'Eén regel per sondering / boring / laboproef; de kolommen zijn parameters.',
   'params.perUnitBlurb':
     'Eén regel per litho- of geotechnische eenheid; de kolommen vatten de eenheid samen (gemiddelde / P50 / P95 / afgeleide waarden).',
   'params.methodsBlurb':
@@ -119,8 +119,8 @@ export const OUTPUTS_NL = {
   'params.fenceBasemap': 'Achtergrondkaart',
   'params.resetCameraFrame': 'Zet de camera terug om het model te kaderen',
   'params.identificationTests': 'Identificatieproeven',
-  'params.labTestsLoadFailedDetail': 'Kon de labproeven voor deze eenheid niet laden: {error}',
-  'params.labTestsLoadFailed': 'Kon de labproeven voor deze eenheid niet laden.',
+  'params.labTestsLoadFailedDetail': 'Kon de laboproeven voor deze eenheid niet laden: {error}',
+  'params.labTestsLoadFailed': 'Kon de laboproeven voor deze eenheid niet laden.',
   'params.okpBlurb':
     'Classificatie-labresultaten (OKP) op de boringmonsters van de eenheid: waarde tegenover peil.',
   'params.samplesSkippedOne': ' {n} monster overgeslagen. Collarpeil onbekend.',
