@@ -83,6 +83,11 @@ class RecomputeBodiesResponse(BaseModel):
         The mirror count.
     renamed : list[str]
         Names displaced by a merge (oldest name wins).
+    solids_stale : bool
+        True when this recompute staled the model's built 3-D solids. Additive
+        (owner 2026-10-04): the recompute runs debounced after the edit's own
+        re-read, so the desktop needs this to re-read the solids and amber the
+        Build badge. Defaults to ``False`` for older readers.
     """
 
     facts_written: int
@@ -90,3 +95,4 @@ class RecomputeBodiesResponse(BaseModel):
     bodies_merged: int
     bodies_split: int
     renamed: list[str] = Field(default_factory=list)
+    solids_stale: bool = False
