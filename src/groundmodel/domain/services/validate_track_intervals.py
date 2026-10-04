@@ -17,6 +17,10 @@ The rules, as the session main set them for the track editor:
 
 Pure function: no I/O, no logging. The API turns ``errors`` into a 422 whose
 ``loc`` fields are the dotted key paths of the request body.
+
+``same_track_content`` lives here too because "the same content" is defined
+by THIS module's cleaning: two tracks are the same when they store the same
+(owner dogfeed 2026-10-01, the undo-of-the-first-edit badge).
 """
 
 from __future__ import annotations
@@ -97,6 +101,49 @@ def validate_track_intervals(
     return TrackValidationResult(
         intervals=sorted_all, errors=tuple(errors), warnings=tuple(warnings)
     )
+
+
+def same_track_content(edited: Sequence[TrackInterval], original: Sequence[TrackInterval]) -> bool:
+    """Tell whether ``edited`` stores exactly the content of ``original``.
+
+    Owner dogfeed 2026-10-01: an undo that restores a DOV track to exactly what
+    DOV published must clear its "edited by hand" mark. "Exactly" is judged on
+    the stored shape: both sides go through the editor's own cleaning (1 mm
+    grain, text stripped, empty text = nothing) and depth order, so a round trip
+    through the editor is never a difference. The admixtures of one interval
+    compare as a set (their order carries no meaning and the ORM does not keep
+    it); the main soil codes keep their order (DOV lists the dominant first).
+
+    Parameters
+    ----------
+    edited : Sequence[TrackInterval]
+        The intervals about to be stored, any order.
+    original : Sequence[TrackInterval]
+        The reference content (what DOV published), any order.
+
+    Returns
+    -------
+    bool
+        True when every interval matches, field by field.
+    """
+    if len(edited) != len(original):
+        return False
+    return _content_key(edited) == _content_key(original)
+
+
+def _content_key(intervals: Sequence[TrackInterval]) -> list[TrackInterval]:
+    """The cleaned, depth-ordered intervals with their admixtures in a fixed order."""
+    cleaned = (_clean(interval) for interval in intervals)
+    keyed = [
+        replace(
+            interval,
+            admixtures=tuple(
+                sorted(interval.admixtures, key=lambda a: (a.soil_code, a.amount, a.locally))
+            ),
+        )
+        for interval in cleaned
+    ]
+    return sorted(keyed, key=lambda i: (i.top_m, i.base_m))
 
 
 def _clean(interval: TrackInterval) -> TrackInterval:
