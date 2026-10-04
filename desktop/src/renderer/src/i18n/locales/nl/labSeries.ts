@@ -63,18 +63,14 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.toast.dovFetchedOne': 'Boring {name} uit DOV gehaald',
   'labSeries.toast.deleted': 'Labtest {file} verwijderd',
 
-  'labSeries.section.title': 'Labproeven ({n})',
-  'labSeries.section.loading': 'Labproeven worden geladen…',
-  'labSeries.section.failed': 'Kon de labproeven niet laden.',
-  'labSeries.section.empty': 'Geen ruwe labproeven op deze boring. Gebruik Importeren > Labproeven importeren.',
-  'labSeries.section.sample': 'Monster {top} tot {base} m',
-  'labSeries.section.counts': '{specimens} proefstuk(ken), {stages} trap(pen), {readings} metingen',
+  // Monsterpaneel: de ruwe proeven van het monster, onder de DOV-resultaten.
+  'labSeries.panel.title': 'Ruwe proeven ({n})',
+  'labSeries.panel.stages': '{n} trap(pen)',
+  'labSeries.panel.expand': 'Metingen tonen',
+  'labSeries.panel.collapse': 'Metingen verbergen',
   'labSeries.section.flags': '{warnings} waarschuwing(en), {errors} fout(en)',
   'labSeries.section.noFlags': 'Geen waarschuwingen',
-  'labSeries.section.open': 'Metingen bekijken',
   'labSeries.section.delete': 'Verwijderen',
-  'labSeries.section.expand': 'Labproeven tonen',
-  'labSeries.section.collapse': 'Labproeven verbergen',
 
   // Delete a lab test (irreversible: Cancel default-focused, no undo).
   'labSeries.delete.title': 'Deze labtest verwijderen?',
