@@ -35,7 +35,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.raster_deskewer import RasterDes
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_grid_detector import RasterGridDetector
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
 from groundmodel.infrastructure.parsers.cpt.pdf.report_triage import ReportTriage
-from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import monotonic_depth
+from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import monotonic_keep
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_axis_calibrator import (
     VectorAxisCalibrator,
 )
@@ -429,6 +429,26 @@ def _continues(last: DigitisedSounding, page: DigitisedSounding) -> bool:
     return min(starts) >= max(ends) - CONTINUATION_OVERLAP_M
 
 
+def _joined_chain(
+    first: DigitisedCurve, second: DigitisedCurve, keep: np.ndarray
+) -> np.ndarray | None:
+    """Return the stroke ids of two joined sheets: the deeper sheet's strokes are new ones.
+
+    A sheet change is a stroke change too, but the continuation repeats the
+    last metre of the sheet before, so no depth jump (no drilled stretch)
+    appears there unless the sounding really was drilled across it.
+    """
+    known = [c.chain is not None and len(c.chain) == len(c) for c in (first, second)]
+    if not all(known):
+        # A curve whose strokes are not known (raster, or rebuilt without
+        # them) joins as one stroke: no pen lift can be claimed.
+        return None
+    assert first.chain is not None and second.chain is not None
+    offset = int(first.chain.max()) + 1 if len(first.chain) else 0
+    joined: np.ndarray = np.concatenate([first.chain, second.chain + offset])[keep]
+    return joined
+
+
 def _join_curves(
     a: dict[PanelKind, DigitisedCurve], b: dict[PanelKind, DigitisedCurve]
 ) -> dict[PanelKind, DigitisedCurve]:
@@ -439,10 +459,14 @@ def _join_curves(
         if first is None:
             out[kind] = curve
             continue
-        d, v, c = monotonic_depth(
-            np.concatenate([first.depth_m, curve.depth_m]),
-            np.concatenate([first.value, curve.value]),
-            np.concatenate([first.clipped, curve.clipped]),
+        depth = np.concatenate([first.depth_m, curve.depth_m])
+        value = np.concatenate([first.value, curve.value])
+        keep = monotonic_keep(depth, value)
+        out[kind] = replace(
+            first,
+            depth_m=depth[keep],
+            value=value[keep],
+            clipped=np.concatenate([first.clipped, curve.clipped])[keep],
+            chain=_joined_chain(first, curve, keep),
         )
-        out[kind] = replace(first, depth_m=d, value=v, clipped=c)
     return out
