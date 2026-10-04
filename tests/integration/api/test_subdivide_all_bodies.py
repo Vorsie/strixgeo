@@ -1081,6 +1081,9 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
 
     # ADB-3: at least one geotech edge now references a BH-A geotech layer.
     bh_edges = await _edges_touching(bh_a_layer_ids)
+    # Plain values: the ``expire_all`` after the paint below expires these ORM
+    # rows, and reading an expired attribute lazy-loads (MissingGreenlet).
+    bh_edge_layer_ids = {e.layer_a_id for e in bh_edges} | {e.layer_b_id for e in bh_edges}
     assert len(bh_edges) >= 1, (
         "ADB-3: DivideBoreholes must derive ≥1 borehole-mediated geotech edge "
         "for BH-A (the edge SubdivideAllBodies skipped with an empty stack). "
@@ -1157,9 +1160,7 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
         f"CPT-A body_ids={cpt_a_body_ids}"
     )
     # No edge-connected BH-A layer may be a NULL-body orphan (the B6-top-KLEI bug).
-    connected_bh_layer_ids = (
-        {e.layer_a_id for e in bh_edges} | {e.layer_b_id for e in bh_edges}
-    ) & bh_a_layer_ids
+    connected_bh_layer_ids = bh_edge_layer_ids & bh_a_layer_ids
     # Guard against a vacuous pass: on the OLD code (0 borehole edges) this set is
     # empty and the loop below never runs → ADB-4 would pass for the wrong reason.
     assert len(connected_bh_layer_ids) >= 1, (
@@ -3874,6 +3875,10 @@ async def test_sab_bh1_tin_geometric_division(
         project_id=project.id,
         model_id=geotech_model_id,
     )
+    # Identity follows the drawing (owner 2026-10-04): the accept joins nothing on
+    # its own; the desktop's recompute after it posts the facts for the ties the
+    # fill paints, and those join the band to the CPT's body. Stand-in for that.
+    await paint_accepted_ties(db_session, geotech_model_id)
     for ll in bh_layers_sorted:
         await db_session.refresh(ll)
 
@@ -3886,11 +3891,13 @@ async def test_sab_bh1_tin_geometric_division(
         ll.body_id
         for ll in (
             await db_session.execute(
-                select(LithoLayerOrm).where(
+                select(LithoLayerOrm)
+                .where(
                     LithoLayerOrm.model_id == geotech_model_id,
                     LithoLayerOrm.cpt_id.isnot(None),
                     LithoLayerOrm.status == "accepted",
                 )
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -4509,14 +4516,21 @@ async def test_sab_lcs_connectivity(
         project_id=project.id,
         model_id=geotech_model_id,
     )
+    # Identity follows the drawing (owner 2026-10-04): the accept joins nothing on
+    # its own; the recompute after it posts the fill's facts (the cross-class
+    # restatement's fact is dropped by the one-mass filter, as the renderer's
+    # class-keyed weld never posts one). Stand-in for that recompute.
+    await paint_accepted_ties(db_session, geotech_model_id)
     geotech_layers = (
         (
             await db_session.execute(
-                select(LithoLayerOrm).where(
+                select(LithoLayerOrm)
+                .where(
                     LithoLayerOrm.model_id == geotech_model_id,
                     LithoLayerOrm.cpt_id.in_([cpt_g_uuid, cpt_h_uuid]),
                     LithoLayerOrm.status == "accepted",
                 )
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
