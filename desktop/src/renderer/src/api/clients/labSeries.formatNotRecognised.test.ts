@@ -56,3 +56,18 @@ describe('labSeries client — an unknown file format', () => {
     expect(String((err as Error).message)).toContain('no stage block')
   })
 })
+
+describe('labSeries client — the 409 borehole conflict', () => {
+  it('the preview error carries the translated copy, not the server sentence', async () => {
+    answer(409, {
+      detail: {
+        code: 'lab_borehole_conflict',
+        borehole_name: 'GEO-19/122-B7A',
+        message: 'Borehole GEO-19/122-B7A was stored in this project by another request at the same moment.',
+      },
+    })
+    const err = await labSeriesClient.preview('C:/lab/200568B7.txt', 'p').catch(e => e)
+    expect(String((err as Error).message)).toContain('GEO-19/122-B7A')
+    expect(String((err as Error).message)).not.toMatch(/another request/)
+  })
+})
