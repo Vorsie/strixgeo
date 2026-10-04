@@ -34,7 +34,13 @@ import type {
   LithoLayerLike,
   SectionLike,
 } from '../utils/assembleLithoSectionInputs'
-import { useBodyRecompute, type UseBodyRecomputeResult } from './useBodyRecompute'
+import {
+  recomputeTouchedSolids,
+  useBodyRecompute,
+  type UseBodyRecomputeResult,
+} from './useBodyRecompute'
+import type { RecomputeBodiesResponse } from '../api/clients/geology.types'
+import { log } from '../utils/log'
 import {
   packingClassOfFormations,
   type PackingClassSource,
@@ -101,6 +107,14 @@ export interface UseProjectBodyRecomputeArgs {
   /** The app toast fn (threaded to the scheduler). Includes ``warning`` + an
    *  optional replace key so the scheduler can surface a failed recompute once. */
   toast: (kind: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
+  /**
+   * Called with the model id when a completed recompute changed that model's
+   * bodies (merged / split / renamed) or staled its built solids. The shell
+   * re-reads the model's solids on it, so the Build badge turns amber: the
+   * recompute runs ~2.5 s AFTER the edit's own re-read (owner 2026-10-04,
+   * "adding a new correlation doesn't mark the litho stale"). Optional.
+   */
+  onBodiesRecomputed?: (modelId: string) => void
 }
 
 /**
@@ -134,6 +148,7 @@ export function useProjectBodyRecompute(
     bodyRecomputeLithoNonce,
     bodyRecomputeGeotechNonce,
     toast,
+    onBodiesRecomputed,
   } = args
 
   // Formation row → canonical class key — the identity the geotech evidence
@@ -220,11 +235,27 @@ export function useProjectBodyRecompute(
     [projectId, geotechModelId, visibleSections, investigations, geotechLayers, visibleBoreholes],
   )
 
+  // Only a recompute that changed something the solids depend on is announced
+  // — a no-op recompute must not trigger a re-read on every edit.
+  const handleRecomputed = useCallback(
+    (modelId: string, result: RecomputeBodiesResponse) => {
+      if (!recomputeTouchedSolids(result)) return
+      log.info(
+        'body-recompute',
+        `model ${modelId} bodies changed (solids_stale=${result.solids_stale ?? 'n/a'}) ` +
+          '— re-reading its solids',
+      )
+      onBodiesRecomputed?.(modelId)
+    },
+    [onBodiesRecomputed],
+  )
+
   const { scheduleRecompute } = useBodyRecompute({
     projectId,
     buildPayload,
     dataLoaded: visibleSections.length > 0,
     toast,
+    onRecomputed: handleRecomputed,
   })
 
   // Module-ref bridge for the toolbar's "4 · Divide boreholes" verb. Assigned
