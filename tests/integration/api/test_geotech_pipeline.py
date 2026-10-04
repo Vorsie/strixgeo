@@ -58,6 +58,7 @@ from tests.integration.api.geotech_scene_helpers import (
     accept_borehole_litho,
     accept_cpt_litho,
     correlate,
+    paint_accepted_ties,
     two_layer_qc,
 )
 
@@ -189,6 +190,9 @@ async def pipeline_scene(
         contact_b=contact_b,
         section_id=section_id,
     )
+    # The fill paints the litho ties as bands; the recompute's facts make each tied
+    # chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project_id": pid,
@@ -389,11 +393,17 @@ async def test_gp3_only_accepted_ties_are_visible_to_the_resolver(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """GP3: a pending tie joins nothing; accepting it is what makes one body.
+    """GP3: a tie joins nothing on its own — pending OR accepted.
 
     Re-arranged under ruling A (2026-08-05): auto-correlate now yields accepted
     ties, so the pending state is staged with an explicitly inserted proposal
     (the row any non-litho-backed source would write).
+
+    Owner 2026-10-04, *"identity follows the drawing"*: accepting the ties no
+    longer merges bands by itself. The accept moves the tie counts; the bodies
+    change only when the renderer's recompute posts the fill's geometry facts
+    (the desktop schedules it after the accept). The resolver run inside the
+    accept therefore leaves the body partition exactly as it was.
     """
     geotech_model_id = (await _subdivide_cpts(async_client, pipeline_scene))["geotech_model_id"]
     await _insert_pending_tie(db_session, pipeline_scene, geotech_model_id)
@@ -428,10 +438,10 @@ async def test_gp3_only_accepted_ties_are_visible_to_the_resolver(
     after = await _body_ids()
     accepted_bodies = {body for _cpt, _top, body in after if body is not None}
 
-    # While the ties were pending each band stood alone; accepting them merges
-    # the two CPTs' same-class bands into shared bodies.
-    assert len(accepted_bodies) < len(pending_bodies), (
-        f"accepting the ties must join bands into fewer bodies "
+    # Each band stood alone while the ties were pending, and still does: an
+    # accepted tie is a surface statement until the fill paints it.
+    assert len(accepted_bodies) == len(pending_bodies), (
+        f"accepting a tie must not join bands by itself "
         f"(pending={len(pending_bodies)} accepted={len(accepted_bodies)})"
     )
 
