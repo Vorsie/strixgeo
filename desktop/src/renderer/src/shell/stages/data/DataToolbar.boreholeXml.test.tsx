@@ -1,5 +1,5 @@
-// The Data stage Import menu carries "Import boreholes (DOV XML)" next to the
-// DOV bbox verbs, and it runs the borehole XML import.
+// The Data stage Import menu carries "DOV XML files" in its Borehole group,
+// next to the DOV bbox route, and it runs the borehole XML import.
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -26,13 +26,14 @@ function renderToolbar(handleImportBoreholeXml?: () => Promise<void>): void {
   )
 }
 
-describe('DataToolbar: Import boreholes (DOV XML)', () => {
+describe('DataToolbar: Borehole > DOV XML files', () => {
   it('offers the verb and runs the import', () => {
     const handler = vi.fn().mockResolvedValue(undefined)
     renderToolbar(handler)
     fireEvent.click(screen.getByTestId('import-menu-button'))
+    fireEvent.click(screen.getByTestId('import-group-borehole'))
     const verb = screen.getByTestId('import-verb-borehole-xml')
-    expect(verb.textContent).toContain('Import boreholes (DOV XML)')
+    expect(verb.textContent).toContain('DOV XML files')
     fireEvent.click(verb)
     expect(handler).toHaveBeenCalledTimes(1)
   })
@@ -40,6 +41,7 @@ describe('DataToolbar: Import boreholes (DOV XML)', () => {
   it('a shell without the handler shows no such verb', () => {
     renderToolbar(undefined)
     fireEvent.click(screen.getByTestId('import-menu-button'))
+    fireEvent.click(screen.getByTestId('import-group-borehole'))
     expect(screen.queryByTestId('import-verb-borehole-xml')).toBeNull()
   })
 })
