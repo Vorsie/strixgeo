@@ -44,15 +44,20 @@ test.describe('flow_data_stage_ui', () => {
       await expect(importBtn).toBeVisible()
       await importBtn.click()
 
-      // Live import verbs.
-      await expect(page.getByText('Import CPT (.gef)')).toBeVisible()
-      await expect(page.getByText('Import CPT from DOV (draw bbox)')).toBeVisible()
-      await expect(page.getByText('Import Borehole from DOV (draw bbox)')).toBeVisible()
+      // One row per kind of investigation; the CPT and Borehole routes sit in
+      // a submenu that opens on hover (owner 2026-10-04).
+      await page.getByTestId('import-group-cpt').hover()
+      await expect(page.getByTestId('import-verb-cpt-gef')).toBeVisible()
+      await expect(page.getByTestId('import-verb-cpt-dov')).toBeVisible()
+      await expect(page.getByTestId('import-verb-cpt-pdf')).toBeVisible()
+      await page.getByTestId('import-group-borehole').hover()
+      await expect(page.getByTestId('import-verb-borehole-dov')).toBeVisible()
+      await expect(page.getByTestId('import-verb-borehole-xml')).toBeVisible()
+      await expect(page.getByTestId('import-verb-lab')).toBeVisible()
 
-      // Phase-4-deferred verbs render (dimmed) so the roadmap is visible.
-      await expect(page.getByText('Import DMT')).toBeVisible()
-      await expect(page.getByText('Import Lab Test')).toBeVisible()
-      await expect(page.getByText('Import Monitoring')).toBeVisible()
+      // Not-yet-available verbs render (dimmed) so the roadmap is visible.
+      await expect(page.getByTestId('import-verb-dmt')).toBeVisible()
+      await expect(page.getByTestId('import-verb-monitoring')).toBeVisible()
     } finally {
       await closeApp(app)
       cleanupFixtureFile(tmpPath)
