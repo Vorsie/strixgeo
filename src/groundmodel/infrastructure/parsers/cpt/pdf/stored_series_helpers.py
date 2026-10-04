@@ -25,7 +25,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     STORED_COLUMN_BY_KIND,
     VERTEX_MATCH_TOLERANCE_M,
 )
-from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import nearest_flag
+from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import nearest_flag, resample
 
 # Depths are stored to 0.1 mm: enough to keep every printed scan apart, and it
 # drops the float noise of a point -> metre conversion (1.0199999 -> 1.02).
@@ -60,12 +60,13 @@ def read_at(curve: DigitisedCurve, grid: np.ndarray) -> tuple[np.ndarray, np.nda
         ``(values, clipped)``: the curve's own vertex value where one lies
         within ``VERTEX_MATCH_TOLERANCE_M`` of a grid depth, a straight line
         between its neighbouring vertices elsewhere, NaN outside its depth
-        range.
+        range and inside a drilled stretch of the curve (a pen lift: owner
+        ruling "a", 2026-10-04).
     """
     d, v = curve.depth_m, curve.value
     if len(d) == 0:
         return np.full(len(grid), np.nan), np.zeros(len(grid), dtype=bool)
-    values = np.interp(grid, d, v, left=np.nan, right=np.nan)
+    values = resample(d, v, grid, no_bridge=curve.no_bridge())
     idx = np.clip(np.searchsorted(d, grid), 1, max(len(d) - 1, 1))
     lower = np.clip(idx - 1, 0, len(d) - 1)
     upper = np.clip(idx, 0, len(d) - 1)
