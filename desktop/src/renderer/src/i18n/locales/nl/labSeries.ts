@@ -61,6 +61,7 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.toast.summary': 'Labproeven: {imported} geïmporteerd, {replaced} vervangen, {unchanged} ongewijzigd, {skipped} overgeslagen, {failed} mislukt',
   'labSeries.toast.dovFetched': 'Boringen opgehaald uit DOV: {names}',
   'labSeries.toast.dovFetchedOne': 'Boring {name} uit DOV gehaald',
+  'labSeries.toast.deleted': 'Labtest {file} verwijderd',
 
   'labSeries.section.title': 'Labproeven ({n})',
   'labSeries.section.loading': 'Labproeven worden geladen…',
@@ -71,8 +72,15 @@ export const LAB_SERIES_NL: Partial<Messages> = {
   'labSeries.section.flags': '{warnings} waarschuwing(en), {errors} fout(en)',
   'labSeries.section.noFlags': 'Geen waarschuwingen',
   'labSeries.section.open': 'Metingen bekijken',
+  'labSeries.section.delete': 'Verwijderen',
   'labSeries.section.expand': 'Labproeven tonen',
   'labSeries.section.collapse': 'Labproeven verbergen',
+
+  // Delete a lab test (irreversible: Cancel default-focused, no undo).
+  'labSeries.delete.title': 'Deze labtest verwijderen?',
+  'labSeries.delete.body': '{file} op het monster van {top} tot {base} m: elk proefstuk, elke trap en elke meting van deze test wordt verwijderd. Het monster blijft. Dit kan niet ongedaan worden gemaakt.',
+  'labSeries.delete.confirm': 'Labtest verwijderen',
+  'labSeries.delete.failed': 'Niet verwijderd: {message}',
 
   'labSeries.viewer.title': '{kind} {type} op monster {sample}',
   'labSeries.viewer.close': 'Sluiten',
