@@ -28,6 +28,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -859,3 +860,45 @@ async def test_rb12_an_accepted_tie_with_no_painted_band_leaves_two_bodies(
     assert resp2.json()["facts_written"] == 1
     assert resp2.json()["bodies_merged"] == 1
     assert len(await _body_ids(db_session, scene)) == 1, "the painted band joins them"
+
+
+async def _seed_fresh_solid(db_session: AsyncSession, s: _Scene) -> None:
+    """Insert one NON-stale cached solid for the scene's model (a built model)."""
+    db_session.add(
+        LithoBodySolidOrm(
+            id=uuid7(),
+            model_id=s.model_id,
+            body_id=uuid7(),
+            formation_id=s.formation_id,
+            vertices=[],
+            triangles=[],
+            source_pick_count=0,
+            source_pick_checksum=b"",
+            is_stale=False,
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_rb13_the_answer_says_when_the_recompute_staled_the_built_solids(
+    scene: _Scene, async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """RB13 — owner 2026-10-04: "adding a new correlation doesn't mark the litho stale".
+
+    The recompute that merges two bodies stales the model's built 3-D solids, and
+    it runs AFTER the edit's own re-read. Its answer must say so, so the desktop
+    re-reads the solids and the Build badge turns amber. A recompute that changes
+    nothing must not claim it staled anything.
+    """
+    await _seed_fresh_solid(db_session, scene)
+
+    resp = await async_client.post(_url(scene), json=_merge_payload(scene))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["bodies_merged"] == 1
+    assert resp.json()["solids_stale"] is True, "a merge staled the built solids"
+
+    # The same payload again: no body changes, the solids were already stale.
+    resp2 = await async_client.post(_url(scene), json=_merge_payload(scene))
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["solids_stale"] is False, "a no-op recompute stales nothing"
