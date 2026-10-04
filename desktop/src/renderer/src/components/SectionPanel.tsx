@@ -4005,6 +4005,9 @@ export default function SectionPanel({
                 acceptEdgeLabel={acceptEdgeLabel}
                 onRequestConfirmEdgeReview={onRequestConfirmEdgeReview}
                 flashEdgeId={flashEdgeId}
+                // Stamped bodies, so an accepted tie the fill did not band reads
+                // "accepted, not banded" on hover (owner 2026-10-04).
+                bodyIdByLayerId={armBodyIdByLayerId}
               />
             )}
 
