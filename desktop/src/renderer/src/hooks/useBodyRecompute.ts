@@ -29,6 +29,7 @@ import { apiErrorDetail } from '../api/clients/shared'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 import type { RecomputeBodiesRequest } from '../utils/buildBodyRecomputePayload'
+import type { RecomputeBodiesResponse } from '../api/clients/geology.types'
 
 /** Quiet period after the last mutation before the recompute fires. */
 export const BODY_RECOMPUTE_DEBOUNCE_MS = 2_500
@@ -63,6 +64,37 @@ export interface UseBodyRecomputeOptions {
    * on a failed recompute so the user learns identity did not persist.
    */
   toast: (kind: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
+  /**
+   * Called once per CURRENT (not superseded) successful recompute, after its
+   * toast. The shell uses it to re-read state the recompute changed server-side
+   * (the 3-D solids it staled) — the recompute runs debounced AFTER the edit's
+   * own re-read, so nothing else would see that change (owner 2026-10-04).
+   */
+  onRecomputed?: (modelId: string, result: RecomputeBodiesResponse) => void
+}
+
+/**
+ * Did this recompute change something the built 3-D solids depend on?
+ *
+ * True when a body merged, split or lost its name, or when the server says it
+ * staled the solids (``solids_stale``; absent on an older backend). A no-op
+ * recompute answers false so it triggers no re-read.
+ *
+ * Parameters
+ * ----------
+ * result : RecomputeBodiesResponse
+ *     The recompute's answer.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     Whether the model's solids state must be read again.
+ */
+export function recomputeTouchedSolids(result: RecomputeBodiesResponse): boolean {
+  return (
+    result.solids_stale === true ||
+    result.bodies_merged + result.bodies_split + result.renamed.length > 0
+  )
 }
 
 /** What the callers get. */
@@ -171,6 +203,7 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
         }
         // A no-op recompute stays silent (the alarm-fatigue rule) — with the
         // manual verb gone there is no click to confirm.
+        optsRef.current.onRecomputed?.(modelId, result)
       } catch (err) {
         const detail = apiErrorDetail(err)
         if (detail?.code === 'empty_recompute_payload') {
