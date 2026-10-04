@@ -154,6 +154,60 @@ def reset_tracks_from_dov(
     )
 
 
+def dov_original_observation_intervals(
+    borehole_id: UUID, observation: ObservationOrm, source: DovTrackSource
+) -> tuple[TrackInterval, ...] | None:
+    """Return what DOV published for an imported observation track, or None.
+
+    The same read a Reset to DOV does (the interpretation XML the bbox import
+    cached, re-parsed with the import's parser), without writing anything. The
+    undo of a first edit compares with it (owner dogfeed 2026-10-01).
+
+    Parameters
+    ----------
+    borehole_id : UUID
+        The borehole carrying the track.
+    observation : ObservationOrm
+        The track; its ``dov_permkey`` names the XML.
+    source : DovTrackSource
+        Where the DOV XML is read from.
+
+    Returns
+    -------
+    tuple[TrackInterval, ...] | None
+        DOV's intervals in layer order; None when no usable XML is cached (no
+        permkey, a cache miss, an unparseable file, no layers).
+    """
+    parsed = _parse_interpretation(borehole_id, observation, source)
+    return None if parsed is None else _observation_intervals(parsed)
+
+
+def dov_original_field_log_intervals(
+    boornummer: str, kind: str, source: DovTrackSource
+) -> tuple[TrackInterval, ...] | None:
+    """Return what DOV published for one field-log kind of a boring, or None.
+
+    Parameters
+    ----------
+    boornummer : str
+        The borehole's DOV boornummer (``BoreholeOrm.test_id``).
+    kind : str
+        The field-log kind (``"color"``, ``"moisture"``, ...).
+    source : DovTrackSource
+        Where the DOV XML is read from.
+
+    Returns
+    -------
+    tuple[TrackInterval, ...] | None
+        DOV's rows of ``kind`` in depth order; None when the boring XML is not
+        cached / not parseable or DOV published no row of that kind.
+    """
+    logs = _parse_field_logs(boornummer, source)
+    if logs is None or kind not in logs:
+        return None
+    return tuple(logs[kind])
+
+
 def _is_manual(source: str | None) -> bool:
     """True for a hand-made track (an unset source reads as an import)."""
     return source == TrackSource.MANUAL.value
@@ -248,11 +302,10 @@ def _parse_field_logs(
     return dict(grouped)
 
 
-def _rewrite_observation(obs: ObservationOrm, fresh: Observation) -> None:
-    """Put DOV's layers and header back on ``obs`` (same row, same id)."""
+def _observation_intervals(fresh: Observation) -> tuple[TrackInterval, ...]:
+    """DOV's layers of a parsed interpretation as track intervals, in layer order."""
     ordered = sorted(fresh.layers, key=lambda layer: (layer.layer_index, layer.top_m))
-    # delete-orphan on ``layers`` removes the edited rows (and their admixtures).
-    obs.layers = build_observation_layers(
+    return tuple(
         TrackInterval(
             top_m=layer.top_m,
             base_m=layer.base_m,
@@ -263,6 +316,12 @@ def _rewrite_observation(obs: ObservationOrm, fresh: Observation) -> None:
         )
         for layer in ordered
     )
+
+
+def _rewrite_observation(obs: ObservationOrm, fresh: Observation) -> None:
+    """Put DOV's layers and header back on ``obs`` (same row, same id)."""
+    # delete-orphan on ``layers`` removes the edited rows (and their admixtures).
+    obs.layers = build_observation_layers(_observation_intervals(fresh))
     obs.author = fresh.author
     obs.observation_date = fresh.observation_date
     obs.reliability = fresh.reliability
