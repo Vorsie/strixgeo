@@ -8,7 +8,10 @@ import { describe, expect, it } from 'vitest'
 
 import type { PageCalibrationDict, PanelCalibrationDict } from '../../api/clients/cptPdf'
 import {
+  applyEdits,
   axisValues,
+  formatDetectedValue,
+  hasEdits,
   moveFrameCorner,
   overlayScale,
   setAxisValues,
@@ -124,5 +127,50 @@ describe('panel kind and eyedropper', () => {
   it('the eyedropper stores the clicked pixel colour as RGB 0..1', () => {
     const cal = setCurveColour(page([panel()]), 0, [255, 0, 51])
     expect(cal.panels[0].curve_colour).toEqual([1, 0, 0.2])
+  })
+})
+
+// Owner dogfeed 2026-10-04: the read values are grey hints; what the user
+// types is kept APART from what the digitiser detected, and an empty field
+// means "use the detected value".
+describe('user edits kept apart from the detected calibration', () => {
+  it('no edits: the detected calibration goes out unchanged', () => {
+    const detected = [page([panel()])]
+    expect(applyEdits(detected, {})).toEqual(detected)
+    expect(hasEdits({})).toBe(false)
+  })
+
+  it('one typed tick goes out with the detected value of the tick left empty', () => {
+    const out = applyEdits([page([panel()])], { 0: { 0: { ticks: { value: { b: 32 } } } } })
+    expect(out[0].panels[0].value_scale).toMatchObject({ value_a: 0, value_b: 32 })
+    expect(out[0].panels[0].depth_scale).toMatchObject({ value_a: 0, value_b: 14 })
+  })
+
+  it('a dragged frame goes out with the edge anchors carried along', () => {
+    const frame = { x0: 60, y0: 90, x1: 310, y1: 800 }
+    const out = applyEdits([page([panel()])], { 0: { 0: { frame } } })
+    expect(out[0].panels[0].frame).toEqual(frame)
+    expect(out[0].panels[0].value_scale?.coord_b).toBe(310)
+  })
+
+  it('kind and colour edits go out; the other panels stay as detected', () => {
+    const other = panel({ kind: 'fs' })
+    const out = applyEdits([page([panel(), other])], { 0: { 0: { kind: 'u2', colourRgb: [255, 0, 51] } } })
+    expect(out[0].panels[0].kind).toBe('u2')
+    expect(out[0].panels[0].curve_colour).toEqual([1, 0, 0.2])
+    expect(out[0].panels[1]).toEqual(other)
+  })
+
+  it('a panel entry with nothing in it is no edit', () => {
+    expect(hasEdits({ 0: { 0: {} } })).toBe(false)
+    expect(hasEdits({ 0: { 0: { kind: 'qc' } } })).toBe(true)
+  })
+
+  it('formats a detected value as the chart prints it', () => {
+    expect(formatDetectedValue(0)).toBe('0')
+    expect(formatDetectedValue(32)).toBe('32')
+    expect(formatDetectedValue(6.02)).toBe('6.02')
+    expect(formatDetectedValue(0.1 + 0.2)).toBe('0.3')
+    expect(formatDetectedValue(null)).toBe('')
   })
 })
