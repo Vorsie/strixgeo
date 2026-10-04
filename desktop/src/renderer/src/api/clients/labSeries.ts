@@ -240,6 +240,8 @@ export interface LabSeriesTestSummary {
   n_readings: number
   n_warnings: number
   n_errors: number
+  /** The lab's test start date (ISO), null when the file had none. Additive: older backends omit it. */
+  test_start_date?: string | null
 }
 
 /** Read a local file through IPC and wrap it as a multipart form. */
