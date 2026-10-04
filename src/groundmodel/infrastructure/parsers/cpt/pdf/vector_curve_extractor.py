@@ -24,8 +24,8 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     STORED_COLUMN_BY_KIND,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import (
-    drop_clip_crossings,
-    monotonic_depth,
+    clip_crossing_keep,
+    monotonic_keep,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.tick_run_finder import TickRunFinder, parse_number
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_content import VectorPageContent
@@ -142,36 +142,48 @@ class VectorCurveExtractor(GroundModelLogger):
         chosen = seg[colour_ok & inside & ~grid_like & (content.widths >= self._min_width)]
         if len(chosen) == 0:
             return None
-        points = _chain(chosen)
+        points, chain = _chain(chosen)
         keep = (
             (points[:, 0] >= frame.x0 - tol)
             & (points[:, 0] <= frame.x1 + tol)
             & (points[:, 1] >= frame.y0 - tol)
             & (points[:, 1] <= frame.y1 + tol)
         )
-        points = points[keep]
+        points, chain = points[keep], chain[keep]
         vertical = panel.depth_scale.values_at(points[:, 1])
         depth = to_depth_below_ground(vertical, calibration)
         value = panel.value_scale.values_at(points[:, 0]) * panel.to_storage_factor
         edge = panel.max_value_edge
         clipped = np.abs(points[:, 0] - edge) <= tol
-        d, v, c = drop_clip_crossings(*monotonic_depth(depth, value, clipped))
+        # The stroke id travels with every vertex the two filters keep: where
+        # it changes, the plotter lifted its pen (a drilled stretch).
+        mono = monotonic_keep(depth, value)
+        depth, value, clipped, chain = depth[mono], value[mono], clipped[mono], chain[mono]
+        cross = clip_crossing_keep(depth, clipped)
         return DigitisedCurve(
             kind=panel.kind,
-            depth_m=d,
-            value=v,
-            clipped=c,
+            depth_m=depth[cross],
+            value=value[cross],
+            clipped=clipped[cross],
             source=GraphKind.VECTOR,
             colour=panel.curve_colour,
+            chain=chain[cross],
         )
 
 
-def _chain(segments: np.ndarray) -> np.ndarray:
+def _chain(segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Turn segments in drawing order into one vertex list without repeats.
 
     Segments join into chains where one starts at the previous one's end. A
     short chain standing alone (a legend arrow, a tick mark in the curve's
     colour) is dropped: a data curve is one long chain, or a few long ones.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``(points, chain)``: the ``(x, y)`` vertices and, per vertex, the
+        index of the chain it belongs to (where the pen was lifted between
+        two chains, a drilled stretch may lie).
     """
     chains: list[list[tuple[float, float]]] = []
     for x0, y0, x1, y1 in segments:
@@ -181,8 +193,10 @@ def _chain(segments: np.ndarray) -> np.ndarray:
         elif abs(last[0] - x0) > 1e-6 or abs(last[1] - y0) > 1e-6:
             chains[-1].append((x0, y0))
         chains[-1].append((x1, y1))
-    kept = [pt for chain in chains if len(chain) > MIN_CHAIN_VERTICES for pt in chain]
-    return np.asarray(kept, dtype=float).reshape(-1, 2)
+    long_chains = [chain for chain in chains if len(chain) > MIN_CHAIN_VERTICES]
+    kept = [pt for chain in long_chains for pt in chain]
+    ids = [i for i, chain in enumerate(long_chains) for _ in chain]
+    return np.asarray(kept, dtype=float).reshape(-1, 2), np.asarray(ids, dtype=int)
 
 
 def _annotations(
