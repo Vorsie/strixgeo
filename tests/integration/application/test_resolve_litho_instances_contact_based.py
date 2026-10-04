@@ -8,9 +8,15 @@ body_ordinal)``). It no longer writes ``geological_formation.instance_ordinal``
 — body identity is the durable record of an instance, so these tests
 assert body ordinals.
 
+Since 2026-10-04 (owner: "identity follows the drawing") only a geometry
+fact unions; a tie is read but never joins. The scenes that expect one body
+therefore seed the fact the renderer posts for the painted band
+(``geometry_fact``) beside the tie.
+
 Cases covered:
 1. Two SAND layers (same formation, two columns) linked by ONE
-   user-approved edge → one connected component → exactly one body.
+   user-approved edge the fill paints as a band (+ its fact) → one
+   connected component → exactly one body.
 2. An unapproved (auto-proposed) edge between two SAND layers does NOT
    merge components → two distinct bodies (ordinals 0 + 1).
 """
@@ -40,6 +46,9 @@ from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from tests.integration._litho_builders import (
     geo_model as _geo_model,
+)
+from tests.integration._litho_builders import (
+    geometry_fact,
 )
 from tests.integration._litho_builders import (
     litho_model as _litho_model,
@@ -202,7 +211,7 @@ async def test_approved_edge_forms_one_component_one_body(
     db_session: AsyncSession,
     project: ProjectOrm,
 ) -> None:
-    """Two SAND layers linked via a user-approved edge resolve to one body.
+    """Two SAND layers linked via a painted, user-approved edge resolve to one body.
 
     The resolver detects the connected component and reconciles exactly
     one ``body`` row (ordinal 0); both member layers are stamped with
@@ -228,7 +237,7 @@ async def test_approved_edge_forms_one_component_one_body(
     await db_session.flush()
 
     edge = _layer_edge(litho, la, lb, user_approved=True, section_id=sec.id)
-    db_session.add(edge)
+    db_session.add_all([edge, geometry_fact(model_id=litho.id, layer_x=la.id, layer_y=lb.id)])
     await db_session.commit()
 
     await ResolveLithoInstances(db_session).execute(model_id=litho.id)
@@ -355,11 +364,13 @@ async def test_body_id_stamping_is_one_update_per_body(
     db_session.add(sec)
     await db_session.flush()
 
-    # Chain a-b-c via approved edges → ONE connected component (one body).
+    # Chain a-b-c via approved, painted edges → ONE connected component (one body).
     db_session.add_all(
         [
             _layer_edge(litho, la, lb, user_approved=True, section_id=sec.id),
             _layer_edge(litho, lb, lc, user_approved=True, section_id=sec.id),
+            geometry_fact(model_id=litho.id, layer_x=la.id, layer_y=lb.id),
+            geometry_fact(model_id=litho.id, layer_x=lb.id, layer_y=lc.id),
         ]
     )
     await db_session.commit()
