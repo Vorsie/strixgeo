@@ -133,6 +133,10 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   'params.diameterMm', // "Diameter (mm)"
   'lab.diameterAxis', // "Diameter (mm)"
   'export.heading', // "Export" — like export.title
+  // Import-menu rows (owner 2026-10-04): the menu title carries the verb and
+  // the row names the test; DMT and monitoring read the same in BE Dutch.
+  'data.toolbar.dmt', // "DMT"
+  'data.toolbar.monitoring', // "Monitoring"
   'params.markWhisker', // "whisker" — box-plot term kept in BE Dutch
   'params.markBox', // "box" — box-plot term kept in BE Dutch
   'params.curveCountOne', // "{n} curve" — PSD "curve" loanword
