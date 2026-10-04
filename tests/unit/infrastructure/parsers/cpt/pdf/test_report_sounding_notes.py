@@ -22,9 +22,12 @@ from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_triager import _report_sounding
 
 
-def _page(*, placed: bool, ground: float | None, kind: GraphKind) -> SimpleNamespace:
+def _page(
+    *, placed: bool, ground: float | None, kind: GraphKind, project: str | None = None
+) -> SimpleNamespace:
     """Return the header evidence of one sheet."""
     return SimpleNamespace(
+        project=project,
         ground_level_m=ground,
         x=150000.0 if placed else None,
         y=200000.0 if placed else None,
@@ -36,7 +39,13 @@ def _page(*, placed: bool, ground: float | None, kind: GraphKind) -> SimpleNames
     )
 
 
-def _sounding(*, read: bool, elevation: bool, clipped: int) -> SimpleNamespace:
+def _sounding(
+    *,
+    read: bool,
+    elevation: bool,
+    clipped: int,
+    drilled: list[tuple[float, float]] | None = None,
+) -> SimpleNamespace:
     """Return a merged sounding: curves read or not, on an elevation axis or not."""
     reference = DepthReference.ELEVATION if elevation else DepthReference.DEPTH_BELOW_GROUND
     flags = np.zeros(40, dtype=bool)
@@ -47,6 +56,7 @@ def _sounding(*, read: bool, elevation: bool, clipped: int) -> SimpleNamespace:
         page_numbers=(6,),
         calibrations=(SimpleNamespace(depth_reference=reference, ground_level_m=None),),
         curves=curves,
+        drilled_intervals=lambda: list(drilled or []),
     )
 
 
@@ -121,3 +131,42 @@ def test_the_ui_dict_carries_notes_next_to_the_english_warnings() -> None:
         {"code": "NO_POSITION_PRINTED", "params": {}},
         {"code": "CLIPPED_POINTS", "params": {"count": 3}},
     ]
+
+
+def test_drilled_intervals_are_one_note_with_the_list_and_the_count() -> None:
+    """Ruling "a" (2026-10-04): a drilled stretch is shown on the triage row as a note."""
+    listed = _notes(
+        _sounding(read=True, elevation=False, clipped=0, drilled=[(32.0, 32.3), (40.12, 40.9)]),
+        _page(placed=True, ground=4.5, kind=GraphKind.VECTOR),
+        ocr=False,
+    )
+    assert [(n.code, n.params) for n in listed.notes] == [
+        ("DRILLED_INTERVALS", {"intervals": [[32.0, 32.3], [40.12, 40.9]], "count": 2}),
+    ]
+    assert listed.warnings == ("drilled: 32.0 to 32.3 m, 40.1 to 40.9 m",)
+
+
+def test_a_continuous_sounding_has_no_drilled_note() -> None:
+    """Nothing drilled: no note."""
+    listed = _notes(
+        _sounding(read=True, elevation=False, clipped=0, drilled=[]),
+        _page(placed=True, ground=4.5, kind=GraphKind.VECTOR),
+        ocr=False,
+    )
+    assert listed.notes == ()
+
+
+def test_the_row_names_the_sheet_project_and_the_project_sounding_name() -> None:
+    """Ruling 2026-10-04: the row shows "<project>-S<number>" ("23.15-002-S110")."""
+    sounding = _sounding(read=True, elevation=False, clipped=0)
+    sounding.sounding_id = "110"
+    listed = _report_sounding(
+        "110",
+        CptOrigin.CAMPAIGN,
+        sounding,  # type: ignore[arg-type]
+        {6: _page(placed=True, ground=4.5, kind=GraphKind.VECTOR, project="23.15-002")},  # type: ignore[dict-item]
+        False,
+    )
+    data = listed.to_dict()
+    assert data["project_number"] == "23.15-002"
+    assert data["display_name"] == "23.15-002-S110"
