@@ -157,6 +157,10 @@ _ENGINE_DOMAIN_SERVICES = [
     "groundmodel.domain.services.surface_bound",
     # CPT segmenter + Robertson SBT classifier chain (the litho suggestion engine).
     "groundmodel.domain.services.cpt_corrections",
+    # The CPT display-name rule ("<project>-S<number>", owner ruling
+    # 2026-10-04): pure stdlib, shared by the GEF and PDF importers.
+    "groundmodel.domain.services.cpt_display_name",
+    "groundmodel.domain.services.cpt_display_name_constants",
     "groundmodel.domain.services.cpt_interpretation",
     "groundmodel.domain.services.cpt_sbt_profile",
     "groundmodel.domain.services.gwt_resolution",
