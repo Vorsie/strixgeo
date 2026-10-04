@@ -130,6 +130,7 @@ from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
 )
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     ValidationIssue,
+    interval_params,
 )
 from groundmodel.infrastructure.parsers.validation.validation_issue import (
     make_issue as _issue,
@@ -304,6 +305,7 @@ class DovInterpretationParser(GroundModelLogger):
                     "NO_LAYERS",
                     f"DOV interpretation '{name}' ({observation_type.value}): "
                     f"no <{DOV_INTERP_LAYER_TAG}> children",
+                    {"stream": observation_type.value},
                 )
             )
 
@@ -386,6 +388,7 @@ class DovInterpretationParser(GroundModelLogger):
                         "INCOMPLETE_LAYER",
                         f"DOV interpretation '{name}' layer {layer_index}: "
                         f"missing van/tot (van={top} tot={base})",
+                        {"layer_index": layer_index, "top_m": top, "base_m": base},
                     )
                 )
                 continue
@@ -414,6 +417,10 @@ class DovInterpretationParser(GroundModelLogger):
                         "INVALID_INTERVAL",
                         f"DOV interpretation '{name}' layer {layer_index} "
                         f"({top}–{base}m): base must be greater than top",
+                        {
+                            **interval_params("layer", top, base, "base_not_below_top"),
+                            "layer_index": layer_index,
+                        },
                     )
                 )
                 continue
@@ -438,6 +445,10 @@ class DovInterpretationParser(GroundModelLogger):
                         ValidationLevel.WARNING,
                         "INVALID_INTERVAL",
                         f"DOV interpretation '{name}' layer {layer_index} ({top}–{base}m): {exc}",
+                        {
+                            **interval_params("layer", top, base, "invalid_value"),
+                            "layer_index": layer_index,
+                        },
                     )
                 )
                 continue
