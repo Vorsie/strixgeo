@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.domain.services.cpt_display_name import normalise_gef_project_id
 from groundmodel.domain.services.elevation_rollback import (
     ElevationState,
     resolve_elevation_change,
@@ -131,14 +132,51 @@ class CptRepository(GroundModelLogger):
         same GEF file can still be imported into different projects because each
         import only ever sees its own project's rows. Only called when both GEF
         identifiers are non-empty.
+
+        The project id is compared on its PROJECT NUMBER (owner ruling
+        2026-10-04): a GEF stores ``#PROJECTID= CPT, 23.15-002`` as
+        "CPT, 23.15-002", a PDF-digitised CPT stores "23.15-002", and both
+        name one project, so both sides go through
+        ``normalise_gef_project_id``. Stored values are never rewritten (a
+        beta ``.strix`` carries the GEF shape). The candidates are queried
+        by ``test_id`` (the selective key) inside the project scope and
+        compared in Python; an identical raw project id wins over a
+        normalised match.
+
+        Parameters
+        ----------
+        project_id : str
+            The incoming project id (GEF ``#PROJECTID`` or a bare number).
+        test_id : str
+            The incoming test id (GEF ``#TESTID``); compared exactly.
+        app_project_id : UUID | None
+            The app project the lookup is scoped to; ``None`` = the
+            null-project scope.
+
+        Returns
+        -------
+        CptOrm | None
+            The matching CPT (series not loaded), or None.
         """
-        stmt = select(CptOrm).where(CptOrm.project_id == project_id, CptOrm.test_id == test_id)
+        stmt = select(CptOrm).where(CptOrm.test_id == test_id)
         if app_project_id is not None:
             stmt = stmt.where(CptOrm.app_project_id == app_project_id)
         else:
             stmt = stmt.where(CptOrm.app_project_id.is_(None))
-        result = await self._session.execute(stmt.limit(1))
-        return result.scalar_one_or_none()
+        result = await self._session.execute(stmt.order_by(CptOrm.created_at))
+        candidates = list(result.scalars().all())
+        for row in candidates:
+            if row.project_id == project_id:
+                return row
+        wanted = normalise_gef_project_id(project_id)
+        for row in candidates:
+            if normalise_gef_project_id(row.project_id) == wanted:
+                self.debug(
+                    f"CPT duplicate matched on the project number: stored "
+                    f"{row.project_id!r} = incoming {project_id!r} (test {test_id!r})"
+                )
+                return row
+        return None
 
     async def find_existing_test_ids(
         self, project_id: str, test_ids: list[str], app_project_id: UUID | None = None
