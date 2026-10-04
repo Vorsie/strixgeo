@@ -1,13 +1,15 @@
-// The per-row notes of the PDF triage list, said in the app language.
+// The PDF remarks said in the app language: the per-row notes of the triage
+// list and the per-sounding issues of the import report.
 //
-// The triage backend builds each note twice: an English sentence in
-// ``warnings`` (what an older client renders) and a stable code + params in
-// ``notes`` (``ReportSoundingNote``). The sentence the user reads is chosen
-// here, at the presentation boundary, from the ``cptPdf.note.<code>`` keys of
-// the EN/NL catalogues (owner dogfeed 2026-10-04: the rows read English inside
-// the Dutch app). A code this build does not know keeps the backend's English
-// sentence instead of rendering a raw key.
-import type { CptPdfNote, CptPdfSounding } from '../api/clients/cptPdf'
+// The backend builds each remark twice: an English sentence (what an older
+// client renders) and a stable code + params. The sentence the user reads is
+// chosen here, at the presentation boundary, from the ``cptPdf.note.<code>`` /
+// ``cptPdf.issue.<code>`` keys of the EN/NL catalogues (owner dogfeed
+// 2026-10-04: the triage rows and the import report read English inside the
+// Dutch app). A code this build does not know, or a remark whose params do not
+// fill every slot of its sentence, keeps the backend's English sentence
+// instead of rendering a raw key or a bare ``{placeholder}``.
+import type { CptPdfImportIssue, CptPdfNote, CptPdfSounding } from '../api/clients/cptPdf'
 import type { MessageKey } from '../i18n/locales/en'
 import type { MessageParams, Translator } from '../i18n/translate'
 import { drilledIntervalsText, parseDrilledIntervals } from './drilledIntervals'
@@ -25,19 +27,56 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
 }
 
+/** Catalogue key per known import-issue code (``POST /cpt/pdf/import``). */
+const ISSUE_KEYS: Readonly<Record<string, MessageKey>> = {
+  PDF_CLIPPED_POINTS: 'cptPdf.issue.PDF_CLIPPED_POINTS',
+  PDF_DEPTH_FROM_ELEVATION: 'cptPdf.issue.PDF_DEPTH_FROM_ELEVATION',
+  PDF_DRILLED_INTERVALS: 'cptPdf.issue.PDF_DRILLED_INTERVALS',
+  PDF_NO_XY: 'cptPdf.issue.PDF_NO_XY',
+  PDF_OCR_UNAVAILABLE: 'cptPdf.issue.PDF_OCR_UNAVAILABLE',
+}
+
+/** A ``{name}`` slot interpolation left unfilled. */
+const UNFILLED_SLOT = /\{\w+\}/
+
 /**
- * The params of a note as its sentence shows them. A drilled-interval note
- * carries its stretches as a list; the sentence names each one ("32.0 to
- * 32.3 m", one decimal) joined by commas, in the app language.
+ * The params of a remark as its sentence shows them. A remark that carries
+ * drilled stretches (``intervals``) names each one ("32.0 to 32.3 m", one
+ * decimal) joined by commas under ``list``, in the app language.
  *
- * @returns The message params, or null when the note's params are malformed.
+ * @returns The message params, or null when the ``intervals`` are malformed or empty.
  */
-function noteParams(note: CptPdfNote, t: Translator): MessageParams | null {
-  const params = note.params ?? {}
-  if (note.code !== 'DRILLED_INTERVALS') return messageParams(params)
+function remarkParams(params: Record<string, unknown>, t: Translator): MessageParams | null {
+  if (!Object.prototype.hasOwnProperty.call(params, 'intervals')) return messageParams(params)
   const intervals = parseDrilledIntervals(params.intervals)
   if (intervals === null || intervals.length === 0) return null
   return { ...messageParams(params), list: drilledIntervalsText(intervals, t) }
+}
+
+/**
+ * One coded remark in the app language.
+ *
+ * @param keys - The catalogue key per known code.
+ * @param code - The remark's stable code.
+ * @param params - The values its sentence names.
+ * @param fallback - The backend's English sentence for the same remark.
+ * @param t - The active-language translator.
+ * @returns The translated sentence; ``fallback`` (else the code) for an
+ *   unknown code or params that leave a slot of the sentence unfilled.
+ */
+function codedText(
+  keys: Readonly<Record<string, MessageKey>>,
+  code: string,
+  params: Record<string, unknown>,
+  fallback: string,
+  t: Translator,
+): string {
+  const key = Object.prototype.hasOwnProperty.call(keys, code) ? keys[code] : undefined
+  if (key === undefined) return fallback || code
+  const filled = remarkParams(params, t)
+  if (filled === null) return fallback || code
+  const text = t(key, filled)
+  return UNFILLED_SLOT.test(text) ? fallback || code : text
 }
 
 /** Keep only the params a message can show (strings and numbers). */
@@ -58,11 +97,23 @@ function messageParams(params: Record<string, unknown>): MessageParams {
  * @returns The translated sentence, or ``fallback`` for an unknown code.
  */
 export function cptPdfNoteText(note: CptPdfNote, fallback: string, t: Translator): string {
-  const key = Object.prototype.hasOwnProperty.call(NOTE_KEYS, note.code) ? NOTE_KEYS[note.code] : undefined
-  if (key === undefined) return fallback || note.code
-  const params = noteParams(note, t)
-  if (params === null) return fallback || note.code
-  return t(key, params)
+  return codedText(NOTE_KEYS, note.code, note.params ?? {}, fallback, t)
+}
+
+/**
+ * One issue of a PDF import result in the app language.
+ *
+ * @param issue - The issue's code, English ``message`` and, from a current
+ *   backend, its ``params``.
+ * @param t - The active-language translator.
+ * @returns The translated sentence, or the English ``message`` for an unknown
+ *   code or an issue from a backend that sent no params.
+ */
+export function cptPdfIssueText(
+  issue: Pick<CptPdfImportIssue, 'code' | 'message' | 'params'>,
+  t: Translator,
+): string {
+  return codedText(ISSUE_KEYS, issue.code, issue.params ?? {}, issue.message, t)
 }
 
 /**
