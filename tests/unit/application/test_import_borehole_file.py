@@ -30,8 +30,10 @@ from groundmodel.application.stale_investigation_caches import StaleCacheCounts
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
+from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.exceptions import (
     BoreholeRefreshConfirmationRequiredError,
     BoreholeRefreshRefusedError,
@@ -256,4 +258,123 @@ async def test_a_new_boring_without_coordinates_is_skipped_and_the_rest_imports(
     assert skipped[0].borehole_id is None
     assert "NOT_IMPORTED" in {i.code for i in skipped[0].issues}
     assert uc._repo.save.await_count == 3
+    uc._session.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Samples (<monster>) — synthetic file (none of the owner's files holds one)
+# ---------------------------------------------------------------------------
+
+SAMPLE_FILE = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "dov_boring_files_synthetic"
+    / "boring_met_monsters.xml"
+)
+
+
+async def _run_samples(uc: ImportBoreholeFile, *, confirm: bool = False):
+    """Run the use case on the synthetic sample file."""
+    with patch("groundmodel.application.import_borehole_file.StaleInvestigationCaches") as stale:
+        stale.return_value.execute = AsyncMock(return_value=StaleCacheCounts(0, 0, 0))
+        return await uc.execute(SAMPLE_FILE, PROJECT, confirm_refresh=confirm, today=TODAY)
+
+
+async def test_a_new_boring_brings_its_samples_and_their_grain_size_curves():
+    """The file's samples become SampleOrm rows on the new borehole, the curve on its sample."""
+    uc = _use_case()
+    result = await _run_samples(uc)
+
+    saved: BoreholeOrm = uc._repo.save.await_args.args[0]
+    added = [c.args[0] for c in uc._session.add.call_args_list]
+    samples = sorted((a for a in added if isinstance(a, SampleOrm)), key=lambda s: s.depth_top_m)
+    assert [(s.sample_number, s.depth_top_m, s.depth_base_m) for s in samples] == [
+        ("1", 2.0, 2.5),
+        ("2", 4.0, 4.0),
+    ]
+    assert {s.borehole_id for s in samples} == {saved.id}
+    assert samples[0].dov_permkey == "2025-M1"
+    assert samples[0].sample_type == "ongeroerd"
+    assert samples[0].description == "grijze klei met schelpen"
+    [curve] = samples[0].grain_sizes
+    assert isinstance(curve, GrainSizeOrm)
+    assert curve.dov_permkey == "2025-O1"
+    assert curve.sample_id == samples[0].id
+    assert samples[1].grain_sizes == []
+    [boring] = result.boreholes
+    assert {"SAMPLES_PRESENT", "SAMPLE_WITHOUT_DEPTH"} <= {i.code for i in boring.issues}
+    assert "SAMPLE_WITHOUT_BORING" in {i.code for i in result.issues}
+    uc._session.commit.assert_awaited_once()
+
+
+def _stored_with_samples() -> tuple[BoreholeOrm, SampleOrm, SampleOrm]:
+    """X-B1 stored: sample 2025-M1 at an old depth with an old curve + one bbox-only sample."""
+    orm = BoreholeOrm(
+        id=uuid4(),
+        name="X-B1",
+        app_project_id=PROJECT,
+        project_id="DOV",
+        test_id="X-B1",
+        location_x=150000.0,
+        location_y=200000.0,
+        elevation_m=5.0,
+        elevation_source=ElevationSource.DOV.value,
+        epsg=31370,
+        z_epsg=5710,
+        total_depth_m=6.0,
+    )
+    orm.drill_segments = []
+    orm.field_log_intervals = []
+    orm.observations = []
+    matched = SampleOrm(
+        id=uuid4(),
+        borehole_id=orm.id,
+        dov_permkey="2025-M1",
+        depth_top_m=1.0,
+        depth_base_m=1.5,
+        description="",
+        sample_number="1",
+    )
+    matched.grain_sizes = [
+        GrainSizeOrm(
+            id=uuid4(),
+            sample_id=matched.id,
+            dov_permkey="2025-O1",
+            diameters_mm=[0.1, 1.0],
+            pct_larger=[50.0, 0.0],
+        )
+    ]
+    bbox_only = SampleOrm(
+        id=uuid4(),
+        borehole_id=orm.id,
+        dov_permkey="2020-OTHER",
+        depth_top_m=5.0,
+        depth_base_m=5.5,
+        description="",
+        sample_number="9",
+    )
+    bbox_only.grain_sizes = []
+    orm.samples = [matched, bbox_only]
+    return orm, matched, bbox_only
+
+
+async def test_a_confirmed_refresh_replaces_a_matched_sample_in_place_and_adds_the_new_one():
+    """Refresh rule, like the other streams: same permkey → same sample id, fresh values +
+    curve; a sample only the project has (e.g. from a bbox import) is kept; a new one is added."""
+    stored, matched, bbox_only = _stored_with_samples()
+    matched_id = matched.id
+    uc = _use_case({"X-B1": stored})
+
+    await _run_samples(uc, confirm=True)
+
+    by_number = {s.sample_number: s for s in stored.samples}
+    assert by_number["1"] is matched
+    assert matched.id == matched_id
+    assert (matched.depth_top_m, matched.depth_base_m) == (2.0, 2.5)
+    assert matched.description == "grijze klei met schelpen"
+    [curve] = matched.grain_sizes
+    assert curve.diameters_mm == [0.063, 0.25, 2.0]
+    assert by_number["9"] is bbox_only
+    assert (by_number["2"].depth_top_m, by_number["2"].borehole_id) == (4.0, stored.id)
+    assert len(stored.samples) == 3
     uc._session.commit.assert_awaited_once()
