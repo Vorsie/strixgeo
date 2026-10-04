@@ -103,6 +103,14 @@ export interface CptPdfSounding {
   /** The same notes as codes, one per warning, same order; absent from a
    *  backend that predates them (then ``warnings`` is shown as is). */
   notes?: CptPdfNote[]
+  /** The project number printed on the sheet ("23.15-002"); absent from an
+   *  older backend. */
+  project_number?: string | null
+  /** The report's campaign code, the stand-in project when the sheet prints none. */
+  campaign_code?: string | null
+  /** The name the imported CPT is shown under ("23.15-002-S110"); absent
+   *  from an older backend (then the printed sounding id is shown). */
+  display_name?: string
 }
 
 /** A sheet set aside: a desk-study reprint, a repeat, or an unreadable sheet. */
