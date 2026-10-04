@@ -325,7 +325,7 @@ async def recompute_bodies(
     logger.success(
         f"recompute_bodies: project={project_id} model={model_id} "
         f"facts={result.facts_written} merged={result.bodies_merged} "
-        f"split={result.bodies_split}"
+        f"split={result.bodies_split} solids_stale={result.solids_stale}"
     )
     return RecomputeBodiesResponse(
         facts_written=result.facts_written,
@@ -333,6 +333,7 @@ async def recompute_bodies(
         bodies_merged=result.bodies_merged,
         bodies_split=result.bodies_split,
         renamed=list(result.renamed),
+        solids_stale=result.solids_stale,
     )
 
 
