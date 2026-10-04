@@ -5,6 +5,7 @@
 // toast, it just stays untranslated until a key lands here.
 import type { Language } from '../../i18n/i18n_constants'
 import { t, translate } from '../../i18n/translate'
+import type { MessageKey } from '../../i18n/locales/en'
 
 const CODE_KEYS = {
   dov_import_too_large: 'api.code.dovImportTooLarge',
@@ -12,7 +13,15 @@ const CODE_KEYS = {
   body_partition_locked: 'api.code.bodyPartitionLocked',
   lock_timeout: 'api.code.lockTimeout',
   dov_unreachable: 'api.code.dovUnreachable',
+  lab_borehole_conflict: 'api.code.labBoreholeConflict',
 } as const
+
+// Codes whose copy names one field of the ``detail`` (``{name}`` in the
+// message). When the backend sent no such field, the ``*Unnamed`` key is used
+// so the engineer never reads a bare placeholder.
+const NAMED_FIELD: Partial<Record<KnownCode, { field: string; unnamedKey: MessageKey }>> = {
+  lab_borehole_conflict: { field: 'borehole_name', unnamedKey: 'api.code.labBoreholeConflictUnnamed' },
+}
 
 type KnownCode = keyof typeof CODE_KEYS
 
@@ -22,11 +31,24 @@ function isKnownCode(code: string): code is KnownCode {
 
 /**
  * The translated message for a known ``detail.code``, or ``null`` to keep the
- * server text. ``language`` overrides the app language (tests, previews).
+ * server text. ``language`` overrides the app language (tests, previews);
+ * ``detail`` supplies the field a named message interpolates (``NAMED_FIELD``).
  */
-export function messageForApiCode(code: string | null | undefined, language?: Language): string | null {
+export function messageForApiCode(
+  code: string | null | undefined,
+  language?: Language,
+  detail?: Readonly<Record<string, unknown>>,
+): string | null {
   if (!code || !isKnownCode(code)) return null
-  return language ? translate(language, CODE_KEYS[code]) : t(CODE_KEYS[code])
+  let key: MessageKey = CODE_KEYS[code]
+  let params: Record<string, string> | undefined
+  const named = NAMED_FIELD[code]
+  if (named) {
+    const value = detail?.[named.field]
+    if (typeof value === 'string' && value !== '') params = { name: value }
+    else key = named.unnamedKey
+  }
+  return language ? translate(language, key, params) : t(key, params)
 }
 
 /**
@@ -63,7 +85,10 @@ export function messageForDetail(detail: unknown, fallback: string, language?: L
   }
   if (detail && typeof detail === 'object') {
     const d = detail as { code?: unknown; message?: unknown }
-    const known = typeof d.code === 'string' ? messageForApiCode(d.code, language) : null
+    const known =
+      typeof d.code === 'string'
+        ? messageForApiCode(d.code, language, detail as Record<string, unknown>)
+        : null
     if (known) return known
     if (typeof d.message === 'string') return d.message
   }
