@@ -16,11 +16,11 @@ import { useShell } from '../../ShellContext'
 import { PortalMenu, usePortalMenu } from '../../ToolbarPrimitives'
 import type { ToolbarDropdownItem } from '../../ToolbarPrimitives'
 import { useT, type Translator } from '../../../i18n/translate'
-import type { MessageKey } from '../../../i18n/locales/en'
 import LabSeriesImportDialog, {
   type LabSeriesImportSummary,
 } from '../../../components/labSeries/LabSeriesImportDialog'
 import { notifyLabSeriesChanged } from '../../../hooks/useLabSeriesRevision'
+import { buildImportMenuItems } from './dataImportActions'
 
 /**
  * Import action verbs for the Data stage toolbar.
@@ -113,56 +113,21 @@ export default function DataToolbar(): JSX.Element {
   const drawingBbox = bboxImportType !== null
   const drawingBed = bedOverrides?.drawing ?? false
 
-  // The verbs carry a message KEY, not a rendered string: the labels are read
-  // in one place below so a language flip re-renders every row together.
-  // `testid` anchors each verb for the guided tutorial (Chapter 2 spotlights the
-  // verbs one at a time) and for e2e; PortalMenu renders it as a data-testid.
-  const importActions: ImportAction[] = [
-    { key: 'data.toolbar.importCptGef', testid: 'import-verb-cpt-gef', available: true, onClick: handleImportCpt },
-    { key: 'data.toolbar.importCptDov', testid: 'import-verb-cpt-dov', available: true, onClick: handleImportDov },
+  // The menu's rows (one per kind of investigation, routes in a submenu)
+  // are built in dataImportActions.ts; this component only wires handlers.
+  const items = buildImportMenuItems(
+    t,
     {
-      key: 'data.toolbar.importCptPdf',
-      testid: 'import-verb-cpt-pdf',
-      available: true,
-      // Optional on the bus (typed stage fixtures omit it); the real app
-      // always passes it, so the verb is never shown as a future phase.
-      onClick: () => void handleImportCptPdf?.(),
+      cptGef: handleImportCpt,
+      cptDov: handleImportDov,
+      // Optional on the bus (partial test shells omit them): no handler, no row.
+      cptPdf: handleImportCptPdf ? () => void handleImportCptPdf() : undefined,
+      boreholeDov: handleImportBoreholeDov,
+      boreholeXml: handleImportBoreholeXml ? () => void handleImportBoreholeXml() : undefined,
+      labTests: () => void handleImportLabSeries(),
     },
-    {
-      key: 'data.toolbar.importBoreholeDov',
-      testid: 'import-verb-borehole-dov',
-      available: true,
-      onClick: handleImportBoreholeDov,
-    },
-    // Optional on the bus (partial test shells omit it): no handler, no verb,
-    // rather than a verb tagged with a phase it does not belong to.
-    ...(handleImportBoreholeXml
-      ? [
-          {
-            key: 'data.toolbar.importBoreholeXml' as const,
-            testid: 'import-verb-borehole-xml',
-            available: true,
-            onClick: () => void handleImportBoreholeXml(),
-          },
-        ]
-      : []),
-    { key: 'data.toolbar.importDmt', testid: 'import-verb-dmt', available: false },
-    {
-      key: 'data.toolbar.importLabTest',
-      testid: 'import-verb-lab',
-      available: true,
-      onClick: () => void handleImportLabSeries(),
-    },
-    { key: 'data.toolbar.importMonitoring', testid: 'import-verb-monitoring', available: false },
-  ]
-
-  const items: ToolbarDropdownItem[] = importActions.map(action => ({
-    label: t(action.key),
-    testid: action.testid,
-    onClick: action.onClick ?? (() => undefined),
-    disabled: !action.available || isImporting,
-    tag: !action.available ? t('data.toolbar.phaseTag') : undefined,
-  }))
+    isImporting,
+  )
 
   return (
     <div className="flex items-center gap-1">
@@ -209,20 +174,6 @@ export default function DataToolbar(): JSX.Element {
       )}
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-interface ImportAction {
-  /** Message key for the row label — resolved at render, not at declaration,
-   *  so the whole menu follows a language flip in one re-render. */
-  key: MessageKey
-  /** Stable `data-testid` for the menu row (tutorial + e2e anchor). */
-  testid: string
-  available: boolean
-  onClick?: () => void
 }
 
 // ---------------------------------------------------------------------------
