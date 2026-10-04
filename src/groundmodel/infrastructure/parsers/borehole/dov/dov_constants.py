@@ -221,6 +221,17 @@ DOV_BORING_TOT_TAG = "tot"
 DOV_BORING_IDENTIFICATIE_HEAD_BYTES = 4096
 DOV_BORING_IDENTIFICATIE_RE = re.compile(rb"<identificatie>\s*([^<]*?)\s*</identificatie>")
 
+# The boring cache's identificatie -> permkey index (owner finding 2026-10-04:
+# a Reset to DOV took 5 to 10 s because a COLD scan of 582 cached borings opens
+# every file at ~25 ms each). One JSON object per line, appended when the bbox
+# import caches a boring, rewritten whole (tmp + replace) after a refresh scan.
+# The leading underscore + non-``.xml`` suffix keep it out of the cache's own
+# listing, eviction sweep and permkey namespace (``DOV_VALID_PERMKEY_RE``).
+DOV_BORING_IDENTIFICATIE_INDEX_FILENAME = "_identificatie_index.jsonl"
+# Bumped when the line shape changes; a line of another version is ignored
+# (the file it names is then simply re-read once).
+DOV_BORING_IDENTIFICATIE_INDEX_VERSION = 1
+
 
 # ----------------------------------------------------------------------
 # Interpretation XML — element names (Phase B2)
