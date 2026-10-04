@@ -125,3 +125,11 @@ MVAR_CONE_TYPE = 12  # 0 = electric, 1 = mechanical
 MVAR_PRE_DRILL = 13  # DIEPTE PUT — pit/pre-drill depth
 MVAR_WATER_DEPTH = 14  # DIEPTE GRONDWATER — groundwater depth
 MVAR_STOP_CRITERION = 17  # Stop criteria
+
+# A declared pre-drill (MVAR 13) is read as NOT APPLIED to the depth column
+# when the first stored depth lies more than this above it. 5 cm absorbs the
+# one- or two-sample offset a rig writes between the pit bottom and its first
+# reading (2 cm scan grain on the 23.15 campaign), while the case that started
+# this check — 0.35 m declared, data from 0.02 m (camz-001 soundings 39/42) —
+# is 33 cm off and far outside it.
+PRE_DRILL_APPLIED_TOLERANCE_M = 0.05
