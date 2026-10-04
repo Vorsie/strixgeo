@@ -76,7 +76,7 @@ export const TUTORIAL_NL: Partial<Record<keyof typeof TUTORIAL, string>> = {
     "Sonderingen op schijf? 'Sondering (CPT) importeren (.gef)' leest standaard GEF-bestanden rechtstreeks van je computer, handig voor sonderingen die niet in DOV zitten.",
   'tutorial.import-more.title': 'Meer bronnen op komst',
   'tutorial.import-more.body':
-    "DMT, labproeven en monitoringdata staan op de planning, voorlopig zie je ze in het menu met de vermelding 'Phase 4'.",
+    "DMT, laboproeven en monitoringdata staan op de planning, voorlopig zie je ze in het menu met de vermelding 'Phase 4'.",
   'tutorial.import-closing.title': 'Een ander formaat nodig?',
   'tutorial.import-closing.body':
     'Er komen meer importfuncties, afhankelijk van wat je nodig hebt, stuur de bestandsformaten die je gebruikt naar StrixGeo en wij bouwen de parser.',
