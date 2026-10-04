@@ -26,6 +26,24 @@ import { useRef, useState } from 'react'
 /** How long a non-error toast stays on screen, in milliseconds. */
 export const TOAST_TIMEOUT_MS = 4000
 
+/**
+ * The longer window for a summary of several outcomes, in milliseconds.
+ *
+ * Owner finding 2026-10-04 ("import report disappears automatically, a bit
+ * too fast"): a toast that counts what happened to several items takes longer
+ * to read than a one-fact toast. Still not sticky: it reports, it does not ask.
+ */
+export const TOAST_LONG_TIMEOUT_MS = 10000
+
+/** Per-call options of {@link UseToastsResult.toast}. */
+export interface ToastOptions {
+  /**
+   * How long a non-error toast stays, in milliseconds (default
+   * ``TOAST_TIMEOUT_MS``). Ignored for an error, which always waits.
+   */
+  durationMs?: number
+}
+
 /** A single in-flight notification. */
 export interface Toast {
   id: number
@@ -61,7 +79,12 @@ export interface UseToastsResult {
    * 4 s window — so hammering a hotkey shows one toast that updates rather
    * than a column of identical ones. Without one, the toast is appended.
    */
-  toast: (type: 'success' | 'error' | 'warning', message: string, replaceKey?: string) => void
+  toast: (
+    type: 'success' | 'error' | 'warning',
+    message: string,
+    replaceKey?: string,
+    options?: ToastOptions,
+  ) => void
   /** Remove one toast by id — what the close button on a sticky toast calls. */
   dismissToast: (id: number) => void
 }
@@ -104,6 +127,7 @@ export function useToasts(): UseToastsResult {
     type: 'success' | 'error' | 'warning',
     message: string,
     replaceKey?: string,
+    options?: ToastOptions,
   ): void {
     const id = ++toastId.current
     const sticky = type === 'error'
@@ -122,7 +146,7 @@ export function useToasts(): UseToastsResult {
     // a full window of its own, which is what "restart the timer" means; and a
     // report replaced by an ERROR schedules nothing at all, so the sticky rule
     // survives the swap in both directions.
-    if (!sticky) setTimeout(() => dismissToast(id), TOAST_TIMEOUT_MS)
+    if (!sticky) setTimeout(() => dismissToast(id), options?.durationMs ?? TOAST_TIMEOUT_MS)
   }
 
   return { toasts, toast, dismissToast }
