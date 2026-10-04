@@ -30,6 +30,11 @@ The flow, one transaction:
 6. The diff is computed from the LAYER-stamp pre/post-image, not from body-row
    churn — ordinal renumbering recycles rows for components whose membership
    never changed, and that is noise, not a merge.
+7. Whether the resolve staled the model's built 3-D solids is reported too
+   (fresh-solid count before vs after). The recompute runs debounced AFTER the
+   edit's own re-read, so without this the desktop never learns the Build badge
+   should turn amber (owner 2026-10-04: "adding a new correlation doesn't mark
+   the litho stale").
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -51,6 +56,7 @@ from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartition
 from groundmodel.infrastructure.db.models.body_geometry_fact_orm import BodyGeometryFactOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_body_solid_orm import LithoBodySolidOrm
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.shared.exceptions import (
     EmptyRecomputePayloadError,
@@ -81,6 +87,10 @@ class RecomputeBodiesResult:
     renamed : tuple[str, ...]
         Names displaced by a merge (oldest name wins). Filled by the
         lineage-adoption step; empty until then.
+    solids_stale : bool
+        True when this recompute flipped at least one of the model's built 3-D
+        solids to stale. False when nothing was built, the solids were already
+        stale, or the resolve left body membership unchanged.
     """
 
     facts_written: int
@@ -88,6 +98,7 @@ class RecomputeBodiesResult:
     bodies_merged: int
     bodies_split: int
     renamed: tuple[str, ...] = ()
+    solids_stale: bool = False
 
 
 class RecomputeBodies(GroundModelLogger):
@@ -248,9 +259,12 @@ class RecomputeBodies(GroundModelLogger):
             )
         await self._session.flush()
 
+        fresh_solids_before = await self._count_fresh_solids(model_id)
         resolve_result = await ResolveLithoInstances(self._session).execute(
             model_id=model_id, commit=False
         )
+        fresh_solids_after = await self._count_fresh_solids(model_id)
+        solids_stale = fresh_solids_after < fresh_solids_before
 
         post_rows = (
             await self._session.execute(
@@ -266,7 +280,8 @@ class RecomputeBodies(GroundModelLogger):
         await self._session.commit()
         self.success(
             f"RecomputeBodies: model={model_id} facts={len(kept)} (+{dropped} stale) "
-            f"merged={merged} split={split}"
+            f"merged={merged} split={split} solids_stale={solids_stale} "
+            f"(fresh solids {fresh_solids_before} -> {fresh_solids_after})"
         )
         return RecomputeBodiesResult(
             facts_written=len(kept),
@@ -274,6 +289,33 @@ class RecomputeBodies(GroundModelLogger):
             bodies_merged=merged,
             bodies_split=split,
             renamed=resolve_result.renamed,
+            solids_stale=solids_stale,
+        )
+
+    async def _count_fresh_solids(self, model_id: UUID) -> int:
+        """Count the model's built 3-D solids that are NOT stale.
+
+        Parameters
+        ----------
+        model_id : UUID
+            The model whose solid cache is counted.
+
+        Returns
+        -------
+        int
+            Non-stale ``litho_body_solid`` rows of the model (0 when never built).
+        """
+        return int(
+            (
+                await self._session.execute(
+                    select(func.count())
+                    .select_from(LithoBodySolidOrm)
+                    .where(
+                        LithoBodySolidOrm.model_id == model_id,
+                        LithoBodySolidOrm.is_stale.is_(False),
+                    )
+                )
+            ).scalar_one()
         )
 
 
