@@ -71,6 +71,7 @@ from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from tests.integration.api.geotech_scene_helpers import (
     accept_cpt_litho,
     correlate,
+    paint_accepted_ties,
     two_layer_qc,
 )
 
@@ -192,6 +193,9 @@ async def two_section_scene(
         contact_b=contacts["CPT-B2"],
         section_id=section_b_id,
     )
+    # The fill paints the litho ties as bands; the recompute's facts make each tied
+    # chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project_id": pid,
