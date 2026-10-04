@@ -21,9 +21,11 @@ from uuid import UUID
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from tests.integration.conftest import make_project
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "dov_boring_files"
@@ -163,3 +165,55 @@ async def test_a_broken_reimport_is_refused_even_when_confirmed(
     )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "borehole_refresh_refused"
+
+
+SAMPLE_FILE = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "dov_boring_files_synthetic"
+    / "boring_met_monsters.xml"
+)
+
+
+async def test_flags_carry_params_and_file_samples_land_with_their_curve(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Every issue on the wire has ``params``; the synthetic file's samples + curve persist.
+
+    Owner 2026-10-03: the flags must read in Dutch -> the desktop needs the
+    variable parts as params. Samples (<monster>) in a file are imported with
+    their boring (synthetic file: none of the owner's files holds a sample).
+    """
+    project = await make_project(db_session)
+    response = await async_client.post(
+        "/borehole/import",
+        files={"file": (SAMPLE_FILE.name, SAMPLE_FILE.read_bytes(), "text/xml")},
+        data={"project_id": str(project.id)},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    [boring] = body["boreholes"]
+    flags = {issue["code"]: issue for issue in boring["issues"]}
+    assert flags["SAMPLES_PRESENT"]["params"] == {"count": 2, "grain_size": 1}
+    assert flags["SAMPLE_WITHOUT_DEPTH"]["params"] == {"sample": "3"}
+    assert all("params" in issue for issue in boring["issues"] + body["file_issues"])
+    assert {i["code"] for i in body["file_issues"]} == {"SAMPLE_WITHOUT_BORING"}
+
+    samples = (
+        (
+            await db_session.execute(
+                select(SampleOrm)
+                .where(SampleOrm.borehole_id == UUID(boring["borehole_id"]))
+                .options(selectinload(SampleOrm.grain_sizes))
+                .order_by(SampleOrm.depth_top_m)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [(s.sample_number, s.depth_top_m, s.depth_base_m) for s in samples] == [
+        ("1", 2.0, 2.5),
+        ("2", 4.0, 4.0),
+    ]
+    assert samples[0].dov_permkey == "2025-M1"
+    assert [g.dov_permkey for g in samples[0].grain_sizes] == ["2025-O1"]
