@@ -6,9 +6,10 @@
 // assumptions listed, the clipped-point count, XY/Z/date editable when not read".
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPdfDigitised, CptPdfSounding, PageCalibrationDict } from '../../api/clients/cptPdf'
+import { setLanguage } from '../../i18n/languageSelect'
 
 const digitise = vi.fn()
 vi.mock('../../api/clients/cptPdf', async () => {
@@ -108,6 +109,25 @@ beforeEach(() => {
 })
 
 describe('CptPdfCalibrationOverlay', () => {
+  afterEach(() => setLanguage('en'))
+
+  it('names what it is for: "Check the axes of sounding 110", with a one-line how-to under the title', () => {
+    renderOverlay()
+    expect(screen.getByRole('heading').textContent).toBe('Check the axes of sounding 110')
+    expect(screen.getByTestId('cpt-pdf-overlay-intro').textContent).toBe(
+      'Drag the frame corners onto the printed axes and type the value at two tick marks per axis, then Read again.',
+    )
+  })
+
+  it('in Dutch the title and the how-to read in Dutch', () => {
+    setLanguage('nl')
+    renderOverlay()
+    expect(screen.getByRole('heading').textContent).toBe('Assen van sondering 110 controleren')
+    expect(screen.getByTestId('cpt-pdf-overlay-intro').textContent).toBe(
+      'Sleep de hoeken van het kader op de gedrukte assen en typ de waarde bij twee maatstrepen per as, lees dan opnieuw af.',
+    )
+  })
+
   it('reads the sounding through the digitiser\'s own calibration and shows the overlay', async () => {
     renderOverlay()
     await screen.findByTestId('cpt-pdf-overlay-image')
