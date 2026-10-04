@@ -334,12 +334,23 @@ interface Props {
    * Absent or empty = nothing is fighting, and no tie is marked.
    */
   conflictEdgeKeys?: ReadonlySet<string>
+  /**
+   * Stamped ``body_id`` per band id (a contact's id IS its band's id — the LL→FC
+   * trigger writes matching ids), litho and geotech bands alike.
+   *
+   * Owner ruling 2026-10-04 (*"identity follows the drawing"*): an accepted tie the
+   * fill does not paint as a band joins nothing, so its two bands can stay two
+   * bodies. With this map the overlay marks such a tie "accepted, not banded" on
+   * hover. Absent = the overlay makes no statement (additive prop).
+   */
+  bodyIdByLayerId?: ReadonlyMap<string, string | null>
 }
 
 
 import TieFlashHalo from './TieFlashHalo'
 import TieConflictHalo from './TieConflictHalo'
 import { edgeKey } from '../../utils/partitionFillV2'
+import { massKeyOfFormation, tieBandingStatus } from './tieBanding'
 import {
   anchorId,
   bandRect,
@@ -417,6 +428,7 @@ export default function CorrelationEdgesOverlay({
   onRequestConfirmEdgeReview,
   flashEdgeId = null,
   conflictEdgeKeys,
+  bodyIdByLayerId,
 }: Props): JSX.Element {
   const t = useT()
   /** Ref on the root <g> so we can convert viewport coords to SVG-local
@@ -479,6 +491,15 @@ export default function CorrelationEdgesOverlay({
     for (const f of formations) m.set(f.id, f)
     return m
   }, [formations])
+
+  // The mass each band belongs to (its litho unit; + NAD class on the geotech
+  // axis) — only a tie between two bands of ONE mass can be "not banded"; a tie
+  // across two masses is a surface tie by design (owner 2026-10-04 / 2026-10-03).
+  const massKeyByContactId = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const c of contacts) m.set(c.id, massKeyOfFormation(formationById.get(c.formation_id)))
+    return m
+  }, [contacts, formationById])
 
   // Contact-level screen position map (#133 Phase 1): contact id → { x, topY }.
   // Re-computed whenever contacts, columns, bandMap, or the transform changes.
@@ -999,12 +1020,26 @@ export default function CorrelationEdgesOverlay({
             const seamPts = warpAwareEdgePoints(
               xA, yA, ptA.along, xB, yB, ptB.along, placedColumns,
             )
+            // Identity follows the drawing (owner 2026-10-04): an accepted tie
+            // whose two bands the fill did not paint as one mass leaves two
+            // bodies. Read from the resolver's stamps, never re-derived; absent
+            // stamps = no statement.
+            const banding = bodyIdByLayerId
+              ? tieBandingStatus({
+                  approved,
+                  bodyA: bodyIdByLayerId.get(ce.layer_a_id),
+                  bodyB: bodyIdByLayerId.get(ce.layer_b_id),
+                  massA: massKeyByContactId.get(ce.layer_a_id) ?? null,
+                  massB: massKeyByContactId.get(ce.layer_b_id) ?? null,
+                })
+              : null
             return (
               <g
                 key={`ribbon-${ce.id}`}
                 data-testid={`ribbon-${ce.id}`}
                 data-approved={approved ? 'true' : 'false'}
                 data-interpretive={isInterpretive ? 'true' : 'false'}
+                data-banded={banding === null ? undefined : banding === 'banded' ? 'true' : 'false'}
                 pointerEvents="none"
               >
                 {/* Crossing-conflict mark — first child, so every stripe, seam and
@@ -1220,7 +1255,13 @@ export default function CorrelationEdgesOverlay({
                       fill="transparent"
                       style={{ pointerEvents: 'fill', cursor: 'context-menu' }}
                       onContextMenu={openDeleteMenu}
-                    />
+                    >
+                      {/* Hover text: the tie is accepted but the fill did not band
+                          it, so its bands stay two bodies (owner 2026-10-04). */}
+                      {banding === 'not_banded' && (
+                        <title>{t('sections.tie.acceptedNotBanded')}</title>
+                      )}
+                    </polygon>
                   )
                 })()}
                 {/* Awaiting-confirmation badge. A flagged tie is APPROVED work
