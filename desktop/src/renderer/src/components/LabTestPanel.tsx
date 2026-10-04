@@ -14,6 +14,7 @@ import {
 
 import type {
   GrainSizeResponse,
+  LabSeriesTestSummary,
   SampleResponse,
   ScalarLabTestResponse,
 } from '../api/client'
@@ -25,6 +26,7 @@ import {
   labelForParameterGroup,
 } from '../utils/labTestLabels'
 import { useT } from '../i18n/translate'
+import LabSeriesSection from './labSeries/LabSeriesSection'
 
 // PR 4d — slide-in lab-test detail panel.
 //
@@ -35,6 +37,12 @@ import { useT } from '../i18n/translate'
 // Layout: HTML / Tailwind only. The grain-size cumulative curve uses
 // Recharts (already a dependency for CptChart); other tests render as plain
 // HTML tables.
+//
+// Owner ruling 2026-10-04 (option a): "one place for all lab data of a
+// sample". Below the DOV results sits the "Raw tests" block: the sample's raw
+// oedometer / triaxial tests, each expanding to the readings viewer, each
+// with the delete verb. The borehole log fetches those tests once per
+// borehole and hands this panel the sample's share.
 
 interface Props {
   sample: SampleResponse
@@ -44,6 +52,12 @@ interface Props {
   allSamples: SampleResponse[]
   onSelectSample: (id: string) => void
   onClose: () => void
+  /** Active project: needed to open or delete a raw test. Without it the raw block is not shown. */
+  projectId?: string
+  /** This sample's raw lab tests (oedometer / triaxial), grouped by the borehole log. */
+  labSeries?: readonly LabSeriesTestSummary[]
+  /** Fired after a raw test of this sample was deleted. */
+  onLabTestDeleted?: (deleted: LabSeriesTestSummary) => void
 }
 
 export default function LabTestPanel({
@@ -51,6 +65,9 @@ export default function LabTestPanel({
   allSamples,
   onSelectSample,
   onClose,
+  projectId,
+  labSeries = [],
+  onLabTestDeleted,
 }: Props): React.ReactElement {
   const t = useT()
   const hasGrain = sample.grain_sizes.length > 0
@@ -59,7 +76,8 @@ export default function LabTestPanel({
   const hasOrganic = sample.organic_content_tests.length > 0
   const hasWater = sample.water_content_tests.length > 0
   const hasScalar = sample.scalar_lab_tests.length > 0
-  const hasAny = hasGrain || hasAtterberg || hasCaCO3 || hasOrganic || hasWater || hasScalar
+  const hasRaw = projectId !== undefined && labSeries.length > 0
+  const hasAny = hasGrain || hasAtterberg || hasCaCO3 || hasOrganic || hasWater || hasScalar || hasRaw
 
   // Prev / next navigation through the sibling samples.
   const currentIndex = allSamples.findIndex(s => s.id === sample.id)
@@ -181,6 +199,13 @@ export default function LabTestPanel({
           <ScalarTestsSection
             title={t('lab.identificationTests')}
             tests={collectIdentificationTests(sample)}
+          />
+        )}
+        {hasRaw && projectId !== undefined && (
+          <LabSeriesSection
+            projectId={projectId}
+            tests={labSeries}
+            onLabTestDeleted={onLabTestDeleted}
           />
         )}
       </div>
