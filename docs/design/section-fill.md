@@ -40,8 +40,10 @@ bounding contacts are correlated to that neighbour**:
 * Bands follow drawn correlations — delete an edge and the band un-bands. Edges
   are the real `LithoContactCorrelationEdge`s (direct, approved, same-litho),
   NOT the resolver's transitive `body_id` (which over-lumps).
-* Correlation is stored only at layer level (`body_id` = resolver
-  connected-components of approved layer↔layer edges). There is NO per-contact
+* Correlation is stored only at layer level. `body_id` = resolver
+  connected-components of the geometry facts this fill paints (owner
+  2026-10-04: identity follows the drawing — a tie the fill does not band joins
+  no bodies; [body-model.md](body-model.md)). There is NO per-contact
   correlation entity.
 * Known approximation: the 1-corr ONLAP geometry uses `emitInterval`'s pinch at
   the bracket, not a dedicated lap-to-tie-line wedge — refine only if a truer
