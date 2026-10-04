@@ -26,6 +26,7 @@ import LabTestPanel from './LabTestPanel'
 import BoreholeTracksDialog from './borelog/components/BoreholeTracksDialog'
 import type { BoreholeTrackEditing } from '../hooks/useBoreholeTrackEdits'
 import LabSeriesSection from './labSeries/LabSeriesSection'
+import type { LabSeriesTestSummary } from '../api/client'
 import {
   TOGGLEABLE_TRACK_IDS,
   trackLabel,
@@ -129,6 +130,9 @@ interface Props {
   // readings) of this borehole's samples are listed under the log. Optional so
   // tests and read-only mounts render the log alone.
   projectId?: string
+  // Fired after a lab test in the Lab tests list was deleted (toast, Data-list
+  // refresh, dirty flag live with the caller).
+  onLabTestDeleted?: (deleted: LabSeriesTestSummary) => void
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -154,6 +158,7 @@ export default function BoreholeLog({
   onToggleContactOverlay,
   trackEditing,
   projectId,
+  onLabTestDeleted,
 }: Props): React.ReactElement {
   const t = useT()
   const {
@@ -832,7 +837,13 @@ export default function BoreholeLog({
         )}
       </div>
 
-      {projectId && <LabSeriesSection projectId={projectId} boreholeId={borehole.id} />}
+      {projectId && (
+        <LabSeriesSection
+          projectId={projectId}
+          boreholeId={borehole.id}
+          onLabTestDeleted={onLabTestDeleted}
+        />
+      )}
       <Legend borehole={borehole} />
     </div>
     </PxPerMContext.Provider>
