@@ -164,6 +164,9 @@ become new cards, never new toolbar buttons.
   ● Circle = CPT, ■ Square = Borehole. Within each kind, colour comes
   from the active filter axis (CPT type / drill method / borehole
   type). This satisfies WCAG "no info by colour alone".
+  A borehole with ≥1 raw lab test carries a small white flask BADGE at
+  the square's top-right corner (the Data list's flask); the square and
+  its anchor stay, and the legend lists "Boreholes with lab tests".
 * **Layout** (Leaflet defaults): zoom controls top-left, fit-to-data
   below them. Layer-control dropdown top-right (Option B — only one
   category expanded at a time). Legend bottom-right, mirrors marker
