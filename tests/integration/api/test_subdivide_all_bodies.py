@@ -95,6 +95,8 @@ from groundmodel.infrastructure.db.repositories.project_bundle import (
     build_project_bundle,
     restore_project_bundle,
 )
+from tests.integration._litho_builders import geometry_fact
+from tests.integration.api.geotech_scene_helpers import paint_accepted_ties
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -608,6 +610,10 @@ async def sab_scene(
     )
     # Body-C: BH-B is standalone (no correlations)
 
+    # The fill paints the ties as bands; the recompute's facts make Body-A and
+    # Body-B one litho body each (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": sab_project,
         "litho_model_id": litho_model_id,
@@ -1099,12 +1105,16 @@ async def test_divide_boreholes_derives_borehole_mediated_edges(
     )
 
     # The engineer reviews the proposals and accepts them. This is the step that
-    # turns a proposal into something the machine may never delete — and the step
-    # that makes the bands join, because the resolver unions approved edges only.
+    # turns a proposal into something the machine may never delete. The bands join
+    # once the fill paints the accepted ties and the recompute posts the facts
+    # (identity follows the drawing, owner 2026-10-04) — ``paint_accepted_ties``
+    # stands in for that recompute.
     await AcceptContactCorrelations(db_session).execute(
         project_id=project.id,
         model_id=geotech_model_id,
     )
+    await paint_accepted_ties(db_session, geotech_model_id)
+    db_session.expire_all()
     # Re-read BH-A's bands: the accept committed, so the body_id stamps the
     # resolver just wrote are only visible on a fresh query.
     bh_a_layers_after = (
@@ -1753,6 +1763,9 @@ async def geo_band_scene(db_session: AsyncSession) -> dict:
         user_approved=True,
     )
     db_session.add(edge)
+    # The fill paints the tie as a band: its geometry fact is the union
+    # (identity follows the drawing, owner 2026-10-04).
+    db_session.add(geometry_fact(model_id=litho_model.id, layer_x=layer_x.id, layer_y=layer_y.id))
     await db_session.commit()
 
     return {
@@ -2063,6 +2076,14 @@ async def multi_layer_body_scene(db_session: AsyncSession) -> dict:
         user_approved=True,
     )
     db_session.add_all([edge_p1_q, edge_p2_q])
+    # The fill paints both ties: their geometry facts are the union (identity
+    # follows the drawing, owner 2026-10-04).
+    db_session.add_all(
+        [
+            geometry_fact(model_id=litho_model.id, layer_x=layer_p1.id, layer_y=layer_q.id),
+            geometry_fact(model_id=litho_model.id, layer_x=layer_p2.id, layer_y=layer_q.id),
+        ]
+    )
     await db_session.commit()
 
     return {
@@ -2706,6 +2727,10 @@ async def connectivity_scene(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": proj,
         "litho_model_id": litho_model_id,
@@ -3016,6 +3041,10 @@ async def no_clobber_scene(
         section_id=section_s2_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": proj,
         "litho_model_id": litho_model_id,
@@ -3244,6 +3273,10 @@ async def borehole_two_section_scene(
         contact_b=bh_s_contact,
         section_id=section_s2_id,
     )
+
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project": proj,
@@ -3727,6 +3760,10 @@ async def borehole_tin_division_scene(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": proj,
         "litho_model_id": litho_model_id,
@@ -4105,6 +4142,10 @@ async def cpt_multi_segment_scene(
         section_id=section_id,
     )
 
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
+
     return {
         "project": proj,
         "litho_model_id": litho_model_id,
@@ -4352,6 +4393,10 @@ async def sab_lcs_scene(
         contact_b=ch_id,
         section_id=section_id,
     )
+
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project": proj,
