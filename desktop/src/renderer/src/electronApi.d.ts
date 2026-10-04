@@ -126,7 +126,11 @@ declare global {
       notifyQuitDecision: (allowed: boolean) => Promise<void>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportCptPdf: (cb: () => void) => () => void
+      /** File > Import CPT > From DOV (draw box). */
+      onMenuImportCptDov: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
+      /** File > Import boreholes > From DOV (draw box). */
+      onMenuImportBoreholeDov: (cb: () => void) => () => void
       onMenuProjectNew: (cb: () => void) => () => void
       onMenuProjectOpen: (cb: () => void) => () => void
       onMenuProjectSave: (cb: () => void) => () => void
