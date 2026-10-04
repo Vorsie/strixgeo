@@ -57,6 +57,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.dov_borehole_orm_builders import build_grain_size_orm
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_samples_dov_result import ImportSamplesDovResult
 from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
@@ -347,7 +348,7 @@ class ImportSamplesDov(GroundModelLogger):
                 continue
 
             try:
-                orm = _grain_size_to_orm(parse_result, sample_id, row.permkey)
+                orm = build_grain_size_orm(parse_result, sample_id, row.permkey)
                 self._session.add(orm)
                 result.grain_sizes_attached += 1
                 self.debug(
@@ -840,26 +841,6 @@ def _sample_to_orm(row: SampleWfsRow, borehole_id: UUID) -> SampleOrm:
         composition=row.composition,
         instrument=row.instrument,
         sampling_date=row.sampling_date,
-    )
-
-
-def _grain_size_to_orm(
-    parse_result: GrainSizeParseResult,
-    sample_id: UUID,
-    dov_permkey: str | None,
-) -> GrainSizeOrm:
-    """Map a GrainSizeParseResult + sample UUID into a GrainSizeOrm row."""
-    gs = parse_result.grain_size
-    return GrainSizeOrm(
-        id=gs.id,
-        sample_id=sample_id,
-        dov_permkey=dov_permkey,
-        diameters_mm=list(gs.diameters_mm),
-        pct_larger=list(gs.pct_larger),
-        method=gs.method,
-        test_date=gs.test_date,
-        lime_removed=gs.lime_removed,
-        organics_removed=gs.organics_removed,
     )
 
 
