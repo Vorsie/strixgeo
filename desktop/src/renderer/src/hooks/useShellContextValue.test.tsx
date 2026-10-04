@@ -99,6 +99,7 @@ function makeCtx(): ShellContextValue {
       handleImportBoreholeDov: vi.fn(),
       handleBboxDrawn: noopAsync,
       pendingCptPins: [],
+      adoptImportedBoreholes: noopAsync,
     },
     visibleCpts: [],
     visibleBoreholes: [],
@@ -364,6 +365,9 @@ function toArgs(c: ShellContextValue): UseShellContextValueArgs {
     project: c.project,
     ...c.lifecycle,
     ...c.investigations,
+    // Optional on the bus, a required key in the args (the App call site
+    // must not drop it again).
+    adoptImportedBoreholes: c.investigations.adoptImportedBoreholes,
     visibleCpts: c.visibleCpts,
     visibleBoreholes: c.visibleBoreholes,
     geo: c.geoModel,
@@ -396,6 +400,12 @@ describe('useShellContextValue (debt #12 net / #53)', () => {
     )
     expect(v.investigations.handleRemoveCpts).toBe(
       c.investigations.handleRemoveCpts,
+    )
+    // Owner dogfeed 2026-10-04: a borehole the lab import fetched from DOV
+    // must join the Data list; the toolbar reaches the adopter through the
+    // bus, so the bus must carry it (it was silently dropped: no refresh).
+    expect(v.investigations.adoptImportedBoreholes).toBe(
+      c.investigations.adoptImportedBoreholes,
     )
     expect(v.sections.handleSelectSection).toBe(c.sections.handleSelectSection)
     expect(v.overlays.demOverlay).toBe(c.overlays.demOverlay)
