@@ -112,6 +112,24 @@ describe('CptPdfTriageList', () => {
     expect(pageBlob).toHaveBeenCalledWith('a'.repeat(64), 231, 'p1')
   })
 
+  // Owner ruling 2026-10-04: the imported CPT is shown as "<project>-S<number>"
+  // ("23.15-002-S110"), and the triage row shows the same name.
+  it('the row is labelled with the name the CPT will be shown under', () => {
+    renderList(
+      digest({ campaign: [sounding('110', { project_number: '23.15-002', display_name: '23.15-002-S110' })] }),
+      ['110'],
+    )
+    const row = screen.getAllByTestId('cpt-pdf-row-campaign')[0]
+    expect(row.textContent).toContain('23.15-002-S110')
+    expect(within(row).getByRole('checkbox', { name: '23.15-002-S110' })).toBeTruthy()
+  })
+
+  it('a backend that sends no display name keeps the printed sounding id', () => {
+    renderList(digest({ campaign: [sounding('110')] }), ['110'])
+    const row = screen.getAllByTestId('cpt-pdf-row-campaign')[0]
+    expect(within(row).getByRole('checkbox', { name: '110' })).toBeTruthy()
+  })
+
   it('a thumbnail that is still loading or failed is a neutral box, never alt text', async () => {
     pageBlob.mockReset()
     pageBlob.mockRejectedValue(new Error('boom'))
