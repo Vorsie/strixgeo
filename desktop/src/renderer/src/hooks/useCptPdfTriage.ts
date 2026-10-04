@@ -13,8 +13,14 @@
  * the hook attaches to its stream instead of failing (owner's dogfeed
  * 2026-10-04: a StrictMode double effect aborted the first stream and the
  * second upload's 409 left the dialog on "already running" with no list).
- * ``start`` is also idempotent per (report, project) while a triage is in
- * flight, so a repeated call does not upload the report again.
+ * That 409 is the safety net for a genuine repeat (the user picks a report
+ * whose triage still runs). The normal path never meets it: the in-flight
+ * triage lives in a module-level registry keyed on (project, report), not in
+ * the component instance. A hook that starts a report already in the registry
+ * subscribes to it and gets its last state replayed, with no upload. An
+ * unmount only unsubscribes; the triage aborts one tick after its last
+ * subscriber leaves, so a StrictMode remount (mount, cleanup, mount in one
+ * commit) joins the running triage instead of uploading the report again.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -119,6 +125,103 @@ async function spawnOrAttachTriage(filePath: string, projectId: string): Promise
   }
 }
 
+/** One (project, report) triage that one or more hooks follow. */
+interface TriageEntry {
+  key: string
+  controller: AbortController
+  subscribers: Set<(state: CptPdfTriageState) => void>
+  /** The newest state, replayed to a hook that joins late. */
+  lastState: CptPdfTriageState
+  /** The pending abort scheduled when the last subscriber left. */
+  abortTimer: ReturnType<typeof setTimeout> | null
+}
+
+// The in-flight triages, keyed ``${projectId}|${filePath}``. Module-level on
+// purpose: a component instance's refs die with an unmount, and a StrictMode
+// remount must find the triage the first mount started.
+const triageRegistry = new Map<string, TriageEntry>()
+
+/** Abort ``entry`` and drop it from the registry. */
+function abortEntry(entry: TriageEntry): void {
+  if (entry.abortTimer !== null) clearTimeout(entry.abortTimer)
+  entry.abortTimer = null
+  entry.controller.abort()
+  if (triageRegistry.get(entry.key) === entry) triageRegistry.delete(entry.key)
+}
+
+/**
+ * Remove one subscriber; with none left, abort the entry after the tick.
+ *
+ * The delay lets a same-tick remount (StrictMode) take over the triage: a
+ * subscriber that arrives first cancels the pending abort.
+ */
+function unsubscribe(entry: TriageEntry, listener: (state: CptPdfTriageState) => void): void {
+  entry.subscribers.delete(listener)
+  if (entry.subscribers.size > 0 || entry.abortTimer !== null) return
+  entry.abortTimer = setTimeout(() => {
+    entry.abortTimer = null
+    if (entry.subscribers.size > 0) return
+    if (!entry.controller.signal.aborted) log.info('cpt-pdf', 'triage left by every view; aborting')
+    abortEntry(entry)
+  }, 0)
+}
+
+/** Add one subscriber, cancel a pending abort, replay the last state. */
+function subscribe(entry: TriageEntry, listener: (state: CptPdfTriageState) => void): void {
+  if (entry.abortTimer !== null) {
+    clearTimeout(entry.abortTimer)
+    entry.abortTimer = null
+  }
+  entry.subscribers.add(listener)
+  listener(entry.lastState)
+}
+
+/** Create the entry for ``key`` and run its upload + stream drain. */
+function launchTriage(key: string, filePath: string, projectId: string): TriageEntry {
+  const controller = new AbortController()
+  const entry: TriageEntry = {
+    key,
+    controller,
+    subscribers: new Set(),
+    lastState: { status: 'uploading' },
+    abortTimer: null,
+  }
+  triageRegistry.set(key, entry)
+  // Only a live triage may publish: an aborted one stays silent.
+  const publish = (next: CptPdfTriageState): void => {
+    if (controller.signal.aborted) return
+    entry.lastState = next
+    for (const listener of entry.subscribers) listener(next)
+  }
+  void (async () => {
+    try {
+      const jobId = await spawnOrAttachTriage(filePath, projectId)
+      if (controller.signal.aborted) {
+        log.debug('cpt-pdf', `triage job ${jobId} superseded before its stream opened`)
+        return
+      }
+      publish(await drainTriageStream(jobId, controller.signal, publish))
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        log.info('cpt-pdf', 'triage stream aborted by client')
+        return
+      }
+      const msg = err instanceof Error ? err.message : 'Unknown triage error'
+      log.error('cpt-pdf', `triage failed: ${msg}`, err)
+      publish({ status: 'error', message: msg })
+    }
+  })()
+  return entry
+}
+
+/**
+ * Abort every registered triage and empty the registry. Test-only.
+ */
+export function _clearCptPdfTriageRegistry(): void {
+  for (const entry of [...triageRegistry.values()]) abortEntry(entry)
+  triageRegistry.clear()
+}
+
 /**
  * Manage one report triage.
  *
@@ -126,66 +229,61 @@ async function spawnOrAttachTriage(filePath: string, projectId: string): Promise
  */
 export function useCptPdfTriage(): UseCptPdfTriageResult {
   const [state, setState] = useState<CptPdfTriageState>({ status: 'idle' })
-  const abortRef = useRef<AbortController | null>(null)
-  // The (project, report) whose triage is uploading or running; a repeated
-  // ``start`` for it is a no-op. Cleared on a terminal state, reset and unmount.
-  const inFlightKeyRef = useRef<string | null>(null)
+  // The triage this hook follows, and the listener it subscribed with.
+  const followRef = useRef<{ entry: TriageEntry; listener: (s: CptPdfTriageState) => void } | null>(
+    null,
+  )
+
+  const leave = useCallback((): void => {
+    const follow = followRef.current
+    followRef.current = null
+    if (follow) unsubscribe(follow.entry, follow.listener)
+  }, [])
 
   const reset = useCallback(() => {
-    abortRef.current?.abort()
-    abortRef.current = null
-    inFlightKeyRef.current = null
+    const follow = followRef.current
+    followRef.current = null
+    if (follow) {
+      follow.entry.subscribers.delete(follow.listener)
+      // An explicit user action: abort now, do not wait for the tick.
+      abortEntry(follow.entry)
+    }
     setState({ status: 'idle' })
   }, [])
 
-  // Abort the stream when the dialog unmounts mid-triage. The key goes too: a
-  // StrictMode remount then starts again, and its upload attaches to the job
-  // the first upload spawned (the 409 path) instead of hanging on a dead stream.
-  useEffect(
-    () => () => {
-      abortRef.current?.abort()
-      abortRef.current = null
-      inFlightKeyRef.current = null
+  // An unmount only unsubscribes; the registry aborts the triage one tick
+  // later unless a remount (StrictMode) has joined it by then.
+  useEffect(() => leave, [leave])
+
+  const start = useCallback(
+    (filePath: string, projectId: string) => {
+      const key = `${projectId}|${filePath}`
+      const current = followRef.current
+      if (current && current.entry.key === key && triageRegistry.get(key) === current.entry) {
+        log.debug('cpt-pdf', `triage of ${filePath} already followed; start ignored`)
+        return
+      }
+      if (current) {
+        // A different report supersedes the old one; with no other view on it,
+        // the old stream aborts at once.
+        followRef.current = null
+        current.entry.subscribers.delete(current.listener)
+        if (current.entry.subscribers.size === 0) abortEntry(current.entry)
+      }
+      const listener = (next: CptPdfTriageState): void => setState(next)
+      const existing = triageRegistry.get(key)
+      if (existing) {
+        log.info('cpt-pdf', `triage of ${filePath} already in flight; joining it`)
+        followRef.current = { entry: existing, listener }
+        subscribe(existing, listener)
+        return
+      }
+      const entry = launchTriage(key, filePath, projectId)
+      followRef.current = { entry, listener }
+      subscribe(entry, listener)
     },
     [],
   )
-
-  const start = useCallback((filePath: string, projectId: string) => {
-    const key = `${projectId}|${filePath}`
-    if (inFlightKeyRef.current === key) {
-      log.debug('cpt-pdf', `triage of ${filePath} already in flight; start ignored`)
-      return
-    }
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-    inFlightKeyRef.current = key
-    setState({ status: 'uploading' })
-    // Only the current triage may write state: a superseded one stays silent.
-    const update = (next: CptPdfTriageState): void => {
-      if (!controller.signal.aborted) setState(next)
-    }
-    void (async () => {
-      try {
-        const jobId = await spawnOrAttachTriage(filePath, projectId)
-        if (controller.signal.aborted) {
-          log.debug('cpt-pdf', `triage job ${jobId} superseded before its stream opened`)
-          return
-        }
-        update(await drainTriageStream(jobId, controller.signal, update))
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') {
-          log.info('cpt-pdf', 'triage stream aborted by client')
-          return
-        }
-        const msg = err instanceof Error ? err.message : 'Unknown triage error'
-        log.error('cpt-pdf', `triage failed: ${msg}`, err)
-        update({ status: 'error', message: msg })
-      } finally {
-        if (abortRef.current === controller) inFlightKeyRef.current = null
-      }
-    })()
-  }, [])
 
   return { state, start, reset }
 }
