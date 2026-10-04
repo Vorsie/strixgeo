@@ -9,6 +9,8 @@
   counts (no readings) for the Lab tests list.
 * ``GET /samples/{sample_id}/lab-series?project_id`` — every test of a sample
   with every channel, for the viewer.
+* ``DELETE /lab-series/{test_id}?project_id`` — delete one test and its whole
+  tree (irreversible; the desktop confirms first).
 
 Every route is project-scoped (the scope runs sample → borehole → project).
 """
@@ -324,6 +326,50 @@ async def get_sample_lab_series(
     tests = await repo.list_full_for_sample(sample_id, project_id)
     logger.debug(f"GET /samples/{sample_id}/lab-series → {len(tests)} test(s)")
     return [_test_response(t) for t in tests]
+
+
+@router.delete("/lab-series/{test_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lab_series_test(
+    test_id: UUID,
+    project_id: UUID = Query(...),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Delete one lab-series test with its specimens, stages, channels and results.
+
+    Irreversible: the desktop guards it behind a confirmation dialog (Cancel
+    default-focused). The sample stays — it may carry other lab tests and the
+    borehole's own sample record. ON DELETE CASCADE drops the tree; the
+    borehole's ``lab_series_count`` is a live count, so it follows.
+
+    Parameters
+    ----------
+    test_id : UUID
+        The lab-series test.
+    project_id : UUID
+        Scope fence: a test of another project answers 404.
+    session : AsyncSession
+        Injected database session.
+
+    Returns
+    -------
+    Response
+        ``204 No Content``.
+
+    Raises
+    ------
+    HTTPException
+        404 when the test is not in the project.
+    """
+    logger.info(f"DELETE /lab-series/{test_id}: project={project_id}")
+    repo = LabSeriesRepository(session)
+    test = await repo.get_test(test_id, project_id)
+    if test is None:
+        logger.warning(f"DELETE /lab-series/{test_id}: not in project {project_id} — 404")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lab test not found")
+    await repo.delete_test(test_id)
+    await session.commit()
+    logger.success(f"DELETE /lab-series/{test_id}: deleted (tree cascaded)")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
