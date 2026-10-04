@@ -7,6 +7,7 @@ from typing import Any
 
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_origin import CptOrigin
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
+from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,11 @@ class ReportSounding:
         False when no curve could be read (a raster page whose axes need the
         user's tick values).
     warnings : tuple of str
-        What the user should look at before importing, in words.
+        What the user should look at before importing, in English words.
+        Kept for clients that predate ``notes``.
+    notes : tuple of ReportSoundingNote
+        The same notes as stable codes + params, one per warning and in the
+        same order; the desktop renders them in the app language.
     """
 
     key: str
@@ -61,6 +66,7 @@ class ReportSounding:
     clipped_points: int = 0
     digitised: bool = True
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    notes: tuple[ReportSoundingNote, ...] = field(default_factory=tuple)
 
     @property
     def sheet_count(self) -> int:
@@ -87,4 +93,5 @@ class ReportSounding:
             "clipped_points": self.clipped_points,
             "digitised": self.digitised,
             "warnings": list(self.warnings),
+            "notes": [n.to_dict() for n in self.notes],
         }
