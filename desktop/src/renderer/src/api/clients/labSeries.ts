@@ -1,7 +1,8 @@
 /**
  * Raw lab-series client — preview / import a raw lab export (oedometer
  * control listing, the newer oedometer module's raw export, triaxial per-point
- * dump), list a borehole's lab tests, read a sample's full readings.
+ * dump), list a borehole's lab tests, read a sample's full readings, delete
+ * one test.
  *
  * Mirrors ``src/groundmodel/api/routers/lab_series.py``. The import is a
  * two-step flow (owner Q4 2026-09-29: "ask user, to double check"): the
@@ -11,7 +12,8 @@
  * @module api/clients/labSeries
  */
 
-import { _base, detailMessage, fetchTracked, get } from './shared'
+import { messageForDetail } from './apiCodeMessages'
+import { _base, del, detailMessage, fetchTracked, get } from './shared'
 
 /** One parser finding, as the backend freezes it. */
 export interface LabSeriesIssue {
@@ -261,7 +263,9 @@ async function throwFor(res: Response, fallback: string, fileName: string): Prom
   if (detail && typeof detail === 'object' && detail.code === FORMAT_NOT_RECOGNISED) {
     throw new LabFileFormatNotRecognisedError(fileName, detailMessage(detail) ?? undefined)
   }
-  throw new Error(detailMessage(detail) ?? `${fallback}: ${res.status}`)
+  // A known refusal code (the 409 ``lab_borehole_conflict``) reads in the
+  // app's language; anything else keeps the server's message.
+  throw new Error(messageForDetail(detail, detailMessage(detail) ?? `${fallback}: ${res.status}`))
 }
 
 /** The file name at the end of a path. */
@@ -337,4 +341,11 @@ export const labSeriesClient = {
     get<LabSeriesTest[]>(
       `/samples/${encodeURIComponent(sampleId)}/lab-series?project_id=${encodeURIComponent(projectId)}`,
     ),
+
+  /**
+   * Delete one lab test with its whole tree (irreversible — the caller
+   * confirms first). Throws the server's message; 404 = not in the project.
+   */
+  deleteTest: (projectId: string, testId: string): Promise<void> =>
+    del(`/lab-series/${encodeURIComponent(testId)}?project_id=${encodeURIComponent(projectId)}`),
 }
