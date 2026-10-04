@@ -224,6 +224,17 @@ STORED_COLUMN_BY_KIND: dict[PanelKind, str] = {
 # draw (CAMZ-005: 0.02-0.08 m between vertices) while a real gap is 0.2-1.3 m.
 SCORE_MAX_GAP_STEPS = 5
 
+# A drilled stretch on a VECTOR sheet (owner ruling "a", 2026-10-04: rods
+# added / "voorboring" between two pushes) is where the plotter LIFTED ITS PEN:
+# the curve's stroke changes and the depth jumps by more than this (m). The
+# values across it are left empty, never interpolated, and it is reported as a
+# drilled interval. A distance alone cannot tell: within one stroke the thinned
+# CAMZ-005 polylines join vertices up to 0.34 m apart where the GEF has data,
+# while CAMZ-001 has drilled stretches from 0.10 m (sounding 15 at 24.5 m) to
+# 4.5 m. At a pen lift with no missing scan the jump is one scan (0.02 m);
+# 0.05 m means at least one scan is missing.
+VECTOR_DRILL_GAP_M = 0.05
+
 # A continuation sheet repeats up to this much depth (m) of the sheet before
 # it (the Van der Straaten continuation starts ~0.3 m above the previous end).
 CONTINUATION_OVERLAP_M = 1.0
