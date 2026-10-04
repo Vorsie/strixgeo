@@ -9,6 +9,7 @@ import type { LabSeriesTestSummary } from '../../api/client'
 
 const listForBorehole = vi.fn()
 const getForSample = vi.fn()
+const deleteTest = vi.fn()
 vi.mock('../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client')
   return {
@@ -17,6 +18,7 @@ vi.mock('../../api/client', async () => {
       labSeries: {
         listForBorehole: (...a: unknown[]) => listForBorehole(...a),
         getForSample: (...a: unknown[]) => getForSample(...a),
+        deleteTest: (...a: unknown[]) => deleteTest(...a),
       },
     },
   }
@@ -49,6 +51,7 @@ describe('LabSeriesSection', () => {
   beforeEach(() => {
     listForBorehole.mockReset()
     getForSample.mockReset()
+    deleteTest.mockReset()
   })
 
   it('lists each test with its kind, sample, counts and a flags badge', async () => {
@@ -91,5 +94,51 @@ describe('LabSeriesSection', () => {
     listForBorehole.mockResolvedValue([row()])
     act(() => notifyLabSeriesChanged())
     expect(await screen.findByText('Lab tests (1)')).toBeInTheDocument()
+  })
+
+  // Owner 2026-10-04: "Verwijderen" on the lab test row; irreversible, so a
+  // confirmation dialog with Cancel focused and the button "Delete lab test";
+  // after the delete the list refreshes. No undo.
+  describe('delete a lab test', () => {
+    it('asks first: Cancel is focused and deletes nothing', async () => {
+      listForBorehole.mockResolvedValue([row()])
+      render(<LabSeriesSection projectId="p" boreholeId="bh" />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('dialog')
+      expect(within(dialog).getByRole('button', { name: 'Delete lab test' })).toBeInTheDocument()
+      const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
+      expect(cancel).toHaveFocus()
+      fireEvent.click(cancel)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(deleteTest).not.toHaveBeenCalled()
+    })
+
+    it('deletes on "Delete lab test", tells the parent and refreshes the list', async () => {
+      listForBorehole.mockResolvedValue([row()])
+      deleteTest.mockResolvedValue(undefined)
+      const onDeleted = vi.fn()
+      render(<LabSeriesSection projectId="p" boreholeId="bh" onLabTestDeleted={onDeleted} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+      listForBorehole.mockResolvedValue([])
+      fireEvent.click(
+        within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete lab test' }),
+      )
+      expect(await screen.findByText('Lab tests (0)')).toBeInTheDocument()
+      expect(deleteTest).toHaveBeenCalledWith('p', 't1')
+      expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('a failed delete stays in the dialog with the reason and tells nobody', async () => {
+      listForBorehole.mockResolvedValue([row()])
+      deleteTest.mockRejectedValue(new Error('Lab test not found'))
+      const onDeleted = vi.fn()
+      render(<LabSeriesSection projectId="p" boreholeId="bh" onLabTestDeleted={onDeleted} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete lab test' }))
+      expect(await within(dialog).findByText(/Lab test not found/)).toBeInTheDocument()
+      expect(onDeleted).not.toHaveBeenCalled()
+    })
   })
 })
