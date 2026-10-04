@@ -820,6 +820,12 @@ export interface RecomputeBodiesResponse {
   bodies_split: number
   /** Bodies whose display name was displaced by a merge/split. */
   renamed: string[]
+  /**
+   * True when this recompute staled the model's built 3-D solids (additive,
+   * 2026-10-04). Optional: an older backend omits it, and the desktop then
+   * falls back to the body-change counts alone.
+   */
+  solids_stale?: boolean
 }
 
 /**
