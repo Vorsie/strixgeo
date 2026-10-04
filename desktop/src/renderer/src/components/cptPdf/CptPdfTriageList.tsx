@@ -72,7 +72,9 @@ function SoundingRow({
 }: RowProps): JSX.Element {
   const t = useT()
   const firstPage = sounding.page_numbers[0]
-  const label = sounding.sounding_id ?? sounding.key
+  // The name the CPT will be shown under once imported ("23.15-002-S110",
+  // owner ruling 2026-10-04); an older backend sends none.
+  const label = sounding.display_name ?? sounding.sounding_id ?? sounding.key
   const notes = cptPdfNoteTexts(sounding, t)
   return (
     <li
