@@ -43,6 +43,8 @@ from tests.integration.api.geotech_scene_helpers import (
     accept_borehole_litho,
     accept_cpt_litho,
     correlate,
+    paint_accepted_ties,
+    paint_band,
     two_layer_qc,
 )
 
@@ -176,6 +178,9 @@ async def band_scene(
         contact_b=contact_b,
         section_id=section_id,
     )
+    # The fill paints both ties as bands; the recompute's facts make the three
+    # sands ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project_id": pid,
@@ -1013,6 +1018,12 @@ async def test_gb20_a_flagged_tie_stops_unioning_the_two_bands_into_one_body(
     The control move exists because "the two bands do not share a body" passes
     trivially if they never shared one. It runs the resolver with the tie in place
     and matching, which is the state the ruling changes.
+
+    Since owner 2026-10-04 (*"identity follows the drawing"*) the union is the
+    geometry fact the renderer posts for the painted band, never the tie, so the
+    scene paints the pair (``paint_band``). After the class-breaking move the fact
+    joins two classes and the one-mass filter drops it; the next recompute's fill
+    leaves the suspended tie out and posts no fact at all.
     """
     gid = await _subdivide(async_client, band_scene)
     a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
@@ -1022,6 +1033,7 @@ async def test_gb20_a_flagged_tie_stops_unioning_the_two_bands_into_one_body(
     a_top_id, a_low_id, b_top_id = a_bands[0].id, a_bands[1].id, b_bands[0].id
     boundary_m = a_bands[0].depth_base_m
     accepted = await _insert_edge(db_session, band_scene, gid, a_top_id, b_top_id, approved=True)
+    await paint_band(db_session, gid, (a_top_id, b_top_id))
     move_url = _band_url(band_scene, gid, "move")
     pair = {"upper_band_id": str(a_top_id), "lower_band_id": str(a_low_id)}
 
@@ -1039,7 +1051,7 @@ async def test_gb20_a_flagged_tie_stops_unioning_the_two_bands_into_one_body(
     b_top = await db_session.get(LithoLayerOrm, b_top_id)
     assert a_top is not None and b_top is not None
     assert a_top.body_id is not None
-    assert a_top.body_id == b_top.body_id, "an accepted, matching tie unions its bands"
+    assert a_top.body_id == b_top.body_id, "an accepted, matching, painted tie is one body"
 
     # GB6's class-breaking move: the tie survives, flagged.
     resp = await async_client.post(move_url, json={**pair, "new_depth_m": 6.5})
@@ -1161,6 +1173,11 @@ async def test_gb23_a_band_absorbed_tie_still_unions_its_two_bands(
     ``ambiguous_band`` suspend (mismatched ends / doubtful anchor identity);
     ``band_absorbed`` keeps unioning. GB20 pins the class_changed half; this pins
     the band_absorbed half, and the ambiguous_band guard alongside it.
+
+    Since owner 2026-10-04 (*"identity follows the drawing"*) the backend never
+    unions on a tie: the renderer fills with the band_absorbed tie (it is live)
+    and posts a fact for the painted band, while it leaves the ambiguous_band tie
+    out of the fill and posts none. The scene seeds exactly those facts.
     """
     gid = await _subdivide(async_client, band_scene)
     a_bands = await _bands_on(db_session, gid, band_scene["cpt_a_id"])
@@ -1187,6 +1204,8 @@ async def test_gb23_a_band_absorbed_tie_still_unions_its_two_bands(
         approved=True,
         review_reason="ambiguous_band",
     )
+    # The fill bands only the live (band_absorbed) tie; the suspended one is not drawn.
+    await paint_band(db_session, gid, (a_top_id, b_top_id))
 
     # Any committed edit runs the resolver; the control nudge changes no class.
     resp = await async_client.post(
