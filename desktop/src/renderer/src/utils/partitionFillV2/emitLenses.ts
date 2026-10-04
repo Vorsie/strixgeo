@@ -18,6 +18,7 @@
  */
 
 import { columnDeepestBase } from './columnMetrics'
+import { withFloorCrossings } from './floorCrossing'
 import { emitContinuation, runGapTies, terminationRun } from './emitContinuation'
 import { type ResolvedTie } from './emitCurves'
 import { enclosedLensReach, type ReachTie } from './lensReach'
@@ -183,13 +184,14 @@ function emitOne(
   // clay render"*, then *"how do we get open terminations for lenses"*). An enclosed interbed
   // whose facing column read NOTHING at its levels has no reading to pinch against there, so
   // it crosses that column and pinches against the first one that DID read — the SAME law the
-  // corr-0 sweep applies. Only where nothing in this direction ever read it does it run flat
-  // to the section edge.
+  // corr-0 sweep applies. Where nothing in this direction ever read it and it lies below the
+  // adjacent column's TD, it lenses toward that column at its own level (owner 2026-10-04, "no tie,
+  // no band"); only a lens resting on the adjacent column's ground still runs flat to the edge.
   const run = terminationRun(columns, colIndex, dir, lens.topElev, lens.baseElev)
   const facing = run.column
   const gapWidth = Math.abs(facing.x - colX)
   const gapTies = runGapTies(ties, run)
-  if (!run.reads && emitContinuation(lens, colX, facing.x, labels, nextId, out)) return
+  if (run.toEdge && emitContinuation(lens, colX, facing.x, labels, nextId, out)) return
   // ``topPt``/``basePt`` come from the diamond (base clamped to the substrate floor — see
   // ``enclosedLensDiamond``) so the two flanks and the detour's copy of the diamond are identical.
   const { topPt, apex, basePt } = enclosedLensDiamond(lens, col, facing, gapIndex, side, gapWidth, section, gapTies)
@@ -209,13 +211,8 @@ function emitOne(
   // vertex AT the crossing makes the cut exact on both curves, so the floor splits the diamond into
   // two faces that both stay the lens's own (``labelFaces`` lets the bare floor through).
   const floor = Math.max(columnDeepestBase(col), columnDeepestBase(facing))
-  const atFloor = (a: Point, b: Point): Point[] => {
-    if (!((a.y > floor && b.y < floor) || (a.y < floor && b.y > floor))) return []
-    const t = (floor - a.y) / (b.y - a.y)
-    return [{ x: a.x + t * (b.x - a.x), y: floor }]
-  }
-  push([topPt, ...atFloor(topPt, apex), apex])
-  push([apex, ...atFloor(apex, basePt), basePt])
+  push(withFloorCrossings([topPt, apex], floor))
+  push(withFloorCrossings([apex, basePt], floor))
 }
 
 /**
