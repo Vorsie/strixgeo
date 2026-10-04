@@ -231,3 +231,40 @@ def test_a_vertex_plotted_above_the_ground_is_not_a_scan() -> None:
     result = DigitisedSoundingAdapter().to_parse_result(_sounding([qc]), _header(), REPORT)
     assert result.data["depth_m"].to_list() == [0.0215, 0.0411]
     assert result.import_provenance["points_above_ground_dropped"] == 1
+
+
+def _issue(result: object, code: str) -> object:
+    return next(i for i in result.issues if i.code == code)  # type: ignore[attr-defined]
+
+
+def test_the_clipped_issue_carries_its_numbers_so_the_app_says_it_in_its_own_language() -> None:
+    """Owner 2026-10-04: translate from code + params. Clipped = curve, count, axis max."""
+    qc = _curve(
+        PanelKind.QC,
+        [1.0, 1.02, 1.04, 1.06],
+        [20.0, 31.998, 31.998, 25.0],
+        [False, True, True, False],
+    )
+    result = DigitisedSoundingAdapter().to_parse_result(_sounding([qc]), _header(), REPORT)
+    issue = _issue(result, "PDF_CLIPPED_POINTS")
+    assert issue.params == {"curve": "qc", "count": 2, "axis_max": 31.998}  # type: ignore[attr-defined]
+
+
+def test_the_elevation_issue_carries_the_printed_ground_level() -> None:
+    """Elevation axis: the printed ground level travels as a number, not only in English."""
+    qc = _curve(PanelKind.QC, [1.0, 2.0], [3.0, 4.0])
+    result = DigitisedSoundingAdapter().to_parse_result(
+        _sounding([qc], DepthReference.ELEVATION), _header(ground_level_m=6.05), REPORT
+    )
+    issue = _issue(result, "PDF_DEPTH_FROM_ELEVATION")
+    assert issue.params == {"ground_level_m": 6.05}  # type: ignore[attr-defined]
+
+
+def test_the_elevation_issue_without_a_printed_ground_level_carries_no_number() -> None:
+    """No ground level read: no param, so the app keeps the English sentence."""
+    qc = _curve(PanelKind.QC, [1.0, 2.0], [3.0, 4.0])
+    result = DigitisedSoundingAdapter().to_parse_result(
+        _sounding([qc], DepthReference.ELEVATION), _header(ground_level_m=None), REPORT
+    )
+    issue = _issue(result, "PDF_DEPTH_FROM_ELEVATION")
+    assert issue.params == {}  # type: ignore[attr-defined]
