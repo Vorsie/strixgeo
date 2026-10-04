@@ -21,7 +21,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPlotResponse, CptResponse } from '../api/client'
-import CptChart, { injectDepthGaps } from './CptChart'
+import CptChart, { drilledIntervalsFromProvenance, injectDepthGaps } from './CptChart'
 import type { CptDataPoint } from './CptChart'
 import type { VirtueleBoringCatalogState } from '../hooks/useVirtueleBoringCatalog'
 
@@ -498,5 +498,46 @@ describe('CptChart — DOV overlay toggle enable rule (owner dogfeed 2026-09-06)
       name: 'Toggle DOV Virtuele Boring overlay',
     }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
+  })
+})
+
+// Owner ruling "a" (2026-10-04): "a drilled interval stays a gap ... the chart
+// MUST show a visible break, never a straight line". A PDF-digitised CPT stores
+// no row inside a drilled stretch and lists the stretches in its import
+// provenance (``drilled_intervals_m``); the chart breaks there even when the
+// stretch is narrower than the generic 0.20 m jump rule.
+describe('injectDepthGaps: drilled intervals from the import provenance', () => {
+  it('D1: a drilled stretch narrower than 0.20 m still breaks the line', () => {
+    const rows = [makePoint(4.16), makePoint(4.178), makePoint(4.341), makePoint(4.36)]
+    const result = injectDepthGaps(rows, 0.20, [[4.178, 4.341]])
+    expect(result).toHaveLength(5)
+    expect(result[2].qc).toBeNull()
+    expect(result[2].depth).toBeCloseTo((4.178 + 4.341) / 2)
+  })
+
+  it('D2: a drilled stretch wider than 0.20 m breaks once, not twice', () => {
+    const rows = [makePoint(30.405), makePoint(31.177)]
+    const result = injectDepthGaps(rows, 0.20, [[30.405, 31.177]])
+    expect(result.filter(r => r.qc === null)).toHaveLength(1)
+  })
+
+  it('D3: consecutive scans outside every drilled stretch stay joined', () => {
+    const rows = [makePoint(1.0), makePoint(1.02), makePoint(1.04)]
+    expect(injectDepthGaps(rows, 0.20, [[4.178, 4.341]])).toHaveLength(3)
+  })
+})
+
+describe('drilledIntervalsFromProvenance', () => {
+  it('D4: reads drilled_intervals_m of a PDF-digitised CPT', () => {
+    expect(
+      drilledIntervalsFromProvenance({ source: 'pdf-digitised', drilled_intervals_m: [[32.0, 32.3], [40.1, 40.9]] }),
+    ).toEqual([[32.0, 32.3], [40.1, 40.9]])
+  })
+
+  it('D5: a GEF / DOV CPT (no provenance) or a malformed value has none', () => {
+    expect(drilledIntervalsFromProvenance(null)).toEqual([])
+    expect(drilledIntervalsFromProvenance(undefined)).toEqual([])
+    expect(drilledIntervalsFromProvenance({ drilled_intervals_m: 'x' })).toEqual([])
+    expect(drilledIntervalsFromProvenance({ drilled_intervals_m: [[1, 'a'], [2]] })).toEqual([])
   })
 })
