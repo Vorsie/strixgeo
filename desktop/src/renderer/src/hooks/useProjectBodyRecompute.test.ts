@@ -278,3 +278,88 @@ describe('useProjectBodyRecompute module-ref cleanup on unmount (#276)', () => {
     expect(sectionsDividePartitionCallback.current).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// SR — a recompute that changed the bodies re-reads the solids
+//
+// Owner finding 2026-10-04: "adding a new correlation doesn't mark the litho
+// stale". The tie edit refetched the solids at once, but the solids become
+// stale only when the debounced body recompute runs ~2.5 s LATER (merged=1,
+// stale_solids=True server-side) — and nothing re-read them after that, so the
+// Build badge never turned amber. Rule: when a recompute completes and it
+// changed a body (merged / split / renamed) or staled the solids, the shell is
+// told for THAT model so the solids are read again.
+// ---------------------------------------------------------------------------
+
+describe('SR — a recompute that changed bodies tells the shell to re-read the solids', () => {
+  const RESULT_NO_CHANGE = {
+    facts_written: 1,
+    facts_dropped_stale: 0,
+    bodies_merged: 0,
+    bodies_split: 0,
+    renamed: [] as string[],
+    solids_stale: false,
+  }
+
+  it('SR1 a recompute that merged a body announces the model once its answer lands', async () => {
+    recomputeBodies.mockResolvedValue({ ...RESULT_NO_CHANGE, bodies_merged: 1 })
+    const onBodiesRecomputed = vi.fn()
+    renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
+      initialProps: args({ geotechModelId: null, onBodiesRecomputed }),
+    })
+    // Not before the recompute has answered.
+    expect(onBodiesRecomputed).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(onBodiesRecomputed).toHaveBeenCalledTimes(1)
+    expect(onBodiesRecomputed).toHaveBeenCalledWith('L1')
+  })
+
+  it('SR2 a recompute that split a body (the uncorrelate case) announces it too', async () => {
+    recomputeBodies.mockResolvedValue({ ...RESULT_NO_CHANGE, bodies_split: 1 })
+    const onBodiesRecomputed = vi.fn()
+    renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
+      initialProps: args({ geotechModelId: null, onBodiesRecomputed }),
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(onBodiesRecomputed).toHaveBeenCalledWith('L1')
+  })
+
+  it('SR3 no body change but the server staled the solids → still announced', async () => {
+    recomputeBodies.mockResolvedValue({ ...RESULT_NO_CHANGE, solids_stale: true })
+    const onBodiesRecomputed = vi.fn()
+    renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
+      initialProps: args({ geotechModelId: null, onBodiesRecomputed }),
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(onBodiesRecomputed).toHaveBeenCalledWith('L1')
+  })
+
+  it('SR4 a no-op recompute stays silent — no needless re-read', async () => {
+    recomputeBodies.mockResolvedValue(RESULT_NO_CHANGE)
+    const onBodiesRecomputed = vi.fn()
+    renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
+      initialProps: args({ onBodiesRecomputed }),
+    })
+    await drainDebounce()
+    expect(recomputeBodies).toHaveBeenCalledTimes(2)
+    expect(onBodiesRecomputed).not.toHaveBeenCalled()
+  })
+
+  it('SR5 the geotech model is announced under its own id', async () => {
+    recomputeBodies.mockResolvedValue({ ...RESULT_NO_CHANGE, bodies_merged: 1 })
+    const onBodiesRecomputed = vi.fn()
+    renderHook((p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p), {
+      initialProps: args({ onBodiesRecomputed }),
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(onBodiesRecomputed.mock.calls.map(c => c[0]).sort()).toEqual(['G1', 'L1'])
+  })
+})
