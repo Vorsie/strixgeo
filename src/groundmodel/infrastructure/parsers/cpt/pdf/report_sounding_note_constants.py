@@ -19,3 +19,6 @@ NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL = "ELEVATION_AXIS_NO_GROUND_LEVEL"
 NOTE_CLIPPED_POINTS = "CLIPPED_POINTS"
 #: The curve was traced from a raster image: compare the orange curve with the sheet.
 NOTE_READ_FROM_IMAGE = "READ_FROM_IMAGE"
+#: Drilled stretches without measurement (owner ruling "a", 2026-10-04); params
+#: ``intervals`` (``[[top, base], ...]`` in m) and ``count``.
+NOTE_DRILLED_INTERVALS = "DRILLED_INTERVALS"
