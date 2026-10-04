@@ -17,6 +17,12 @@
  * shows there — a column that read nothing is not a boundary — so the deep sand continues under
  * B1's TD to meet the shallow column's base; it must never leave a strip.
  *
+ * NO TIE, NO BAND (owner 2026-10-04). S23's deep ZAND(GL) below the strip has no tie toward B1 and
+ * lies entirely below B1's TD, so it is a lens at its own level (it used to run flat to B1 as a
+ * level-made band). The strip's BASE (-4.69) is therefore now the fill's lower edge against the
+ * no-data void, a real boundary the frame draws; the black RECTANGLE (the strip framed top AND
+ * bottom as an empty hole) is what must never come back, so the frame check pins the strip's TOP.
+ *
  * Real data: the committed decode of the owner's worked example (Cross-section 2 of
  * ``../geotechHierarchicalFill/__fixtures__/we2_cross_section_2.json``, 7 litho columns, B1 = col
  * 0, S23 = col 1). Run under the flag-ON product sweep (mirrors the app + the conformance gate).
@@ -114,18 +120,19 @@ describe('CS2 gap 0 — no strip under B1 terminal depth (installer #37 black re
     expect(soilByFormationId.get(owner!.formationId), 'the strip is SAND (the deep test unit continuing), not silt/clay').toBe('ZAND')
   })
 
-  it('the litho frame draws no closed black rectangle across gap 0 below B1 terminal depth', () => {
+  it('the litho frame draws no closed black rectangle across gap 0 below B1 terminal depth: the strip top dissolves', () => {
     const regs = gap0()
     const gapWidthM = (gi: number): number => Math.abs(alongM[gi + 1] - alongM[gi])
     const outline = lithoOutlineEdges(regs, soilByFormationId, gapWidthM).filter((s) => s.gapIndex === 0)
     // The rectangle's top (~-4.32) and base (~-4.69) were single-owner horizontal edges spanning
     // the gap (the empty strip's envelope). Once the strip is ZAND-filled — same soil as the band
-    // above AND the ZAND(GL) below — both dissolve. Assert no near-horizontal outline segment sits
-    // in the strip band spanning a real slice of the gap.
+    // above — its top dissolves. Its base now borders the no-data void under B1's TD (the ZAND(GL)
+    // below is a lens since 2026-10-04) and is drawn as the fill's edge, so only the strip TOP and
+    // the strip interior are checked: no near-horizontal outline there spanning a real slice of the gap.
     const spanningHorizontalInStrip = outline.filter((s) => {
       const nearHorizontal = Math.abs(s.a.elevation - s.b.elevation) < 0.02
       const midElev = (s.a.elevation + s.b.elevation) / 2
-      const inStripBand = midElev <= B1_TD + 0.05 && midElev >= S23_ZANDGL_TOP - 0.05
+      const inStripBand = midElev <= B1_TD + 0.05 && midElev >= S23_ZANDGL_TOP + 0.05
       const fracSpan = Math.abs(s.a.fraction - s.b.fraction)
       return nearHorizontal && inStripBand && fracSpan > 0.25
     })
