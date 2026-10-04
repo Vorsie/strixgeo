@@ -111,6 +111,29 @@ class LabSeriesRepository(GroundModelLogger):
         )
         return sample
 
+    async def get_test(self, test_id: UUID, project_id: UUID) -> LabSeriesTestOrm | None:
+        """Return a test whose sample's borehole is in the project, or ``None``.
+
+        Parameters
+        ----------
+        test_id : UUID
+            The lab-series test.
+        project_id : UUID
+            The app project (scope fence: a foreign id finds nothing).
+
+        Returns
+        -------
+        LabSeriesTestOrm or None
+            The test row (no children loaded), or ``None``.
+        """
+        test: LabSeriesTestOrm | None = await self._session.scalar(
+            select(LabSeriesTestOrm)
+            .join(SampleOrm, SampleOrm.id == LabSeriesTestOrm.sample_id)
+            .join(BoreholeOrm, BoreholeOrm.id == SampleOrm.borehole_id)
+            .where(LabSeriesTestOrm.id == test_id, BoreholeOrm.app_project_id == project_id)
+        )
+        return test
+
     async def find_by_identity(
         self,
         project_id: UUID,
