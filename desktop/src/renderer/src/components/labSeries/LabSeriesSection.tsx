@@ -1,6 +1,10 @@
 // The borehole detail's "Lab tests" section: every raw lab test imported on
 // one of the borehole's samples (kind, sample, specimens / stages / readings,
-// a flags badge) with a "View readings" button that opens the viewer.
+// a flags badge) with a "View readings" button that opens the viewer and a
+// "Delete" verb (owner 2026-10-04). The delete is irreversible: a
+// ConfirmDialog with Cancel focused and "Delete lab test"; no undo. The parent
+// hears about it through ``onLabTestDeleted`` (toast, Data-list refresh, dirty
+// flag); every mounted list re-reads through useLabSeriesRevision.
 //
 // Collapsible; open by default when the borehole carries tests. Re-reads when
 // an import reports a change (useLabSeriesRevision).
@@ -10,14 +14,25 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 
 import { api } from '../../api/client'
 import type { LabSeriesTestSummary } from '../../api/client'
-import { useLabSeriesRevision } from '../../hooks/useLabSeriesRevision'
+import { notifyLabSeriesChanged, useLabSeriesRevision } from '../../hooks/useLabSeriesRevision'
 import { useT } from '../../i18n/translate'
+import { log } from '../../utils/log'
 import Button from '../ui/Button'
+import ConfirmDialog from '../ui/ConfirmDialog'
 import LabSeriesViewer from './LabSeriesViewer'
 
 interface Props {
   projectId: string
   boreholeId: string
+  /** Fired after a lab test was deleted (the list itself re-reads). */
+  onLabTestDeleted?: (deleted: LabSeriesTestSummary) => void
+}
+
+/** The delete confirmation's state: which row, and the last failure. */
+interface PendingDelete {
+  row: LabSeriesTestSummary
+  busy: boolean
+  error: string | null
 }
 
 type Load = { state: 'loading' } | { state: 'failed' } | { state: 'ready'; rows: LabSeriesTestSummary[] }
@@ -27,12 +42,17 @@ type Load = { state: 'loading' } | { state: 'failed' } | { state: 'ready'; rows:
  *
  * @returns The section element.
  */
-export default function LabSeriesSection({ projectId, boreholeId }: Props): JSX.Element {
+export default function LabSeriesSection({
+  projectId,
+  boreholeId,
+  onLabTestDeleted,
+}: Props): JSX.Element {
   const t = useT()
   const revision = useLabSeriesRevision()
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [open, setOpen] = useState<boolean | null>(null)
   const [viewing, setViewing] = useState<LabSeriesTestSummary | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -44,6 +64,26 @@ export default function LabSeriesSection({ projectId, boreholeId }: Props): JSX.
       alive = false
     }
   }, [projectId, boreholeId, revision])
+
+  async function confirmDelete(): Promise<void> {
+    if (!pendingDelete || pendingDelete.busy) return
+    const { row } = pendingDelete
+    setPendingDelete({ row, busy: true, error: null })
+    log.info('labSeries', `deleting lab test ${row.id} (${row.source_file_name}) on borehole ${boreholeId}`)
+    try {
+      await api.labSeries.deleteTest(projectId, row.id)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('labSeries', `lab test ${row.id} not deleted: ${message}`)
+      setPendingDelete({ row, busy: false, error: message })
+      return
+    }
+    log.success('labSeries', `lab test ${row.id} deleted`)
+    setPendingDelete(null)
+    if (viewing?.id === row.id) setViewing(null)
+    onLabTestDeleted?.(row)
+    notifyLabSeriesChanged()
+  }
 
   const rows = load.state === 'ready' ? load.rows : []
   // Open by default when there is something to show; the user's toggle wins.
@@ -109,6 +149,15 @@ export default function LabSeriesSection({ projectId, boreholeId }: Props): JSX.
                   <Button size="sm" onClick={() => setViewing(r)} title={r.source_file_name}>
                     {t('labSeries.section.open')}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setPendingDelete({ row: r, busy: false, error: null })}
+                    title={r.source_file_name}
+                    data-testid="lab-series-delete"
+                  >
+                    {t('labSeries.section.delete')}
+                  </Button>
                 </li>
               )
             })}
@@ -123,6 +172,38 @@ export default function LabSeriesSection({ projectId, boreholeId }: Props): JSX.
           onClose={() => setViewing(null)}
         />
       )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        labelledBy="lab-series-delete-title"
+        title={t('labSeries.delete.title')}
+        body={
+          pendingDelete && (
+            <>
+              <p>
+                {t('labSeries.delete.body', {
+                  file: pendingDelete.row.source_file_name,
+                  top: pendingDelete.row.sample_depth_top_m.toFixed(2),
+                  base: pendingDelete.row.sample_depth_base_m.toFixed(2),
+                })}
+              </p>
+              {pendingDelete.error && (
+                <p className="mt-2 text-status-danger" role="alert">
+                  {t('labSeries.delete.failed', { message: pendingDelete.error })}
+                </p>
+              )}
+            </>
+          )
+        }
+        confirm={{
+          label: t('labSeries.delete.confirm'),
+          variant: 'danger',
+          onClick: () => void confirmDelete(),
+          testid: 'lab-series-delete-confirm',
+        }}
+        busy={pendingDelete?.busy ?? false}
+        onCancel={() => setPendingDelete(null)}
+        testid="lab-series-delete-dialog"
+      />
     </section>
   )
 }
