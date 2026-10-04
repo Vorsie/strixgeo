@@ -10,16 +10,20 @@ from groundmodel.infrastructure.parsers.validation.validation_level import Valid
 class ValidationIssue:
     """A single validation finding from parsing.
 
-    Parameters
+    Attributes
     ----------
     level : ValidationLevel
-        Severity.
+        Severity of the finding.
     code : str
-        Stable machine code (``NAME_FROM_ALTERNATIVE``, ``INVALID_INTERVAL``, ...).
+        Stable machine-readable code (e.g. ``"PRE_DRILL_NOT_APPLIED"``).
     message : str
-        English sentence for logs and as the raw tooltip in the desktop.
+        English, human-readable description naming the offending values.
     rows : list[int]
-        Source row indices the finding concerns (GEF); empty when none.
+        Data-row indices the finding concerns; empty when not row-bound.
+    details : dict[str, float]
+        The numbers the message names, keyed by name, so a client can render
+        the finding in its own language without parsing the English message.
+        Empty for findings that carry none (additive; most codes leave it so).
     params : dict[str, Any]
         The variable parts of the message (names, counts, depths, permkeys) as
         JSON-safe values, so the desktop can render the finding in the user's
@@ -32,6 +36,7 @@ class ValidationIssue:
     code: str
     message: str
     rows: list[int] = field(default_factory=list)
+    details: dict[str, float] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
 
 
