@@ -253,6 +253,9 @@ export default function CptPdfCalibrationOverlay({
       <h3 className="text-sm font-semibold">
         {t('cptPdf.overlay.title', { id: sounding.sounding_id ?? sounding.key })}
       </h3>
+      <p data-testid="cpt-pdf-overlay-intro" className="text-text-secondary">
+        {t('cptPdf.overlay.intro')}
+      </p>
       {!data && !error && <p>{t('cptPdf.overlay.loading')}</p>}
       {error && <p className="text-red-600">{t('cptPdf.overlay.readFailed', { message: error })}</p>}
       {data && cal && overlay && (
