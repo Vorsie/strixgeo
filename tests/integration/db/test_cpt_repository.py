@@ -364,3 +364,68 @@ async def test_cptm_series_round_trips_q_total_mpa_distinct_from_qc(
     assert series.q_total_mpa != series.qc_mpa
     # qt is not a stored column — it is derived on read, never persisted.
     assert not hasattr(series, "qt_mpa")
+
+
+# ---------------------------------------------------------------------------
+# Duplicate key matches on the PROJECT NUMBER (owner ruling 2026-10-04)
+# ---------------------------------------------------------------------------
+# A GEF stores "#PROJECTID= CPT, 23.15-002" as "CPT, 23.15-002"; a PDF-digitised
+# CPT stores "23.15-002". Both name one project, so a later import of the same
+# sounding must find the stored row (the consented Replace path) instead of
+# creating a duplicate. The stored value is never rewritten.
+
+
+async def test_a_stored_gef_project_id_is_found_by_its_project_number(
+    db_session: AsyncSession,
+) -> None:
+    """Stored "CPT, 23.15-002"/"110" is found by ("23.15-002", "110")."""
+    repo = CptRepository(db_session)
+    project = uuid7()
+    stored = _cpt(project_id="CPT, 23.15-002", test_id="110", app_project_id=project)
+    await repo.save(stored)
+    await db_session.commit()
+
+    found = await repo.find_by_project_test("23.15-002", "110", project)
+
+    assert found is not None
+    assert found.id == stored.id
+    assert found.project_id == "CPT, 23.15-002", "the stored value is never rewritten"
+
+
+async def test_a_stored_project_number_is_found_by_the_gef_project_id(
+    db_session: AsyncSession,
+) -> None:
+    """Stored "23.15-002"/"110" (a PDF import) is found by ("CPT, 23.15-002", "110")."""
+    repo = CptRepository(db_session)
+    project = uuid7()
+    stored = _cpt(project_id="23.15-002", test_id="110", app_project_id=project)
+    await repo.save(stored)
+    await db_session.commit()
+
+    found = await repo.find_by_project_test("CPT, 23.15-002", "110", project)
+
+    assert found is not None
+    assert found.id == stored.id
+
+
+async def test_another_project_number_with_the_same_sounding_is_not_found(
+    db_session: AsyncSession,
+) -> None:
+    """("23.15-003", "110") does NOT find the stored "CPT, 23.15-002"/"110"."""
+    repo = CptRepository(db_session)
+    project = uuid7()
+    await repo.save(_cpt(project_id="CPT, 23.15-002", test_id="110", app_project_id=project))
+    await db_session.commit()
+
+    assert await repo.find_by_project_test("23.15-003", "110", project) is None
+
+
+async def test_the_project_number_match_stays_inside_the_app_project(
+    db_session: AsyncSession,
+) -> None:
+    """The normalised match never reaches another app project's CPT (audit C2)."""
+    repo = CptRepository(db_session)
+    await repo.save(_cpt(project_id="CPT, 23.15-002", test_id="110", app_project_id=uuid7()))
+    await db_session.commit()
+
+    assert await repo.find_by_project_test("23.15-002", "110", uuid7()) is None
