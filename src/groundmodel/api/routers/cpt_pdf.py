@@ -365,6 +365,7 @@ def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseRespons
             "test_date": listed.test_date,
         },
         warnings=list(listed.warnings),
+        notes=[n.to_dict() for n in listed.notes],
         overlays=overlays,
     )
 
