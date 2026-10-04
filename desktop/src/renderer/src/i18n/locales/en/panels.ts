@@ -85,6 +85,8 @@ export const PANELS = {
   'borelog.overrideDovModel': 'Override which DOV model this pane shows',
   'borelog.loadingDovPredictions': 'Loading DOV predictions',
   'borelog.dovUnavailable': 'DOV layer models unavailable',
+  'borelog.stratigraphicBoundaries': 'Stratigraphic boundaries',
+  'borelog.lithologicalBoundaries': 'Lithological boundaries',
   'borelog.zoomInVertical': 'Zoom in (vertical scale)',
   'borelog.zoomOutVertical': 'Zoom out (vertical scale)',
   'borelog.resetZoom1x': 'Reset zoom to 1×',
