@@ -12,11 +12,16 @@
 // export / delete) gets the affordance for free.
 
 import { ChevronDown, RefreshCw } from 'lucide-react'
-import { Fragment, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useRef } from 'react'
 import type React from 'react'
 
 import { useT } from '../i18n/translate'
+import { PortalMenu, usePortalMenu } from './PortalMenu'
+
+// The portalled menu + its open/anchor hook live in PortalMenu.tsx (lifted
+// when the menu learned submenus); re-exported so callers keep importing
+// every toolbar primitive from this one module.
+export { PortalMenu, usePortalMenu }
 
 /**
  * Accessible name + tooltip for a control that may render icon-only.
@@ -250,181 +255,13 @@ export interface ToolbarDropdownItem {
    * item: a keyboard walk skips it and it fires nothing.
    */
   groupHeader?: string
-}
-
-/**
- * Shared open/anchor state for a portal-rendered dropdown menu.
- *
- * Owns the open boolean + the trigger's DOMRect, and wires the
- * document-level dismiss listeners (mousedown-outside + Escape) while
- * open. Used by ``ToolbarDropdown``, ``SplitToolbarButton`` and the
- * Data-stage import dropdown so the boilerplate exists exactly once.
- *
- * Parameters
- * ----------
- * triggerRef
- *     Ref of the button that anchors the menu — clicks inside it are
- *     ignored by the outside-click dismiss (the trigger's own onClick
- *     toggles instead).
- *
- * Returns
- * -------
- * ``{ open, anchorRect, toggle, close }``.
- */
-export function usePortalMenu(triggerRef: React.RefObject<HTMLButtonElement>): {
-  open: boolean
-  anchorRect: DOMRect | null
-  toggle: () => void
-  close: () => void
-} {
-  const [open, setOpen] = useState(false)
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClickAway(e: MouseEvent): void {
-      // mousedown not click so the menu closes BEFORE the next click
-      // can land on something behind it — matches the existing
-      // ColumnContextMenu + LithoSuggestionGhostColumns context-menu
-      // patterns elsewhere in the codebase.
-      const t = e.target as Node
-      if (triggerRef.current && triggerRef.current.contains(t)) return
-      setOpen(false)
-    }
-    function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickAway)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClickAway)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [open, triggerRef])
-
-  function toggle(): void {
-    setAnchorRect(triggerRef.current?.getBoundingClientRect() ?? null)
-    setOpen(o => !o)
-  }
-
-  function close(): void {
-    setOpen(false)
-  }
-
-  return { open, anchorRect, toggle, close }
-}
-
-interface PortalMenuProps {
-  /** The trigger's bounding rect the menu anchors below. */
-  anchorRect: DOMRect
-  /** aria-label on the menu container. */
-  ariaLabel: string
-  items: readonly ToolbarDropdownItem[]
-  /** Fired after an item's onClick (and by the caller's dismiss logic). */
-  onClose: () => void
-  /** 'left' (default) aligns to the trigger's left edge; 'right'
-   *  right-aligns the menu to the trigger's right edge using widthPx
-   *  (so wide items don't bleed off a narrow viewport). */
-  align?: 'left' | 'right'
-  /** Menu min-width in px — required for right alignment. */
-  widthPx?: number
-  /** Extra container classes (e.g. a fixed width utility). */
-  className?: string
-}
-
-/**
- * Portal-rendered floating menu shared by every toolbar dropdown.
- *
- * Rendered fixed under the anchor rect via ``createPortal`` so it
- * escapes any ``overflow-hidden`` toolbar zone. Items fire ``onClick``
- * then ``onClose``. Mousedown inside the menu is stopped so the
- * document-level outside-click dismiss (see ``usePortalMenu``) never
- * sees it.
- *
- * Parameters
- * ----------
- * See ``PortalMenuProps``.
- *
- * Returns
- * -------
- * JSX.Element
- *     The portalled menu element.
- */
-export function PortalMenu({
-  anchorRect,
-  ariaLabel,
-  items,
-  onClose,
-  align = 'left',
-  widthPx,
-  className,
-}: PortalMenuProps): JSX.Element {
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        top: anchorRect.bottom + 4,
-        left: align === 'right' ? anchorRect.right - (widthPx ?? 200) : anchorRect.left,
-        ...(widthPx !== undefined ? { minWidth: widthPx } : {}),
-        zIndex: 10000,
-      }}
-      onMouseDown={e => e.stopPropagation()}
-      className={[
-        'bg-surface-overlay border border-border-default rounded shadow-lg py-1 text-xs',
-        className ?? (widthPx === undefined ? 'min-w-[10rem]' : ''),
-      ].join(' ')}
-      role="menu"
-      aria-label={ariaLabel}
-    >
-      {items.map((item, i) => (
-        <Fragment key={i}>
-          {item.groupHeader !== undefined && (
-            // role="presentation" keeps it out of the menu's item list: the
-            // heading names the rows below it, it is not one of them.
-            <div
-              role="presentation"
-              data-testid="toolbar-menu-group-header"
-              className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted first:pt-1"
-            >
-              {item.groupHeader}
-            </div>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            disabled={item.disabled}
-            title={item.title}
-            onClick={() => {
-              if (item.disabled) return
-              item.onClick()
-              onClose()
-            }}
-            data-testid={item.testid}
-            className={[
-              'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
-              item.disabled
-                ? 'text-text-muted cursor-not-allowed'
-                : 'text-text-primary hover:bg-surface-page',
-            ].join(' ')}
-          >
-            {item.icon}
-            <span className="flex-1">
-              {item.label}
-              {(item.shortcut ?? item.shortcutHint) && (
-                <span className="text-text-muted"> ({item.shortcut ?? item.shortcutHint})</span>
-              )}
-            </span>
-            {item.tag && (
-              <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">
-                {item.tag}
-              </span>
-            )}
-          </button>
-        </Fragment>
-      ))}
-    </div>,
-    document.body,
-  )
+  /**
+   * Rows of a submenu: when set, this row is a GROUP row. It shows a chevron
+   * and opens these rows in a panel beside it (hover, click, Enter or
+   * ArrowRight) instead of firing ``onClick`` (pass a no-op). One level only:
+   * a ``submenu`` on a sub-row is ignored. See ``PortalMenu``.
+   */
+  submenu?: readonly ToolbarDropdownItem[]
 }
 
 interface ToolbarDropdownProps {
