@@ -59,7 +59,7 @@ export const TUTORIAL = {
     'This is where data comes in. Open it to see every importer StrixGeo offers today, CPTs and boreholes, from local files or straight from DOV.',
   'tutorial.import-cpt-dov.title': 'Import CPTs from DOV',
   'tutorial.import-cpt-dov.body':
-    "Choose 'Import CPT from DOV', then drag a box on the map. Every sounding DOV holds inside that box streams in with its depth series and location. This step ticks itself once your first CPT lands.",
+    "Choose 'CPT', then 'From DOV (draw box)', and drag a box on the map. Every sounding DOV holds inside that box streams in with its depth series and location. This step ticks itself once your first CPT lands.",
   'tutorial.import-filter-date.title': 'Filter by date',
   'tutorial.import-filter-date.body':
     'Long lists get unwieldy. Set a date range to show only the investigations from the period you are working on, and clear it to see them all again.',
@@ -71,10 +71,10 @@ export const TUTORIAL = {
     "Not every sounding belongs in your dataset. Remove one to hide it from this project, a reversible, project-local hide you can restore any time. The data itself is never deleted.",
   'tutorial.import-borehole-dov.title': 'Import boreholes from DOV',
   'tutorial.import-borehole-dov.body':
-    "Boreholes come in the same way: choose 'Import Borehole from DOV' and draw a box on the map. This step ticks once your first borehole lands.",
+    "Boreholes come in the same way: choose 'Borehole', then 'From DOV (draw box)', and draw a box on the map. This step ticks once your first borehole lands.",
   'tutorial.import-gef.title': 'Import local GEF files',
   'tutorial.import-gef.body':
-    "Have CPTs on disk? 'Import CPT (.gef)' reads standard GEF files straight from your computer, useful for soundings that are not in DOV.",
+    "Have CPTs on disk? Choose 'CPT', then '.gef files': it reads standard GEF files straight from your computer, useful for soundings that are not in DOV.",
   'tutorial.import-more.title': 'More sources are coming',
   'tutorial.import-more.body':
     "DMT, lab tests and monitoring data are on the roadmap, you'll see them marked 'Phase 4' in the menu for now.",
