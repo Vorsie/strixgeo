@@ -131,6 +131,8 @@ export interface GeotechAxisHandlers {
   onRequestAcceptEdge?: (edge: LithoContactCorrelationEdge) => void
   /** Edge the pending-tie chip just centred, and which must therefore pulse. */
   flashEdgeId?: string | null
+  /** Stamped body id per band (layer) id — what SectionPanel passes. */
+  bodyIdByLayerId?: ReadonlyMap<string, string | null>
 }
 
 export function renderGeotechAxis(
@@ -165,6 +167,7 @@ export function renderGeotechAxis(
         // is the test's own.
         acceptEdgeLabel="Accept tie"
         flashEdgeId={handlers.flashEdgeId ?? null}
+        bodyIdByLayerId={handlers.bodyIdByLayerId}
       />
     </svg>,
   )
