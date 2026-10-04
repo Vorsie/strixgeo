@@ -12,6 +12,7 @@ from uuid6 import uuid7
 
 from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.application.stale_investigation_caches import StaleInvestigationCaches
+from groundmodel.domain.services.cpt_display_name import cpt_display_name
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.domain.value_objects.water_depth_source import WaterDepthSource
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -167,7 +168,10 @@ class ImportCpt(GroundModelLogger):
         self.debug(f"Importing CPT: {file_path.name}")
         content = file_path.read_bytes()
         result = self._parse(file_path, content)
-        name = result.header.test_id.strip() or file_path.stem
+        # The NAME is "<project>-S<number>" for a bare sounding number (owner
+        # ruling 2026-10-04); the stored project id + test id stay as the file
+        # wrote them, because they are the duplicate key.
+        name = cpt_display_name(result.header.project_id, result.header.test_id) or file_path.stem
         return await self.persist(result, name, app_project_id, confirm_refresh=confirm_refresh)
 
     async def persist(
