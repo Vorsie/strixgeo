@@ -47,6 +47,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from tests.integration.api.geotech_scene_helpers import paint_accepted_ties
 
 # ---------------------------------------------------------------------------
 # Private scene helpers (duplicating only what this test module needs;
@@ -506,6 +507,10 @@ async def divide_boreholes_scene(
     await _correlate(
         async_client, pid, litho_model_id, contact_a=ca_id, contact_b=bhs_id, section_id=section_id
     )
+
+    # The fill paints the litho ties as bands; the recompute's facts make each
+    # tied chain ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     return {
         "project": proj,
