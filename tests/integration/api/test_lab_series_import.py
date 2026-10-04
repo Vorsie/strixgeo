@@ -32,6 +32,12 @@ from groundmodel.application.import_borehole_dov_by_name_result import (
     ImportBoreholeDovByNameResult,
 )
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.lab_series_channel_orm import LabSeriesChannelOrm
+from groundmodel.infrastructure.db.models.lab_series_lab_result_orm import (
+    LabSeriesLabResultOrm,
+)
+from groundmodel.infrastructure.db.models.lab_series_specimen_orm import LabSeriesSpecimenOrm
+from groundmodel.infrastructure.db.models.lab_series_stage_orm import LabSeriesStageOrm
 from groundmodel.infrastructure.db.models.lab_series_test_orm import LabSeriesTestOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
@@ -477,3 +483,71 @@ async def test_the_by_name_import_returns_the_stored_borehole_and_inserts_no_dup
         )
     )
     assert count == 1
+
+
+# --- Owner 2026-10-04: delete a lab test from the borehole's Lab tests list ---
+
+
+async def test_deleting_a_lab_test_removes_its_whole_tree_and_it_stays_gone_in_the_bundle(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """DELETE /lab-series/{id} → 204; specimens, stages, channels and lab results
+    go with it; the borehole's ``lab_series_count`` drops to 0; the sample stays;
+    the bundle a save writes carries no ``lab_series_tests`` for it, so the
+    deleted test does not come back on reopen."""
+    project = await make_project(db_session)
+    bh = await _borehole(db_session, project.id, "GEO-19/122-B7A")
+    r = await _post(
+        async_client,
+        "import",
+        _OED_0568,
+        {"project_id": project.id, "borehole_id": bh.id, "create_sample": "true"},
+    )
+    assert r.status_code == 201, r.text
+    test_id, sample_id = r.json()["test_id"], r.json()["sample_id"]
+
+    d = await async_client.delete(f"/lab-series/{test_id}", params={"project_id": project.id})
+    assert d.status_code == 204, d.text
+
+    for orm in (
+        LabSeriesTestOrm,
+        LabSeriesSpecimenOrm,
+        LabSeriesStageOrm,
+        LabSeriesChannelOrm,
+        LabSeriesLabResultOrm,
+    ):
+        assert await db_session.scalar(select(func.count()).select_from(orm)) == 0, orm
+    assert await db_session.get(SampleOrm, sample_id) is not None
+
+    listing = await async_client.get("/borehole/", params={"project_id": str(project.id)})
+    assert {row["id"]: row["lab_series_count"] for row in listing.json()} == {str(bh.id): 0}
+
+    bundle = (await async_client.get(f"/projects/{project.id}/bundle")).json()
+    [bh_payload] = bundle["boreholes"]
+    [sample_payload] = bh_payload["samples"]
+    assert sample_payload["lab_series_tests"] == []
+
+    again = await async_client.delete(f"/lab-series/{test_id}", params={"project_id": project.id})
+    assert again.status_code == 404, again.text
+
+
+async def test_a_lab_test_of_another_project_answers_404_and_survives(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """The delete is project-scoped: another project's id finds nothing."""
+    project = await make_project(db_session)
+    other = await make_project(db_session, name="Other project")
+    bh = await _borehole(db_session, project.id, "GEO-25/022-B17")
+    r = await _post(
+        async_client,
+        "import",
+        _TX_CD,
+        {"project_id": project.id, "borehole_id": bh.id, "create_sample": "true"},
+    )
+    assert r.status_code == 201, r.text
+
+    d = await async_client.delete(
+        f"/lab-series/{r.json()['test_id']}", params={"project_id": other.id}
+    )
+    assert d.status_code == 404, d.text
+    assert await db_session.scalar(select(func.count()).select_from(LabSeriesTestOrm)) == 1
