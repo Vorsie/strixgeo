@@ -43,6 +43,9 @@ import { useT } from '../../../i18n/translate'
  *     The raw upstream token before translation (e.g. "coded_lithology").
  *     Rendered as an SVG tooltip so domain experts can verify the
  *     translation without leaving the UI.
+ * subtitleMaxChars : number | undefined
+ *     Character cap of the subtitle (default 26, dialled for 150 px columns);
+ *     a wider track passes more.
  * onHide : (() => void) | undefined
  *     When provided, clicking the header calls this handler to hide the
  *     track. The header shows ``cursor: pointer`` and a "Hide column"
@@ -60,6 +63,7 @@ export function TrackHeader({
   title,
   subtitle,
   rawToken,
+  subtitleMaxChars = 26,
   onHide,
 }: {
   x: number
@@ -68,6 +72,7 @@ export function TrackHeader({
   title: string
   subtitle: string | null
   rawToken?: string
+  subtitleMaxChars?: number
   onHide?: () => void
 }): ReactElement {
   const t = useT()
@@ -106,7 +111,7 @@ export function TrackHeader({
       </text>
       {subtitle && (
         <text x={x + 4} y={y + 28} fontSize={9} fill="var(--borelog-text-muted)">
-          {truncate(subtitle, 26)}
+          {truncate(subtitle, subtitleMaxChars)}
         </text>
       )}
     </g>
