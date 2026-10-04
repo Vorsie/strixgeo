@@ -53,7 +53,7 @@ from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm imp
 )
 from groundmodel.infrastructure.db.models.litho_layer_orm import LithoLayerOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
-from tests.integration.api.geotech_scene_helpers import correlate
+from tests.integration.api.geotech_scene_helpers import correlate, paint_accepted_ties
 
 #: Both columns: sand 0-4 m over a second unit 4-9 m.
 _SPLIT_M = 4.0
@@ -215,6 +215,10 @@ async def _build_scene(
             contact_b=contacts_b[1],
             section_id=section_id,
         )
+
+    # The fill paints the litho ties as bands; the recompute's facts make the tied
+    # sands ONE litho body (identity follows the drawing, owner 2026-10-04).
+    await paint_accepted_ties(db_session, litho_model_id)
 
     sub = await async_client.post(
         f"/projects/{pid}/geology/models/{litho_model_id}/geotech/subdivide-cpts",
