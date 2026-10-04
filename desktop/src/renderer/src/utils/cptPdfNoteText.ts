@@ -21,6 +21,39 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   ELEVATION_AXIS_NO_GROUND_LEVEL: 'cptPdf.note.ELEVATION_AXIS_NO_GROUND_LEVEL',
   CLIPPED_POINTS: 'cptPdf.note.CLIPPED_POINTS',
   READ_FROM_IMAGE: 'cptPdf.note.READ_FROM_IMAGE',
+  DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
+}
+
+/** The ``[top, base]`` pairs of a ``DRILLED_INTERVALS`` note, or null when malformed. */
+function drilledIntervals(params: Record<string, unknown>): Array<[number, number]> | null {
+  const raw = params.intervals
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const out: Array<[number, number]> = []
+  for (const pair of raw) {
+    if (!Array.isArray(pair) || pair.length !== 2) return null
+    const [top, base] = pair as unknown[]
+    if (typeof top !== 'number' || typeof base !== 'number') return null
+    out.push([top, base])
+  }
+  return out
+}
+
+/**
+ * The params of a note as its sentence shows them. A drilled-interval note
+ * carries its stretches as a list; the sentence names each one ("32.0 to
+ * 32.3 m", one decimal) joined by commas, in the app language.
+ *
+ * @returns The message params, or null when the note's params are malformed.
+ */
+function noteParams(note: CptPdfNote, t: Translator): MessageParams | null {
+  const params = note.params ?? {}
+  if (note.code !== 'DRILLED_INTERVALS') return messageParams(params)
+  const intervals = drilledIntervals(params)
+  if (intervals === null) return null
+  const list = intervals
+    .map(([top, base]) => t('cptPdf.drilledInterval', { top: top.toFixed(1), base: base.toFixed(1) }))
+    .join(', ')
+  return { ...messageParams(params), list }
 }
 
 /** Keep only the params a message can show (strings and numbers). */
@@ -43,7 +76,9 @@ function messageParams(params: Record<string, unknown>): MessageParams {
 export function cptPdfNoteText(note: CptPdfNote, fallback: string, t: Translator): string {
   const key = Object.prototype.hasOwnProperty.call(NOTE_KEYS, note.code) ? NOTE_KEYS[note.code] : undefined
   if (key === undefined) return fallback || note.code
-  return t(key, messageParams(note.params ?? {}))
+  const params = noteParams(note, t)
+  if (params === null) return fallback || note.code
+  return t(key, params)
 }
 
 /**
