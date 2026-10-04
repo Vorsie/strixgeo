@@ -273,6 +273,7 @@ async def import_cpt(
                 code=i.code,
                 message=i.message,
                 rows=i.rows,
+                params=i.params,
             )
             for i in result.issues
         ],
