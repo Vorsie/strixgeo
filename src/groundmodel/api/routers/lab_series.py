@@ -288,6 +288,7 @@ async def list_lab_series_for_borehole(
                 n_readings=sum(sp.n_points for sp in test.specimens),
                 n_warnings=levels.count("warning"),
                 n_errors=levels.count("error"),
+                test_start_date=test.test_start_date,
             )
         )
     return out
