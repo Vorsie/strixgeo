@@ -1,5 +1,5 @@
 // Detailvensters en dialoogvensters die vanuit meer dan één stap bereikbaar
-// zijn — kaart, boorstaat, labproeven, peileditor, samenstellings- en
+// zijn — kaart, boorstaat, laboproeven, peileditor, samenstellings- en
 // formatiekiezers, gedeelde bevestigingsvensters, ongedaan-maken-labels,
 // sneltoetsenoverzicht.
 //
@@ -14,7 +14,7 @@ export const PANELS_NL = {
   // NOTE: ruled 2026-08-27 — owner chose "Transparantie".
   'map.opacity': 'Transparantie',
   'map.visibleOnMap': 'Zichtbaar op de kaart',
-  'map.legendLabTests': 'Boringen met labproeven',
+  'map.legendLabTests': 'Boringen met laboproeven',
   'map.boreholeType': 'Boortype',
   'map.borehole': 'Boring',
   'map.editMetadata': 'Gegevens bewerken',
@@ -59,9 +59,9 @@ export const PANELS_NL = {
   'borelog.fieldLog': 'Veldbeschrijving',
   'borelog.stratigraphy': 'Stratigrafie',
   'borelog.lithologyCodes': 'Lithologiecodes',
-  'borelog.labTests': 'Labproeven',
+  'borelog.labTests': 'Laboproeven',
   'borelog.clickSampleToView': 'klik op een monster om te bekijken',
-  'borelog.samplesAndLabTests': 'Monsters + labproeven',
+  'borelog.samplesAndLabTests': 'Monsters + laboproeven',
   'borelog.sampleCountOne': '{n} monster',
   'borelog.sampleCountMany': '{n} monsters',
   'borelog.toggleColumns': 'Kolommen tonen/verbergen',
@@ -105,8 +105,8 @@ export const PANELS_NL = {
   // DOV Virtuele Boring-overlay + monster/grondwater-helpers op de SVG.
   'borelog.noData': 'geen gegevens',
   'borelog.waterMarker': '▾ water op {depth} m',
-  'borelog.labTestCountOne': '{n} labproef',
-  'borelog.labTestCountMany': '{n} labproeven',
+  'borelog.labTestCountOne': '{n} laboproef',
+  'borelog.labTestCountMany': '{n} laboproeven',
   'borelog.noTests': 'geen proeven',
   'borelog.hideColumnAria': 'Kolom {title} verbergen',
   'chart.zMissing': 'Z ontbreekt',
@@ -124,17 +124,17 @@ export const PANELS_NL = {
   'chart.invertRfAxis': 'Rf-as omkeren',
 
   // -------------------------------------------------------------------------
-  // labproeven
+  // laboproeven
   // -------------------------------------------------------------------------
   'lab.sample': 'Monster',
   'lab.grainSize': 'Korrelverdeling',
   'lab.identificationTests': 'Onderkenningsproeven',
-  'lab.otherLabTests': 'Andere labproeven',
-  'lab.noTestsForSample': 'Geen labproeven geregistreerd voor dit monster.',
+  'lab.otherLabTests': 'Andere laboproeven',
+  'lab.noTestsForSample': 'Geen laboproeven geregistreerd voor dit monster.',
   'lab.curveNotRecorded': 'Curve niet geregistreerd.',
   'lab.atterberg': 'Atterberg',
   'lab.cobbles': 'Keien',
-  // Labproefpaneel — monsterheader-navigatie, korrelgrafiekchrome + behandelingen.
+  // Laboproefpaneel — monsterheader-navigatie, korrelgrafiekchrome + behandelingen.
   'lab.unnumbered': '(ongenummerd)',
   'lab.previousSample': 'Vorige: {name}',
   'lab.noPreviousSample': 'Geen vorig monster',
