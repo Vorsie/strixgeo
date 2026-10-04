@@ -6,10 +6,11 @@
 //
 // ANCHOR CHAINS (owner ruling 2, 2026-09-05). A step spotlights a control by a
 // CHAIN of `data-testid`s, ordered from the outermost trigger to the final
-// control — e.g. `['stage-tab-data', 'import-menu-button', 'import-verb-cpt-dov']`.
-// The overlay highlights the first link that exists whose successor does not yet
-// exist (stage tab when off the stage, the menu button when the menu is closed,
-// the item once it is open), so the user is always led to the next click and the
+// control — e.g. `['stage-tab-data', 'import-menu-button', 'import-group-cpt',
+// 'import-verb-cpt-dov']`. The overlay highlights the first link that exists whose
+// successor does not yet exist (stage tab when off the stage, the menu button when
+// the menu is closed, the group row while its submenu is closed, the item once it
+// is open), so the user is always led to the next click and the
 // old "the button is not visible yet" fallback is rare. `anchor` is the FINAL
 // link, kept as a plain field so the integrity test and the docked-card fallback
 // keep working; single-anchor steps leave `anchors` unset.
@@ -164,9 +165,10 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   // 2 · Import ---------------------------------------------------------------
   // Do-it: ticks once the Import menu is open (owner ruling 1).
   mkc('import-open', 2, ['stage-tab-data', 'import-menu-button'], { state: 'importMenuOpen' }, 'data'),
-  // Data > Import > DOV CPT (owner ruling 5): menu button → the DOV CPT item.
-  mkc('import-cpt-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-dov'], { state: 'cptCount' }, 'data'),
-  mkc('import-gef', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-cpt-gef'], 'next', 'data'),
+  // Data > Import > CPT > From DOV (owner ruling 5): menu button → the CPT
+  // group row → the DOV route (the routes sit in a submenu since 2026-10-04).
+  mkc('import-cpt-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-group-cpt', 'import-verb-cpt-dov'], { state: 'cptCount' }, 'data'),
+  mkc('import-gef', 2, ['stage-tab-data', 'import-menu-button', 'import-group-cpt', 'import-verb-cpt-gef'], 'next', 'data'),
   mkc('import-more', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-dmt'], 'next', 'data'),
   // Right-pane controls, in on-screen order: tabs, search, date filter, sort.
   mkc('import-filter-type', 2, ['stage-tab-data', 'data-filter-testtype-cpt'], 'next', 'data'),
@@ -178,7 +180,7 @@ export const TUTORIAL_STEPS: readonly CatalogueStep[] = [
   mkc('import-remove-cptm', 2, ['stage-tab-data', 'map-cpt-category', 'map-filter-cpt-CPTM'], 'next', 'data'),
   mkc('import-hide', 2, ['stage-tab-data', 'data-row-remove'], 'next', 'data'),
   // DOV boreholes (owner ruling 5): menu button → the DOV borehole item.
-  mkc('import-borehole-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-verb-borehole-dov'], { state: 'boreholeCount' }, 'data'),
+  mkc('import-borehole-dov', 2, ['stage-tab-data', 'import-menu-button', 'import-group-borehole', 'import-verb-borehole-dov'], { state: 'boreholeCount' }, 'data'),
   mkc('import-closing', 2, ['stage-tab-data', 'import-menu-button'], 'next', 'data'),
 
   // 3 · Cross-sections -------------------------------------------------------
