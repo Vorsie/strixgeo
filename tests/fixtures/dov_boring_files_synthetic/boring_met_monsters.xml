@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  SYNTHETIC fixture (2026-10-04). None of the owner's five DOV boring files
+  carries a sample, so this file was written by hand to pin the sample path of
+  the file import. The <monster> element shape is copied from a LIVE DOV
+  download (https://www.dov.vlaanderen.be/data/monster/2017-135382.xml, probed
+  2026-10-04): two <identificator> (the data manager's sample number + the DOV
+  permkey), <type>, <bemonsterdObject> naming the boring, the instrument and
+  sample type as codelist URIs, <bemonsteringsplaats><van>/<tot>, the date.
+  The <observatie> shape is the per-observation download the bbox grain-size
+  import parses (dov_grain_size_parser docstring, verified live 2026-05-08).
+  UNVERIFIED: that a DOV file export puts <monster> / <observatie> next to the
+  <boring> under the dov-schema root, and the optional <beschrijving>.
+-->
+<ns4:dov-schema xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:ns4="http://kern.schemas.dov.vlaanderen.be">
+    <boring>
+        <identificatie>X-B1</identificatie>
+        <dataidentifier><permkey>2025-1</permkey></dataidentifier>
+        <ligging>
+            <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+                <gml:pos>150000.00 200000.00 5.00</gml:pos>
+            </gml:Point>
+        </ligging>
+        <diepte_tot>6.00</diepte_tot>
+        <datum_aanvang>2025-06-13</datum_aanvang>
+        <doel>Geotechnisch onderzoek</doel>
+        <boormeester><naam>Peeters</naam></boormeester>
+        <details>
+            <boormethode><van>0.00</van><tot>6.00</tot><methode>spade</methode></boormethode>
+            <kleur><van>0.00</van><tot>6.00</tot><kleur>bruin</kleur></kleur>
+        </details>
+    </boring>
+    <interpretaties>
+        <lithologischebeschrijving>
+            <boring>X-B1</boring>
+            <dataidentifier><permkey>2025-9</permkey></dataidentifier>
+            <betrouwbaarheid>goed</betrouwbaarheid>
+            <laag><van>0.00</van><tot>6.00</tot><beschrijving>zand</beschrijving></laag>
+        </lithologischebeschrijving>
+    </interpretaties>
+    <monster>
+        <identificator>
+            <identificator>1</identificator>
+            <toegekend_door>DATABEHEERDER</toegekend_door>
+        </identificator>
+        <identificator>
+            <identificator>2025-M1</identificator>
+            <toegekend_door>DOV</toegekend_door>
+        </identificator>
+        <type>Enkelvoudig monster</type>
+        <bemonsterdObject>
+            <objecttype>BORING</objecttype>
+            <naam>X-B1</naam>
+            <permkey>2025-1</permkey>
+        </bemonsterdObject>
+        <bemonsteringsmethode>
+            <bemonsteringsinstrument>https://data.bodemenondergrond.vlaanderen.be/id/concept/bemonsteringsinstrument/steekbuis</bemonsteringsinstrument>
+        </bemonsteringsmethode>
+        <monstertype>https://data.bodemenondergrond.vlaanderen.be/id/concept/bemonsteringstype/ongeroerd</monstertype>
+        <bemonsteringsplaats>
+            <van>2.00</van>
+            <tot>2.50</tot>
+        </bemonsteringsplaats>
+        <bemonsteringstijdstip>
+            <datum>2025-06-14</datum>
+        </bemonsteringstijdstip>
+        <beschrijving>grijze klei met schelpen</beschrijving>
+        <materiaalklasse>https://data.bodemenondergrond.vlaanderen.be/id/concept/materiaalklasse/sediment</materiaalklasse>
+    </monster>
+    <monster>
+        <identificator>
+            <identificator>2</identificator>
+            <toegekend_door>DATABEHEERDER</toegekend_door>
+        </identificator>
+        <type>Enkelvoudig monster</type>
+        <bemonsterdObject>
+            <objecttype>BORING</objecttype>
+            <naam>X-B1</naam>
+        </bemonsterdObject>
+        <monstertype>https://data.bodemenondergrond.vlaanderen.be/id/concept/bemonsteringstype/geroerd</monstertype>
+        <bemonsteringsplaats>
+            <van>4.00</van>
+        </bemonsteringsplaats>
+    </monster>
+    <monster>
+        <identificator>
+            <identificator>3</identificator>
+            <toegekend_door>DATABEHEERDER</toegekend_door>
+        </identificator>
+        <bemonsterdObject>
+            <objecttype>BORING</objecttype>
+            <naam>X-B1</naam>
+            <permkey>2025-1</permkey>
+        </bemonsterdObject>
+    </monster>
+    <monster>
+        <identificator>
+            <identificator>7</identificator>
+            <toegekend_door>DATABEHEERDER</toegekend_door>
+        </identificator>
+        <bemonsterdObject>
+            <objecttype>BORING</objecttype>
+            <naam>ELDERS-B9</naam>
+            <permkey>2099-9</permkey>
+        </bemonsterdObject>
+        <bemonsteringsplaats><van>1.00</van><tot>1.20</tot></bemonsteringsplaats>
+    </monster>
+    <observatie>
+        <identificator>
+            <identificator>2025-O1</identificator>
+            <toegekend_door>DOV</toegekend_door>
+        </identificator>
+        <geobserveerd_object>
+            <objecttype>monster</objecttype>
+            <naam>1</naam>
+            <permkey>2025-M1</permkey>
+        </geobserveerd_object>
+        <diepte_van>2.00</diepte_van>
+        <diepte_tot>2.50</diepte_tot>
+        <parameter>Korrelverdeling d.m.v. zeefproef</parameter>
+        <parametergroep>Onderkenningsproeven-korrelverdeling </parametergroep>
+        <waarde_meetreeks>
+            <meetpuntparameter>Diameter</meetpuntparameter>
+            <meetpuntparameter_eenheid>mm</meetpuntparameter_eenheid>
+            <meetwaardeparameter>Fractie met grotere diameter</meetwaardeparameter>
+            <meetwaardeparameter_eenheid>%</meetwaardeparameter_eenheid>
+            <meetreekswaarde><meetwaarde_numeriek>95.0</meetwaarde_numeriek><meetpunt_numeriek>0.063</meetpunt_numeriek></meetreekswaarde>
+            <meetreekswaarde><meetwaarde_numeriek>40.0</meetwaarde_numeriek><meetpunt_numeriek>0.25</meetpunt_numeriek></meetreekswaarde>
+            <meetreekswaarde><meetwaarde_numeriek>0.0</meetwaarde_numeriek><meetpunt_numeriek>2.0</meetpunt_numeriek></meetreekswaarde>
+        </waarde_meetreeks>
+        <methode>Zeving</methode>
+        <fenomeentijd>2025-07-01</fenomeentijd>
+        <herkomst>LABO</herkomst>
+    </observatie>
+    <observatie>
+        <identificator>
+            <identificator>2025-O2</identificator>
+            <toegekend_door>DOV</toegekend_door>
+        </identificator>
+        <geobserveerd_object>
+            <objecttype>monster</objecttype>
+            <naam>1</naam>
+            <permkey>2025-M1</permkey>
+        </geobserveerd_object>
+        <parameter>Watergehalte</parameter>
+        <parametergroep>Onderkenningsproeven</parametergroep>
+        <waarde_numeriek>23.4</waarde_numeriek>
+    </observatie>
+</ns4:dov-schema>
