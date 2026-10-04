@@ -14,6 +14,7 @@ export const PANELS_NL = {
   // NOTE: ruled 2026-08-27 — owner chose "Transparantie".
   'map.opacity': 'Transparantie',
   'map.visibleOnMap': 'Zichtbaar op de kaart',
+  'map.legendLabTests': 'Boringen met labproeven',
   'map.boreholeType': 'Boortype',
   'map.borehole': 'Boring',
   'map.editMetadata': 'Gegevens bewerken',
