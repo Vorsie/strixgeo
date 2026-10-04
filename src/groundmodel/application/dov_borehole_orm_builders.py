@@ -1,9 +1,10 @@
 """Domain → ORM builders shared by the two DOV borehole import paths.
 
-The DOV bbox import (``ImportBoreholeDov`` + ``ImportInterpretationsDov``) and
-the local-file import (``ImportBoreholeFile``) persist the SAME shapes: a
-borehole row with its drill segments and field log, and observations with
-their layers and admixtures. The mapping lives here once so the two paths
+The DOV bbox import (``ImportBoreholeDov`` + ``ImportInterpretationsDov`` +
+``ImportSamplesDov``) and the local-file import (``ImportBoreholeFile``) persist
+the SAME shapes: a borehole row with its drill segments and field log,
+observations with their layers and admixtures, and grain-size curves on
+samples. The mapping lives here once so the two paths
 cannot drift (a column added to one and not the other would make a file-
 imported borehole differ from a bbox-imported one).
 
@@ -23,12 +24,18 @@ from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import FieldLogIntervalOrm
+from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result import (
     BoreholeParseResult,
 )
+from groundmodel.infrastructure.parsers.borehole.dov.dov_file_sample import DovFileSample
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
+from groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result import (
+    GrainSizeParseResult,
+)
 
 
 def build_drill_segment_orms(result: BoreholeParseResult) -> list[DrillSegmentOrm]:
@@ -212,3 +219,90 @@ def build_observation_orm(
         drill_method_score=observation.drill_method_score,
         layers=build_observation_layer_orms(observation),
     )
+
+
+def build_grain_size_orm(
+    parse_result: GrainSizeParseResult,
+    sample_id: UUID,
+    dov_permkey: str | None,
+) -> GrainSizeOrm:
+    """Map a parsed grain-size curve onto a ``GrainSizeOrm`` row.
+
+    Parameters
+    ----------
+    parse_result : GrainSizeParseResult
+        The curve (``grain_size`` carries its own id).
+    sample_id : UUID
+        The sample row the curve belongs to.
+    dov_permkey : str | None
+        The observation's DOV permkey (refresh / dedup key).
+
+    Returns
+    -------
+    GrainSizeOrm
+        Transient row.
+    """
+    gs = parse_result.grain_size
+    return GrainSizeOrm(
+        id=gs.id,
+        sample_id=sample_id,
+        dov_permkey=dov_permkey,
+        diameters_mm=list(gs.diameters_mm),
+        pct_larger=list(gs.pct_larger),
+        method=gs.method,
+        test_date=gs.test_date,
+        lime_removed=gs.lime_removed,
+        organics_removed=gs.organics_removed,
+    )
+
+
+def apply_file_sample(orm: SampleOrm, sample: DovFileSample) -> None:
+    """Write a file sample's values onto a sample row (new or refreshed).
+
+    Header fields take the file's value; the grain-size curves whose DOV
+    permkey the file carries are replaced, others on the row (e.g. from a
+    bbox import) are kept, new ones are added. The geotech assignment and
+    the other lab-test families are not touched: they are not in the file.
+
+    Parameters
+    ----------
+    orm : SampleOrm
+        The row to write (its id stays).
+    sample : DovFileSample
+        The parsed sample.
+    """
+    orm.dov_permkey = sample.permkey or orm.dov_permkey
+    orm.sample_number = sample.sample_number
+    orm.depth_top_m = sample.depth_top_m
+    orm.depth_base_m = sample.depth_base_m
+    orm.description = sample.description
+    orm.sample_type = sample.sample_type
+    orm.composition = sample.composition
+    orm.instrument = sample.instrument
+    orm.sampling_date = sample.sampling_date
+    fresh = {permkey for permkey, _ in sample.grain_sizes if permkey}
+    kept = [g for g in (orm.grain_sizes or []) if not g.dov_permkey or g.dov_permkey not in fresh]
+    orm.grain_sizes = kept + [
+        build_grain_size_orm(curve, orm.id, permkey) for permkey, curve in sample.grain_sizes
+    ]
+
+
+def build_sample_orm(sample: DovFileSample, borehole_id: UUID) -> SampleOrm:
+    """Map a sample from a local DOV file onto a new ``SampleOrm`` (with its curves).
+
+    Parameters
+    ----------
+    sample : DovFileSample
+        The parsed sample; its ``sample_key`` becomes the row id (the curves
+        were parsed against it).
+    borehole_id : UUID
+        The parent borehole.
+
+    Returns
+    -------
+    SampleOrm
+        Transient row with its grain-size rows attached.
+    """
+    orm = SampleOrm(id=sample.sample_key, borehole_id=borehole_id, grain_sizes=[])
+    apply_file_sample(orm, sample)
+    return orm
