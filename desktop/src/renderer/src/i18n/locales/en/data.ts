@@ -52,6 +52,8 @@ export const DATA = {
   'data.import.refreshedMany': '{n} refreshed from file',
   'data.import.leftUnchangedOne': '{name} left unchanged',
   'data.import.leftUnchangedMany': '{n} left unchanged',
+  'data.import.preDrillNotApplied':
+    '{name}: a pre-drill of {preDrill} m is declared but the depths start at {firstDepth} m. The depths were kept as in the file; check them against the report.',
   'data.import.noCptsInArea': 'No CPTs found in this area',
   'data.import.noBoreholesInArea': 'No boreholes found in this area',
   'data.import.countObs': '{n} obs',
