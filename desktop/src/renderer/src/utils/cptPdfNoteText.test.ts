@@ -77,3 +77,24 @@ describe('cptPdfNoteTexts: the notes of one row', () => {
     expect(cptPdfNoteTexts({ warnings: ['no position printed'] }, nl)).toEqual(['no position printed'])
   })
 })
+
+// Owner ruling "a" (2026-10-04): a drilled stretch is shown on the triage row:
+// EN "Drilled: {list}" / NL "Voorboring: {list}", list = "32.0 tot 32.3 m,
+// 40.1 tot 40.9 m" (NL) / "32.0 to 32.3 m, ..." (EN), one decimal.
+describe('cptPdfNoteText: drilled intervals', () => {
+  const note = { code: 'DRILLED_INTERVALS', params: { intervals: [[32.0, 32.3], [40.12, 40.876]], count: 2 } }
+
+  it('N7: Dutch names every stretch with "tot", one decimal', () => {
+    expect(cptPdfNoteText(note, '', nl)).toBe('Voorboring: 32.0 tot 32.3 m, 40.1 tot 40.9 m')
+  })
+
+  it('N8: English names every stretch with "to", one decimal', () => {
+    expect(cptPdfNoteText(note, '', en)).toBe('Drilled: 32.0 to 32.3 m, 40.1 to 40.9 m')
+  })
+
+  it('N9: malformed intervals fall back to the English sentence the backend sent', () => {
+    expect(
+      cptPdfNoteText({ code: 'DRILLED_INTERVALS', params: { intervals: 'x' } }, 'drilled: 1.0 to 1.6 m', nl),
+    ).toBe('drilled: 1.0 to 1.6 m')
+  })
+})
