@@ -74,7 +74,7 @@ async function runImport(s: LabSeriesImportSummary) {
     </ShellContext.Provider>,
   )
   fireEvent.click(screen.getByRole('button', { name: /Import/ }))
-  fireEvent.click(within(screen.getByRole('menu')).getByText('Import lab tests'))
+  fireEvent.click(within(screen.getByRole('menu')).getByText('Lab tests'))
   fireEvent.click(await screen.findByRole('button', { name: 'finish' }))
   await waitFor(() => expect(toast).toHaveBeenCalled())
   return { toast, adopt, refreshBoreholeList, markMutated, setSelectedBoreholeId }
