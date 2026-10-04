@@ -2,15 +2,17 @@
  * partitionFillV2/computeSectionFillV2.fallback.test.ts — region PROVENANCE
  * (slice 4 of "persist geometric body identity").
  *
- * The engine paints two kinds of region the drilled data never touched: the sub-TD
- * SUBSTRATE wedge (``emitBottomTieSubstrate`` — no column vertical reaches below a
- * shallow TD) and the FLOOD-closure wedge past a termination apex (``emitLonePinch`` /
- * ``emitFloodWedge``). Both emit ``klass: 'band'`` → ``kind: 'quad'``, indistinguishable
- * from a tie-born band in the output. These gates pin the new ``fallback: true`` marker:
- * fallback-painted regions carry it, tie-born band / onlap / lens regions never do, and
- * the marker does not flip with ``twoSidedTerminationsEnabled()`` (the substrate case is
- * reachable on BOTH label paths; the flood-label wedge only occurs flag-OFF — flag-ON's
+ * The engine paints one kind of region the drilled data never touched: the FLOOD-closure
+ * wedge past a termination apex (``emitLonePinch`` / ``emitFloodWedge``). It emits
+ * ``klass: 'band'`` → ``kind: 'quad'``, indistinguishable from a tie-born band in the output.
+ * These gates pin the ``fallback: true`` marker: fallback-painted regions carry it, tie-born
+ * band / onlap / lens regions never do (the flood-label wedge only occurs flag-OFF — flag-ON's
  * enclosing flood carries column verticals, so it is drilled-labelled, not fallback).
+ *
+ * The second kind — the sub-TD SUBSTRATE wedge squared off below a shallow TD by a flat floor
+ * (``emitBottomTieSubstrate``) — is RETIRED (owner 2026-10-04, "no tie, no band": a polygon is
+ * closed only by stored ties). Its fixture now pins the void: under the sloping tied base, below
+ * the shallow TD, nothing is painted on either label path.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -64,10 +66,9 @@ function regionAt(regions: SectionRegion[], gap: number, f: number, e: number): 
 }
 
 /**
- * The substrate fixture: a SAND band tied top-top + base-base whose tied base SLOPES
- * (left TD elev −2, right TD elev 2). The wedge between the sloping tied base and the
- * flat bottom-tie floor (elev −2) is sub-TD on the right — no column vertical reaches
- * it, so it is painted from the substrate label authority (``emitBottomTieSubstrate``).
+ * The (former) substrate fixture: a SAND band tied top-top + base-base whose tied base SLOPES
+ * (left TD elev −2, right TD elev 2). The wedge between the sloping tied base and elev −2 is
+ * sub-TD on the right — no stored tie closes it, so it is the no-data void (2026-10-04).
  */
 function substrateFixture(): { columns: PartitionColumn[]; edges: CorrelationEdge[] } {
   seq = 0
@@ -97,14 +98,12 @@ describe('computeSectionFillV2 — fallback provenance: substrate/flood fill is 
     setTwoSidedTerminations(false)
   })
 
-  it('the sub-TD substrate wedge carries fallback: true; the tied band above it does not (flag OFF)', () => {
+  it('"no tie, no band": the sub-TD wedge under the tied base is not painted; the tied band above is tie-born (flag OFF)', () => {
     const { columns, edges } = substrateFixture()
     const regions = computeSectionFillV2(columns, edges, undefined, [0, 40])
-    // The wedge interior: at f=0.9 the tied base sits at elev 1.6, the floor at −2.
-    const wedge = regionAt(regions, 0, 0.9, -1)
-    expect(wedge).toBeDefined()
-    expect(wedge!.formationId).toBe(SAND)
-    expect(wedge!.fallback).toBe(true)
+    // The wedge interior: at f=0.9 the tied base sits at elev 1.6, the right TD at 2 — below it
+    // nothing closes the space, so nothing is painted (the retired flat floor used to fill it).
+    expect(regionAt(regions, 0, 0.9, -1)).toBeUndefined()
     // The tie-born band interior (between the top tie at 7 and the sloping base).
     const band = regionAt(regions, 0, 0.5, 5)
     expect(band).toBeDefined()
@@ -112,15 +111,12 @@ describe('computeSectionFillV2 — fallback provenance: substrate/flood fill is 
     expect(band!.fallback).toBeUndefined()
   })
 
-  it('the substrate marker does not flip with the engine flag (flag ON / seeded label path)', () => {
+  it('the sub-TD void does not flip with the engine flag (flag ON / seeded label path)', () => {
     const prev = setTwoSidedTerminations(true)
     try {
       const { columns, edges } = substrateFixture()
       const regions = computeSectionFillV2(columns, edges, undefined, [0, 40])
-      const wedge = regionAt(regions, 0, 0.9, -1)
-      expect(wedge).toBeDefined()
-      expect(wedge!.formationId).toBe(SAND)
-      expect(wedge!.fallback).toBe(true)
+      expect(regionAt(regions, 0, 0.9, -1)).toBeUndefined()
       const band = regionAt(regions, 0, 0.5, 5)
       expect(band).toBeDefined()
       expect(band!.formationId).toBe(SAND)
