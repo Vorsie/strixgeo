@@ -680,12 +680,27 @@ export default function App() {
   // re-reads them, turning the "rebuild" badge amber without a reopen.
   const [sectionsStaleNonce, setSectionsStaleNonce] = useState(0)
   const bumpSectionsStale = useCallback(() => setSectionsStaleNonce((n) => n + 1), [])
+  // Per-model counter bumped when a debounced body recompute changed that model's
+  // bodies (useProjectBodyRecompute, below). The recompute stales the built 3-D
+  // solids ~2.5 s AFTER the edit's own re-read, so the model hook re-reads them
+  // on this bump and the Build badge turns amber without a reload (owner
+  // 2026-10-04: "adding a new correlation doesn't mark the litho stale").
+  // Declared upstream of useGeologicalModel; the stable bumper goes downstream.
+  const [bodiesRecomputedNonceByModel, setBodiesRecomputedNonceByModel] = useState<
+    Readonly<Record<string, number>>
+  >({})
+  const bumpBodiesRecomputed = useCallback(
+    (modelId: string) =>
+      setBodiesRecomputedNonceByModel((prev) => ({ ...prev, [modelId]: (prev[modelId] ?? 0) + 1 })),
+    [],
+  )
 
   const geo = useGeologicalModel({
     project,
     toast,
     bedStaleNonce,
     sectionsStaleNonce,
+    bodiesRecomputedNonceByModel,
     pushUndo,
     clearUndo,
     addToManifest,
@@ -1256,6 +1271,7 @@ export default function App() {
     bodyRecomputeLithoNonce,
     bodyRecomputeGeotechNonce,
     toast,
+    onBodiesRecomputed: bumpBodiesRecomputed,
   })
 
   // R4 (debt #12): the manifest-filtered formation list moved INTO
