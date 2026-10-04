@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPdfImportResult } from '../api/clients/cptPdf'
 import { useCptPdfImport } from './useCptPdfImport'
+import { TOAST_LONG_TIMEOUT_MS } from './useToasts'
 
 function result(key: string, status: CptPdfImportResult['status']): CptPdfImportResult {
   return {
@@ -94,5 +95,23 @@ describe('useCptPdfImport', () => {
     await act(async () => hook.result.current.handlePdfImported([result('13', 'failed')], 'r.pdf'))
     expect(deps.toast.mock.calls[0][0]).toBe('error')
     expect(deps.addToManifest).not.toHaveBeenCalled()
+  })
+
+  // Owner finding 2026-10-04: "import report disappears automatically, a bit
+  // too fast". The dialog's report stays until Close (guarded in
+  // CptPdfImportDialog.reportStays.test.tsx); the summary toast is what went
+  // away after 4 s. A summary of several soundings gets the long window.
+  it('the summary of a multi-sounding import stays on screen for the long window', async () => {
+    const { deps, hook } = setup()
+    await act(async () =>
+      hook.result.current.handlePdfImported([result('110', 'imported'), result('112', 'imported')], 'r.pdf'),
+    )
+    expect(deps.toast.mock.calls[0][3]).toEqual({ durationMs: TOAST_LONG_TIMEOUT_MS })
+  })
+
+  it('the summary of a single sounding keeps the ordinary window', async () => {
+    const { deps, hook } = setup()
+    await act(async () => hook.result.current.handlePdfImported([result('110', 'imported')], 'r.pdf'))
+    expect(deps.toast.mock.calls[0][3]).toBeUndefined()
   })
 })
