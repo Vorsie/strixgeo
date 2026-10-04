@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { INVESTIGATION_MARKERS_PANE_Z } from './mapPanes'
-import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FlaskConical, Maximize2 } from 'lucide-react'
 import {
   CircleMarker,
   MapContainer,
@@ -17,6 +17,7 @@ import 'leaflet/dist/leaflet.css'
 
 import {
   RADIUS,
+  boreholeMarkerSvg,
   boreholeTooltipLines,
   cptTooltipLines,
   markerRingStyle,
@@ -585,6 +586,17 @@ export default function MapView({
     boreholeAxisCounts[boreholeAxis],
     hiddenBhAxis,
   )
+  // The flask badge (owner 2026-10-04) gets its own legend row, counted over
+  // the boreholes actually on the map.
+  const nLabBoreholes = boreholeMarkers.filter(m => m.hasLabTests).length
+  if (nLabBoreholes > 0) {
+    legendEntries.push({
+      label: t('map.legendLabTests'),
+      count: nLabBoreholes,
+      color: '#ffffff',
+      shape: 'flask',
+    })
+  }
 
   function toggleCategory(cat: 'cpt' | 'borehole' | 'terrain' | 'basemap'): void {
     setOpenCategory(prev => (prev === cat ? null : cat))
@@ -906,7 +918,7 @@ export default function MapView({
               key={`bh-${m.id}`}
               pane="investigation-markers"
               position={[m.lat, m.lng]}
-              icon={squareDivIcon(color, selected, marqueeSelected || hovered)}
+              icon={squareDivIcon(color, selected, marqueeSelected || hovered, m.hasLabTests)}
               onClick={() => onSelectBorehole(m.id)}
               onMouseOver={() => showMarkerTooltip(m.lat, m.lng, boreholeTooltipLines(m))}
               onMouseOut={hideMarkerTooltip}
@@ -1431,8 +1443,9 @@ interface LegendEntry {
   monospace?: boolean
   // Match the marker shape on the map: 'circle' for CPT entries,
   // 'square' for boreholes. Reading the legend should never require
-  // mentally translating between dot and square.
-  shape: 'circle' | 'square'
+  // mentally translating between dot and square. 'flask' = the lab-test badge
+  // on a borehole square.
+  shape: 'circle' | 'square' | 'flask'
 }
 
 function Legend({ entries }: { entries: LegendEntry[] }) {
@@ -1450,13 +1463,21 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
       <div className="flex flex-col gap-0.5">
         {entries.map(e => (
           <div key={e.label} className="flex items-center gap-2 px-1 py-0.5">
-            <span
-              className={[
-                'inline-block w-2.5 h-2.5 border border-gray-300 dark:border-slate-500 shrink-0',
-                e.shape === 'circle' ? 'rounded-full' : '',
-              ].join(' ')}
-              style={{ backgroundColor: e.color }}
-            />
+            {e.shape === 'flask' ? (
+              <FlaskConical
+                size={11}
+                className="shrink-0 text-gray-700 dark:text-slate-200"
+                data-testid="map-legend-lab-flask"
+              />
+            ) : (
+              <span
+                className={[
+                  'inline-block w-2.5 h-2.5 border border-gray-300 dark:border-slate-500 shrink-0',
+                  e.shape === 'circle' ? 'rounded-full' : '',
+                ].join(' ')}
+                style={{ backgroundColor: e.color }}
+              />
+            )}
             <span
               className={[
                 'flex-1 truncate text-gray-700 dark:text-slate-200',
@@ -1511,48 +1532,23 @@ function orderedCptTypes(counts: Map<string, number>): string[] {
 
 /** Pick a colour for any categorical value: curated palette → hash fallback. */
 /**
- * Build a Leaflet ``divIcon`` rendering a small filled square at
- * ``[lat, lng]``. Used for borehole markers so they're visually distinct
- * from the round CPT CircleMarkers at a glance — shape encodes the
- * data-source family, colour encodes the per-marker filter value.
- *
- * Sizes match the CPT markers' radii (RADIUS = 4 → 9px square,
- * RADIUS_SELECTED = 7 → 14px square) so both families read at the same
- * visual weight on a busy map.
+ * Wrap {@link boreholeMarkerSvg} in a Leaflet ``divIcon`` (the markup and the
+ * square-centred anchor are built and tested in ``mapMarkerStyle``).
  */
-function squareDivIcon(fill: string, selected: boolean, marqueeSelected = false): L.DivIcon {
-  const size = selected ? 14 : 9
-  // Stroke: selection → dark-red, marquee → blue, default → dark brown.
-  const stroke = selected ? '#7f1d1d' : marqueeSelected ? '#2563eb' : '#3f2a1a'
-  const strokeWidth = selected ? 2 : marqueeSelected ? 2 : 1.2
-  // Pulling stroke-width / 2 inward from each edge keeps the stroke
-  // fully inside the SVG viewbox; otherwise selection growth pixels
-  // get clipped by the icon's bounding rect.
-  const inset = strokeWidth / 2
-  const rectSize = size - strokeWidth
-  // Marquee-selected markers get a blue ring around the square.
-  const ringMarkup = marqueeSelected && !selected
-    ? `<rect x="-2" y="-2" width="${size + 4}" height="${size + 4}" ` +
-      `fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="2 2" />`
-    : ''
-  // SVG viewbox must be large enough for the ring when present.
-  const svgSize = marqueeSelected && !selected ? size + 4 : size
-  const svgOffset = marqueeSelected && !selected ? 2 : 0
+function squareDivIcon(
+  fill: string,
+  selected: boolean,
+  marqueeSelected = false,
+  hasLabTests = false,
+): L.DivIcon {
+  const svg = boreholeMarkerSvg({ fill, selected, ringed: marqueeSelected, hasLabTests })
   return L.divIcon({
-    // Drop Leaflet's default ".leaflet-div-icon" white-background +
-    // border styles — they fight our SVG for visual ownership of the
-    // pixel.
+    // Drop Leaflet's default ".leaflet-div-icon" white-background + border
+    // styles — they fight our SVG for visual ownership of the pixel.
     className: '',
-    html:
-      `<svg width="${svgSize}" height="${svgSize}" xmlns="http://www.w3.org/2000/svg">` +
-      ringMarkup +
-      `<rect x="${inset + svgOffset}" y="${inset + svgOffset}" width="${rectSize}" height="${rectSize}" ` +
-      `fill="${fill}" fill-opacity="0.9" stroke="${stroke}" stroke-width="${strokeWidth}" />` +
-      `</svg>`,
-    iconSize: [svgSize, svgSize],
-    // Centre the icon on the lat/lng anchor so position is consistent
-    // with how CircleMarker treats its centre.
-    iconAnchor: [svgSize / 2, svgSize / 2],
+    html: svg.html,
+    iconSize: [svg.width, svg.height],
+    iconAnchor: svg.anchor,
   })
 }
 
