@@ -22,6 +22,13 @@
  * so the scan measures holes only ABOVE the gap's bottom tie (``gapBottomTie``). The seam-fence
  * defect class — a hole under a correlation band above the bottom tie — stays a red.
  *
+ * RE-RULED AGAIN 2026-10-04 (*"as long as the bottom of S11 is not correlated to 19/100-S3 the loop
+ * isn't closed and there is nothing to draw"*, section "test"). This gap was the standing exception
+ * of 2026-09-23: GEO-02/145-S15 beyond S14 reads the glauconitic sand, so the deep-to-deep substrate
+ * carried S13's GL under S14 to it. That substrate is retired — no stored tie closes the GL sand
+ * under S14 — so the GL sand onlaps its bottom tie halfway like any other, and the space past the
+ * tip is the void the owner accepted (*"unless you tie them"*).
+ *
  * The scan is a PERMANENT gate over EVERY gap of EVERY section of the owner's 2026-09-16 worked
  * example (his ``worked_example_0916.strix``, extracted with ``scratchpad/build_owner_fixture.cjs``).
  * A "defect hole" is an interior coverage gap CAPPED ABOVE by a near-full-width band (fracSpan >=
@@ -29,8 +36,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { HOLE_TOL_M, gapBottomTie, loadSections, prepareSection, regionsForLayer, worstBandCappedHole } from './__fixtures__/bandCappedHoleScan'
+import { HOLE_TOL_M, gapBottomTie, gapScanFloor, loadSections, prepareSection, regionsForLayer, worstBandCappedHole } from './__fixtures__/bandCappedHoleScan'
 import { computeSectionFillV2 } from './computeSectionFillV2'
+import { INTERIOR_PINCH_FRACTION } from '../sectionPartition'
 import { setTwoSidedTerminations } from './tileFlags'
 
 const FIXTURE = 'owner_we_2026-09-16_sections.json'
@@ -40,7 +48,7 @@ beforeAll(() => setTwoSidedTerminations(true))
 afterAll(() => setTwoSidedTerminations(false))
 
 describe('the plain sand and the glauconitic sand below it between S13 and S14 (owner 2026-09-16; the sub-TD void re-ruled 2026-09-23)', () => {
-  it('Cross-section 1: no band-capped hole in the S13 -> S14 gap — the GL sand runs under S14 to S15, which reads it', () => {
+  it('Cross-section 1, S13 -> S14: the GL sand onlaps its bottom tie halfway — S15 reading the level no longer carries it', () => {
     const fx = loadSections(FIXTURE)
     const sec = fx.sections.find((s) => s.name === 'Cross-section 1')!
     const { columns, alongM, names, edges } = prepareSection(sec)
@@ -51,19 +59,19 @@ describe('the plain sand and the glauconitic sand below it between S13 and S14 (
     const tie = gapBottomTie(columns, edges, s13)
     expect(tie, 'the GL top tied to S14\'s TD is the bottom tie of this gap').not.toBeNull()
     const regions = computeSectionFillV2(columns, edges, undefined, alongM).filter((r) => r.gapIndex === s13)
-    // NOT the 2026-09-23 void case: GEO-02/145-S15 beyond S14 (TD -8.62) reads the glauconitic sand
-    // at these levels, so the deep-to-deep substrate carries S13's GL under S14 to it. The whole gap
-    // is scanned: the ~-4.8 m sliver stays filled.
-    const w = worstBandCappedHole(regions)
+    // The ~-4.8 m seam sliver (the 2026-09-16 defect) stays closed: no hole under a band above the
+    // bottom tie.
+    const w = worstBandCappedHole(regions, tie!.elevAt)
     expect(
       w.gap,
       `S13 -> S14 band-capped hole ${w.gap.toFixed(3)}m at f=${w.frac.toFixed(2)}, elev [${w.lo.toFixed(2)}..${w.hi.toFixed(2)}]`,
     ).toBeLessThan(HOLE_TOL_M)
-    // S13 is the left (deep) column: the GL sand is carried all the way to S14 (fraction 1).
+    // S13 is the left (deep) column: the GL sand onlaps to the halfway point of its bottom tie and
+    // no further — GEO-02/145-S15 reading the level beyond S14 closes nothing (no tie, no band).
     const gl = regionsForLayer(regions, tie!.deepLayerId)
     expect(gl.length, 'the GL sand is drawn in the gap').toBeGreaterThan(0)
     const reach = Math.max(...gl.flatMap((r) => r.polygon.map((p) => p.fraction)))
-    expect(reach, 'the GL sand reaches S14 on the substrate').toBeGreaterThan(0.95)
+    expect(reach, 'the onlap tip on the bottom tie').toBeCloseTo(INTERIOR_PINCH_FRACTION, 2)
   })
 
   it('every gap of every section of the 2026-09-16 worked example is hole-free under its correlation bands above the bottom tie', () => {
@@ -73,8 +81,7 @@ describe('the plain sand and the glauconitic sand below it between S13 and S14 (
       if (columns.length < 2) continue
       const regions = computeSectionFillV2(columns, edges, undefined, alongM)
       for (let g = 0; g + 1 < columns.length; g++) {
-        const bottomTie = gapBottomTie(columns, edges, g)
-        const w = worstBandCappedHole(regions.filter((r) => r.gapIndex === g), bottomTie?.elevAt)
+        const w = worstBandCappedHole(regions.filter((r) => r.gapIndex === g), gapScanFloor(columns, edges, g))
         expect(
           w.gap,
           `${sec.name} gap ${g} (${names[g]} -> ${names[g + 1]}): hole ${w.gap.toFixed(3)}m under a band at f=${w.frac.toFixed(2)}, elev [${w.lo.toFixed(2)}..${w.hi.toFixed(2)}]`,
