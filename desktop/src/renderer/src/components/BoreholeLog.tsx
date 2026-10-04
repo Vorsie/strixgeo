@@ -13,7 +13,12 @@ import {
   wrapLabelToLines,
 } from '../utils/labelWrap'
 import { SoilPatterns } from '../utils/soilPatterns'
-import type { ContactOverlay } from '../utils/contactOverlays'
+import {
+  DEFAULT_CONTACT_OVERLAY_VISIBILITY,
+  type ContactOverlay,
+  type ContactOverlayVisibility,
+} from '../utils/contactOverlays'
+import { ContactOverlayToggles } from './ContactOverlayToggles'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
 import { useT } from '../i18n/translate'
@@ -109,6 +114,11 @@ interface Props {
   // without obscuring them at the chosen opacity. Undefined / empty
   // = no overlay (the borelog renders unchanged).
   contactOverlays?: readonly ContactOverlay[]
+  // Per-source on/off switches for those lines (owner 2026-10-04). The
+  // caller filters ``contactOverlays``; the log only renders the two
+  // switches, and only when ``onToggleContactOverlay`` is wired.
+  contactOverlayVisibility?: Readonly<ContactOverlayVisibility>
+  onToggleContactOverlay?: (source: ContactOverlay['source']) => void
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -130,6 +140,8 @@ export default function BoreholeLog({
   onChangeVirtueleBoringOverrideModel,
   virtueleBoringLoading = false,
   contactOverlays,
+  contactOverlayVisibility = DEFAULT_CONTACT_OVERLAY_VISIBILITY,
+  onToggleContactOverlay,
 }: Props): React.ReactElement {
   const t = useT()
   const {
@@ -463,12 +475,28 @@ export default function BoreholeLog({
               document.body,
             )}
         </div>
+        {/* Stratigraphic / lithological boundary switches (owner
+            2026-10-04), right-aligned just before the DOV control in the
+            same pill style. When present they own the ``ml-auto`` push so
+            the switches and the DOV control stay one group. */}
+        {onToggleContactOverlay !== undefined && (
+          <div className="flex items-center gap-1 ml-auto">
+            <ContactOverlayToggles
+              visibility={contactOverlayVisibility}
+              onToggle={onToggleContactOverlay}
+            />
+          </div>
+        )}
         {/* DOV overlay toggle + override picker. The button flips
             visibility; the dropdown selects which model THIS pane
             shows ("Follow section" inherits modelA/modelB; a
             specific code renders only that one). */}
         {onToggleVirtueleBoringVisible !== undefined && (
-          <div className="flex items-center gap-1 ml-auto">
+          <div
+            className={
+              'flex items-center gap-1 ' + (onToggleContactOverlay === undefined ? 'ml-auto' : 'ml-1')
+            }
+          >
             {/* Spinner shown while the predictions fetch is in flight
                 so the pane doesn't look unresponsive after model pick. */}
             {virtueleBoringLoading && (
