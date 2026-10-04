@@ -334,11 +334,13 @@ function emitSideSweep(
       // A COLUMN THAT READ NOTHING IS NOT A BOUNDARY (owner, 2026-08-21 — *"you made them
       // crossing but now it is inconsistent with the litho and some don't terminate in a
       // pinch"*). The lens is measured against the first column that DID read these levels,
-      // crossing any blind column on the way; only where nothing in this direction ever read
-      // it does the unit run flat to the section edge (``emitContinuation``). An immediate
-      // reading facing resolves to itself, so the ordinary case is untouched.
+      // crossing any blind column on the way; where nothing in this direction ever read it and it
+      // lies below the adjacent column's TD, it lenses toward that facing column (owner 2026-10-04,
+      // "no tie, no band"); only a unit resting on the facing column's ground still runs flat to the
+      // section edge (``emitContinuation``). An immediate reading facing resolves to itself, so the
+      // ordinary case is untouched.
       const run = terminationRun(columns, colIndex, side === 'left' ? 1 : -1, u.topElev, u.baseElev)
-      if (!run.reads && emitContinuation(u, colX, run.column.x, lensLabels, nextId, out)) continue
+      if (run.toEdge && emitContinuation(u, colX, run.column.x, lensLabels, nextId, out)) continue
       emitCorr0Termination(
         u, piece.hostUnitIndex, eff, col, run.reads ? run.column : facing, side, colX,
         run.reads ? run.column.x : facingX, gapIndex, shallowTD,
@@ -456,8 +458,9 @@ function emitSideSweep(
  *
  * SUB-TD GEOMETRY CONTEXT (audit item 4, S35). ``subTd === true`` selects the sub-TD flood context:
  * a unit entirely below the FACING column's TD has NO facing enclosing formation to flood past its
- * apex — the DEEP-TO-DEEP SUBSTRATE band (``emitSubstrate`` / ``emitBottomTieSubstrate``, already
- * emitted) is the continuous flood the lens holes INTO (the col3 interbed-lens proof, session 9). So
+ * apex — a jump-tie bridge band (``emitSubstrate``, already emitted) is the flood the lens holes INTO
+ * where stored ties close one, and the no-data void otherwise (the flat-floor substrate is retired,
+ * owner 2026-10-04 "no tie, no band") (the col3 interbed-lens proof, session 9). So
  * the sub-TD corr-0 lens emits ONLY the bare ``emitLensClosing`` pair (top→apex→base, 8b-capped at
  * ``LENS_PINCH_FRACTION`` for parity with the session-13 sub-TD emission) — NO ``emitFloodWedge`` (that
  * samples the FACING column, which is above the TD and carries no matrix at this elevation → a wrong
