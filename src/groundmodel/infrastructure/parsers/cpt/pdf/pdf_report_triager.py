@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any, TypeVar
 
 import pymupdf
@@ -20,6 +21,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_registry import (
     LayoutProfileRegistry,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader import OcrReader
+from groundmodel.infrastructure.parsers.cpt.pdf.ocr_word_cache import OcrWordCache
 from groundmodel.infrastructure.parsers.cpt.pdf.optional_engines import ocr_available
 from groundmodel.infrastructure.parsers.cpt.pdf.page_class import PageClass
 from groundmodel.infrastructure.parsers.cpt.pdf.page_evidence import PageEvidence
@@ -37,12 +39,15 @@ from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants i
     NOTE_TICKS_NOT_READ,
     NOTE_TICKS_UNAVAILABLE_NO_OCR,
 )
+from groundmodel.shared.exceptions import TriageCancelled
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
 
-#: ``progress(phase, done, total)`` -- phase is "classify" or "digitise".
-TriageProgress = Callable[[str, int, int], None]
+#: ``progress(phase, done, total, ocr=...)`` -- phase is "classify" or
+#: "digitise"; ``ocr`` (keyword, default False) is True while OCR is what the
+#: triage is doing, the slow part of a report with an unreadable text layer.
+TriageProgress = Callable[..., None]
 
 
 class PdfReportTriager(GroundModelLogger):
@@ -90,6 +95,8 @@ class PdfReportTriager(GroundModelLogger):
         doc: pymupdf.Document,
         file_sha: str,
         progress: TriageProgress | None = None,
+        should_stop: Callable[[], bool] | None = None,
+        ocr_cache: OcrWordCache | None = None,
     ) -> tuple[PdfReportDigest, dict[str, DigitisedSounding]]:
         """Triage ``doc`` and digitise the soundings it offers.
 
@@ -100,18 +107,56 @@ class PdfReportTriager(GroundModelLogger):
         file_sha : str
             SHA-256 of the report file, carried into the digest.
         progress : callable or None
-            ``progress(phase, done, total)``.
+            ``progress(phase, done, total, ocr=...)``; ``ocr`` True while OCR
+            is what the triage is doing.
+        should_stop : callable or None
+            Checked between pages, between sheets and between OCR strips;
+            True stops the triage (the user cancelled).
+        ocr_cache : OcrWordCache or None
+            The report's OCR words (the store keeps them next to the file);
+            an in-memory cache for this run when None, so the digitise pass
+            never OCRs a strip the classify pass already read.
 
         Returns
         -------
         tuple
             ``(digest, soundings)``: the digest for the UI and the digitised
             soundings by their key (campaign and unknown alike).
+
+        Raises
+        ------
+        TriageCancelled
+            When ``should_stop`` answered True.
         """
         self.info("report triage: %d pages (OCR %s)", doc.page_count, bool(self._ocr))
-        report = self._triage.classify(
-            doc, progress=(lambda d, t: progress("classify", d, t)) if progress else None
+        cache = ocr_cache if ocr_cache is not None else OcrWordCache()
+        session: AbstractContextManager[object] = (
+            self._ocr.session(cache=cache, should_stop=should_stop)
+            if self._ocr is not None
+            else nullcontext()
         )
+        try:
+            with session:
+                return self._run(doc, file_sha, progress, should_stop)
+        finally:
+            if self._ocr is not None and (cache.hits or cache.misses):
+                self.info("OCR cache: %d hit / %d miss", cache.hits, cache.misses)
+
+    def _run(
+        self,
+        doc: pymupdf.Document,
+        file_sha: str,
+        progress: TriageProgress | None,
+        should_stop: Callable[[], bool] | None,
+    ) -> tuple[PdfReportDigest, dict[str, DigitisedSounding]]:
+        """Run the classify and digitise passes (inside the OCR session)."""
+
+        def classify_tick(done: int, total: int, ocr: bool = False) -> None:
+            """Forward a page tick under the ``classify`` phase."""
+            if progress is not None:
+                progress("classify", done, total, ocr=ocr)
+
+        report = self._triage.classify(doc, progress=classify_tick, should_stop=should_stop)
         evidence = {p.page_number: p for p in report.pages}
         graphs = [p for p in report.pages if p.page_class is PageClass.CPT_GRAPH]
         dropped = [_desk_study(p) for p in graphs if p.origin is CptOrigin.DESK_STUDY]
@@ -122,6 +167,10 @@ class PdfReportTriager(GroundModelLogger):
             CptOrigin.UNKNOWN: [],
         }
         for i, page in enumerate(wanted, start=1):
+            if should_stop is not None and should_stop():
+                self.info("triage cancelled after sheet %d of %d", i - 1, len(wanted))
+                raise TriageCancelled(i - 1, len(wanted))
+            calls_before = self._ocr.engine_calls if self._ocr is not None else 0
             try:
                 sheet = self._digitiser.digitise_page(doc, page.page_number, page.graph_kind)
             except ValueError as exc:
@@ -133,7 +182,8 @@ class PdfReportTriager(GroundModelLogger):
                 self.debug("[%d/%d] page %d digitised", i, len(wanted), page.page_number)
                 per_origin[page.origin or CptOrigin.UNKNOWN].append(sheet)
             if progress is not None:
-                progress("digitise", i, len(wanted))
+                used_ocr = self._ocr is not None and self._ocr.engine_calls > calls_before
+                progress("digitise", i, len(wanted), ocr=used_ocr)
 
         keys: set[str] = set()
         listed: dict[CptOrigin, list[ReportSounding]] = {}
