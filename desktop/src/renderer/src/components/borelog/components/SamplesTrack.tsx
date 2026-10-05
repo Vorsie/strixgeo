@@ -1,12 +1,8 @@
 import type { ReactElement } from 'react'
 
 import type { LabSeriesTestSummary, SampleResponse } from '../../../api/client'
-import {
-  LAB_FLASK_FILL,
-  LAB_FLASK_STROKE,
-  LAB_FLASK_STROKE_WIDTH,
-  labFlaskPathD,
-} from '../../mapMarkerStyle'
+import { LabFlaskGlyph } from '../../LabFlaskGlyph'
+import { LAB_FLASK_MARKER_HEIGHT_PX, labFlaskWidth } from '../../mapMarkerStyle'
 import { LAB_TEST_ICONS } from '../labTestIcons'
 import { usePxPerM } from '../utils'
 import { useT } from '../../../i18n/translate'
@@ -123,16 +119,13 @@ export function SamplesTrack({
               </text>
             )}
             {rawCount > 0 && (
-              <path
-                data-glyph="lab-flask"
-                data-testid={`sample-lab-flask-${sample.id}`}
-                // Right end of the row, vertically centred on the marker
-                // (the glyph is ~7 px high, its neck 2 px wide).
-                d={labFlaskPathD(x + width - 12, mid - 3.5)}
-                fill={LAB_FLASK_FILL}
-                stroke={LAB_FLASK_STROKE}
-                strokeWidth={LAB_FLASK_STROKE_WIDTH}
-                strokeLinejoin="round"
+              // Right end of the row, vertically centred on the marker, at
+              // the map marker's size so the neck and rim stay visible.
+              <LabFlaskGlyph
+                left={x + width - 4 - labFlaskWidth(LAB_FLASK_MARKER_HEIGHT_PX)}
+                top={mid - LAB_FLASK_MARKER_HEIGHT_PX / 2}
+                height={LAB_FLASK_MARKER_HEIGHT_PX}
+                testId={`sample-lab-flask-${sample.id}`}
               />
             )}
           </g>
