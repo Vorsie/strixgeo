@@ -12,6 +12,7 @@ export const CPT_PDF = {
   'cptPdf.starting': 'Starting…',
   'cptPdf.phase.classify': 'Reading pages ({done}/{total})…',
   'cptPdf.phase.digitise': 'Digitising sheets ({done}/{total})…',
+  'cptPdf.phase.ocr': 'Reading titles with OCR ({done}/{total})…',
   'cptPdf.failed': 'The report could not be read: {message}',
   'cptPdf.summary': '{n} campaign soundings in {report}',
   'cptPdf.summaryNoCode': '{n} campaign soundings',
