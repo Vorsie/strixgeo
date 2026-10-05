@@ -27,6 +27,8 @@ class PdfSoundingImportRequest:
         Typed ground level (also converts an elevation axis to depth).
     test_date : str or None
         Typed test date.
+    project_number : str or None
+        Typed project number (stored as the CPT's project id); blank = none.
     """
 
     key: str
@@ -36,3 +38,4 @@ class PdfSoundingImportRequest:
     epsg: int | None = None
     ground_level_m: float | None = None
     test_date: str | None = None
+    project_number: str | None = None
