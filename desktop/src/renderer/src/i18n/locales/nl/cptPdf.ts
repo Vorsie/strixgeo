@@ -17,6 +17,8 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.failed': 'Het rapport kon niet gelezen worden: {message}',
   'cptPdf.summary': '{n} sonderingen van de campagne in {report}',
   'cptPdf.summaryNoCode': '{n} sonderingen van de campagne',
+  'cptPdf.projectNumber': 'Projectnummer',
+  'cptPdf.projectNumberHint': 'Voor rijen zonder gedrukt projectnummer',
   'cptPdf.ocrUnavailable':
     'Aflezen van de schaalwaarden niet beschikbaar: typ de aswaarden voor bladen waarvan de labels geen tekst zijn.',
   'cptPdf.rasterUnread': "{n} beeldpagina('s) niet gelezen: gescande pagina's vragen de OCR-uitbreiding.",
