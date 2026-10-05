@@ -29,6 +29,7 @@ import Modal from '../ui/Modal'
 import CptPdfCalibrationOverlay, { type CptPdfSoundingEdit } from './CptPdfCalibrationOverlay'
 import CptPdfImportReport from './CptPdfImportReport'
 import CptPdfTriageList from './CptPdfTriageList'
+import { fieldFillFor, reportProjectNumber } from './cptPdfProjectNumber'
 
 interface Props {
   open: boolean
@@ -89,6 +90,9 @@ export default function CptPdfImportDialog({
   const [stage, setStage] = useState<Stage>({ kind: 'list' })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [edits, setEdits] = useState<Record<string, CptPdfSoundingEdit>>({})
+  // The "Projectnummer" field (owner ruling 2026-10-05 a): fills the project
+  // number of every row whose sheet prints none; reset with each digest.
+  const [projectNumber, setProjectNumber] = useState('')
   const [importing, setImporting] = useState(false)
   const [results, setResults] = useState<CptPdfImportResult[]>([])
   const [asking, setAsking] = useState<CptPdfImportResult | null>(null)
@@ -104,11 +108,18 @@ export default function CptPdfImportDialog({
 
   const digest = state.status === 'done' ? state.digest : null
   useEffect(() => {
-    if (digest) setSelected(initialSelection(digest))
+    if (!digest) return
+    setSelected(initialSelection(digest))
+    setProjectNumber(reportProjectNumber(digest))
   }, [digest])
 
   const listed = useMemo(() => (digest ? [...digest.campaign, ...digest.unknown] : []), [digest])
   const edited = useMemo(() => new Set(Object.keys(edits)), [edits])
+  const headerEdits = useMemo(() => {
+    const out: Record<string, CptPdfHeaderEdit> = {}
+    for (const [key, edit] of Object.entries(edits)) if (edit.header) out[key] = edit.header
+    return out
+  }, [edits])
 
   const toggle = useCallback((key: string, on: boolean) => {
     setSelected(prev => {
@@ -137,17 +148,27 @@ export default function CptPdfImportDialog({
     if (keys.length === 0) return
     const calibrations: Record<string, PageCalibrationDict[]> = {}
     const headers: Record<string, CptPdfHeaderEdit> = {}
+    const byKey = new Map(listed.map(s => [s.key, s]))
+    let filled = 0
     for (const key of keys) {
       const edit = edits[key]
       if (edit?.calibrations) calibrations[key] = edit.calibrations
-      if (edit?.header && Object.keys(edit.header).length > 0) headers[key] = edit.header
+      const header: CptPdfHeaderEdit = { ...edit?.header }
+      const sounding = byKey.get(key)
+      const fill = sounding ? fieldFillFor(sounding, projectNumber, edit?.header) : null
+      if (fill !== null) {
+        header.project_number = fill
+        filled += 1
+      }
+      if (Object.keys(header).length > 0) headers[key] = header
     }
+    if (filled > 0) log.info('cpt-pdf', `project number ${projectNumber.trim()} filled in for ${filled} sounding(s)`)
     const body = { project_id: projectId, file_sha: digest.file_sha, calibrations, headers }
     setImporting(true)
     try {
       log.info('cpt-pdf', `importing ${keys.length} sounding(s) of ${digest.file_sha.slice(0, 12)}`)
       const first = (await cptPdfClient.importSoundings({ ...body, sounding_ids: keys })).results
-      const byKey = new Map(first.map(r => [r.sounding_id, r]))
+      const outcomes = new Map(first.map(r => [r.sounding_id, r]))
       // Replacing a stored CPT is irreversible: asked per sounding, one dialog
       // at a time (docs/ux.md "Reversible vs irreversible").
       const agreed: string[] = []
@@ -158,9 +179,9 @@ export default function CptPdfImportDialog({
       }
       if (agreed.length > 0) {
         const second = await cptPdfClient.importSoundings({ ...body, sounding_ids: agreed, confirm_refresh: true })
-        for (const r of second.results) byKey.set(r.sounding_id, r)
+        for (const r of second.results) outcomes.set(r.sounding_id, r)
       }
-      const final = keys.map(k => byKey.get(k)).filter((r): r is CptPdfImportResult => r !== undefined)
+      const final = keys.map(k => outcomes.get(k)).filter((r): r is CptPdfImportResult => r !== undefined)
       setResults(final)
       setStage({ kind: 'report' })
       onImported(final, fileName)
@@ -212,6 +233,9 @@ export default function CptPdfImportDialog({
                 projectId={projectId}
                 selected={selected}
                 edited={edited}
+                headers={headerEdits}
+                projectNumber={projectNumber}
+                onProjectNumberChange={setProjectNumber}
                 onToggle={toggle}
                 onCalibrate={key => setStage({ kind: 'calibrate', key })}
               />
