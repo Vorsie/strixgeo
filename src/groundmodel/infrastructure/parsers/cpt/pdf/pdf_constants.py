@@ -134,6 +134,16 @@ MIN_CURVE_SEGMENTS = 100
 # 59 segments).
 MIN_CURVE_SEGMENTS_KNOWN_LAYOUT = 20
 
+# The frame of a CPT graph, read from geometry alone (a refusal sheet whose
+# font has no Unicode map: no keyword survives, and the probe stopped after a
+# metre, so the curve is short). The depth axis runs down at least this share
+# of the page: every real sheet's depth axis spans ~0.6-0.7 of an A4 page,
+# a column of numbers in a table rarely a third.
+GRAPH_FRAME_MIN_DEPTH_AXIS_SHARE = 0.3
+# ... and at least this many value panels carry their labels on grid lines:
+# a CPT sheet plots qc next to fs / Rf; a single gridded axis is any chart.
+GRAPH_FRAME_MIN_VALUE_AXES = 2
+
 # Dissipation tests plot pore pressure against log time: CPT-related, but not
 # a depth series the digitiser reads. Only the sheet's own field label counts:
 # a CPT figure captioned "... dissipatieproeven ..." is still a CPT graph.
