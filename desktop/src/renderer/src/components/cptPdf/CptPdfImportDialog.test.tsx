@@ -186,4 +186,91 @@ describe('CptPdfImportDialog', () => {
     expect(rows[0].textContent).toContain('PDF_CLIPPED_POINTS')
     expect(rows[1].textContent).toContain('not imported')
   })
+
+  // Owner ruling 2026-10-05 (a): a "Projectnummer" field at the top of the
+  // list, pre-filled with the project number the triage read when every sheet
+  // agrees, EMPTY when the sheets print none. Its value fills the project
+  // number of every listed sounding whose own header has none; a row's own
+  // printed number always wins.
+  describe('the Projectnummer field', () => {
+    const printed = (key: string, project: string | null): CptPdfSounding => ({
+      ...sounding(key),
+      project_number: project,
+      campaign_code: 'CAMZ-005',
+      display_name: project ? `${project}-S${key}` : `CAMZ-005-S${key}`,
+    })
+    const field = (): HTMLInputElement => screen.getByTestId('cpt-pdf-project-number') as HTMLInputElement
+
+    it('is pre-filled with the project number every sheet prints', () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('110', '23.15-002'), printed('7', '23.15-002')], unknown: [] },
+      }
+      renderDialog()
+      expect(field().value).toBe('23.15-002')
+    })
+
+    it('is empty when the sheets print no project number', () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('85', null), printed('86', null)], unknown: [] },
+      }
+      renderDialog()
+      expect(field().value).toBe('')
+    })
+
+    it('is empty when the printed project numbers disagree', () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('14', '23.15-002'), printed('14A', '24.13-005')], unknown: [] },
+      }
+      renderDialog()
+      expect(field().value).toBe('')
+    })
+
+    it('carries the hint naming the rows it fills', () => {
+      renderDialog()
+      expect(screen.getByText('For rows that print no project number')).toBeTruthy()
+    })
+
+    it('typing fills only the rows that print no project number, in their label', () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('85', null), printed('110', '23.15-002')], unknown: [] },
+      }
+      renderDialog()
+      fireEvent.change(field(), { target: { value: '23.15-006' } })
+      const rows = screen.getAllByTestId('cpt-pdf-row-campaign')
+      expect(rows[0].textContent).toContain('23.15-006-S85')
+      expect(rows[1].textContent).toContain('23.15-002-S110')
+      expect(rows[1].textContent).not.toContain('23.15-006')
+    })
+
+    it('the import body carries the typed number for those rows only', async () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('85', null), printed('110', '23.15-002')], unknown: [] },
+      }
+      importSoundings.mockResolvedValue({ results: [result('85', 'imported'), result('110', 'imported')] })
+      const { onImported } = renderDialog()
+      fireEvent.change(field(), { target: { value: ' 23.15-006 ' } })
+      fireEvent.click(screen.getByTestId('cpt-pdf-import'))
+      await waitFor(() => expect(onImported).toHaveBeenCalled())
+      const body = importSoundings.mock.calls[0][0]
+      expect(body.headers['85']).toEqual({ project_number: '23.15-006' })
+      expect(body.headers['110']).toBeUndefined()
+    })
+
+    it('an empty field sends no project number', async () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('85', null)], unknown: [] },
+      }
+      importSoundings.mockResolvedValue({ results: [result('85', 'imported')] })
+      const { onImported } = renderDialog()
+      fireEvent.click(screen.getByTestId('cpt-pdf-import'))
+      await waitFor(() => expect(onImported).toHaveBeenCalled())
+      expect(importSoundings.mock.calls[0][0].headers['85']).toBeUndefined()
+    })
+  })
 })
