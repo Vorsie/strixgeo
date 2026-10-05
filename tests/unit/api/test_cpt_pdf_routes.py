@@ -46,7 +46,10 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_store import (
 from groundmodel.infrastructure.parsers.cpt.pdf.report_fingerprint import ReportFingerprint
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
-from groundmodel.shared.exceptions import CptRefreshConfirmationRequiredError
+from groundmodel.shared.exceptions import (
+    CptRefreshConfirmationRequiredError,
+    TriageCancelled,
+)
 
 from ..infrastructure.parsers.cpt.pdf import _synthetic_cpt_pdf as synth
 
@@ -60,14 +63,25 @@ def report_bytes() -> bytes:
     return bytes(doc.tobytes())
 
 
+# What the last fake triage was handed (stop flag, OCR cache), for the tests.
+_LAST_RUN: dict[str, Any] = {}
+
+
 class _FakeTriager:
     """Stands in for PdfReportTriager: ticks progress, returns a canned triage."""
 
     def run(
-        self, doc: pymupdf.Document, file_sha: str, progress: Any = None
+        self,
+        doc: pymupdf.Document,
+        file_sha: str,
+        progress: Any = None,
+        should_stop: Any = None,
+        ocr_cache: Any = None,
     ) -> tuple[PdfReportDigest, dict[str, DigitisedSounding]]:
+        _LAST_RUN.update(should_stop=should_stop, ocr_cache=ocr_cache)
         if progress is not None:
             progress("classify", 1, 1)
+            progress("classify", 1, 1, ocr=True)
             progress("digitise", 1, 1)
         sounding = CptPdfDigitiser(ocr=False).digitise_page(doc, 1)
         listed = ReportSounding(
@@ -140,11 +154,47 @@ def test_triage_runs_as_a_job_and_streams_progress_then_the_digest(
     """202 + job id + the file's sha256; the stream ticks, then carries the digest."""
     sha, events = _triage(client, report_bytes)
     assert sha == hashlib.sha256(report_bytes).hexdigest()
-    assert {"phase": "classify", "done": 1, "total": 1} in events
+    assert {"phase": "classify", "done": 1, "total": 1, "ocr": False} in events
     done = events[-1]
     assert done["type"] == "done"
     assert [s["sounding_id"] for s in done["result"]["campaign"]] == ["S1"]
     assert done["result"]["desk_study_ids"] == ["GEO-22/040-S2"]
+
+
+def test_a_tick_says_when_ocr_is_what_the_triage_is_doing(
+    client: TestClient, report_bytes: bytes
+) -> None:
+    """Additive ``ocr`` flag next to phase / done / total (old clients ignore it)."""
+    _, events = _triage(client, report_bytes)
+    assert {"phase": "classify", "done": 1, "total": 1, "ocr": True} in events
+
+
+def test_the_triage_job_hands_the_worker_a_stop_flag_and_the_reports_ocr_cache(
+    client: TestClient, report_bytes: bytes
+) -> None:
+    """The worker can be stopped (closing the dialog) and reuses the OCR words on disk."""
+    _LAST_RUN.clear()
+    _triage(client, report_bytes)
+    assert callable(_LAST_RUN["should_stop"])
+    assert _LAST_RUN["should_stop"]() is False
+    assert _LAST_RUN["ocr_cache"] is not None
+
+
+class _CancelledTriager:
+    """A triage whose worker saw the stop flag after page 1 of 97."""
+
+    def run(self, doc: Any, file_sha: str, progress: Any = None, **_: Any) -> Any:
+        raise TriageCancelled(1, 97)
+
+
+def test_a_cancelled_triage_ends_quietly_not_as_an_error(
+    client: TestClient, report_bytes: bytes
+) -> None:
+    """A cancel is no failure: the stream ends ``cancelled``, never ``error``."""
+    client.app.dependency_overrides[cpt_pdf.get_pdf_triager_factory] = lambda: _CancelledTriager
+    _, events = _triage(client, report_bytes)
+    assert events[-1] == {"type": "cancelled"}
+    assert not any(e.get("type") == "error" for e in events)
 
 
 def test_a_file_that_is_not_a_pdf_is_refused(client: TestClient) -> None:
