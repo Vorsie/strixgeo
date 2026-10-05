@@ -183,3 +183,46 @@ def test_a_continuation_sheet_finds_its_sounding_across_a_sheet_in_between() -> 
         ("66", (210, 211)),
         ("68", (214, 216)),
     ]
+
+
+def test_a_two_sheet_sounding_printed_twice_is_one_sounding() -> None:
+    """A whole sounding printed twice is one sounding; both repeated sheets are dropped.
+
+    CAMZ-001 2.3 prints sounding 150 on pp. 265-266 (0-32.9 m, then 32.1-47.5 m)
+    and again on pp. 267-268, sheet for sheet. The repeat of the second sheet
+    covers depth the sounding already has: it is a duplicate, not a second
+    sounding 150 (owner 2026-09-30: "a sheet printed twice is dropped with a
+    notice").
+    """
+    repeats: list[tuple[DigitisedSounding, DigitisedSounding]] = []
+    merged = merge_continuations(
+        [
+            _sheet("147", 264, 6.75, 1.02, 31.13),
+            _sheet("150", 265, 6.10, 0.0, 32.94),
+            _sheet("150", 266, 6.10, 32.1, 47.45),
+            _sheet("150", 267, 6.10, 0.0, 32.94),  # the first sheet again
+            _sheet("150", 268, 6.10, 32.1, 47.45),  # the second sheet again
+            _sheet("151", 271, 6.63, 0.0, 32.73),
+        ],
+        repeats=repeats,
+    )
+    assert [(s.sounding_id, s.page_numbers) for s in merged] == [
+        ("147", (264,)),
+        ("150", (265, 266)),
+        ("151", (271,)),
+    ]
+    assert [(d.page_numbers, k.page_numbers) for d, k in repeats] == [
+        ((267,), (265, 266)),
+        ((268,), (265, 266)),
+    ]
+
+
+def test_a_continuation_that_runs_deeper_is_no_repeat() -> None:
+    """Guard: a sheet of the same id that adds depth joins; only covered depth repeats."""
+    merged = merge_continuations(
+        [
+            _sheet("150", 265, 6.10, 0.0, 32.94),
+            _sheet("150", 266, 6.10, 32.1, 47.45),
+        ]
+    )
+    assert [(s.sounding_id, s.page_numbers) for s in merged] == [("150", (265, 266))]
