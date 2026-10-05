@@ -18,9 +18,11 @@ from . import _synthetic_cpt_pdf as synth
 SOUP = ";<=>&?"
 
 
-def add_garbled_cpt_page(doc: pymupdf.Document) -> None:
+def add_garbled_cpt_page(
+    doc: pymupdf.Document, spec: synth.SyntheticPageSpec | None = None
+) -> None:
     """Append a CPT sheet whose text layer is mostly symbol soup (letter share ~0.3)."""
-    page = synth.draw_cpt_page(doc)
+    page = synth.draw_cpt_page(doc, spec)
     for i in range(40):
         page.insert_text((60 + (i % 8) * 60, 20 + (i // 8) * 8), SOUP, fontsize=5)
 
