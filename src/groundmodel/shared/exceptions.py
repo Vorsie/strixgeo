@@ -431,6 +431,31 @@ class DuplicateImportJobError(GroundModelError):
         self.job_id = job_id
 
 
+class TriageCancelled(GroundModelError):
+    """Raised inside a PDF report triage when the user cancelled it.
+
+    The triage runs in an ``asyncio.to_thread`` worker that cancelling the
+    awaiting task cannot stop, so the stop is COOPERATIVE: the job's
+    :class:`threading.Event` is checked between pages (classify and digitise
+    passes) and between the OCR strips of one page. Deliberately NOT a
+    ``ValueError``: the digitise loop catches ``ValueError`` per sheet and
+    would read on.
+
+    Parameters
+    ----------
+    done : int
+        Pages (or sheets) finished before the stop.
+    total : int
+        Pages (or sheets) the pass had.
+    """
+
+    def __init__(self, done: int, total: int) -> None:
+        """Initialise with how far the pass got."""
+        super().__init__(f"triage cancelled after page {done} of {total}")
+        self.done = done
+        self.total = total
+
+
 class BuildCancelled(GroundModelError):
     """Raised inside a voxel 3-D build when a cooperative cancel is requested.
 
