@@ -91,6 +91,11 @@ class SyntheticPageSpec:
     x: float | None = None
     y: float | None = None
     test_date: str | None = None
+    # Deepest drawn scan: a refusal sheet ("Obstakel") stops after a metre.
+    last_depth_m: float = LAST_DEPTH_M
+    # False prints only the tick numbers: no axis titles, no sounding block
+    # (what survives of a sheet whose font has no Unicode map).
+    words: bool = True
 
 
 def _qc_polyline(depths: list[float], clip_crossings: bool) -> list[tuple[float, float]]:
@@ -127,14 +132,15 @@ def draw_cpt_page(doc: pymupdf.Document, spec: SyntheticPageSpec | None = None) 
         shape.draw_line((x_qc(0.0), y_depth(m)), (x_qc(QC_MAX), y_depth(m)))
         shape.draw_line((x_fs(0.0), y_depth(m)), (x_fs(FS_MAX), y_depth(m)))
     shape.finish(color=GRID_COLOUR, width=0.5)
-    depths = truth_depths()
+    depths = [d for d in truth_depths() if d <= spec.last_depth_m + 1e-9]
     shape.draw_polyline(_qc_polyline(depths, spec.clip_crossings))
     shape.finish(color=QC_COLOUR, width=0.84, closePath=False)
     shape.draw_polyline([(x_fs(fs_truth(d)), y_depth(d)) for d in depths])
     shape.finish(color=FS_COLOUR, width=0.84, closePath=False)
     shape.commit()
-    page.insert_text((QC_X0, 62), "Conusweerstand (MPa)", fontsize=8)
-    page.insert_text((FS_X0, 62), "Plaatselijke wrijving (MPa)", fontsize=8)
+    if spec.words:
+        page.insert_text((QC_X0, 62), "Conusweerstand (MPa)", fontsize=8)
+        page.insert_text((FS_X0, 62), "Plaatselijke wrijving (MPa)", fontsize=8)
     for v in qc_ticks:
         _centred(page, x_qc(v) + spec.qc_label_shift, 80, f"{v:g}")
     for v in fs_ticks:
@@ -143,6 +149,8 @@ def draw_cpt_page(doc: pymupdf.Document, spec: SyntheticPageSpec | None = None) 
         label = f"{m:g}"
         width = pymupdf.get_text_length(label, fontsize=7)
         page.insert_text((50 - width, y_depth(m) + 2.5), label, fontsize=7)
+    if not spec.words:
+        return page
     page.insert_text((14, 450), "Diepte (m)", fontsize=8, rotate=90)
     lines = [
         spec.company,
