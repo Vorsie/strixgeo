@@ -252,7 +252,7 @@ const RECENT_PROJECT_PATH_MAX_LEN = 1024
 const RECENT_PROJECT_ISO_MAX_LEN = 64
 
 /**
- * Whether the "Show log file…" menu item — which reveals the RAW,
+ * Whether the "Open log folder" menu item — which reveals the RAW,
  * un-redacted ``backend.log`` in the OS file browser — should exist.
  *
  * ``backend.log`` is the backend's own stdout: it carries the asyncpg DSN
