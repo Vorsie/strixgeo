@@ -4,6 +4,8 @@
 // 'unknown' group the user can tick". Owner answer 2: desk-study reprints are
 // named once — "Not imported, look these up yourself: GEO-22/040-S2, …".
 
+import type { ComponentProps } from 'react'
+
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -85,18 +87,28 @@ function digest(overrides: Partial<CptPdfDigest> = {}): CptPdfDigest {
   }
 }
 
-function renderList(d: CptPdfDigest, selected: string[], onToggle = vi.fn(), onCalibrate = vi.fn()) {
+function renderList(
+  d: CptPdfDigest,
+  selected: string[],
+  onToggle = vi.fn(),
+  onCalibrate = vi.fn(),
+  extra: Partial<ComponentProps<typeof CptPdfTriageList>> = {},
+) {
+  const onProjectNumberChange = vi.fn()
   render(
     <CptPdfTriageList
       digest={d}
       projectId="p1"
       selected={new Set(selected)}
       edited={new Set()}
+      projectNumber=""
+      onProjectNumberChange={onProjectNumberChange}
       onToggle={onToggle}
       onCalibrate={onCalibrate}
+      {...extra}
     />,
   )
-  return { onToggle, onCalibrate }
+  return { onToggle, onCalibrate, onProjectNumberChange }
 }
 
 describe('CptPdfTriageList', () => {
@@ -246,5 +258,29 @@ describe('CptPdfTriageList', () => {
   it('without OCR it tells the user to type the axis values', () => {
     renderList(digest({ ocr_available: false }), ['110'])
     expect(screen.getByTestId('cpt-pdf-ocr-unavailable').textContent).toMatch(/tick reading unavailable/i)
+  })
+
+  // Owner ruling 2026-10-05 (a): the "Projectnummer" field under the summary.
+  it('in Dutch the field reads "Projectnummer" with the hint "Voor rijen zonder gedrukt projectnummer"', () => {
+    setLanguage('nl')
+    renderList(digest(), ['110'])
+    expect(screen.getByText('Projectnummer')).toBeTruthy()
+    expect(screen.getByText('Voor rijen zonder gedrukt projectnummer')).toBeTruthy()
+  })
+
+  it('typing in the field reports the value to the dialog', () => {
+    const { onProjectNumberChange } = renderList(digest(), ['110'])
+    fireEvent.change(screen.getByTestId('cpt-pdf-project-number'), { target: { value: '23.15-006' } })
+    expect(onProjectNumberChange).toHaveBeenCalledWith('23.15-006')
+  })
+
+  it('a project number typed for one row wins over the field', () => {
+    renderList(digest({ campaign: [sounding('85')] }), ['85'], vi.fn(), vi.fn(), {
+      projectNumber: '23.15-006',
+      headers: { '85': { project_number: '24.13-005' } },
+    })
+    const row = screen.getAllByTestId('cpt-pdf-row-campaign')[0]
+    expect(row.textContent).toContain('24.13-005-S85')
+    expect(row.textContent).not.toContain('23.15-006')
   })
 })
