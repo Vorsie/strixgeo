@@ -5,7 +5,10 @@
  * ``running`` (classify every page, then digitise the offered sheets; each
  * tick carries ``phase / done / total``) → ``done`` (the digest the dialog
  * lists) or ``error``. Same job + SSE pattern as the DOV import
- * (``useDovImportStream``), through the shared ``readSseEvents`` reader.
+ * (``useDovImportStream``), through the shared ``readSseEvents`` reader. A
+ * tick may say ``ocr: true``: the sheets' title strips go through OCR (seconds
+ * per sheet, the slow part), and the dialog says so. A ``cancelled`` terminal
+ * event (the backend stopped the triage) ends quietly in ``idle``.
  *
  * Spawn or attach: the backend keys a triage job on the project and the
  * report's SHA-256, so a second upload of a report whose triage still runs is
@@ -37,7 +40,14 @@ export type CptPdfTriagePhase = 'classify' | 'digitise'
 export type CptPdfTriageState =
   | { status: 'idle' }
   | { status: 'uploading' }
-  | { status: 'running'; phase: CptPdfTriagePhase | null; done: number; total: number }
+  | {
+      status: 'running'
+      phase: CptPdfTriagePhase | null
+      done: number
+      total: number
+      /** True while OCR is what the triage is doing (absent on older backends). */
+      ocr?: boolean
+    }
   | { status: 'done'; digest: CptPdfDigest }
   | { status: 'error'; message: string }
 
@@ -56,7 +66,8 @@ export interface UseCptPdfTriageResult {
  * @param jobId - The triage job to follow.
  * @param signal - Aborts the stream (a superseded or reset triage).
  * @param onProgress - Called with every ``running`` tick.
- * @returns The terminal state: ``done`` with the digest, or ``error``.
+ * @returns The terminal state: ``done`` with the digest, ``error``, or ``idle``
+ *   when the backend reports the triage ``cancelled``.
  * @throws AbortError when ``signal`` aborts; any network failure.
  */
 async function drainTriageStream(
@@ -83,6 +94,10 @@ async function drainTriageStream(
       )
       return { status: 'done', digest }
     }
+    if (event.type === 'cancelled') {
+      log.info('cpt-pdf', `triage job ${jobId} cancelled`)
+      return { status: 'idle' }
+    }
     if (event.type === 'error') {
       const msg =
         messageForApiCode(event.code as string | undefined) ??
@@ -97,6 +112,7 @@ async function drainTriageStream(
         phase: event.phase as CptPdfTriagePhase,
         done: (event.done as number) ?? 0,
         total: (event.total as number) ?? 0,
+        ocr: event.ocr === true,
       })
     }
   }
