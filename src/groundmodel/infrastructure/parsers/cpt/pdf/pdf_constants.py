@@ -181,6 +181,20 @@ OCR_AXIS_TOP_SHARE = 0.15
 OCR_AXIS_LEFT_SHARE = 0.1
 OCR_AXIS_DPI = 300
 
+# ONNX runtime threads per RapidOCR model. The default (-1) takes every
+# logical core; measured on the owner's 2.3 report (i7-13700HX, 24 logical
+# cores, 8 sheets x 2 title strips, 2026-10-05) 8 threads read a sheet in a
+# median 3.4 s against 5.1 s at the default, with byte-identical words. Half
+# the logical cores, capped here, keeps a 4-core laptop off oversubscription.
+OCR_MAX_THREADS = 8
+
+# The OCR word cache file next to a stored report, and its format version. Bump
+# the version when the OCR settings change what the engine reads (dpi, strips,
+# thread-independent model options): an older cache is then ignored, not
+# trusted.
+OCR_CACHE_SUFFIX = ".ocr.json"
+OCR_CACHE_VERSION = 1
+
 # Prose: this many words and no stronger evidence.
 MIN_PROSE_WORDS = 120
 
