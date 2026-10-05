@@ -37,8 +37,8 @@ export interface MenuTemplateDeps {
   recent: readonly MenuRecentEntry[]
   /** One-way main -> renderer fire, e.g. ``send('menu:project-new')``. */
   send: (channel: string, ...args: unknown[]) => void
-  /** Reveal the logs directory (main-side ``shell.openPath``). Dev only. */
-  onShowLogFile: () => void
+  /** Open the logs directory (main-side ``shell.openPath``). Dev only. */
+  onOpenLogFolder: () => void
   /** Write and offer the redacted diagnostics bundle (main-side). */
   onSaveLogsForSupport: () => void
   /** Show the native About dialog (main-side). */
@@ -205,14 +205,14 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
           label: menuLabel('checkUpdates', language),
           click: () => send('menu:check-updates'),
         },
-        // #214d — reveal the logs directory (raw ``backend.log``). Dev only:
+        // #214d — open the logs directory (raw ``backend.log``). Dev only:
         // that file is un-redacted (asyncpg DSN, raw paths), so a packaged build
         // never offers it — the redacted bundle below is the only log export.
         ...(rawBackendLogAffordance
           ? [
               {
-                label: menuLabel('showLogFile', language),
-                click: (): void => deps.onShowLogFile(),
+                label: menuLabel('openLogFolder', language),
+                click: (): void => deps.onOpenLogFolder(),
               },
             ]
           : []),
