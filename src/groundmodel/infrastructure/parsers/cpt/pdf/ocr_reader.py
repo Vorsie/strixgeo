@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import os
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
 import pymupdf
 
+from groundmodel.infrastructure.parsers.cpt.pdf.ocr_word_cache import OcrWordCache
 from groundmodel.infrastructure.parsers.cpt.pdf.page_word import PageWord
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     OCR_AXIS_DPI,
@@ -14,10 +20,19 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     OCR_AXIS_TOP_SHARE,
     OCR_BOTTOM_STRIP,
     OCR_DPI,
+    OCR_MAX_THREADS,
     OCR_TOP_STRIP,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
+from groundmodel.shared.exceptions import TriageCancelled
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# The RapidOCR engine of this process. Loading its three ONNX models takes
+# seconds (30 s in the owner's log of 2026-10-05, next to a running triage):
+# every triage job builds its own OcrReader, so the engine lives here, loaded
+# once per process. ONNX runtime sessions are safe to call from two threads.
+_SHARED_ENGINE: Any = None
+_SHARED_ENGINE_LOCK = threading.Lock()
 
 
 class OcrReader(GroundModelLogger):
@@ -25,16 +40,66 @@ class OcrReader(GroundModelLogger):
 
     OCR is optional: the digitiser works without it (a raster calibration then
     starts as a draft the user completes). The engine is created lazily on
-    first use, because loading its models takes a few seconds.
+    first use, because loading its models takes a few seconds, and shared by
+    every reader of the process.
 
     RapidOCR returns text lines; they are split into words with boxes placed
     proportionally to character positions, so the geometric field reader and
     tick-run finder see words as they do on a text layer.
+
+    Within a :meth:`session` the page-region reads go through a word cache
+    (a region read once is never OCR'd again) and check a stop flag before
+    every region (a cancelled triage stops between two strips of a page).
+
+    Parameters
+    ----------
+    engine : object or None
+        A ready engine (tests pass a fake); the process-wide RapidOCR engine
+        when None.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, engine: Any = None) -> None:
         super().__init__(__name__)
-        self._engine: Any = None
+        self._engine: Any = engine
+        self._cache: OcrWordCache | None = None
+        self._should_stop: Callable[[], bool] | None = None
+        # Engine calls made (cache hits excluded): the triager compares it
+        # before and after a page to know whether that page went through OCR.
+        self.engine_calls = 0
+        self.engine_seconds = 0.0
+
+    @contextmanager
+    def session(
+        self,
+        cache: OcrWordCache | None = None,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> Iterator[OcrReader]:
+        """Read through ``cache`` and honour ``should_stop`` inside the ``with`` block.
+
+        A None argument keeps what an enclosing session set, so the triager's
+        session (cache + stop flag) survives the page triage's own one.
+
+        Parameters
+        ----------
+        cache : OcrWordCache or None
+            Where region words are looked up first and remembered.
+        should_stop : callable or None
+            Checked before every region; True raises ``TriageCancelled``.
+
+        Yields
+        ------
+        OcrReader
+            This reader.
+        """
+        previous = (self._cache, self._should_stop)
+        if cache is not None:
+            self._cache = cache
+        if should_stop is not None:
+            self._should_stop = should_stop
+        try:
+            yield self
+        finally:
+            self._cache, self._should_stop = previous
 
     @staticmethod
     def available() -> bool:
@@ -70,7 +135,10 @@ class OcrReader(GroundModelLogger):
             When the OCR engine is not installed.
         """
         engine = self._get_engine()
+        started = time.perf_counter()
         result, _ = engine(np.ascontiguousarray(image[:, :, ::-1]))  # RapidOCR expects BGR
+        self.engine_calls += 1
+        self.engine_seconds += time.perf_counter() - started
         words: list[PageWord] = []
         for box, text, _score in result or []:
             xs = [float(p[0]) for p in box]
@@ -97,11 +165,26 @@ class OcrReader(GroundModelLogger):
         -------
         list of PageWord
             Words with boxes in the page's PDF-point space.
+
+        Raises
+        ------
+        TriageCancelled
+            When the session's stop flag is up (the user cancelled).
         """
+        number = page.number + 1
+        if self._should_stop is not None and self._should_stop():
+            self.info("triage cancelled during the OCR of page %d", number)
+            raise TriageCancelled(number - 1, page.parent.page_count)
+        key = OcrWordCache.key(number, clip, dpi)
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if cached is not None:
+                self.trace("page %d: OCR words of region %s from the cache", number, key)
+                return cached
         pix = page.get_pixmap(dpi=dpi, clip=clip, alpha=False)
         image = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)
         scale = 72.0 / dpi
-        return [
+        words = [
             PageWord(
                 clip.x0 + w.x0 * scale,
                 clip.y0 + w.y0 * scale,
@@ -111,6 +194,9 @@ class OcrReader(GroundModelLogger):
             )
             for w in self.read_image(image[:, :, :3].copy())
         ]
+        if self._cache is not None:
+            self._cache.put(key, words)
+        return words
 
     def read_page(self, page: pymupdf.Page, dpi: int = 200) -> list[PageWord]:
         """OCR a whole page; return words in PDF points.
@@ -184,17 +270,39 @@ class OcrReader(GroundModelLogger):
         return words
 
     def _get_engine(self) -> Any:
-        """Create the RapidOCR engine on first use."""
+        """Return this reader's engine: the injected one, else the process-wide one."""
+        global _SHARED_ENGINE
         if self._engine is None:
-            try:
-                from rapidocr_onnxruntime import RapidOCR
-            except ImportError as exc:  # pragma: no cover - depends on the environment
-                raise RuntimeError(
-                    "OCR needs the rapidocr-onnxruntime package (uv add rapidocr-onnxruntime)"
-                ) from exc
-            self.info("loading the RapidOCR engine")
-            self._engine = RapidOCR()
+            with _SHARED_ENGINE_LOCK:
+                if _SHARED_ENGINE is None:
+                    self.info("loading the RapidOCR engine (once per process)")
+                    started = time.perf_counter()
+                    _SHARED_ENGINE = _load_rapidocr()
+                    self.info("RapidOCR engine loaded in %.1f s", time.perf_counter() - started)
+                self._engine = _SHARED_ENGINE
         return self._engine
+
+
+def _ocr_threads() -> int:
+    """Return the ONNX runtime threads per model: half the logical cores, capped."""
+    return max(1, min(OCR_MAX_THREADS, (os.cpu_count() or 2) // 2))
+
+
+def _load_rapidocr() -> Any:
+    """Load the RapidOCR engine (its three ONNX models).
+
+    Raises
+    ------
+    RuntimeError
+        When the optional ``pdf-ocr`` extra is not installed.
+    """
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise RuntimeError(
+            "OCR needs the rapidocr-onnxruntime package (uv add rapidocr-onnxruntime)"
+        ) from exc
+    return RapidOCR(intra_op_num_threads=_ocr_threads())
 
 
 def _split_line(x0: float, y0: float, x1: float, y1: float, text: str) -> list[PageWord]:
