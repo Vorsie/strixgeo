@@ -40,7 +40,7 @@ import {
 import { DiagnosticsUploader } from './diagnosticsUploader'
 import { diagnosticsIdentityFor } from './diagnosticsPayload'
 import { DIAGNOSTICS_QUEUE_DIR_NAME } from './diagnosticsUploaderConstants'
-import { createRotatingAppender, rotateIfNeeded, realFsOps } from './logRotation'
+import { bootMainLog, createMainLog, pipeBackendOutput } from './mainLog'
 import { registerSheetPdfIpc } from './sheetPdf'
 import {
   LOCAL_CLIENT_TOKEN_ENV_VAR,
@@ -50,11 +50,7 @@ import {
   mintLocalClientToken,
 } from './localClientToken'
 import { QuitHandshake } from './quitHandshake'
-import {
-  consoleMethodForLevel,
-  formatRendererMessage,
-  shouldForwardRendererMessage,
-} from './rendererConsoleForwarding'
+import { forwardRendererMessage } from './rendererConsoleForwarding'
 import {
   configureRecoveryStore,
   declineRecovery,
@@ -213,10 +209,6 @@ const API_BASE = `http://127.0.0.1:${API_PORT}`
 // Minted once at module load, before anything can spawn or fetch.
 const localClientToken = mintLocalClientToken()
 
-// Log rotation constants (#214c) — 5 MB max, 3 backup generations.
-const LOG_MAX_BYTES = 5 * 1024 * 1024
-const LOG_MAX_FILES = 3
-
 let apiProcess: ChildProcess | null = null
 // Readiness windows the current engine spawn has consumed. Reset per spawn so
 // a respawn gets its own budget; bounded by BACKEND_READY_MAX_WINDOWS so a
@@ -245,16 +237,11 @@ let menuLanguage: MenuLanguage = 'en'
 // "renderer gone") would make the NEXT window close without ever asking.
 let quitHandshake = new QuitHandshake()
 
-// Absolute path to the main log file. Set once in startApi (packaged) or
-// left null in dev. Exposed to the main-process crash handlers so they can
-// write a timestamped crash line even when no stream is open.
-let mainLogPath: string | null = null
-
-// The size-bounded appender for the main log (M8/L1). Set alongside mainLogPath
-// in openMainLog; re-checks the file size every N appended bytes and rotates
-// mid-session, so a long verbose run no longer grows backend.log past the cap
-// until the next restart. Null in dev (writeMainLog falls back to the console).
-let mainLogAppend: ((line: string) => void) | null = null
+// The main log, ``backend.log`` under ``app.getPath('logs')`` (./mainLog). Opened
+// at boot in dev (and echoed to the terminal), by the packaged boot stages in a
+// packaged build (file only - backend stdout carries the DSN, debt #200 F5).
+// ``mainLog.path`` stays null until it is open; the crash handlers read it.
+const mainLog = createMainLog({ echoToConsole: !app.isPackaged })
 
 // Set by startApi after the ChildProcess is spawned. Called by the
 // api:ready handler so the exit listener knows the backend started cleanly
@@ -294,57 +281,14 @@ let shuttingDown = false
 // enough to let the port free up, short enough to be invisible to the user.
 const BACKEND_RESPAWN_BACKOFF_MS = 1_000
 
-/**
- * Open the packaged build's backend log, rotating it first if it has grown
- * past the cap.
- *
- * #214c — 5 MB max, 3 backup generations. Rotation happens once, here; the
- * old contents live in .1 / .2.
- */
+/** Open the main log in the app's logs directory (rotation lives in ./mainLog). */
 function openMainLog(): void {
-  const logsDir = app.getPath('logs')
-  mkdirSync(logsDir, { recursive: true })
-  const logPath = join(logsDir, 'backend.log')
-  const fs = realFsOps()
-  // Launch-time rotation: a stale over-cap file from the previous run rolls to
-  // .1 before the first line lands.
-  rotateIfNeeded(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, fs)
-  // Mid-session rotation (M8/L1): every writeMainLog goes through this appender,
-  // which re-checks the size periodically and rotates when the cap is crossed —
-  // so a long verbose session cannot grow the active log without bound.
-  mainLogAppend = createRotatingAppender(logPath, LOG_MAX_BYTES, LOG_MAX_FILES, {
-    fs,
-    append: (p, text) => appendFileSync(p, text),
-  })
-  mainLogPath = logPath
+  mainLog.open(app.getPath('logs'))
 }
 
-/**
- * Append to the backend log (packaged) or the console (dev).
- *
- * Backend and database stdout carry the DSN, which includes this install's
- * generated password — so in a packaged build it must never reach the
- * renderer console (debt #200 F5).
- *
- * Synchronous on purpose. This used to be a buffered ``WriteStream``, and the
- * first time a packaged build failed to start, the log it told the user to
- * send back was zero bytes: the process died with every line still in the
- * stream's buffer. A startup log that survives only a graceful exit is
- * useless precisely when it is needed, and the volume here — a boot log plus
- * backend stdout — does not justify the risk.
- */
+/** Append one line to the main log (file; plus the terminal in dev). */
 function writeMainLog(line: string): void {
-  if (mainLogAppend === null) {
-    console.log(line)
-    return
-  }
-  try {
-    // The appender writes the trailing newline itself and rotates when the file
-    // crosses the cap (M8/L1).
-    mainLogAppend(line)
-  } catch {
-    // A log write must never be the thing that takes the app down.
-  }
+  mainLog.write(line)
 }
 
 // ---------------------------------------------------------------------------
@@ -409,26 +353,15 @@ function startApi(): void {
   })
 
   // Backend stdout/stderr carry the asyncpg DSN (groundmodel:groundmodel@…)
-  // plus every backend log line. In a packaged build View → Toggle DevTools
-  // stays enabled, so echoing these to the renderer console would leak the DB
-  // connection string to any user who opens DevTools (debt #200 F5). Route
-  // them to a log file under the app's logs dir in production; keep the
-  // console in dev for fast iteration.
+  // plus every backend log line. They go to backend.log in both build kinds;
+  // only dev echoes them to the terminal (debt #200 F5, see ./mainLog).
   //
-  // Opened once per launch (see openMainLog for the rotation), and normally
-  // already open by now: the embedded database boots first and its stage log
-  // is the first thing written, so a launch reads in order.
-  if (app.isPackaged && mainLogPath === null) openMainLog()
+  // Normally already open by now: dev opens it at boot, and a packaged launch
+  // opens it when the embedded database boots, so a launch reads in order.
+  if (app.isPackaged && mainLog.path === null) openMainLog()
   const writeLog = writeMainLog
 
-  apiProcess.stdout?.on('data', (d: Buffer) => {
-    if (mainLogPath) writeMainLog(`[api] ${d.toString().trimEnd()}`)
-    else console.log('[api]', d.toString().trim())
-  })
-  apiProcess.stderr?.on('data', (d: Buffer) => {
-    if (mainLogPath) writeMainLog(`[api:err] ${d.toString().trimEnd()}`)
-    else console.error('[api]', d.toString().trim())
-  })
+  pipeBackendOutput(apiProcess, mainLog)
 
   // Track whether the backend ever became ready so we can distinguish a
   // startup crash (exit before ready) from a normal shutdown (exit after
@@ -677,7 +610,7 @@ function relocateMachineLocalStores(): void {
   })
   if (localRoot === null) return // dev / isolated / no %LOCALAPPDATA% → keep Roaming
   // Open the boot log first so the relocation is recorded in backend.log.
-  if (mainLogPath === null) openMainLog()
+  if (mainLog.path === null) openMainLog()
   const roamingPgdata = join(app.getPath('userData'), 'pgdata')
   const localPgdata = join(localRoot, 'pgdata')
   const result = migratePgdata(roamingPgdata, localPgdata, realPgdataFsOps(), writeMainLog)
@@ -707,7 +640,7 @@ function showBootFailureAndQuit(failure: BootFailure): void {
   // intact and the cure is to install the current build. Any other failure
   // keeps the stage sentence + technical message.
   const tailored = tailoredBootFailureCopy(failure)
-  const detailsPath = mainLogPath ?? app.getPath('logs')
+  const detailsPath = mainLog.path ?? app.getPath('logs')
   dialog.showErrorBox(
     tailored?.title ?? 'StrixGeo could not start',
     tailored
@@ -741,7 +674,7 @@ function showBootFailureAndQuit(failure: BootFailure): void {
  *   false when preparation failed and the app is quitting.
  */
 async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<boolean> {
-  if (mainLogPath === null) openMainLog()
+  if (mainLog.path === null) openMainLog()
   const outcome = await coordinatePackagedBoot<EmbeddedStackPrep>({
     prepare: () =>
       prepareEmbeddedStack(process.resourcesPath, app.getPath('userData'), writeMainLog),
@@ -1000,10 +933,9 @@ function createWindow(): void {
   // Dogfeed 2026-05-23: Robin hit a boot-time crash loop with no
   // visible diagnostics; this surfaces the why in his terminal.
   win.webContents.on('render-process-gone', (_event, details) => {
-    // eslint-disable-next-line no-console
-    console.error(
-      `[main] renderer process gone — reason=${details.reason} ` +
-        `exitCode=${details.exitCode}`,
+    mainLog.write(
+      `[main] renderer process gone — reason=${details.reason} exitCode=${details.exitCode}`,
+      'error',
     )
     captureDiagnostic(
       {
@@ -1024,8 +956,7 @@ function createWindow(): void {
     // The crash-recovery offer on the reloaded document takes over from there.
     if (shouldReloadRendererAfterGone(details.reason, rendererReloadedAfterCrash)) {
       rendererReloadedAfterCrash = true
-      // eslint-disable-next-line no-console
-      console.error('[main] reloading the window once after a renderer crash')
+      mainLog.write('[main] reloading the window once after a renderer crash', 'error')
       win.reload()
     }
   })
@@ -1049,8 +980,7 @@ function createWindow(): void {
     // so an idle start-screen session no longer trips a false alarm.
   })
   win.webContents.on('unresponsive', () => {
-    // eslint-disable-next-line no-console
-    console.error('[main] renderer unresponsive (likely infinite loop or stuck await)')
+    mainLog.write('[main] renderer unresponsive (likely infinite loop or stuck await)', 'error')
     captureDiagnostic(
       {
         kind: 'renderer-unresponsive',
@@ -1072,11 +1002,10 @@ function createWindow(): void {
   // Never in a packaged build: there is no terminal to write to, and renderer
   // output is untrusted text that a shipped app has no reason to re-emit.
   if (!app.isPackaged) {
+    // Through the main log: the [ui ...] line lands in backend.log next to the
+    // [api] and [main] lines, and on the terminal (owner 2026-10-05).
     win.webContents.on('console-message', details => {
-      if (!shouldForwardRendererMessage(details)) return
-      const method = consoleMethodForLevel(details.level)
-      // eslint-disable-next-line no-console
-      console[method](formatRendererMessage(details))
+      forwardRendererMessage(details, mainLog.write)
     })
   }
 
@@ -1135,7 +1064,7 @@ function buildMenu(win: BrowserWindow): void {
     rawBackendLogAffordance: rawBackendLogAffordanceEnabled(app.isPackaged),
     recent: readRecentProjects(),
     send: (channel, ...args) => win.webContents.send(channel, ...args),
-    onShowLogFile: () => {
+    onOpenLogFolder: () => {
       // shell.openPath (not openExternal) — a local filesystem path, not a URL.
       void shell.openPath(app.getPath('logs'))
     },
@@ -1714,16 +1643,8 @@ ipcMain.handle(
       { kind: 'renderer-error', scope: 'renderer', message, stack: componentStack },
       'renderer',
     )
-    if (mainLogPath) {
-      try {
-        appendFileSync(mainLogPath, `${line}\n`)
-      } catch {
-        // Swallow — don't crash the main process on a log-write failure.
-      }
-    } else {
-      // eslint-disable-next-line no-console
-      console.error('[main] renderer error:', message, componentStack)
-    }
+    // File (+ terminal in dev); console only while the log is not open yet.
+    mainLog.write(line, 'error')
   },
 )
 
@@ -1784,8 +1705,7 @@ async function saveDiagnosticsBundle(win: BrowserWindow): Promise<void> {
     })
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
-    // eslint-disable-next-line no-console
-    console.error('[main] diagnostics bundle failed:', detail)
+    mainLog.write(`[main] diagnostics bundle failed: ${detail}`, 'error')
     dialog.showErrorBox('StrixGeo — could not save diagnostics', detail)
   }
 }
@@ -1835,8 +1755,7 @@ function startDiagnosticsUpload(): void {
     uploader.start()
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
-    // eslint-disable-next-line no-console
-    console.warn('[main] diagnostics upload wiring failed:', detail)
+    mainLog.write(`[main] diagnostics upload wiring failed: ${detail}`, 'warn')
   }
 }
 
@@ -1899,9 +1818,9 @@ function writeMainCrashLine(label: string, err: unknown): void {
     },
     'main',
   )
-  if (mainLogPath) {
+  if (mainLog.path) {
     try {
-      appendFileSync(mainLogPath, `${line}\n`)
+      appendFileSync(mainLog.path, `${line}\n`)
     } catch {
       // If we can't write the log, at least try the console.
     }
@@ -1996,6 +1915,9 @@ const BETA_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 // Read once, at module load: the stamp is compiled into the binary and cannot
 // change while the process runs.
+// Dev opens the main log here and prints its path once; a packaged build opens
+// it in its boot stages (./mainLog bootMainLog).
+bootMainLog({ packaged: app.isPackaged, logsDir: app.getPath('logs'), log: mainLog })
 {
   const provenance = compiledBuildProvenance()
   writeMainLog(`[boot] StrixGeo ${app.getVersion()} build ${provenance?.sha?.slice(0, 12) ?? 'dev'} (${provenance?.builtAt ?? 'unstamped'})`)
@@ -2044,8 +1966,7 @@ function refreshBetaVerdict(): BetaVerdict {
 
 /** Tell the user the beta is over, offer the renewal page, and quit. */
 function stopForExpiredBeta(verdict: BetaVerdict): void {
-  // eslint-disable-next-line no-console
-  console.warn(`[main] beta build blocked — ${verdict.reason}`)
+  mainLog.write(`[main] beta build blocked — ${verdict.reason}`, 'warn')
   const expiredOn = verdict.expiresAtMs ? new Date(verdict.expiresAtMs).toLocaleDateString() : ''
   const detail =
     verdict.state === 'clock-rollback'
@@ -2087,8 +2008,7 @@ function enforceBetaExpiry(): boolean {
   // MAIN_VITE_STRIX_BETA_EXPIRES_AT set (see ./buildStamp.ts).
   if (app.isPackaged && !betaBuildStamp) {
     const warning = 'packaged build carries no beta expiry stamp — it will never expire'
-    // eslint-disable-next-line no-console
-    console.warn(`[main] ${warning}`)
+    mainLog.write(`[main] ${warning}`, 'warn')
     captureDiagnostic({ kind: 'unknown', severity: 'warning', scope: 'beta', message: warning }, 'main')
   }
 
