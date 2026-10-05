@@ -19,11 +19,21 @@ the `/cpt/pdf/*` routes or the import dialog.
    5710), **position** (`X-/Y-COÖRDINAAT (Lambert72)` → EPSG 31370; RD →
    28992; a position whose system the sheet does not name is left unread,
    never guessed) and the printed date.
+   A sheet with a **short curve** (a refusal, "Obstakel", stopped after a
+   metre) is still a CPT sheet when it carries the **graph frame**
+   (`grid_line_helpers.has_graph_frame`: a depth axis down ≥ 30 % of the page
+   and ≥ 2 value panels, all with their tick labels on long grid lines). With
+   an unreadable text layer such a sheet's title strips go through OCR, which
+   names it; with no text evidence at all (no OCR) it is kept on geometry
+   alone (logged at INFO).
 2. **Report triage** (`PdfReportTriager`): desk-study sheets are **thrown away**
    (owner 2026-09-30) and listed once by id ("Not imported, look these up
    yourself: GEO-22/040-S2, …"); every campaign and unknown sheet is
    digitised; continuation sheets join their sounding; **a sheet printed twice
-   is dropped with a notice** (`merge_continuations(..., repeats=)`); a sheet
+   is dropped with a notice** (`merge_continuations(..., repeats=)`: a sheet of
+   a known id that starts where its sounding started, or lies wholly inside
+   the depth the sounding already covers, so a whole two-sheet sounding
+   printed twice drops both reprinted sheets); a sheet
    that cannot be read is named ("unread"). Output: `PdfReportDigest` (what the
    dialog lists) + the digitised soundings by key.
 3. **Calibrate + extract** per page: vector pages from the drawing commands
