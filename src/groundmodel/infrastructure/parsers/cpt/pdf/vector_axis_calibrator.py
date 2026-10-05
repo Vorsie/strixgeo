@@ -11,6 +11,11 @@ from groundmodel.infrastructure.parsers.cpt.pdf.axis_scale import AxisScale
 from groundmodel.infrastructure.parsers.cpt.pdf.colour_helpers import matches_colour
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
 from groundmodel.infrastructure.parsers.cpt.pdf.frame_rect import FrameRect
+from groundmodel.infrastructure.parsers.cpt.pdf.grid_line_helpers import (
+    best_label_shift,
+    grid_positions,
+    long_grid_lines,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile import LayoutProfile
 from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_constants import (
     UNIT_TO_STORAGE_FACTOR,
@@ -23,10 +28,8 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     AXIS_LABEL_BELOW_PT,
     AXIS_LABEL_REACH_PT,
     COLOUR_AXIS_SHARE,
-    GRID_LINE_MIN_LENGTH_PT,
     GRID_SNAP_TOLERANCE_PT,
     GRID_WALK_TOLERANCE_PT,
-    LABEL_SHIFT_PITCH_SHARE,
     MIN_CURVE_SEGMENTS,
     PDF_POINTS,
     UNIT_PATTERN,
@@ -112,7 +115,7 @@ class VectorAxisCalibrator(GroundModelLogger):
         runs = self._runs.find(content.words if tick_words is None else tick_words)
         meta_words = list(content.words if meta_words is None else meta_words)
         label_phrases = phrases(meta_words)
-        v_lines, h_lines = _long_lines(content)
+        v_lines, h_lines = long_grid_lines(content)
         assumptions: list[str] = []
 
         depth_run, depth_ref = self._pick_depth_run(runs)
@@ -274,79 +277,28 @@ class VectorAxisCalibrator(GroundModelLogger):
         return best[3], unit
 
 
-def _long_lines(content: VectorPageContent) -> tuple[np.ndarray, np.ndarray]:
-    """Return long vertical ``(x, y0, y1)`` and horizontal ``(y, x0, x1)`` lines."""
-    vertical, horizontal = content.axis_aligned()
-    s = content.segments
-    v = s[vertical]
-    h = s[horizontal]
-    v_lines = (
-        np.column_stack(
-            [(v[:, 0] + v[:, 2]) / 2, np.minimum(v[:, 1], v[:, 3]), np.maximum(v[:, 1], v[:, 3])]
-        )
-        if len(v)
-        else np.zeros((0, 3))
-    )
-    h_lines = (
-        np.column_stack(
-            [(h[:, 1] + h[:, 3]) / 2, np.minimum(h[:, 0], h[:, 2]), np.maximum(h[:, 0], h[:, 2])]
-        )
-        if len(h)
-        else np.zeros((0, 3))
-    )
-    v_lines = v_lines[v_lines[:, 2] - v_lines[:, 1] >= GRID_LINE_MIN_LENGTH_PT]
-    h_lines = h_lines[h_lines[:, 2] - h_lines[:, 1] >= GRID_LINE_MIN_LENGTH_PT / 2]
-    return v_lines, h_lines
-
-
 def _fit(run: TickRun, lines: np.ndarray, vertical: bool) -> tuple[AxisScale, str]:
     """Fit a scale on a run, snapping label centres to the grid lines under them.
 
-    For a horizontal axis the candidates are vertical lines whose extent comes
-    within reach of the label row; for a vertical axis horizontal lines whose
-    extent starts near the label column.
+    The candidate lines and the label shift come from :mod:`grid_line_helpers`
+    (shared with the triage's graph-frame test).
     """
-    if len(lines):
-        if vertical:
-            # A depth grid line starts just right of its label column.
-            near_run = (lines[:, 1] >= run.cross - 5.0) & (lines[:, 1] <= run.cross + 60.0)
-        else:
-            reach = AXIS_LABEL_REACH_PT + 15.0
-            near_run = (lines[:, 1] <= run.bottom + reach) & (lines[:, 2] >= run.top - reach)
-        positions = np.unique(np.round(lines[near_run, 0], 3))
-    else:
-        positions = np.zeros(0)
-    coords = np.asarray(run.coords, dtype=float)
-    if len(positions):
-        # Labels may sit a constant distance off their grid lines (the Van der
-        # Straaten CPTU sheets print the qc labels 5.7 pt right of the lines):
-        # find the one shift that puts most labels on a line, then snap.
-        pitch = float(np.median(np.abs(np.diff(coords)))) if len(coords) > 1 else 10.0
-        shifts = [
-            float(p - c)
-            for c in coords
-            for p in positions
-            if abs(p - c) <= LABEL_SHIFT_PITCH_SHARE * pitch
-        ]
-
-        def cost(shift: float) -> float:
-            return float(np.median([np.min(np.abs(positions - (c + shift))) for c in coords]))
-
-        if shifts:
-            best = min(shifts, key=lambda s: (round(cost(s), 3), abs(s)))
-            if cost(best) <= GRID_SNAP_TOLERANCE_PT / 3:
-                snapped_c: list[float] = []
-                snapped_v: list[float] = []
-                for c, value in zip(coords, run.values, strict=True):
-                    k = int(np.argmin(np.abs(positions - (c + best))))
-                    if abs(positions[k] - (c + best)) <= GRID_SNAP_TOLERANCE_PT:
-                        snapped_c.append(float(positions[k]))
-                        snapped_v.append(value)
-                if len(set(snapped_v)) >= 2:
-                    note = f"{len(snapped_v)}/{len(run.values)} ticks snapped to grid lines"
-                    if abs(best) > GRID_SNAP_TOLERANCE_PT / 3:
-                        note += f" (labels sit {best:+.1f} pt off their lines)"
-                    return AxisScale.fit(snapped_c, snapped_v), note
+    positions = grid_positions(run, lines, vertical)
+    best = best_label_shift(run.coords, positions)
+    if best is not None:
+        coords = np.asarray(run.coords, dtype=float)
+        snapped_c: list[float] = []
+        snapped_v: list[float] = []
+        for c, value in zip(coords, run.values, strict=True):
+            k = int(np.argmin(np.abs(positions - (c + best))))
+            if abs(positions[k] - (c + best)) <= GRID_SNAP_TOLERANCE_PT:
+                snapped_c.append(float(positions[k]))
+                snapped_v.append(value)
+        if len(set(snapped_v)) >= 2:
+            note = f"{len(snapped_v)}/{len(run.values)} ticks snapped to grid lines"
+            if abs(best) > GRID_SNAP_TOLERANCE_PT / 3:
+                note += f" (labels sit {best:+.1f} pt off their lines)"
+            return AxisScale.fit(snapped_c, snapped_v), note
     return (
         AxisScale.fit(run.coords, run.values),
         "fitted on label centres (no grid lines to snap to)",
