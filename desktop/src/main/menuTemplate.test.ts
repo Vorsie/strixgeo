@@ -15,7 +15,7 @@ function deps(language: MenuLanguage, recent: MenuRecentEntry[] = []): MenuTempl
     rawBackendLogAffordance: false,
     recent,
     send: () => {},
-    onShowLogFile: () => {},
+    onOpenLogFolder: () => {},
     onSaveLogsForSupport: () => {},
     onAbout: () => {},
   }
@@ -42,6 +42,31 @@ function labels(template: readonly Electron.MenuItemConstructorOptions[]): strin
     .map(i => i.label)
     .filter((l): l is string => typeof l === 'string')
 }
+
+describe('Help offers the log folder in dev (owner 2026-10-05)', () => {
+  // A dev build writes backend.log too now; the owner opens the folder instead
+  // of copy-pasting the terminal. Packaged builds keep the redacted bundle only.
+  function devDeps(language: MenuLanguage): MenuTemplateDeps {
+    return { ...deps(language), isPackaged: false, rawBackendLogAffordance: true }
+  }
+
+  it('in an English dev app the Help menu says Open log folder', () => {
+    expect(labels(buildMenuTemplate(devDeps('en')))).toContain('Open log folder')
+  })
+
+  it('in a Dutch dev app the Help menu says Logmap openen', () => {
+    expect(labels(buildMenuTemplate(devDeps('nl')))).toContain('Logmap openen')
+  })
+
+  it('it sits right above the support bundle item', () => {
+    const all = labels(buildMenuTemplate(devDeps('en')))
+    expect(all.indexOf('Save logs for support…')).toBe(all.indexOf('Open log folder') + 1)
+  })
+
+  it('a packaged app does not offer the raw log folder', () => {
+    expect(labels(buildMenuTemplate(deps('en')))).not.toContain('Open log folder')
+  })
+})
 
 describe('native menu template follows the app language', () => {
   it('in a Dutch app the Help menu says Logs opslaan voor support', () => {
