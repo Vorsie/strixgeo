@@ -91,6 +91,13 @@ FIELD_VALUE_WORD_GAP_PT = 6.0
 
 # Tokens standing between a field label and its value.
 FIELD_SEPARATORS = frozenset({":", "=", "-"})
+# Characters stripped from the front of a value OCR glued to its label
+# ("X-COORDINAAT(Lambert72):66980.21" -> "66980.21"). Not "-": inside a glued
+# word a leading minus belongs to the number.
+GLUED_VALUE_STRIP = " :="
+# A value word may start this far left of its label's right edge (pt): OCR
+# boxes of neighbouring words overlap by a fraction of a point.
+FIELD_ROW_OVERLAP_PT = 1.0
 # The leading number of a field value ("6.02 m1" -> 6.02, "+6.24").
 LEADING_NUMBER_PATTERN = re.compile(r"[-+−]?\d+(?:[.,]\d+)?")
 
