@@ -518,6 +518,7 @@ async def import_cpt_pdf(
                 epsg=typed.epsg if typed else None,
                 ground_level_m=typed.ground_level_m if typed else None,
                 test_date=typed.test_date if typed else None,
+                project_number=typed.project_number if typed else None,
             )
         )
     try:
