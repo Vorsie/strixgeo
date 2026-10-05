@@ -116,6 +116,20 @@ describe('CptPdfImportDialog', () => {
     expect(screen.getByTestId('cpt-pdf-progress').textContent).toContain('40/300')
   })
 
+  // Owner finding 2026-10-05: OCR of a sheet takes seconds, a normal page
+  // milliseconds; the progress line says when OCR is what the triage is doing.
+  it('says the titles are read with OCR while OCR runs', () => {
+    triageState.current = { status: 'running', phase: 'classify', done: 12, total: 97, ocr: true }
+    renderDialog()
+    expect(screen.getByTestId('cpt-pdf-progress').textContent).toBe('Reading titles with OCR (12/97)…')
+  })
+
+  it('says pages are read when no OCR runs', () => {
+    triageState.current = { status: 'running', phase: 'classify', done: 12, total: 97, ocr: false }
+    renderDialog()
+    expect(screen.getByTestId('cpt-pdf-progress').textContent).toBe('Reading pages (12/97)…')
+  })
+
   it('imports every campaign sounding in one POST (unknown ones only when ticked)', async () => {
     importSoundings.mockResolvedValue({ results: [result('110', 'imported'), result('7', 'imported')] })
     const { onImported } = renderDialog()
