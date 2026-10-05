@@ -12,6 +12,7 @@ import pymupdf
 
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_origin import CptOrigin
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
+from groundmodel.infrastructure.parsers.cpt.pdf.grid_line_helpers import has_graph_frame
 from groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_registry import (
     LayoutProfileRegistry,
 )
@@ -290,6 +291,10 @@ class PageTriage(GroundModelLogger):
         rules = int(vertical.sum() + horizontal.sum())
         curve_segments = _curve_segments(content, vertical | horizontal)
         runs = self._runs.find(words) if words else []
+        # A short curve (a refusal sheet stops after a metre) is still a
+        # sounding when the page carries the CPT graph frame: a gridded depth
+        # axis and gridded value panels. Only measured where it can matter.
+        frame = curve_segments >= MIN_CURVE_SEGMENTS_KNOWN_LAYOUT and has_graph_frame(runs, content)
         notes: list[str] = []
         quality = text_layer_quality(words)
         meta_words = list(words)
@@ -297,12 +302,13 @@ class PageTriage(GroundModelLogger):
             quality < GARBLED_TEXT_QUALITY
             and self._ocr is not None
             and len(runs) >= 2
-            and curve_segments >= MIN_CURVE_SEGMENTS
+            and (curve_segments >= MIN_CURVE_SEGMENTS or frame)
         ):
             # Axis numbers survive a font without a Unicode map; the words do
             # not. OCR the title block + header to read what the layer hides.
             # The layer's own words are symbol soup: fields and names come
-            # from the OCR words alone.
+            # from the OCR words alone. A graph frame with a short curve goes
+            # through OCR too: the geometry alone does not name the sounding.
             if self.ocr_pages == 0:
                 self.info(
                     "page %d: text layer unreadable (letter share %.2f): sheets like it "
@@ -375,10 +381,11 @@ class PageTriage(GroundModelLogger):
             )
         known_layout = profile.fingerprint is not None
         # A continuation sheet carrying only a metre or two of curve is short;
-        # a recognised layout with its axes in place needs less curve.
+        # a recognised layout (or the CPT graph frame) with its axes in place
+        # needs less curve.
         min_curve = (
             MIN_CURVE_SEGMENTS_KNOWN_LAYOUT
-            if known_layout and len(runs) >= 3
+            if (known_layout or frame) and len(runs) >= 3
             else MIN_CURVE_SEGMENTS
         )
         if score >= MIN_CPT_KEYWORD_SCORE and curve_segments >= min_curve and len(runs) >= 2:
@@ -423,6 +430,28 @@ class PageTriage(GroundModelLogger):
             return PageEvidence(
                 page_class=PageClass.BOREHOLE_LOG,
                 reasons=prefix + ("borehole-log wording",),
+                **base,
+            )
+        if frame and score < MIN_CPT_KEYWORD_SCORE:
+            # No text evidence (an unreadable font, OCR absent or silent), but
+            # the page carries the CPT graph frame and a curve: a sounding.
+            self.info(
+                "page %d: kept as a CPT sheet on geometry alone (graph frame, %d tick runs, "
+                "curve of %d segments, CPT keywords %g)",
+                number,
+                len(runs),
+                curve_segments,
+                score,
+            )
+            return PageEvidence(
+                page_class=PageClass.CPT_GRAPH,
+                graph_kind=GraphKind.VECTOR,
+                reasons=prefix
+                + (
+                    f"graph frame (gridded depth axis + value panels, {len(runs)} tick runs) "
+                    f"with a data curve of {curve_segments} segments; no text evidence "
+                    f"(CPT keywords {score:g}): CPT sheet on geometry alone",
+                ),
                 **base,
             )
         if coverage >= IMAGE_DOMINANT_COVERAGE and len(words) < MIN_PROSE_WORDS:
