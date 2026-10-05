@@ -18,6 +18,10 @@ class CptPdfHeaderEdit(StrictRequestModel):
         Ground level; also converts an elevation axis to depth.
     test_date:
         Test date as typed.
+    project_number:
+        Project number for a sheet that prints none (the dialog's
+        "Projectnummer" field); stored as the CPT's project id, so a later
+        GEF import of the same sounding is matched as the same CPT.
     """
 
     x: float | None = None
@@ -25,3 +29,4 @@ class CptPdfHeaderEdit(StrictRequestModel):
     epsg: int | None = Field(default=None, ge=1024, le=32767)
     ground_level_m: float | None = Field(default=None, ge=-500.0, le=9000.0)
     test_date: str | None = Field(default=None, max_length=40)
+    project_number: str | None = Field(default=None, max_length=80)
