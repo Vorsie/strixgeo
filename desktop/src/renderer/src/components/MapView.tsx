@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { INVESTIGATION_MARKERS_PANE_Z } from './mapPanes'
-import { ChevronDown, ChevronRight, FlaskConical, Maximize2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
 import {
   CircleMarker,
   MapContainer,
@@ -15,7 +15,9 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+import { LabFlaskIcon } from './LabFlaskIcon'
 import {
+  LAB_FLASK_MARKER_HEIGHT_PX,
   RADIUS,
   boreholeMarkerSvg,
   boreholeTooltipLines,
@@ -1464,9 +1466,9 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
         {entries.map(e => (
           <div key={e.label} className="flex items-center gap-2 px-1 py-0.5">
             {e.shape === 'flask' ? (
-              <FlaskConical
-                size={11}
-                className="shrink-0 text-gray-700 dark:text-slate-200"
+              <LabFlaskIcon
+                height={LAB_FLASK_MARKER_HEIGHT_PX}
+                className="shrink-0"
                 data-testid="map-legend-lab-flask"
               />
             ) : (
