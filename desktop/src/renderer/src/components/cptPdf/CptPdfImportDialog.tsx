@@ -19,7 +19,8 @@ import {
   type CptPdfImportResult,
   type PageCalibrationDict,
 } from '../../api/clients/cptPdf'
-import { useCptPdfTriage } from '../../hooks/useCptPdfTriage'
+import { useCptPdfTriage, type CptPdfTriagePhase } from '../../hooks/useCptPdfTriage'
+import type { MessageKey } from '../../i18n/locales/en'
 import { useT } from '../../i18n/translate'
 import { log } from '../../utils/log'
 import CptRefreshConfirmDialog from '../CptRefreshConfirmDialog'
@@ -54,6 +55,15 @@ function refreshDiff(r: CptPdfImportResult): CptRefreshDiff {
     nErrors: d?.n_errors ?? 0,
     nWarnings: d?.n_warnings ?? 0,
   }
+}
+
+/**
+ * The progress line's message: OCR named while it runs (seconds per sheet, the
+ * slow part of a report whose text layer is unreadable), else the phase.
+ */
+function progressKey(phase: CptPdfTriagePhase, ocr: boolean): MessageKey {
+  if (ocr) return 'cptPdf.phase.ocr'
+  return phase === 'classify' ? 'cptPdf.phase.classify' : 'cptPdf.phase.digitise'
 }
 
 /** The campaign soundings start ticked; the unknown-origin ones do not. */
@@ -186,7 +196,7 @@ export default function CptPdfImportDialog({
             {state.status === 'running' && (
               <p data-testid="cpt-pdf-progress">
                 {state.phase
-                  ? t(state.phase === 'classify' ? 'cptPdf.phase.classify' : 'cptPdf.phase.digitise', {
+                  ? t(progressKey(state.phase, state.ocr === true), {
                       done: state.done,
                       total: state.total,
                     })
