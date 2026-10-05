@@ -281,6 +281,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_constants",
     "groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_registry",
     "groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader",
+    "groundmodel.infrastructure.parsers.cpt.pdf.ocr_word_cache",
     "groundmodel.infrastructure.parsers.cpt.pdf.optional_engines",
     "groundmodel.infrastructure.parsers.cpt.pdf.overlay_renderer",
     "groundmodel.infrastructure.parsers.cpt.pdf.page_calibration",
