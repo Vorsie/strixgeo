@@ -432,3 +432,46 @@ async def test_request_cancel_job_without_a_cancel_event_returns_false() -> None
 
     for entry in list(registry._jobs.values()):  # noqa: SLF001
         entry.task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_consumer_disconnect_sets_the_cooperative_cancel_flag() -> None:
+    """Closing the dialog stops a worker thread too, not only the awaiting task.
+
+    Owner finding 2026-10-05: the PDF triage kept OCR'ing page after page in its
+    worker thread after "SSE consumer disconnected ... background task
+    cancelled". Cancelling the asyncio task cannot stop a thread, so the
+    disconnect path must also raise the job's cooperative cancel flag.
+    """
+    registry = JobRegistry()
+    flag = threading.Event()
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            await queue.put({"phase": "classify", "done": 1, "total": 97})
+            await asyncio.sleep(3600)
+
+        return run()
+
+    job_id = registry.start(factory, cancel_event=flag)
+    stream = registry.stream(job_id)
+    await stream.__anext__()
+    await stream.aclose()
+    assert flag.is_set()
+
+
+@pytest.mark.asyncio
+async def test_evicting_a_running_job_sets_its_cancel_flag() -> None:
+    """A running job evicted at capacity stops its worker thread as well."""
+    registry = JobRegistry()
+    flag = threading.Event()
+
+    def factory(queue: asyncio.Queue) -> object:
+        async def run() -> None:
+            await asyncio.sleep(3600)
+
+        return run()
+
+    job_id = registry.start(factory, cancel_event=flag)
+    registry._evict(job_id, reason="test")  # noqa: SLF001
+    assert flag.is_set()
