@@ -345,3 +345,29 @@ def test_import_answers_per_sounding_with_the_gef_consent_flow(
     assert asked["status"] == "confirmation_required"
     assert asked["code"] == "cpt_refresh_confirmation_required"
     assert asked["diff"]["old_n_rows"] == 675
+
+
+def test_a_typed_project_number_travels_in_the_header_edit(
+    client: TestClient, report_bytes: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ruling 2026-10-05 (a): the dialog's "Projectnummer" reaches the stored project id.
+
+    It travels in the per-sounding header edit, like a typed position.
+    """
+    sha, _ = _triage(client, report_bytes)
+    seen: list[str] = []
+
+    async def fresh(self: ImportCpt, result: Any, name: str, *a: Any, **kw: Any) -> ImportCptResult:
+        seen.append(result.header.project_id)
+        return ImportCptResult(cpt_id=uuid4(), issues=result.issues, name=name)
+
+    monkeypatch.setattr(ImportCpt, "persist", fresh)
+    body = {
+        "project_id": str(PROJECT),
+        "file_sha": sha,
+        "sounding_ids": ["S1"],
+        "headers": {"S1": {"project_number": "23.15-006"}},
+    }
+    answer = client.post("/cpt/pdf/import", json=body)
+    assert answer.status_code == 200, answer.text
+    assert seen == ["23.15-006"]
