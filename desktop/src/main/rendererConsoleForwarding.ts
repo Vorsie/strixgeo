@@ -126,3 +126,29 @@ export function consoleMethodForLevel(
   if (level === 'warning') return 'warn'
   return 'log'
 }
+
+/**
+ * Forward one renderer console message to a line writer (the main log).
+ *
+ * Applies the filter, the ``[ui]`` stamp and the severity in one place, so the
+ * caller in ``index.ts`` only wires the event to the writer. In dev the writer
+ * is the main log, which puts the line in ``backend.log`` next to the ``[api]``
+ * and ``[main]`` lines AND echoes it to the terminal.
+ *
+ * Parameters
+ * ----------
+ * details : RendererConsoleMessage
+ *     The message as Electron reported it.
+ * write : (line: string, method: 'log' | 'warn' | 'error') => void
+ *     The line writer.
+ * env : Record<string, string | undefined>, optional
+ *     Environment for the debug opt-in; defaults to ``process.env``.
+ */
+export function forwardRendererMessage(
+  details: RendererConsoleMessage,
+  write: (line: string, method: 'log' | 'warn' | 'error') => void,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  if (!shouldForwardRendererMessage(details, env)) return
+  write(formatRendererMessage(details), consoleMethodForLevel(details.level))
+}
