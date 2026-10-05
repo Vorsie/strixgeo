@@ -17,6 +17,7 @@ import asyncio
 import base64
 import hashlib
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,7 +60,11 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_store import (
     PdfReportStore,
     get_pdf_report_store,
 )
-from groundmodel.shared.exceptions import CptPdfReportNotFoundError, DuplicateImportJobError
+from groundmodel.shared.exceptions import (
+    CptPdfReportNotFoundError,
+    DuplicateImportJobError,
+    TriageCancelled,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 if TYPE_CHECKING:
@@ -143,8 +148,15 @@ def _triage_job(
     file_sha: str,
     file_name: str,
     triager_factory: Callable[[], PdfReportTriager],
+    cancel: threading.Event,
 ) -> Callable[[Any], Any]:
-    """Return the job factory: triage in a worker thread, progress onto the queue."""
+    """Return the job factory: triage in a worker thread, progress onto the queue.
+
+    ``cancel`` is the job's cooperative stop flag (the registry raises it when
+    the dialog closes the stream): cancelling the awaiting task cannot stop
+    the worker thread, so the triage checks the flag between pages, sheets and
+    OCR strips and ends with ``TriageCancelled``.
+    """
 
     def factory(queue: Any) -> Any:
         async def run() -> None:
@@ -152,10 +164,12 @@ def _triage_job(
 
             loop = asyncio.get_running_loop()
 
-            def progress(phase: str, done: int, total: int) -> None:
+            def progress(phase: str, done: int, total: int, ocr: bool = False) -> None:
                 # Called on the worker thread: hand the tick to the event loop.
+                # ``ocr`` is additive: older clients read phase / done / total.
                 loop.call_soon_threadsafe(
-                    queue.put_nowait, {"phase": phase, "done": done, "total": total}
+                    queue.put_nowait,
+                    {"phase": phase, "done": done, "total": total, "ocr": ocr},
                 )
 
             try:
@@ -165,8 +179,17 @@ def _triage_job(
                     file_sha,
                     file_name,
                     progress,
+                    cancel.is_set,
                 )
                 await queue.put({"type": "done", "result": digest.to_dict()})
+            except asyncio.CancelledError:
+                # The awaiting task is gone; stop the thread too.
+                cancel.set()
+                raise
+            except TriageCancelled as exc:
+                # A cancel is the user's choice, not a failure: no error event.
+                logger.info(f"PDF triage {file_sha[:12]} cancelled: {exc}")
+                await queue.put({"type": "cancelled"})
             except CptPdfReportNotFoundError as exc:
                 logger.warning(f"PDF triage {file_sha[:12]}: {exc}")
                 await queue.put(
@@ -234,9 +257,12 @@ async def triage_cpt_pdf(
     logger.debug(f"POST /cpt/pdf/triage: file {file_name!r}")
     tmp_path, file_sha = await _spool(file, store.project_dir(project_id))
     store.put_file(project_id, file_sha, tmp_path)
-    factory = _triage_job(store, project_id, file_sha, file_name, triager_factory)
+    cancel = threading.Event()
+    factory = _triage_job(store, project_id, file_sha, file_name, triager_factory, cancel)
     try:
-        job_id = registry.start(factory, key=f"cpt-pdf:{project_id}:{file_sha}")
+        job_id = registry.start(
+            factory, key=f"cpt-pdf:{project_id}:{file_sha}", cancel_event=cancel
+        )
     except DuplicateImportJobError as exc:
         raise map_duplicate_import_job(exc) from exc
     logger.info(f"PDF triage job {job_id} spawned for report {file_sha[:12]}")
@@ -250,9 +276,11 @@ async def get_cpt_pdf_triage_stream(
 ) -> StreamingResponse:
     """Drain the SSE progress stream of a triage job.
 
-    Events: ``{"phase": "classify"|"digitise", "done": n, "total": m}`` ticks,
-    then ``{"type": "done", "result": <digest>}`` or ``{"type": "error",
-    "message": ...}``.
+    Events: ``{"phase": "classify"|"digitise", "done": n, "total": m,
+    "ocr": bool}`` ticks (``ocr`` True while OCR is what the triage is doing),
+    then ``{"type": "done", "result": <digest>}``, ``{"type": "error",
+    "message": ...}`` or ``{"type": "cancelled"}`` (the triage was stopped;
+    closing the stream stops it).
 
     Parameters
     ----------
