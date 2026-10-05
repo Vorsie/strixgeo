@@ -269,12 +269,16 @@ def _header(
     """
     sources: dict[str, str] = {}
     typed_xy = request.x is not None and request.y is not None
+    typed_project = (request.project_number or "").strip() or None
+    if typed_project is not None:
+        sources["project_id"] = "user"
     return PdfImportHeader(
         # The ids a GEF of the same sounding carries (owner ruling 2026-10-04):
         # the sheet's project number, so a later GEF import is matched as the
-        # same CPT. The campaign code stands in when the sheet prints none.
+        # same CPT. A typed number (the dialog's "Projectnummer", ruling
+        # 2026-10-05 a) wins; the campaign code stands in when neither exists.
         test_id=listed.sounding_id or listed.key,
-        project_id=listed.project_id or report_code or PDF_FALLBACK_PROJECT_ID,
+        project_id=typed_project or listed.project_id or report_code or PDF_FALLBACK_PROJECT_ID,
         x=_pick("x", request.x if typed_xy else None, listed.x, sources),
         y=_pick("y", request.y if typed_xy else None, listed.y, sources),
         epsg=_pick("epsg", request.epsg if typed_xy else None, listed.epsg, sources),
