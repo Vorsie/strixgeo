@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -54,7 +55,12 @@ from groundmodel.infrastructure.parsers.cpt.pdf.tick_run_finder import TickRunFi
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_content import VectorPageContent
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_page_reader import VectorPageReader
 from groundmodel.infrastructure.parsers.cpt.pdf.word_geometry import text_layer_quality
+from groundmodel.shared.exceptions import TriageCancelled
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+#: ``progress(done, total, ocr=...)``: ``ocr`` True while OCR is what the
+#: triage is doing (a sheet whose text layer is unreadable).
+PageProgress = Callable[..., None]
 
 
 class PageTriage(GroundModelLogger):
@@ -95,12 +101,15 @@ class PageTriage(GroundModelLogger):
         self._grid = RasterGridDetector()
         # Image pages skipped because OpenCV is absent (see _raster_panels).
         self.raster_pages_unread = 0
+        # Pages whose title strips went through OCR in the last classify().
+        self.ocr_pages = 0
 
     def classify(
         self,
         doc: pymupdf.Document,
         campaign_codes: tuple[str, ...] | None = None,
-        progress: Callable[[int, int], None] | None = None,
+        progress: PageProgress | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> ReportTriage:
         """Return the verdict for every page of ``doc``.
 
@@ -112,32 +121,67 @@ class PageTriage(GroundModelLogger):
             The campaign codes the report is about; found from the report's
             own text when None.
         progress : callable or None
-            Called as ``progress(done, total)`` after every page (a long
-            report takes tens of seconds; the import dialog shows the count).
+            Called as ``progress(done, total, ocr=...)`` after every page (a
+            long report takes tens of seconds; the import dialog shows the
+            count), and once more with ``ocr=True`` just before a page's title
+            strips go through OCR (seconds per sheet, the slow part).
+        should_stop : callable or None
+            Checked before every page and before every OCR strip; when it
+            answers True the pass stops (the user cancelled).
 
         Returns
         -------
         ReportTriage
             Per-page evidence and the fingerprint used.
+
+        Raises
+        ------
+        TriageCancelled
+            When ``should_stop`` answered True.
         """
         total = doc.page_count
         self.info("triage: %d pages", total)
         measured: list[PageEvidence] = []
         texts: list[str] = []
-        for index in range(doc.page_count):
-            page = doc[index]
-            content = self._reader.read(page)
-            texts.append(content.text)
-            evidence = self._measure(page, content)
-            measured.append(evidence)
-            if progress is not None:
-                progress(index + 1, total)
-            self.debug(
-                "[%d/%d] %s %s",
-                evidence.page_number,
-                total,
-                evidence.page_class.value,
-                "; ".join(evidence.reasons),
+        self.ocr_pages = 0
+        ocr_seconds_before = self._ocr.engine_seconds if self._ocr is not None else 0.0
+        session: AbstractContextManager[object] = (
+            self._ocr.session(should_stop=should_stop) if self._ocr is not None else nullcontext()
+        )
+        with session:
+            for index in range(doc.page_count):
+                if should_stop is not None and should_stop():
+                    self.info("triage cancelled after page %d of %d", index, total)
+                    raise TriageCancelled(index, total)
+                page = doc[index]
+                content = self._reader.read(page)
+                texts.append(content.text)
+
+                def before_ocr(done: int = index) -> None:
+                    """Tell the dialog OCR starts now (the tick count stays put)."""
+                    if progress is not None:
+                        progress(done, total, ocr=True)
+
+                ocr_before = self.ocr_pages
+                evidence = self._measure(page, content, before_ocr)
+                measured.append(evidence)
+                if progress is not None:
+                    progress(index + 1, total, ocr=self.ocr_pages > ocr_before)
+                self.debug(
+                    "[%d/%d] %s %s",
+                    evidence.page_number,
+                    total,
+                    evidence.page_class.value,
+                    "; ".join(evidence.reasons),
+                )
+        if self.ocr_pages and self._ocr is not None:
+            spent = self._ocr.engine_seconds - ocr_seconds_before
+            self.info(
+                "triage: text layer unreadable on %d sheet(s): their title strips went "
+                "through OCR at ~%.1f s each (%.0f s in all; cached strips cost nothing)",
+                self.ocr_pages,
+                spent / self.ocr_pages,
+                spent,
             )
         codes = campaign_codes or _campaign_codes(texts)
         fingerprint = ReportFingerprint(campaign_codes=codes)
@@ -215,8 +259,17 @@ class PageTriage(GroundModelLogger):
         out.save(path, garbage=3, deflate=True)
         return path
 
-    def _measure(self, page: pymupdf.Page, content: VectorPageContent) -> PageEvidence:
-        """Measure one page and give its provisional class (origin comes later)."""
+    def _measure(
+        self,
+        page: pymupdf.Page,
+        content: VectorPageContent,
+        before_ocr: Callable[[], None] | None = None,
+    ) -> PageEvidence:
+        """Measure one page and give its provisional class (origin comes later).
+
+        ``before_ocr`` is called just before the page's title strips go
+        through OCR, so the dialog can say what the next seconds are spent on.
+        """
         number = page.number + 1
         text = content.text
         words = content.words
@@ -250,6 +303,16 @@ class PageTriage(GroundModelLogger):
             # not. OCR the title block + header to read what the layer hides.
             # The layer's own words are symbol soup: fields and names come
             # from the OCR words alone.
+            if self.ocr_pages == 0:
+                self.info(
+                    "page %d: text layer unreadable (letter share %.2f): sheets like it "
+                    "go through OCR at a few seconds each",
+                    number,
+                    quality,
+                )
+            self.ocr_pages += 1
+            if before_ocr is not None:
+                before_ocr()
             meta_words = self._ocr.read_title_strips(page)
             text = " ".join(w.text for w in meta_words)
             notes.append(f"text layer unreadable (letter share {quality:.2f}): title strips OCR'd")
