@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report import CachedPdfReport
+from groundmodel.infrastructure.parsers.cpt.pdf.ocr_word_cache import OcrWordCache
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     MAX_CACHED_PDF_REPORTS,
     MAX_SPOOLED_PDF_REPORTS_PER_PROJECT,
+    OCR_CACHE_SUFFIX,
 )
 from groundmodel.shared.config import settings
 from groundmodel.shared.exceptions import CptPdfReportNotFoundError
@@ -40,7 +42,9 @@ class PdfReportStore(GroundModelLogger):
     the same bytes. The oldest files of a project are pruned beyond a small
     cap (a temp store; the imported CPT keeps its provenance, not the file).
     In memory: the last few triaged reports (digest + digitised soundings),
-    so a re-extract or an import needs no second triage.
+    so a re-extract or an import needs no second triage. Next to each file:
+    ``<sha>.ocr.json``, the words OCR read on its pages, so a second triage
+    of the same file never OCRs a strip again; it is pruned with the file.
 
     Parameters
     ----------
@@ -121,6 +125,32 @@ class PdfReportStore(GroundModelLogger):
             self.info("report %s stored for project %s", file_sha[:12], project_id)
         self._prune(target.parent, keep=target)
         return target
+
+    def ocr_cache(self, project_id: UUID, file_sha: str) -> OcrWordCache:
+        """Return the OCR word cache of a stored report (read from disk when present).
+
+        Parameters
+        ----------
+        project_id : UUID
+            The project.
+        file_sha : str
+            SHA-256 hex of the report.
+
+        Returns
+        -------
+        OcrWordCache
+            Backed by ``<sha>.ocr.json`` next to the report; call ``save()``
+            after a triage to keep what it read.
+
+        Raises
+        ------
+        ValueError
+            When ``file_sha`` is not a SHA-256 hex digest.
+        """
+        path = self.path_for(project_id, file_sha).with_suffix(OCR_CACHE_SUFFIX)
+        cache = OcrWordCache(path)
+        self.debug("OCR cache of report %s: %d region(s) on disk", file_sha[:12], len(cache.keys()))
+        return cache
 
     @contextmanager
     def opened(self, project_id: UUID, file_sha: str) -> Iterator[pymupdf.Document]:
@@ -235,7 +265,9 @@ class PdfReportStore(GroundModelLogger):
         )
         for old in files[MAX_SPOOLED_PDF_REPORTS_PER_PROJECT - 1 :]:
             old.unlink(missing_ok=True)
-            self.debug("pruned spooled report %s", old.name[:12])
+            # The OCR words of a pruned report go with it (one owner, one life).
+            old.with_suffix(OCR_CACHE_SUFFIX).unlink(missing_ok=True)
+            self.debug("pruned spooled report %s and its OCR cache", old.name[:12])
 
 
 _STORE: PdfReportStore | None = None
