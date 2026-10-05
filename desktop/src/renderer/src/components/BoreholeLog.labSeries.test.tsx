@@ -29,6 +29,8 @@ vi.mock('../api/client', async () => {
 })
 
 import { makeFixtureBorehole } from '../test/fixtures/borehole'
+import { measureLabFlask } from '../test/labFlaskGeometry'
+import { LAB_FLASK_STROKE_WIDTH } from './mapMarkerStyle'
 import BoreholeLog from './BoreholeLog'
 
 /** One raw test on the fixture's second sample (M2 = "sample-B"). */
@@ -81,6 +83,20 @@ describe('BoreholeLog: raw lab tests live in the sample slide-in', () => {
     render(<BoreholeLog borehole={makeFixtureBorehole()} projectId="p" />)
     const flask = await screen.findByTestId('sample-lab-flask-sample-B')
     expect(flask.getAttribute('data-glyph')).toBe('lab-flask')
+  })
+
+  it('the sample flask reads as a flask, not a triangle: a visible neck and a rim line', async () => {
+    // Owner 2026-10-05: at ~7 px the neck was lost and only the cone showed.
+    listForBorehole.mockResolvedValue([seriesOnM2()])
+    render(<BoreholeLog borehole={makeFixtureBorehole()} projectId="p" />)
+    const flask = await screen.findByTestId('sample-lab-flask-sample-B')
+    const g = measureLabFlask(flask.getAttribute('d') ?? '')
+    expect(g.neckWidth - LAB_FLASK_STROKE_WIDTH).toBeGreaterThanOrEqual(2)
+    expect(g.rimWidth).toBeGreaterThan(g.neckWidth)
+    expect(g.height).toBeGreaterThanOrEqual(10)
+    // The same light halo as the map marker sits under it.
+    const halo = flask.parentElement?.querySelector('path[data-glyph="lab-flask-halo"]')
+    expect(halo?.getAttribute('d')).toBe(flask.getAttribute('d'))
   })
 
   it('the track header counts DOV tests + raw tests', async () => {
