@@ -48,9 +48,10 @@ GENERIC_FIELD_LABELS: dict[str, re.Pattern[str]] = {
     "ground_level": re.compile(r"HOOGTE\s*MAAIVELD|Z\s*\(mTAW\)|Maaiveld\s*\(m", re.I),
     # "X-COÖRDINAAT (Lambert72) :" -- the diaeresis is often lost from the text
     # layer (one or two junk characters), and the system in brackets belongs
-    # to the label, so the value starts after it.
-    "x": re.compile(r"X[\s-]*CO\S{0,2}RDINA+T(?:\s*\([^)]*\))?|X[\s-]*coordinate", re.I),
-    "y": re.compile(r"Y[\s-]*CO\S{0,2}RDINA+T(?:\s*\([^)]*\))?|Y[\s-]*coordinate", re.I),
+    # to the label, so the value starts after it. OCR reads the O as a zero
+    # ("X-C0ORDINAAT"), hence [O0].
+    "x": re.compile(r"X[\s-]*C[O0]\S{0,2}RDINA+T(?:\s*\([^)]*\))?|X[\s-]*coordinate", re.I),
+    "y": re.compile(r"Y[\s-]*C[O0]\S{0,2}RDINA+T(?:\s*\([^)]*\))?|Y[\s-]*coordinate", re.I),
     "date": re.compile(r"\bDATUM\b|\bDATE\b", re.I),
 }
 
