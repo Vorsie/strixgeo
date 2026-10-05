@@ -16,6 +16,12 @@
 //        the running triage: ONE upload, and the remount reaches the digest.
 //   PT7  an unmount with no remount aborts the stream after the tick.
 //   PT8  reset() aborts the stream at once, and a following start uploads again.
+//
+// Owner finding 2026-10-05 ("progress says what is slow"; "cancel stops the work"):
+//   PT9  a tick that says OCR is running surfaces as ``ocr: true`` (the dialog
+//        reads "Reading titles with OCR"); a plain tick as ``ocr: false``.
+//   PT10 a triage the backend reports ``cancelled`` ends quietly (idle), not
+//        as an error.
 
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { createElement, StrictMode, useEffect, type ReactNode } from 'react'
@@ -65,6 +71,18 @@ function sseResponse(frames: string[]): Response {
     start(controller) {
       for (const f of frames) controller.enqueue(encoder.encode(f))
       controller.close()
+    },
+  })
+  return { ok: true, status: 200, body } as unknown as Response
+}
+
+/** A stream that sends ``frames`` and stays open until the caller aborts. */
+function openSseResponse(frames: string[], init?: RequestInit): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const f of frames) controller.enqueue(encoder.encode(f))
+      init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
     },
   })
   return { ok: true, status: 200, body } as unknown as Response
@@ -279,5 +297,35 @@ describe('useCptPdfTriage', () => {
 
     act(() => result.current.start('C:/r/report.pdf', 'P1'))
     await waitFor(() => expect(triagePosts()).toHaveLength(2))
+  })
+
+  it('PT9: a tick that says OCR is running surfaces as ocr, a plain tick does not', async () => {
+    for (const [tick, expected] of [
+      [{ phase: 'classify', done: 12, total: 97, ocr: true }, true],
+      [{ phase: 'classify', done: 12, total: 97 }, false],
+    ] as const) {
+      _clearCptPdfTriageRegistry()
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+        return openSseResponse([frame(tick)], init)
+      })
+      const { result, unmount } = renderHook(() => useCptPdfTriage())
+      act(() => result.current.start('C:/r/report.pdf', 'P1'))
+      await waitFor(() =>
+        expect(result.current.state).toMatchObject({ status: 'running', done: 12, total: 97, ocr: expected }),
+      )
+      act(() => result.current.reset())
+      unmount()
+    }
+  })
+
+  it('PT10: a triage reported cancelled ends quietly, not as an error', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      return sseResponse([frame({ phase: 'classify', done: 1, total: 97 }), frame({ type: 'cancelled' })])
+    })
+    const { result } = renderHook(() => useCptPdfTriage())
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
+    await waitFor(() => expect(result.current.state.status).toBe('idle'))
   })
 })
