@@ -200,6 +200,10 @@ export interface CptPdfHeaderEdit {
   epsg?: number | null
   ground_level_m?: number | null
   test_date?: string | null
+  /** Project number for a sheet that prints none (the dialog's "Projectnummer"
+   *  field); stored as the CPT's project id. Sent only when set: a backend
+   *  that predates the field refuses it as an extra input. */
+  project_number?: string | null
 }
 
 /** ``POST /cpt/pdf/import`` body. */
