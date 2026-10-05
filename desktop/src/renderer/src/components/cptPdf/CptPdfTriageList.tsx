@@ -13,10 +13,12 @@
 // "Calibrate") names what the overlay is for, and one line under the summary
 // says when to open it.
 
-import type { CptPdfDigest, CptPdfSounding } from '../../api/clients/cptPdf'
+import type { CptPdfDigest, CptPdfHeaderEdit, CptPdfSounding } from '../../api/clients/cptPdf'
 import { usePdfPageThumbnail } from '../../hooks/usePdfPageThumbnail'
 import { useT } from '../../i18n/translate'
 import { cptPdfNoteTexts } from '../../utils/cptPdfNoteText'
+import { FIELD_CLASS } from '../ui/fieldClasses'
+import { rowLabel } from './cptPdfProjectNumber'
 
 interface Props {
   digest: CptPdfDigest
@@ -25,6 +27,11 @@ interface Props {
   selected: ReadonlySet<string>
   /** Keys whose calibration or header the user changed. */
   edited: ReadonlySet<string>
+  /** The header edits typed per row (a typed project number wins over the field). */
+  headers?: Readonly<Record<string, CptPdfHeaderEdit>>
+  /** The "Projectnummer" field value: fills rows whose sheet prints no project number. */
+  projectNumber: string
+  onProjectNumberChange: (value: string) => void
   onToggle: (key: string, on: boolean) => void
   onCalibrate: (key: string) => void
 }
@@ -56,6 +63,7 @@ interface RowProps {
   projectId: string
   checked: boolean
   edited: boolean
+  label: string
   onToggle: (key: string, on: boolean) => void
   onCalibrate: (key: string) => void
 }
@@ -67,14 +75,12 @@ function SoundingRow({
   projectId,
   checked,
   edited,
+  label,
   onToggle,
   onCalibrate,
 }: RowProps): JSX.Element {
   const t = useT()
   const firstPage = sounding.page_numbers[0]
-  // The name the CPT will be shown under once imported ("23.15-002-S110",
-  // owner ruling 2026-10-04); an older backend sends none.
-  const label = sounding.display_name ?? sounding.sounding_id ?? sounding.key
   const notes = cptPdfNoteTexts(sounding, t)
   return (
     <li
@@ -136,6 +142,9 @@ export default function CptPdfTriageList({
   projectId,
   selected,
   edited,
+  headers,
+  projectNumber,
+  onProjectNumberChange,
   onToggle,
   onCalibrate,
 }: Props): JSX.Element {
@@ -151,6 +160,10 @@ export default function CptPdfTriageList({
       projectId={projectId}
       checked={selected.has(s.key)}
       edited={edited.has(s.key)}
+      // The name the CPT will be shown under once imported ("23.15-002-S110",
+      // owner ruling 2026-10-04), with the field's project number on a row
+      // whose sheet prints none (ruling 2026-10-05 a).
+      label={rowLabel(s, projectNumber, headers?.[s.key])}
       onToggle={onToggle}
       onCalibrate={onCalibrate}
     />
@@ -162,6 +175,20 @@ export default function CptPdfTriageList({
           ? t('cptPdf.summary', { n: digest.campaign.length, report: digest.report_code })
           : t('cptPdf.summaryNoCode', { n: digest.campaign.length })}
       </p>
+      <label className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="font-semibold">{t('cptPdf.projectNumber')}</span>
+        <input
+          type="text"
+          data-testid="cpt-pdf-project-number"
+          className={`${FIELD_CLASS} w-40 px-2 py-0.5 font-mono text-xs`}
+          value={projectNumber}
+          aria-describedby="cpt-pdf-project-number-hint"
+          onChange={e => onProjectNumberChange(e.target.value)}
+        />
+        <span id="cpt-pdf-project-number-hint" className="text-text-secondary">
+          {t('cptPdf.projectNumberHint')}
+        </span>
+      </label>
       <p data-testid="cpt-pdf-explainer" className="text-xs text-text-secondary">
         {t('cptPdf.explainer')}
       </p>
