@@ -61,7 +61,7 @@ def triaged() -> tuple[PdfReportDigest, dict[str, object], list[tuple[str, int, 
     digest, soundings = PdfReportTriager(ocr=False).run(
         _report(),
         file_sha="abc",
-        progress=lambda phase, done, total: ticks.append((phase, done, total)),
+        progress=lambda phase, done, total, ocr=False: ticks.append((phase, done, total)),
     )
     return digest, soundings, ticks
 
