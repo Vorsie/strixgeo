@@ -13,6 +13,7 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.starting': 'Bezig met starten…',
   'cptPdf.phase.classify': "Pagina's lezen ({done}/{total})…",
   'cptPdf.phase.digitise': 'Bladen digitaliseren ({done}/{total})…',
+  'cptPdf.phase.ocr': 'Titels lezen met OCR ({done}/{total})…',
   'cptPdf.failed': 'Het rapport kon niet gelezen worden: {message}',
   'cptPdf.summary': '{n} sonderingen van de campagne in {report}',
   'cptPdf.summaryNoCode': '{n} sonderingen van de campagne',
