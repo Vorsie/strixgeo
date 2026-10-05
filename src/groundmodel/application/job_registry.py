@@ -397,6 +397,7 @@ class JobRegistry(GroundModelLogger):
             self._active_keys.pop(entry.key, None)
         if not entry.task.done():
             entry.task.cancel()
+            _raise_cancel_flag(entry)
         self.info(f"job {job_id}: evicted ({reason})")
 
     async def stream(self, job_id: UUID) -> AsyncIterator[dict[str, Any]]:
@@ -449,14 +450,27 @@ class JobRegistry(GroundModelLogger):
             # unread) never cancels a completed task.
             if not finished and not entry.task.done():
                 entry.task.cancel()
+                # Cancelling the task does not stop a worker thread it awaits
+                # (the PDF triage OCR'd on for minutes after the dialog closed,
+                # owner's log 2026-10-05): raise the cooperative flag as well.
+                flagged = _raise_cancel_flag(entry)
                 self.info(
                     f"job {job_id}: SSE consumer disconnected before the stream "
                     "finished — background task cancelled"
+                    + (", worker stop flag raised" if flagged else "")
                 )
 
     def __len__(self) -> int:
         """Return the number of currently registered jobs."""
         return len(self._jobs)
+
+
+def _raise_cancel_flag(entry: _JobEntry) -> bool:
+    """Set a job's cooperative cancel flag, when it has one; return whether it did."""
+    if entry.cancel_event is None:
+        return False
+    entry.cancel_event.set()
+    return True
 
 
 # Module-level singleton — shared by all router functions on the same
