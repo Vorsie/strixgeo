@@ -333,8 +333,12 @@ def merge_continuations(
     another sheet in between (CAMZ-001: 68 on p. 214, a repeat of 66's first
     sheet on p. 215, 68's continuation on p. 216). So a sheet with a known id
     joins the earlier sounding of that id whose depth it continues, and a
-    sheet that starts where that sounding started is a repeat and is dropped
-    (owner 2026-09-30: "a sheet printed twice is dropped with a notice").
+    sheet that starts where that sounding started, or that lies wholly inside
+    the depth that sounding already covers, is a repeat and is dropped
+    (owner 2026-09-30: "a sheet printed twice is dropped with a notice"). The
+    second test catches a whole two-sheet sounding printed twice (CAMZ-001
+    2.3: sounding 150 on pp. 265-266 and again on pp. 267-268): the repeat of
+    its second sheet does not start at 0 m, but brings no depth of its own.
 
     Parameters
     ----------
@@ -362,7 +366,7 @@ def merge_continuations(
                 earlier = merged[i]
                 if earlier.sounding_id != s.sounding_id:
                     continue
-                if _starts_like(earlier, s):
+                if _repeats(earlier, s):
                     if logger is not None:
                         logger.warning(
                             "page %s repeats sounding %s (pages %s): dropped",
@@ -408,6 +412,27 @@ def _starts_like(earlier: DigitisedSounding, page: DigitisedSounding) -> bool:
     """Return whether ``page`` starts at the depth ``earlier`` starts (a repeat)."""
     a, b = _depth_range(earlier), _depth_range(page)
     return a is not None and b is not None and abs(a[0] - b[0]) <= REPEAT_START_TOLERANCE_M
+
+
+def _covered(earlier: DigitisedSounding, page: DigitisedSounding) -> bool:
+    """Return whether ``page`` lies wholly inside the depth ``earlier`` covers."""
+    a, b = _depth_range(earlier), _depth_range(page)
+    return (
+        a is not None
+        and b is not None
+        and b[0] >= a[0] - REPEAT_START_TOLERANCE_M
+        and b[1] <= a[1] + REPEAT_START_TOLERANCE_M
+    )
+
+
+def _repeats(earlier: DigitisedSounding, page: DigitisedSounding) -> bool:
+    """Return whether ``page`` (same id) is a reprint of a sheet ``earlier`` holds.
+
+    A repeated first sheet starts where the sounding started; a repeated
+    later sheet lies inside the depth the sounding already covers. Either way
+    it adds nothing, while a continuation runs deeper.
+    """
+    return _starts_like(earlier, page) or _covered(earlier, page)
 
 
 def _continues(last: DigitisedSounding, page: DigitisedSounding) -> bool:
