@@ -16,6 +16,8 @@ export const CPT_PDF = {
   'cptPdf.failed': 'The report could not be read: {message}',
   'cptPdf.summary': '{n} campaign soundings in {report}',
   'cptPdf.summaryNoCode': '{n} campaign soundings',
+  'cptPdf.projectNumber': 'Project number',
+  'cptPdf.projectNumberHint': 'For rows that print no project number',
   'cptPdf.ocrUnavailable':
     'Tick reading unavailable: type the axis values for sheets whose labels are not text.',
   'cptPdf.rasterUnread': '{n} image page(s) not read: scanned pages need the OCR add-on.',
