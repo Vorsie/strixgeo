@@ -62,7 +62,7 @@ export type MenuLabelId =
   | 'gestureCheatsheet'
   | 'licenceActivation'
   | 'checkUpdates'
-  | 'showLogFile'
+  | 'openLogFolder'
   | 'saveLogsForSupport'
   | 'about'
 
@@ -109,7 +109,7 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   gestureCheatsheet: { en: 'Gesture cheatsheet…', nl: 'Bediening en sneltoetsen…' },
   licenceActivation: { en: 'Licence & activation…', nl: 'Licentie en activatie…' },
   checkUpdates: { en: 'Check for updates…', nl: 'Controleren op updates…' },
-  showLogFile: { en: 'Show log file…', nl: 'Logbestand tonen…' },
+  openLogFolder: { en: 'Open log folder', nl: 'Logmap openen' },
   saveLogsForSupport: { en: 'Save logs for support…', nl: 'Logs opslaan voor support…' },
   about: { en: 'About StrixGeo', nl: 'Over StrixGeo' },
 }
