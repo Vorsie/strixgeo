@@ -267,3 +267,40 @@ async def test_the_sheet_project_number_is_the_stored_project_and_names_the_cpt(
     assert (result.header.project_id, result.header.test_id) == ("23.15-002", "110")
     assert name == "23.15-002-S110"
     assert outcomes[0].name == "23.15-002-S110"
+
+
+@pytest.mark.asyncio
+async def test_a_typed_project_number_fills_a_sheet_that_prints_none(
+    store: PdfReportStore,
+) -> None:
+    """Ruling 2026-10-05 (a): a sheet without a printed project number takes the typed one.
+
+    CAMZ-005 sheets print no project number; the campaign code stood in, so a
+    later GEF import ("CPT, 23.15-006") never matched. The number typed in the
+    dialog is the stored project id and names the CPT ("23.15-006-S110").
+    """
+    persist = _Persist()
+    outcomes = await _use_case(store, persist).execute(
+        PROJECT,
+        SHA,
+        [PdfSoundingImportRequest(key="110", project_number="23.15-006")],
+        confirm_refresh=False,
+    )
+    result, name, _ = persist.calls[0]
+    assert (result.header.project_id, result.header.test_id) == ("23.15-006", "110")
+    assert name == "23.15-006-S110"
+    assert outcomes[0].name == "23.15-006-S110"
+
+
+@pytest.mark.asyncio
+async def test_a_blank_typed_project_number_keeps_the_stand_in(store: PdfReportStore) -> None:
+    """Near miss: an empty or blank typed number is no number; the campaign code stands in."""
+    persist = _Persist()
+    await _use_case(store, persist).execute(
+        PROJECT,
+        SHA,
+        [PdfSoundingImportRequest(key="110", project_number="  ")],
+        confirm_refresh=False,
+    )
+    result, _, _ = persist.calls[0]
+    assert result.header.project_id == "CAMZ-001"
