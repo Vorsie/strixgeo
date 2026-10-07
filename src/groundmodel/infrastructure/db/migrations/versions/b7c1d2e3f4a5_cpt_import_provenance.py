@@ -1,7 +1,7 @@
 """CPT import provenance -- how a CPT that did not come from a data file was made.
 
 Revision ID: b7c1d2e3f4a5
-Revises: a1b2c3d4e5f7
+Revises: l4b5c6d7e8f9
 Create Date: 2026-09-30 09:00:00.000000
 
 The PDF CPT digitiser (Data -> Import -> CPTs from a PDF report) stores
@@ -25,7 +25,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "b7c1d2e3f4a5"
-down_revision = "a1b2c3d4e5f7"
+down_revision = "l4b5c6d7e8f9"
 branch_labels = None
 depends_on = None
 
