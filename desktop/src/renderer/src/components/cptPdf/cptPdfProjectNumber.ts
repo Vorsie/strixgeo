@@ -22,17 +22,32 @@ function present(text: string | null | undefined): string | null {
 }
 
 /**
- * The field's starting value: the project number every campaign sheet prints.
+ * The field's starting value: the project number most campaign sheets print
+ * (owner ruling 2026-10-07, "can't we suggest a standard?"). On CAMZ-001 sheet
+ * 14A prints 24.13-005 and the other 74 print 23.15-002, so the field suggests
+ * 23.15-002. It stays a suggestion: the user can edit it, and it only fills
+ * rows that print no number of their own (see ``fieldFillFor``).
  *
- * @param digest - The triage digest.
- * @returns The shared printed number; '' when a sheet prints none or two sheets
- *   print different numbers (the field then fills nothing until typed).
+ * @param digest - The triage digest; ``campaign`` is in page order.
+ * @returns The most common printed number, ties going to the one met first in
+ *   page order; '' when no sheet prints a number.
  */
 export function reportProjectNumber(digest: CptPdfDigest): string {
-  const numbers = new Set(digest.campaign.map(s => present(s.project_number)))
-  if (numbers.size !== 1) return ''
-  const [only] = numbers
-  return only ?? ''
+  // A Map keeps insertion order, so the first-met number wins a tie below.
+  const counts = new Map<string, number>()
+  for (const s of digest.campaign) {
+    const number = present(s.project_number)
+    if (number !== null) counts.set(number, (counts.get(number) ?? 0) + 1)
+  }
+  let best = ''
+  let bestCount = 0
+  for (const [number, count] of counts) {
+    if (count > bestCount) {
+      best = number
+      bestCount = count
+    }
+  }
+  return best
 }
 
 /**
