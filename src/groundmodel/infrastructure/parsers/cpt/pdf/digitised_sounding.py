@@ -121,7 +121,7 @@ class DigitisedSounding:
     ) -> list[tuple[float, float]]:
         """Return the drilled stretches of the sounding, top first.
 
-        A drilled stretch (rods added, "voorboring" between two pushes) shows
+        A drilled stretch (rods added, "overboring" between two pushes) shows
         on a vector sheet as a pen lift in the qc curve: the stroke changes
         and the depth jumps by more than ``VECTOR_DRILL_GAP_M`` (owner ruling
         "a", 2026-10-04). Only the qc curve says so: the fs curve also lifts
