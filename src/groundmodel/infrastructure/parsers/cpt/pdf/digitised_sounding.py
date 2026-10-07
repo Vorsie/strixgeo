@@ -23,10 +23,15 @@ from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import (
     nearest_flag,
     resample,
 )
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Interval ends are reported to the millimetre: enough for a drilled stretch,
 # and it drops the float noise of a point -> metre conversion.
 _INTERVAL_DECIMALS = 3
+
+# Two interval ends within half a millimetre are the same vertex (both are
+# rounded to the millimetre before they are compared).
+_SAME_DEPTH_M = 0.0005
 
 _COLUMN = STORED_COLUMN_BY_KIND
 
@@ -48,6 +53,18 @@ class DigitisedSounding:
     annotations : tuple of tuple
         ``(depth_m, text)`` of values printed inside the frame (the arrow
         labels of a clipped qc, e.g. "32.53").
+    sheet_joins_m : tuple of tuple of float
+        One ``(upper_end_m, continuation_start_m)`` pair per sheet join, top
+        first: the deepest point drawn on the sheet(s) above the join and the
+        first point drawn on the continuation sheet. A continuation that
+        repeats the last part of the sheet before starts above the upper end.
+        Empty for a one-sheet sounding.
+    seam_gaps_m : tuple of tuple of float
+        The qc pen lifts the join itself made: ``(top_m, base_m)`` from the
+        last qc vertex of the upper sheet to the next kept vertex of the
+        continuation sheet, where the continuation sheet draws through that
+        depth in one stroke. Never a drilled stretch (owner ruling "a",
+        2026-10-07). Empty for a one-sheet sounding.
     """
 
     sounding_id: str | None
@@ -55,6 +72,8 @@ class DigitisedSounding:
     calibrations: tuple[PageCalibration, ...]
     curves: dict[PanelKind, DigitisedCurve]
     annotations: tuple[tuple[float, str], ...] = field(default_factory=tuple)
+    sheet_joins_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
+    seam_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
 
     def to_frame(self, step_m: float = DEFAULT_RESAMPLE_STEP_M) -> pl.DataFrame:
         """Resample every curve onto one regular depth grid.
@@ -97,7 +116,9 @@ class DigitisedSounding:
             )
         return pl.DataFrame(columns)
 
-    def drilled_intervals(self) -> list[tuple[float, float]]:
+    def drilled_intervals(
+        self, logger: GroundModelLogger | None = None
+    ) -> list[tuple[float, float]]:
         """Return the drilled stretches of the sounding, top first.
 
         A drilled stretch (rods added, "voorboring" between two pushes) shows
@@ -109,6 +130,23 @@ class DigitisedSounding:
         curve empty, it is only not called drilled. A raster trace is left
         out: it has no strokes.
 
+        A gap at a sheet join is never drilled (owner ruling "a",
+        2026-10-07): the continuation sheet is a new drawing, so the stroke
+        change between the last vertex of one sheet and the next vertex of
+        the other is a plotting artefact when the continuation sheet draws
+        through that depth in one stroke (CAMZ-001 2.3, soundings 68 and 69
+        at ~33.5 m: a sparse polyline, no pen lift on either sheet). Those
+        ``seam_gaps_m`` are left out. A pen lift the continuation sheet
+        draws itself, or a stretch neither sheet draws (the upper curve
+        stops metres above the join), stays drilled: the 2.4 print of the
+        same report shows those too. The values across the seam are not
+        changed: ``to_frame`` still bridges nothing.
+
+        Parameters
+        ----------
+        logger : GroundModelLogger or None
+            Receives one DEBUG line per gap dropped at a sheet join.
+
         Returns
         -------
         list of tuple of float
@@ -119,10 +157,31 @@ class DigitisedSounding:
         no_bridge = qc.no_bridge() if qc is not None else None
         if qc is None or qc.source is not GraphKind.VECTOR or no_bridge is None:
             return []
+        kept: list[tuple[float, float]] = []
+        for top, base in gap_intervals(qc.depth_m, no_bridge):
+            if self._is_seam_gap(top, base):
+                if logger is not None:
+                    logger.debug(
+                        "sounding %s: gap %.3f-%.3f m at a sheet join is a plotting "
+                        "artefact, not drilled",
+                        self.sounding_id,
+                        top,
+                        base,
+                    )
+                continue
+            kept.append((top, base))
         return [
             (round(top, _INTERVAL_DECIMALS), round(base, _INTERVAL_DECIMALS))
-            for top, base in merge_intervals(gap_intervals(qc.depth_m, no_bridge))
+            for top, base in merge_intervals(kept)
         ]
+
+    def _is_seam_gap(self, top: float, base: float) -> bool:
+        """Return whether the pen lift ``top``-``base`` is one the sheet join made."""
+        t, b = round(top, _INTERVAL_DECIMALS), round(base, _INTERVAL_DECIMALS)
+        return any(
+            abs(t - seam_top) <= _SAME_DEPTH_M and abs(b - seam_base) <= _SAME_DEPTH_M
+            for seam_top, seam_base in self.seam_gaps_m
+        )
 
     def write_csv(self, path: Path, step_m: float = DEFAULT_RESAMPLE_STEP_M) -> Path:
         """Write the resampled table as CSV.
