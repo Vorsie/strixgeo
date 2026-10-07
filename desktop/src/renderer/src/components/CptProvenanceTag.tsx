@@ -2,7 +2,7 @@
 // CPT read off a PDF report (Data Integrity rule 1: a derived value carries its
 // provenance, and the engineer sees it where he reads the curve). The tooltip
 // carries the digitiser version and how the depth was obtained. The drilled
-// stretches follow the pages ("..., blz. 235, 236, voorboring 32.0 tot 32.3 m";
+// stretches follow the pages ("..., blz. 235, 236, overboring 32.0 tot 32.3 m";
 // owner 2026-10-04: the note was on the triage row only). Nothing for a
 // GEF / DOV CPT, whose file is its provenance.
 
