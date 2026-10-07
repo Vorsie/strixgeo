@@ -22,3 +22,7 @@ NOTE_READ_FROM_IMAGE = "READ_FROM_IMAGE"
 #: Drilled stretches without measurement (owner ruling "a", 2026-10-04); params
 #: ``intervals`` (``[[top, base], ...]`` in m) and ``count``.
 NOTE_DRILLED_INTERVALS = "DRILLED_INTERVALS"
+#: The printed depth axes of two sheets of one sounding leave a stretch
+#: uncovered: no reading in between, unknown, not drilled (owner direction
+#: 2026-10-07); params ``sheet`` (1-based), ``next``, ``d1`` and ``d2`` (m).
+NOTE_SHEET_AXIS_GAP = "SHEET_AXIS_GAP"
