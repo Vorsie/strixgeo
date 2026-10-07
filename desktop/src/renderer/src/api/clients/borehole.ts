@@ -7,8 +7,7 @@
  *
  * @module clients/borehole
  */
-import { _base, del, get, patch, post, put } from './shared'
-import { _base, detailMessage, fetchTracked, get, patch, post } from './shared'
+import { _base, del, detailMessage, fetchTracked, get, patch, post, put } from './shared'
 
 // ---------------------------------------------------------------------------
 // Borehole / sample / lab-test types — mirrors the FastAPI schemas in
@@ -454,6 +453,8 @@ export const boreholeClient = {
   ): Promise<BoreholeTrackResetResponse> => {
     const track = trackId === null ? '' : `&track_id=${encodeURIComponent(trackId)}`
     return post(`/borehole/${id}/tracks/reset-dov?project_id=${projectId}${track}`)
+  },
+
   // A local DOV borehole XML file (one or several borings). ``confirmRefresh``
   // carries the engineer's answer to the replace-these-boreholes dialog: left
   // false, a file whose borings are already in the project writes NOTHING and
