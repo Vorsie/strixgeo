@@ -85,3 +85,89 @@ describe('Modal focus trap (#202)', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 })
+
+// Owner finding 2026-10-07: a text-select drag that started inside the PDF
+// import dialog and ran past its edge closed the whole dialog (and cancelled
+// the triage). Rule: the backdrop dismisses ONLY when the press AND the
+// release both happen on the backdrop itself. A press inside the dialog that
+// is released on the backdrop must do nothing. The browser fires that click
+// on the backdrop (the nearest common ancestor of the two targets), so the
+// tests replay the exact sequence: mouseDown, mouseUp, click.
+describe('Modal backdrop dismiss (drag-out must not close)', () => {
+  function renderModal(onCancel: () => void, busy = false): {
+    panel: HTMLElement
+    backdrop: HTMLElement
+  } {
+    render(
+      <Modal open labelledBy="t" onCancel={onCancel} busy={busy}>
+        <Body />
+      </Modal>,
+    )
+    const panel = screen.getByRole('dialog')
+    const backdrop = panel.parentElement as HTMLElement
+    return { panel, backdrop }
+  }
+
+  it('B1 - press inside the dialog, release on the backdrop: the dialog stays open', () => {
+    const onCancel = vi.fn()
+    const { panel, backdrop } = renderModal(onCancel)
+    fireEvent.mouseDown(panel)
+    fireEvent.mouseUp(backdrop)
+    fireEvent.click(backdrop)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('B2 - press and release both on the backdrop: the dialog closes once', () => {
+    const onCancel = vi.fn()
+    const { backdrop } = renderModal(onCancel)
+    fireEvent.mouseDown(backdrop)
+    fireEvent.mouseUp(backdrop)
+    fireEvent.click(backdrop)
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('B3 - press on the backdrop, release inside the dialog: the dialog stays open', () => {
+    const onCancel = vi.fn()
+    const { panel, backdrop } = renderModal(onCancel)
+    fireEvent.mouseDown(backdrop)
+    fireEvent.mouseUp(panel)
+    fireEvent.click(backdrop)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('B4 - while busy, a full backdrop click never closes the dialog', () => {
+    const onCancel = vi.fn()
+    const { backdrop } = renderModal(onCancel, true)
+    fireEvent.mouseDown(backdrop)
+    fireEvent.mouseUp(backdrop)
+    fireEvent.click(backdrop)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('B5 - a stale backdrop press does not arm a later drag-out release', () => {
+    // A press on the backdrop released inside the dialog, then a drag from
+    // the dialog out to the backdrop: the first press must not count.
+    const onCancel = vi.fn()
+    const { panel, backdrop } = renderModal(onCancel)
+    fireEvent.mouseDown(backdrop)
+    fireEvent.mouseUp(panel)
+    fireEvent.mouseDown(panel)
+    fireEvent.mouseUp(backdrop)
+    fireEvent.click(backdrop)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('B6 - Esc still cancels', () => {
+    const onCancel = vi.fn()
+    renderModal(onCancel)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('B7 - Esc while busy does nothing', () => {
+    const onCancel = vi.fn()
+    renderModal(onCancel, true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+})
