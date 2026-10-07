@@ -25,7 +25,6 @@ import { useT } from '../i18n/translate'
 import LabTestPanel from './LabTestPanel'
 import BoreholeTracksDialog from './borelog/components/BoreholeTracksDialog'
 import type { BoreholeTrackEditing } from '../hooks/useBoreholeTrackEdits'
-import LabSeriesSection from './labSeries/LabSeriesSection'
 import type { LabSeriesTestSummary } from '../api/client'
 import { useBoreholeLabSeries } from '../hooks/useBoreholeLabSeries'
 import {
