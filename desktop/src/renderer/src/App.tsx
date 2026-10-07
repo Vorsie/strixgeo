@@ -1424,8 +1424,6 @@ export default function App() {
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn,
-    pendingCptPins,
-    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
     pendingCptPins, adoptImportedBoreholes,
     // visible + geo
     visibleCpts, visibleBoreholes, geo,
