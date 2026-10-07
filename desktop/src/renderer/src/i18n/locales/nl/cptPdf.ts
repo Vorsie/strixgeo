@@ -45,6 +45,8 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.note.READ_FROM_IMAGE': 'Gelezen uit een afbeelding: vergelijk de oranje curve met het blad',
   'cptPdf.note.DRILLED_INTERVALS': 'Overboring: {list}',
   'cptPdf.drilledInterval': '{top} tot {base} m',
+  'cptPdf.note.SHEET_AXIS_GAP':
+    'Blad {sheet} eindigt op {d1} m, blad {next} begint op {d2} m: geen meting ertussen',
   'cptPdf.selectAll': 'Alles selecteren',
   'cptPdf.selectNone': 'Niets selecteren',
   'cptPdf.importSelected': 'Selectie importeren ({n})',
