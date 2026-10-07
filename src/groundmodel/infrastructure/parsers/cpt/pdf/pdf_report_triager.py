@@ -202,6 +202,7 @@ class PdfReportTriager(GroundModelLogger):
                     evidence,
                     self._ocr is not None,
                     campaign_code=_first(list(report.fingerprint.campaign_codes)),
+                    logger=self,
                 )
                 self.debug("sounding %s: notes %s", key, [n.code for n in entry.notes])
                 listed[origin].append(entry)
@@ -284,11 +285,13 @@ def _report_sounding(
     evidence: dict[int, PageEvidence],
     ocr: bool,
     campaign_code: str | None = None,
+    logger: GroundModelLogger | None = None,
 ) -> ReportSounding:
     """Combine a merged sounding with its sheets' header evidence and warnings.
 
     ``campaign_code`` is the report's campaign code, the stand-in project id
-    of a sounding whose sheets print no project number.
+    of a sounding whose sheets print no project number. ``logger`` receives
+    the DEBUG line per gap dropped at a sheet join.
     """
     pages = [evidence[n] for n in sounding.page_numbers if n in evidence]
     ground = _first([p.ground_level_m for p in pages])
@@ -333,7 +336,7 @@ def _report_sounding(
             f"{clipped} point(s) on an axis maximum: the true value is higher",
             count=clipped,
         )
-    drilled = [[top, base] for top, base in sounding.drilled_intervals()]
+    drilled = [[top, base] for top, base in sounding.drilled_intervals(logger)]
     if drilled:
         listed = ", ".join(f"{top:.1f} to {base:.1f} m" for top, base in drilled)
         note(
