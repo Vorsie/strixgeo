@@ -315,6 +315,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.cpt.pdf.series_score",
     "groundmodel.infrastructure.parsers.cpt.pdf.series_scorer",
     "groundmodel.infrastructure.parsers.cpt.pdf.sheet_header_helpers",
+    "groundmodel.infrastructure.parsers.cpt.pdf.sheet_join_helpers",
     "groundmodel.infrastructure.parsers.cpt.pdf.sounding_block_reader",
     "groundmodel.infrastructure.parsers.cpt.pdf.stored_series_helpers",
     "groundmodel.infrastructure.parsers.cpt.pdf.tick_orientation",
