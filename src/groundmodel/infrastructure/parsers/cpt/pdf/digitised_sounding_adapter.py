@@ -185,10 +185,14 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 ),
                 "points_above_ground_dropped": above_ground,
                 "drilled_intervals_m": drilled,
-                # Where the sheets of a multi-page sounding were joined, as
-                # [upper sheet end, continuation start]: the pen lift the join
-                # itself makes is never drilled (owner ruling "a", 2026-10-07).
-                "sheet_joins_m": [[end, start] for end, start in sounding.sheet_joins_m],
+                # Where the sheets of a multi-page sounding were joined, as the
+                # printed axis pair [upper axis end D1, continuation axis start
+                # D2] (owner direction 2026-10-07): the gap the join itself
+                # makes is never drilled.
+                "sheet_joins_m": [[d1, d2] for d1, d2 in sounding.sheet_joins_m],
+                # Joins whose axes leave [D1, D2] uncovered (D2 > D1): no sheet
+                # could draw it, so it is unknown, not drilled.
+                "sheet_axis_gaps_m": [[d1, d2] for d1, d2 in sounding.sheet_axis_gaps_m],
                 "pre_drill_m": pre_drill,
             },
         )
