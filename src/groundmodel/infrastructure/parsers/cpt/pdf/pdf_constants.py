@@ -256,7 +256,7 @@ STORED_COLUMN_BY_KIND: dict[PanelKind, str] = {
 SCORE_MAX_GAP_STEPS = 5
 
 # A drilled stretch on a VECTOR sheet (owner ruling "a", 2026-10-04: rods
-# added / "voorboring" between two pushes) is where the plotter LIFTED ITS PEN:
+# added / "overboring" between two pushes) is where the plotter LIFTED ITS PEN:
 # the curve's stroke changes and the depth jumps by more than this (m). The
 # values across it are left empty, never interpolated, and it is reported as a
 # drilled interval. A distance alone cannot tell: within one stroke the thinned
