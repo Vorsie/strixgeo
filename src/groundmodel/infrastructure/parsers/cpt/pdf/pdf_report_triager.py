@@ -36,6 +36,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants i
     NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
     NOTE_NO_POSITION_PRINTED,
     NOTE_READ_FROM_IMAGE,
+    NOTE_SHEET_AXIS_GAP,
     NOTE_TICKS_NOT_READ,
     NOTE_TICKS_UNAVAILABLE_NO_OCR,
 )
@@ -344,6 +345,17 @@ def _report_sounding(
             f"drilled: {listed}",
             intervals=drilled,
             count=len(drilled),
+        )
+    for sheet, d1, d2 in sounding.sheet_axis_gaps():
+        # Centimetres are what the sheet's axis can be read to.
+        note(
+            NOTE_SHEET_AXIS_GAP,
+            f"Sheet {sheet} ends at {d1:.2f} m, sheet {sheet + 1} starts at {d2:.2f} m: "
+            "no reading in between",
+            sheet=sheet,
+            next=sheet + 1,
+            d1=round(d1, 2),
+            d2=round(d2, 2),
         )
     if kind is GraphKind.RASTER:
         note(NOTE_READ_FROM_IMAGE, "read from an image: check the orange curve against the sheet")
