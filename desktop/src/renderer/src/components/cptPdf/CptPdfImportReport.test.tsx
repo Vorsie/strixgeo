@@ -68,7 +68,7 @@ describe('CptPdfImportReport says each remark in the app language', () => {
     )
     expect(elevation).toHaveTextContent('Hoogte-as: diepte = gedrukt maaiveld (6.05 m) min geplotte hoogte')
     expect(drilled).toHaveTextContent(
-      'Voorboring zonder meting: 32.4 tot 33.2 m, 36.0 tot 37.0 m, 39.3 tot 40.2 m, 45.5 tot 46.0 m; leeg gelaten, nooit geïnterpoleerd',
+      'Overboring zonder meting: 32.4 tot 33.2 m, 36.0 tot 37.0 m, 39.3 tot 40.2 m, 45.5 tot 46.0 m; leeg gelaten, nooit geïnterpoleerd',
     )
     // The status line is unchanged.
     expect(screen.getByTestId('cpt-pdf-report-row')).toHaveTextContent('vervangen')
