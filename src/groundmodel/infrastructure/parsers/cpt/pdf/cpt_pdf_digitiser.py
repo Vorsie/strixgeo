@@ -24,6 +24,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     PDF_POINTS,
     RASTER_DPI,
     REPEAT_START_TOLERANCE_M,
+    VECTOR_DRILL_GAP_M,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_axis_calibrator import (
     RasterAxisCalibrator,
@@ -312,13 +313,7 @@ def join_sheets(sheets: list[DigitisedSounding]) -> DigitisedSounding:
     ordered = sorted(sheets, key=lambda s: (_depth_range(s) or (float("inf"), 0.0))[0])
     joined = ordered[0]
     for sheet in ordered[1:]:
-        joined = DigitisedSounding(
-            sounding_id=joined.sounding_id or sheet.sounding_id,
-            page_numbers=joined.page_numbers + sheet.page_numbers,
-            calibrations=joined.calibrations + sheet.calibrations,
-            curves=_join_curves(joined.curves, sheet.curves),
-            annotations=joined.annotations + sheet.annotations,
-        )
+        joined = _join_sheet(joined, sheet, joined.sounding_id or sheet.sounding_id)
     return joined
 
 
@@ -384,14 +379,96 @@ def merge_continuations(
             merged.append(s)
         elif target >= 0:
             m = merged[target]
-            merged[target] = DigitisedSounding(
-                sounding_id=s.sounding_id or m.sounding_id,
-                page_numbers=m.page_numbers + s.page_numbers,
-                calibrations=m.calibrations + s.calibrations,
-                curves=_join_curves(m.curves, s.curves),
-                annotations=m.annotations + s.annotations,
-            )
+            merged[target] = _join_sheet(m, s, s.sounding_id or m.sounding_id)
     return merged
+
+
+def _join_sheet(
+    upper: DigitisedSounding, sheet: DigitisedSounding, sounding_id: str | None
+) -> DigitisedSounding:
+    """Append continuation ``sheet`` below ``upper`` and record the join seam.
+
+    The join is recorded as ``(upper end, continuation start)`` in
+    ``sheet_joins_m``. The qc pen lift the join itself makes (the curves of
+    two sheets are two drawings) goes to ``seam_gaps_m`` when the
+    continuation sheet draws through that depth in one stroke: it is a
+    plotting artefact, never a drilled stretch (owner ruling "a",
+    2026-10-07). The joined values are not changed.
+
+    Parameters
+    ----------
+    upper : DigitisedSounding
+        The sheet(s) joined so far.
+    sheet : DigitisedSounding
+        The continuation sheet, deeper.
+    sounding_id : str or None
+        The id the joined sounding carries.
+
+    Returns
+    -------
+    DigitisedSounding
+        One sounding over both.
+    """
+    curves = _join_curves(upper.curves, sheet.curves)
+    join: tuple[tuple[float, float], ...] = ()
+    above, below = _depth_range(upper), _depth_range(sheet)
+    if above is not None and below is not None:
+        # To the millimetre, like the drilled intervals.
+        join = ((round(above[1], 3), round(below[0], 3)),)
+    seam = _seam_gap(upper.curves.get(PanelKind.QC), sheet.curves.get(PanelKind.QC))
+    return DigitisedSounding(
+        sounding_id=sounding_id,
+        page_numbers=upper.page_numbers + sheet.page_numbers,
+        calibrations=upper.calibrations + sheet.calibrations,
+        curves=curves,
+        annotations=upper.annotations + sheet.annotations,
+        sheet_joins_m=upper.sheet_joins_m + join + sheet.sheet_joins_m,
+        seam_gaps_m=upper.seam_gaps_m + seam + sheet.seam_gaps_m,
+    )
+
+
+def _seam_gap(
+    upper: DigitisedCurve | None, sheet: DigitisedCurve | None
+) -> tuple[tuple[float, float], ...]:
+    """Return the qc pen lift a sheet join makes, when the continuation draws through it.
+
+    After the join the last vertex of the upper sheet is followed by the
+    first vertex of the continuation sheet below it, in another stroke. When
+    the continuation sheet's own polyline runs across the upper sheet's last
+    depth in ONE stroke (a sparse path: CAMZ-001 2.3, sounding 68, one
+    segment from 33.01 to 33.97 m), no measurement is missing there. When
+    the continuation lifts its own pen there, or starts below the upper
+    sheet's last vertex, the stretch stays drilled.
+
+    Parameters
+    ----------
+    upper : DigitisedCurve or None
+        The qc curve above the join.
+    sheet : DigitisedCurve or None
+        The qc curve of the continuation sheet.
+
+    Returns
+    -------
+    tuple of tuple of float
+        ``((top_m, base_m),)`` to the millimetre, or empty.
+    """
+    if upper is None or sheet is None or not len(upper) or len(sheet) < 2:
+        return ()
+    lifts = sheet.no_bridge()
+    if upper.no_bridge() is None or lifts is None:
+        return ()
+    upper_end = float(upper.depth_m[-1])
+    i = int(np.searchsorted(sheet.depth_m, upper_end, side="right")) - 1
+    if i < 0 or i >= len(sheet) - 1 or bool(lifts[i]):
+        # The continuation starts below the upper end, ends above it, or
+        # lifts its own pen across it: the gap is real.
+        return ()
+    # The next vertex the join keeps (``monotonic_keep``: finite, deeper).
+    below = sheet.depth_m[(sheet.depth_m > upper_end) & np.isfinite(sheet.value)]
+    if not len(below) or float(below[0]) - upper_end <= VECTOR_DRILL_GAP_M:
+        # No jump at the join: nothing would be called drilled.
+        return ()
+    return ((round(upper_end, 3), round(float(below[0]), 3)),)
 
 
 def _depth_range(s: DigitisedSounding) -> tuple[float, float] | None:
