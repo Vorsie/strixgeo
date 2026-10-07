@@ -98,3 +98,24 @@ describe('cptPdfNoteText: drilled intervals', () => {
     ).toBe('drilled: 1.0 to 1.6 m')
   })
 })
+
+// Owner direction (2026-10-07): when the printed depth axes of two sheets of one
+// sounding leave a stretch uncovered, the row says so; it is unknown, not drilled.
+// EN "Sheet {n} ends at {d1} m, sheet {n+1} starts at {d2} m: no reading in between"
+// NL "Blad {n} eindigt op {d1} m, blad {n+1} begint op {d2} m: geen meting ertussen"
+describe('cptPdfNoteText: a stretch no sheet axis covers', () => {
+  // The axis depths read to the centimetre, as the backend's English sentence.
+  const note = { code: 'SHEET_AXIS_GAP', params: { sheet: 1, next: 2, d1: 33.5, d2: 34.0 } }
+
+  it('N10: Dutch names both sheets and both axis depths', () => {
+    expect(cptPdfNoteText(note, '', nl)).toBe(
+      'Blad 1 eindigt op 33.50 m, blad 2 begint op 34.00 m: geen meting ertussen',
+    )
+  })
+
+  it('N11: English names both sheets and both axis depths', () => {
+    expect(cptPdfNoteText(note, '', en)).toBe(
+      'Sheet 1 ends at 33.50 m, sheet 2 starts at 34.00 m: no reading in between',
+    )
+  })
+})
