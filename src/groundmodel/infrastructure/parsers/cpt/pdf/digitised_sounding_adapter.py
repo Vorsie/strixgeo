@@ -185,6 +185,10 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 ),
                 "points_above_ground_dropped": above_ground,
                 "drilled_intervals_m": drilled,
+                # Where the sheets of a multi-page sounding were joined, as
+                # [upper sheet end, continuation start]: the pen lift the join
+                # itself makes is never drilled (owner ruling "a", 2026-10-07).
+                "sheet_joins_m": [[end, start] for end, start in sounding.sheet_joins_m],
                 "pre_drill_m": pre_drill,
             },
         )
@@ -238,10 +242,11 @@ class DigitisedSoundingAdapter(GroundModelLogger):
             )
         return out
 
-    @staticmethod
-    def _drilled(sounding: DigitisedSounding, issues: list[ValidationIssue]) -> list[list[float]]:
+    def _drilled(
+        self, sounding: DigitisedSounding, issues: list[ValidationIssue]
+    ) -> list[list[float]]:
         """Return the drilled stretches as ``[top, base]`` pairs; one INFO issue lists them."""
-        drilled = [[top, base] for top, base in sounding.drilled_intervals()]
+        drilled = [[top, base] for top, base in sounding.drilled_intervals(self)]
         if drilled:
             listed = ", ".join(f"{top:.2f}-{base:.2f} m" for top, base in drilled)
             issues.append(
