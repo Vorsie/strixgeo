@@ -79,13 +79,13 @@ describe('cptPdfNoteTexts: the notes of one row', () => {
 })
 
 // Owner ruling "a" (2026-10-04): a drilled stretch is shown on the triage row:
-// EN "Drilled: {list}" / NL "Voorboring: {list}", list = "32.0 tot 32.3 m,
+// EN "Drilled: {list}" / NL "Overboring: {list}", list = "32.0 tot 32.3 m,
 // 40.1 tot 40.9 m" (NL) / "32.0 to 32.3 m, ..." (EN), one decimal.
 describe('cptPdfNoteText: drilled intervals', () => {
   const note = { code: 'DRILLED_INTERVALS', params: { intervals: [[32.0, 32.3], [40.12, 40.876]], count: 2 } }
 
   it('N7: Dutch names every stretch with "tot", one decimal', () => {
-    expect(cptPdfNoteText(note, '', nl)).toBe('Voorboring: 32.0 tot 32.3 m, 40.1 tot 40.9 m')
+    expect(cptPdfNoteText(note, '', nl)).toBe('Overboring: 32.0 tot 32.3 m, 40.1 tot 40.9 m')
   })
 
   it('N8: English names every stretch with "to", one decimal', () => {
