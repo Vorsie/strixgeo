@@ -188,10 +188,11 @@ describe('CptPdfImportDialog', () => {
   })
 
   // Owner ruling 2026-10-05 (a): a "Projectnummer" field at the top of the
-  // list, pre-filled with the project number the triage read when every sheet
-  // agrees, EMPTY when the sheets print none. Its value fills the project
+  // list, EMPTY when the sheets print none. Its value fills the project
   // number of every listed sounding whose own header has none; a row's own
-  // printed number always wins.
+  // printed number always wins. Owner ruling 2026-10-07 ("can't we suggest a
+  // standard?"): the field starts with the MOST COMMON printed project number
+  // among the campaign sheets, ties going to the first in page order.
   describe('the Projectnummer field', () => {
     const printed = (key: string, project: string | null): CptPdfSounding => ({
       ...sounding(key),
@@ -219,13 +220,56 @@ describe('CptPdfImportDialog', () => {
       expect(field().value).toBe('')
     })
 
-    it('is empty when the printed project numbers disagree', () => {
+    it('when the sheets disagree, suggests the most common printed project number (CAMZ-001: 74 vs 1)', () => {
+      // Sheet 14A prints 24.13-005 and comes FIRST; the other sheets print 23.15-002.
+      const others = Array.from({ length: 74 }, (_, i) => printed(String(i + 1), '23.15-002'))
       triageState.current = {
         status: 'done',
-        digest: { ...DIGEST, campaign: [printed('14', '23.15-002'), printed('14A', '24.13-005')], unknown: [] },
+        digest: { ...DIGEST, campaign: [printed('14A', '24.13-005'), ...others], unknown: [] },
       }
       renderDialog()
-      expect(field().value).toBe('')
+      expect(field().value).toBe('23.15-002')
+    })
+
+    it('sheets that print no number do not count against the most common printed one', () => {
+      triageState.current = {
+        status: 'done',
+        digest: {
+          ...DIGEST,
+          campaign: [printed('1', null), printed('2', null), printed('3', null), printed('4', '23.15-002')],
+          unknown: [],
+        },
+      }
+      renderDialog()
+      expect(field().value).toBe('23.15-002')
+    })
+
+    it('on a tie, suggests the number of the first sheet in page order', () => {
+      triageState.current = {
+        status: 'done',
+        digest: {
+          ...DIGEST,
+          campaign: [
+            printed('1', '24.13-005'),
+            printed('2', '23.15-002'),
+            printed('3', '23.15-002'),
+            printed('4', '24.13-005'),
+          ],
+          unknown: [],
+        },
+      }
+      renderDialog()
+      expect(field().value).toBe('24.13-005')
+    })
+
+    it('the suggestion stays editable', () => {
+      triageState.current = {
+        status: 'done',
+        digest: { ...DIGEST, campaign: [printed('14A', '24.13-005'), printed('1', '23.15-002'), printed('2', '23.15-002')], unknown: [] },
+      }
+      renderDialog()
+      fireEvent.change(field(), { target: { value: '23.15-006' } })
+      expect(field().value).toBe('23.15-006')
     })
 
     it('carries the hint naming the rows it fills', () => {
