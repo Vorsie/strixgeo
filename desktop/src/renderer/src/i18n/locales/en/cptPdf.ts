@@ -49,6 +49,10 @@ export const CPT_PDF = {
   // {list} is the stretches, each written with ``cptPdf.drilledInterval``.
   'cptPdf.note.DRILLED_INTERVALS': 'Drilled: {list}',
   'cptPdf.drilledInterval': '{top} to {base} m',
+  // Two sheets of one sounding whose printed depth axes leave a stretch
+  // uncovered: unknown, not drilled (owner direction 2026-10-07).
+  'cptPdf.note.SHEET_AXIS_GAP':
+    'Sheet {sheet} ends at {d1} m, sheet {next} starts at {d2} m: no reading in between',
   'cptPdf.selectAll': 'Select all',
   'cptPdf.selectNone': 'Select none',
   'cptPdf.importSelected': 'Import selected ({n})',
