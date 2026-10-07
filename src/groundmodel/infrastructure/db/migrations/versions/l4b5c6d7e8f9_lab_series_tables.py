@@ -1,7 +1,7 @@
 """Raw lab-series tables — oedometer / triaxial readings per sample.
 
 Revision ID: l4b5c6d7e8f9
-Revises: a1b2c3d4e5f7
+Revises: c8d9e0f1a2b4
 Create Date: 2026-09-29 12:00:00.000000
 
 Owner rule (2026-09-28): "geolib uses already processed files, we need to get
@@ -30,7 +30,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "l4b5c6d7e8f9"
-down_revision = "a1b2c3d4e5f7"
+down_revision = "c8d9e0f1a2b4"
 branch_labels = None
 depends_on = None
 
