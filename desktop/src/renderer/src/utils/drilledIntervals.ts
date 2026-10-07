@@ -1,7 +1,7 @@
 // The drilled stretches of a PDF-digitised CPT: read from the wire, and said in
 // the app language. One parser and one wording for every place that shows
 // them: the triage row's note, the CPT chart's gap logic, the chart's
-// provenance line ("voorboring 32.0 tot 32.3 m, 40.1 tot 40.9 m").
+// provenance line ("overboring 32.0 tot 32.3 m, 40.1 tot 40.9 m").
 import type { Translator } from '../i18n/translate'
 
 /** One drilled stretch, ``[top, base]`` in metres below ground level. */
