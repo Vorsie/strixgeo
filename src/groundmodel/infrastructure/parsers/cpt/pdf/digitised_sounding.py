@@ -54,17 +54,20 @@ class DigitisedSounding:
         ``(depth_m, text)`` of values printed inside the frame (the arrow
         labels of a clipped qc, e.g. "32.53").
     sheet_joins_m : tuple of tuple of float
-        One ``(upper_end_m, continuation_start_m)`` pair per sheet join, top
-        first: the deepest point drawn on the sheet(s) above the join and the
-        first point drawn on the continuation sheet. A continuation that
-        repeats the last part of the sheet before starts above the upper end.
-        Empty for a one-sheet sounding.
+        One ``(D1, D2)`` pair per sheet join, top first, read from the
+        PRINTED DEPTH AXES (owner direction 2026-10-07): D1 is where the
+        upper sheet's depth axis ends, D2 where the continuation sheet's
+        starts. D2 <= D1 when the sheets overlap. Empty for a one-sheet
+        sounding, and for a join whose axes were not read.
     seam_gaps_m : tuple of tuple of float
-        The qc pen lifts the join itself made: ``(top_m, base_m)`` from the
+        The qc gaps the joins themselves made: ``(top_m, base_m)`` from the
         last qc vertex of the upper sheet to the next kept vertex of the
-        continuation sheet, where the continuation sheet draws through that
-        depth in one stroke. Never a drilled stretch (owner ruling "a",
-        2026-10-07). Empty for a one-sheet sounding.
+        continuation, where no sheet leaves that stretch undrawn inside its
+        own printed axis. A plotting artefact, never drilled. Empty for a
+        one-sheet sounding.
+    sheet_axis_gaps_m : tuple of tuple of float
+        ``(D1, D2)`` per join whose axes leave a stretch uncovered (D2 > D1):
+        no sheet could draw it, so it is unknown, never drilled.
     """
 
     sounding_id: str | None
@@ -74,6 +77,7 @@ class DigitisedSounding:
     annotations: tuple[tuple[float, str], ...] = field(default_factory=tuple)
     sheet_joins_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
     seam_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
+    sheet_axis_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
 
     def to_frame(self, step_m: float = DEFAULT_RESAMPLE_STEP_M) -> pl.DataFrame:
         """Resample every curve onto one regular depth grid.
@@ -130,17 +134,17 @@ class DigitisedSounding:
         curve empty, it is only not called drilled. A raster trace is left
         out: it has no strokes.
 
-        A gap at a sheet join is never drilled (owner ruling "a",
-        2026-10-07): the continuation sheet is a new drawing, so the stroke
-        change between the last vertex of one sheet and the next vertex of
-        the other is a plotting artefact when the continuation sheet draws
-        through that depth in one stroke (CAMZ-001 2.3, soundings 68 and 69
-        at ~33.5 m: a sparse polyline, no pen lift on either sheet). Those
-        ``seam_gaps_m`` are left out. A pen lift the continuation sheet
-        draws itself, or a stretch neither sheet draws (the upper curve
-        stops metres above the join), stays drilled: the 2.4 print of the
-        same report shows those too. The values across the seam are not
-        changed: ``to_frame`` still bridges nothing.
+        A gap at a sheet join is read from the printed depth axes (owner
+        direction 2026-10-07: "look at start-depth on page 1 and end depth on
+        page 2 based on the axes"). Where the sheets' axes overlap or abut,
+        the gap the two drawings leave between them is a plotting artefact
+        (CAMZ-001 2.3, soundings 68 and 69 at ~33.5 m: sheet 1 is drawn to
+        its axis end). Where they leave a stretch uncovered it is unknown,
+        not drilled (``sheet_axis_gaps_m``). Those ``seam_gaps_m`` are left
+        out. A pen lift INSIDE one sheet's own axis range stays drilled: the
+        curve stops while its axis runs on (sounding 80), or the
+        continuation lifts its own pen (76b). The values across the seam
+        are not changed: ``to_frame`` still bridges nothing.
 
         Parameters
         ----------
@@ -182,6 +186,21 @@ class DigitisedSounding:
             abs(t - seam_top) <= _SAME_DEPTH_M and abs(b - seam_base) <= _SAME_DEPTH_M
             for seam_top, seam_base in self.seam_gaps_m
         )
+
+    def sheet_axis_gaps(self) -> list[tuple[int, float, float]]:
+        """Return each stretch no printed axis covers, with the sheet it follows.
+
+        Returns
+        -------
+        list of tuple
+            ``(sheet, d1_m, d2_m)``: sheet ``sheet`` (1-based) ends at D1,
+            sheet ``sheet + 1`` starts at D2, top first.
+        """
+        return [
+            (i + 1, d1, d2)
+            for i, (d1, d2) in enumerate(self.sheet_joins_m)
+            if (d1, d2) in self.sheet_axis_gaps_m
+        ]
 
     def write_csv(self, path: Path, step_m: float = DEFAULT_RESAMPLE_STEP_M) -> Path:
         """Write the resampled table as CSV.
