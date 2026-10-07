@@ -39,6 +39,8 @@ describe('CptProvenanceTag', () => {
   // Owner 2026-10-04, reading the Data pane of sounding 110: "where is the
   // Voorboring note?" The drilled stretches of a digitised CPT are named on the
   // provenance line, one decimal, the same wording as the triage row's note.
+  // Owner 2026-10-07: a stretch inside the sounding is "overboring"; only the
+  // drilling from the surface to the first reading is "voorboring".
   it('names the drilled stretches after the pages', () => {
     render(
       <CptProvenanceTag
@@ -78,7 +80,7 @@ describe('CptProvenanceTag', () => {
       />,
     )
     expect(screen.getByTestId('cpt-provenance-tag').textContent).toBe(
-      'gedigitaliseerd uit 23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf, blz. 235, 236, voorboring 32.0 tot 32.3 m, 40.1 tot 40.9 m',
+      'gedigitaliseerd uit 23.15-RAP-002-2.4 Proefverslag CAMZ-001.pdf, blz. 235, 236, overboring 32.0 tot 32.3 m, 40.1 tot 40.9 m',
     )
   })
 })
