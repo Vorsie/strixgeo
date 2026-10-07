@@ -25,6 +25,7 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   CLIPPED_POINTS: 'cptPdf.note.CLIPPED_POINTS',
   READ_FROM_IMAGE: 'cptPdf.note.READ_FROM_IMAGE',
   DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
+  SHEET_AXIS_GAP: 'cptPdf.note.SHEET_AXIS_GAP',
 }
 
 /** Catalogue key per known import-issue code (``POST /cpt/pdf/import``). */
@@ -44,10 +45,15 @@ const UNFILLED_SLOT = /\{\w+\}/
  * drilled stretches (``intervals``) names each one ("32.0 to 32.3 m", one
  * decimal) joined by commas under ``list``, in the app language.
  *
+ * The axis depths of a sheet axis gap (``d1``, ``d2``) are written to the
+ * centimetre.
+ *
  * @returns The message params, or null when the ``intervals`` are malformed or empty.
  */
 function remarkParams(params: Record<string, unknown>, t: Translator): MessageParams | null {
-  if (!Object.prototype.hasOwnProperty.call(params, 'intervals')) return messageParams(params)
+  if (!Object.prototype.hasOwnProperty.call(params, 'intervals')) {
+    return axisDepthParams(messageParams(params))
+  }
   const intervals = parseDrilledIntervals(params.intervals)
   if (intervals === null || intervals.length === 0) return null
   return { ...messageParams(params), list: drilledIntervalsText(intervals, t) }
@@ -77,6 +83,20 @@ function codedText(
   if (filled === null) return fallback || code
   const text = t(key, filled)
   return UNFILLED_SLOT.test(text) ? fallback || code : text
+}
+
+/** The params that name a printed axis depth (``SHEET_AXIS_GAP``: where one
+ *  sheet's axis ends, where the next one's starts). */
+const AXIS_DEPTH_PARAMS = ['d1', 'd2'] as const
+
+/** Write the axis depths to the centimetre, as the backend's English sentence. */
+function axisDepthParams(params: MessageParams): MessageParams {
+  const out: Record<string, string | number> = { ...params }
+  for (const name of AXIS_DEPTH_PARAMS) {
+    const value = out[name]
+    if (typeof value === 'number') out[name] = value.toFixed(2)
+  }
+  return out
 }
 
 /** Keep only the params a message can show (strings and numbers). */
