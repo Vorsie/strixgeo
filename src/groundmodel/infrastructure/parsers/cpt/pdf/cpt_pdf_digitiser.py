@@ -24,7 +24,6 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     PDF_POINTS,
     RASTER_DPI,
     REPEAT_START_TOLERANCE_M,
-    VECTOR_DRILL_GAP_M,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_axis_calibrator import (
     RasterAxisCalibrator,
@@ -37,6 +36,14 @@ from groundmodel.infrastructure.parsers.cpt.pdf.raster_grid_detector import Rast
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
 from groundmodel.infrastructure.parsers.cpt.pdf.report_triage import ReportTriage
 from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import monotonic_keep
+from groundmodel.infrastructure.parsers.cpt.pdf.sheet_join_helpers import (
+    axis_pair,
+    in_sheet_gaps,
+    is_axis_gap,
+    join_gap,
+    overlaps,
+    sheets_axis_range,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.vector_axis_calibrator import (
     VectorAxisCalibrator,
 )
@@ -379,21 +386,36 @@ def merge_continuations(
             merged.append(s)
         elif target >= 0:
             m = merged[target]
-            merged[target] = _join_sheet(m, s, s.sounding_id or m.sounding_id)
+            merged[target] = _join_sheet(m, s, s.sounding_id or m.sounding_id, logger)
     return merged
 
 
 def _join_sheet(
-    upper: DigitisedSounding, sheet: DigitisedSounding, sounding_id: str | None
+    upper: DigitisedSounding,
+    sheet: DigitisedSounding,
+    sounding_id: str | None,
+    logger: GroundModelLogger | None = None,
 ) -> DigitisedSounding:
-    """Append continuation ``sheet`` below ``upper`` and record the join seam.
+    """Append continuation ``sheet`` below ``upper`` and read the seam from the printed axes.
 
-    The join is recorded as ``(upper end, continuation start)`` in
-    ``sheet_joins_m``. The qc pen lift the join itself makes (the curves of
-    two sheets are two drawings) goes to ``seam_gaps_m`` when the
-    continuation sheet draws through that depth in one stroke: it is a
-    plotting artefact, never a drilled stretch (owner ruling "a",
-    2026-10-07). The joined values are not changed.
+    Owner direction (2026-10-07): "you can just look at start-depth on page 1
+    and end depth on page 2 based on the axes". The join is recorded as the
+    axis pair ``(D1, D2)`` in ``sheet_joins_m``: D1 is where the upper
+    sheet's printed depth axis ends, D2 where the continuation's starts.
+
+    * D2 <= D1 (the sheets overlap on [D2, D1]): the gap the two drawings
+      leave between them, inside that overlap or across the sheet boundary,
+      is a plotting artefact of the join and goes to ``seam_gaps_m``, never
+      drilled.
+    * D2 > D1: no axis covers [D1, D2]. It is unknown, not drilled: it goes to
+      ``sheet_axis_gaps_m`` (and the join gap to ``seam_gaps_m``).
+    * A pen lift INSIDE one sheet's own axis range stays overboring, exactly
+      as on one sheet: the upper curve stops while its axis runs on (sounding
+      80: 31.2 m against an axis to ~33 m), the continuation starts below its
+      own axis top, or lifts its own pen across the join (76b).
+
+    When a sheet's axis was not read, no join is recorded and the gap stays
+    drilled: nothing says it is the join. The joined values are not changed.
 
     Parameters
     ----------
@@ -403,6 +425,8 @@ def _join_sheet(
         The continuation sheet, deeper.
     sounding_id : str or None
         The id the joined sounding carries.
+    logger : GroundModelLogger or None
+        Receives one DEBUG line per join read.
 
     Returns
     -------
@@ -411,11 +435,31 @@ def _join_sheet(
     """
     curves = _join_curves(upper.curves, sheet.curves)
     join: tuple[tuple[float, float], ...] = ()
-    above, below = _depth_range(upper), _depth_range(sheet)
+    axis_gap: tuple[tuple[float, float], ...] = ()
+    seam: tuple[tuple[float, float], ...] = ()
+    above = sheets_axis_range(upper.calibrations)
+    below = sheets_axis_range(sheet.calibrations)
     if above is not None and below is not None:
-        # To the millimetre, like the drilled intervals.
-        join = ((round(above[1], 3), round(below[0], 3)),)
-    seam = _seam_gap(upper.curves.get(PanelKind.QC), sheet.curves.get(PanelKind.QC))
+        d1, d2 = axis_pair(above[1], below[0])
+        join = ((d1, d2),)
+        if is_axis_gap(d1, d2):
+            axis_gap = ((d1, d2),)
+        seam = _seam_gap(upper.curves.get(PanelKind.QC), sheet.curves.get(PanelKind.QC), d1, d2)
+        if logger is not None:
+            logger.debug(
+                "sounding %s: sheet join axis %.3f -> %.3f m, axis gap %s, join gap %s",
+                sounding_id,
+                d1,
+                d2,
+                bool(axis_gap),
+                seam[0] if seam else "none or drilled",
+            )
+    elif logger is not None:
+        logger.debug(
+            "sounding %s: sheet join on pages %s has no read depth axis: gap kept as is",
+            sounding_id,
+            sheet.page_numbers,
+        )
     return DigitisedSounding(
         sounding_id=sounding_id,
         page_numbers=upper.page_numbers + sheet.page_numbers,
@@ -424,21 +468,18 @@ def _join_sheet(
         annotations=upper.annotations + sheet.annotations,
         sheet_joins_m=upper.sheet_joins_m + join + sheet.sheet_joins_m,
         seam_gaps_m=upper.seam_gaps_m + seam + sheet.seam_gaps_m,
+        sheet_axis_gaps_m=upper.sheet_axis_gaps_m + axis_gap + sheet.sheet_axis_gaps_m,
     )
 
 
 def _seam_gap(
-    upper: DigitisedCurve | None, sheet: DigitisedCurve | None
+    upper: DigitisedCurve | None, sheet: DigitisedCurve | None, d1: float, d2: float
 ) -> tuple[tuple[float, float], ...]:
-    """Return the qc pen lift a sheet join makes, when the continuation draws through it.
+    """Return the qc join gap when it is the join's own artefact, read from the axes.
 
-    After the join the last vertex of the upper sheet is followed by the
-    first vertex of the continuation sheet below it, in another stroke. When
-    the continuation sheet's own polyline runs across the upper sheet's last
-    depth in ONE stroke (a sparse path: CAMZ-001 2.3, sounding 68, one
-    segment from 33.01 to 33.97 m), no measurement is missing there. When
-    the continuation lifts its own pen there, or starts below the upper
-    sheet's last vertex, the stretch stays drilled.
+    The gap between the last upper vertex and the next kept continuation
+    vertex is the join's artefact unless a sheet leaves part of it undrawn
+    inside its own printed axis (an in-sheet pen lift: drilled).
 
     Parameters
     ----------
@@ -446,29 +487,22 @@ def _seam_gap(
         The qc curve above the join.
     sheet : DigitisedCurve or None
         The qc curve of the continuation sheet.
+    d1 : float
+        The upper sheet's axis end (m).
+    d2 : float
+        The continuation sheet's axis start (m).
 
     Returns
     -------
     tuple of tuple of float
         ``((top_m, base_m),)`` to the millimetre, or empty.
     """
-    if upper is None or sheet is None or not len(upper) or len(sheet) < 2:
+    if upper is None or sheet is None or upper.no_bridge() is None:
         return ()
-    lifts = sheet.no_bridge()
-    if upper.no_bridge() is None or lifts is None:
+    gap = join_gap(upper, sheet)
+    if gap is None or overlaps(gap, in_sheet_gaps(upper, sheet, d1, d2)):
         return ()
-    upper_end = float(upper.depth_m[-1])
-    i = int(np.searchsorted(sheet.depth_m, upper_end, side="right")) - 1
-    if i < 0 or i >= len(sheet) - 1 or bool(lifts[i]):
-        # The continuation starts below the upper end, ends above it, or
-        # lifts its own pen across it: the gap is real.
-        return ()
-    # The next vertex the join keeps (``monotonic_keep``: finite, deeper).
-    below = sheet.depth_m[(sheet.depth_m > upper_end) & np.isfinite(sheet.value)]
-    if not len(below) or float(below[0]) - upper_end <= VECTOR_DRILL_GAP_M:
-        # No jump at the join: nothing would be called drilled.
-        return ()
-    return ((round(upper_end, 3), round(float(below[0]), 3)),)
+    return (axis_pair(*gap),)
 
 
 def _depth_range(s: DigitisedSounding) -> tuple[float, float] | None:
