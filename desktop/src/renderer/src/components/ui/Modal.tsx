@@ -5,7 +5,11 @@
 // What this component owns:
 //   * Fixed-position backdrop, dimmed, centred children
 //   * Esc keystroke → calls ``onCancel`` (skipped while ``busy``)
-//   * Backdrop click → calls ``onCancel`` (skipped while ``busy``)
+//   * Backdrop click → calls ``onCancel`` (skipped while ``busy``), but only
+//     when the press AND the release both land on the backdrop itself. A
+//     text-select drag that starts inside the card and ends on the scrim
+//     makes the browser fire ``click`` on the backdrop (the nearest common
+//     ancestor of the two targets); that must not close the dialog.
 //   * ``role="dialog"`` + ``aria-modal="true"`` + ``aria-labelledby``
 //   * Stops click propagation on the inner card so a click *inside* the
 //     dialog doesn't bubble up to the backdrop and dismiss it
@@ -55,6 +59,12 @@ export default function Modal({
 }: Props) {
   // Ref to the inner card so the focus trap knows the dialog boundary.
   const cardRef = useRef<HTMLDivElement>(null)
+  // Backdrop-dismiss gesture state. ``pressOnBackdrop`` records whether the
+  // mousedown landed on the scrim itself; ``dismissArmed`` is set on mouseup
+  // only when the release ALSO landed on the scrim, and the following click
+  // consumes it. Refs, not state: the gesture must not re-render the dialog.
+  const pressOnBackdrop = useRef(false)
+  const dismissArmed = useRef(false)
 
   // Esc-to-cancel + the Tab/Shift+Tab focus trap (WCAG 2.4.3): while the
   // dialog is open, Tab cycles within the card instead of escaping to the
@@ -153,7 +163,18 @@ export default function Modal({
     // "UI is blocked" signal on any theme.
     <div
       className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={() => !busy && onCancel()}
+      onMouseDown={e => {
+        pressOnBackdrop.current = e.target === e.currentTarget
+      }}
+      onMouseUp={e => {
+        dismissArmed.current = pressOnBackdrop.current && e.target === e.currentTarget
+        pressOnBackdrop.current = false
+      }}
+      onClick={e => {
+        const armed = dismissArmed.current
+        dismissArmed.current = false
+        if (armed && e.target === e.currentTarget && !busy) onCancel()
+      }}
     >
       <div
         ref={cardRef}
