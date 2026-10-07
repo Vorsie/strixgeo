@@ -56,7 +56,7 @@ def _sounding(
         page_numbers=(6,),
         calibrations=(SimpleNamespace(depth_reference=reference, ground_level_m=None),),
         curves=curves,
-        drilled_intervals=lambda: list(drilled or []),
+        drilled_intervals=lambda logger=None: list(drilled or []),
     )
 
 
