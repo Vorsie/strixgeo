@@ -45,6 +45,7 @@ def _sounding(
     elevation: bool,
     clipped: int,
     drilled: list[tuple[float, float]] | None = None,
+    axis_gaps: list[tuple[int, float, float]] | None = None,
 ) -> SimpleNamespace:
     """Return a merged sounding: curves read or not, on an elevation axis or not."""
     reference = DepthReference.ELEVATION if elevation else DepthReference.DEPTH_BELOW_GROUND
@@ -57,6 +58,7 @@ def _sounding(
         calibrations=(SimpleNamespace(depth_reference=reference, ground_level_m=None),),
         curves=curves,
         drilled_intervals=lambda logger=None: list(drilled or []),
+        sheet_axis_gaps=lambda: list(axis_gaps or []),
     )
 
 
@@ -144,6 +146,21 @@ def test_drilled_intervals_are_one_note_with_the_list_and_the_count() -> None:
         ("DRILLED_INTERVALS", {"intervals": [[32.0, 32.3], [40.12, 40.9]], "count": 2}),
     ]
     assert listed.warnings == ("drilled: 32.0 to 32.3 m, 40.1 to 40.9 m",)
+
+
+def test_a_stretch_no_sheet_axis_covers_is_a_sheet_axis_gap_note() -> None:
+    """Owner 2026-10-07: sheet 1 ends at D1, sheet 2 starts at D2 > D1: no reading between."""
+    listed = _notes(
+        _sounding(read=True, elevation=False, clipped=0, axis_gaps=[(1, 33.5, 34.004)]),
+        _page(placed=True, ground=4.5, kind=GraphKind.VECTOR),
+        ocr=False,
+    )
+    assert [(n.code, n.params) for n in listed.notes] == [
+        ("SHEET_AXIS_GAP", {"sheet": 1, "next": 2, "d1": 33.5, "d2": 34.0}),
+    ]
+    assert listed.warnings == (
+        "Sheet 1 ends at 33.50 m, sheet 2 starts at 34.00 m: no reading in between",
+    )
 
 
 def test_a_continuous_sounding_has_no_drilled_note() -> None:
