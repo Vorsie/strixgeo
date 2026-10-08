@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import replace
+from typing import Any
 
 import pymupdf
 
@@ -13,7 +14,10 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_depth_helpers impo
     ground_level_of,
     header_value,
 )
-from groundmodel.infrastructure.parsers.borehole.pdf.borehole_header_helpers import coordinates
+from groundmodel.infrastructure.parsers.borehole.pdf.borehole_header_helpers import (
+    assumed_crs,
+    coordinates,
+)
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_layout_profile import (
     BoreholeLayoutProfile,
 )
@@ -27,6 +31,7 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_page_verdict impor
     BoreholePageVerdict,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_constants import (
+    DROPPED_DUPLICATE,
     LEGEND_PATTERN,
     MIN_DRAWINGS_FOR_CONTENT,
     MIN_TEXT_LAYER_CHARS,
@@ -34,6 +39,12 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_constants impo
     PHOTO_IMAGE_COVERAGE,
     PHOTO_MAX_CHARS,
     TITLE_TOP_SHARE,
+)
+from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_digitiser import (
+    BoreholePdfDigitiser,
+)
+from groundmodel.infrastructure.parsers.borehole.pdf.borehole_repeat_helpers import (
+    repeat_differences,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_report_digest import (
     BoreholeReportDigest,
@@ -45,11 +56,13 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_sheet_reader impor
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_triage_result import (
     BoreholeTriageResult,
 )
+from groundmodel.infrastructure.parsers.borehole.pdf.dropped_borehole import DroppedBorehole
 from groundmodel.infrastructure.parsers.borehole.pdf.page_word_helpers import text_layer_words
 from groundmodel.infrastructure.parsers.borehole.pdf.report_borehole import ReportBorehole
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_reader import OcrReader
 from groundmodel.infrastructure.parsers.cpt.pdf.ocr_word_cache import OcrWordCache
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import GARBLED_TEXT_QUALITY
+from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_identity import PdfReportIdentity
 from groundmodel.infrastructure.parsers.cpt.pdf.sheet_header_helpers import sheet_date_iso
 from groundmodel.infrastructure.parsers.cpt.pdf.word_geometry import text_layer_quality
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -68,7 +81,10 @@ class BoreholePdfTriager(GroundModelLogger):
     or the continuation sheet of the borehole on the page before when it
     prints the same name. A page without a usable text layer is OCR'd when an
     OCR reader is given, otherwise it is "needs OCR": nothing about it is
-    guessed.
+    guessed. A borehole printed again inside an earlier print's depth range
+    is compared row by row: identical = dropped (the digest's ``dropped``),
+    different = listed with ``repeat_of`` and the differing rows (owner
+    2026-10-08: never merged).
 
     Parameters
     ----------
@@ -88,6 +104,7 @@ class BoreholePdfTriager(GroundModelLogger):
         self._ocr = ocr
         self._profiles = profiles or BOREHOLE_LAYOUT_PROFILES
         self._reader = BoreholeSheetReader()
+        self._digitiser = BoreholePdfDigitiser()
 
     def triage(
         self,
@@ -157,7 +174,10 @@ class BoreholePdfTriager(GroundModelLogger):
         finally:
             if ocr_cache is not None:
                 ocr_cache.save()
-        boreholes = self._group(verdicts, sheets)
+        identity = PdfReportIdentity(
+            file_name=file_name, file_sha=file_sha, ocr_available=self._ocr is not None
+        )
+        boreholes, dropped = self._group(verdicts, sheets, identity)
         digest = BoreholeReportDigest(
             file_name=file_name,
             file_sha=file_sha,
@@ -167,12 +187,15 @@ class BoreholePdfTriager(GroundModelLogger):
             pages_not_triaged=doc.page_count - total,
             ocr_available=self._ocr is not None,
             ocr_pages=tuple(ocr_pages),
+            dropped=tuple(dropped),
         )
         self.success(
-            "triage of %s: %d borehole(s) on %d sheet(s); classes %s; %d page(s) need OCR",
+            "triage of %s: %d borehole(s) on %d sheet(s), %d identical repeat(s) dropped; "
+            "classes %s; %d page(s) need OCR",
             file_name,
             len(boreholes),
             len(sheets),
+            len(dropped),
             digest.class_counts,
             len(digest.needs_ocr_pages),
         )
@@ -256,9 +279,12 @@ class BoreholePdfTriager(GroundModelLogger):
         return verdict(page_class, source), None
 
     def _group(
-        self, verdicts: list[BoreholePageVerdict], sheets: dict[int, BoreholeSheet]
-    ) -> list[ReportBorehole]:
-        """Group log sheets and their continuation sheets into boreholes."""
+        self,
+        verdicts: list[BoreholePageVerdict],
+        sheets: dict[int, BoreholeSheet],
+        identity: PdfReportIdentity,
+    ) -> tuple[list[ReportBorehole], list[DroppedBorehole]]:
+        """Group log sheets into boreholes; drop a repeat print with the same data."""
         groups: list[list[BoreholePageVerdict]] = []
         for verdict in verdicts:
             if verdict.page_class is BoreholePageClass.LOG_SHEET:
@@ -266,6 +292,7 @@ class BoreholePdfTriager(GroundModelLogger):
             elif verdict.page_class is BoreholePageClass.CONTINUATION_SHEET and groups:
                 groups[-1].append(verdict)
         boreholes: list[ReportBorehole] = []
+        dropped: list[DroppedBorehole] = []
         for group in groups:
             listing = self._listing(group[0], group, [sheets[v.page_number] for v in group])
             earlier = next((b for b in boreholes if b.name == listing.name), None)
@@ -279,9 +306,43 @@ class BoreholePdfTriager(GroundModelLogger):
                     earlier.key,
                 )
                 if inside:
-                    listing = replace(listing, repeat_of=earlier.key)
+                    differences = self._repeat_differences(earlier, listing, sheets, identity)
+                    if not differences:
+                        dropped.append(
+                            DroppedBorehole(
+                                key=listing.key,
+                                name=listing.name,
+                                pages=listing.pages,
+                                reason=DROPPED_DUPLICATE,
+                                kept_key=earlier.key,
+                                note=f"printed again with exactly the same data as {earlier.key}",
+                            )
+                        )
+                        self.info("borehole %s: identical to %s, dropped", listing.key, earlier.key)
+                        continue
+                    self.warning(
+                        "borehole %s differs from %s in %d row(s): both listed",
+                        listing.key,
+                        earlier.key,
+                        len(differences),
+                    )
+                    listing = replace(
+                        listing, repeat_of=earlier.key, repeat_differences=tuple(differences)
+                    )
             boreholes.append(listing)
-        return boreholes
+        return boreholes, dropped
+
+    def _repeat_differences(
+        self,
+        earlier: ReportBorehole,
+        listing: ReportBorehole,
+        sheets: dict[int, BoreholeSheet],
+        identity: PdfReportIdentity,
+    ) -> list[dict[str, Any]]:
+        """Return the rows where a repeat print differs from the earlier print."""
+        kept = self._digitiser.parse(earlier, [sheets[p] for p in earlier.pages], identity)
+        again = self._digitiser.parse(listing, [sheets[p] for p in listing.pages], identity)
+        return repeat_differences(kept, again)
 
     @staticmethod
     def _listing(
@@ -295,6 +356,7 @@ class BoreholePdfTriager(GroundModelLogger):
             x, y, epsg = coordinates(sheet.header)
             if x is not None or y is not None:
                 break
+        epsg, crs_assumed = assumed_crs(x, y, epsg)
         ground, z_epsg, _ = ground_level_of(group_sheets)
         date_text = header_value(group_sheets, "date")
         return ReportBorehole(
@@ -307,6 +369,7 @@ class BoreholePdfTriager(GroundModelLogger):
             x=x,
             y=y,
             epsg=epsg,
+            crs_assumed=crs_assumed,
             ground_level_m=ground,
             z_epsg=z_epsg,
             date_text=date_text,
