@@ -187,3 +187,49 @@ def test_the_row_names_the_sheet_project_and_the_project_sounding_name() -> None
     data = listed.to_dict()
     assert data["project_number"] == "23.15-002"
     assert data["display_name"] == "23.15-002-S110"
+
+
+def _placed_at(x: float, y: float, epsg: int = 31370) -> SimpleNamespace:
+    """Return the header evidence of one vector sheet printed at (x, y)."""
+    page = _page(placed=True, ground=4.5, kind=GraphKind.VECTOR)
+    page.x, page.y, page.epsg = x, y, epsg
+    return page
+
+
+def _codes_at(x: float, y: float, epsg: int = 31370) -> list[str]:
+    """Return the note codes of a read sounding printed at (x, y)."""
+    listed = _notes(
+        _sounding(read=True, elevation=False, clipped=0), _placed_at(x, y, epsg), ocr=False
+    )
+    return [n.code for n in listed.notes]
+
+
+def test_a_printed_coordinate_outside_the_system_extent_gets_a_note() -> None:
+    """Owner finding 2026-10-08: S28A prints Y 2244433.030, out of the Lambert 72 range.
+
+    The digitiser reads the sheet faithfully; the row tells the user to check
+    the header, with the printed values and the system as params.
+    """
+    listed = _notes(
+        _sounding(read=True, elevation=False, clipped=0),
+        _placed_at(67592.443, 2244433.030),
+        ocr=False,
+    )
+    assert [n.code for n in listed.notes] == ["COORDINATE_OUT_OF_RANGE"]
+    assert listed.notes[0].params == {"x": 67592.443, "y": 2244433.030, "epsg": 31370}
+    assert len(listed.warnings) == 1
+
+
+def test_the_corrected_coordinate_inside_the_extent_gets_no_note() -> None:
+    """Near miss: the meant value 224433.030 lies inside Lambert 72; no note."""
+    assert _codes_at(67592.443, 224433.030) == []
+
+
+def test_an_x_outside_the_extent_gets_the_note_too() -> None:
+    """Over-shoot on the other axis: X 675924.43 is out of range as well."""
+    assert _codes_at(675924.43, 224433.030) == ["COORDINATE_OUT_OF_RANGE"]
+
+
+def test_a_system_without_a_known_extent_is_not_checked() -> None:
+    """Another EPSG code (RD New 28992) has no extent in the table: no check."""
+    assert _codes_at(67592.443, 2244433.030, epsg=28992) == []
