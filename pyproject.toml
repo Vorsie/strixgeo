@@ -185,9 +185,12 @@ ignore_missing_imports = true
 
 # PyMuPDF (the PDF CPT digitiser, runtime dep) is only partly annotated: Page /
 # Rect / Document methods are untyped, so strict mode flags every call. Allow
-# untyped calls inside the digitiser package only; RapidOCR ships no types.
+# untyped calls inside the digitiser packages only; RapidOCR ships no types.
 [[tool.mypy.overrides]]
-module = ["groundmodel.infrastructure.parsers.cpt.pdf.*"]
+module = [
+    "groundmodel.infrastructure.parsers.cpt.pdf.*",
+    "groundmodel.infrastructure.parsers.borehole.pdf.*",
+]
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
