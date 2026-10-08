@@ -212,6 +212,7 @@ class PrintedTablePageReader(GroundModelLogger):
         test_type = p.test_type.search(source)
         standard = p.standard.search(source)
         cone = p.cone.search(source)
+        area = p.cone_area.search(source) if p.cone_area is not None else None
         date = p.test_date.search(source)
         position = p.position.search(source)
         groundwater = p.groundwater.search(source)
@@ -230,6 +231,7 @@ class PrintedTablePageReader(GroundModelLogger):
             application_class=standard.group("klass") if standard else None,
             cpt_type=p.cpt_type_by_cone.get(kind) if kind else None,
             cone=kind,
+            cone_area_cm2=_number(area.group("area")) if area else None,
             test_date=date.group("date") if date else None,
             x=_number(position.group("x")) if position else None,
             y=_number(position.group("y")) if position else None,
