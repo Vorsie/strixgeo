@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import pytest
 
-from groundmodel.application.import_cpt_pdf import ImportCptPdf
+from groundmodel.application.import_cpt_pdf import ImportCptPdf, _header
 from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.application.pdf_sounding_import_request import PdfSoundingImportRequest
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
@@ -304,3 +304,76 @@ async def test_a_blank_typed_project_number_keeps_the_stand_in(store: PdfReportS
     )
     result, _, _ = persist.calls[0]
     assert result.header.project_id == "CAMZ-001"
+
+
+@pytest.mark.asyncio
+async def test_a_typed_value_overrides_a_printed_one_and_is_tagged_user(
+    store: PdfReportStore,
+) -> None:
+    """Owner finding 2026-10-08: the sheet itself prints a wrong Y; the typed Y wins.
+
+    S28A of a CAMZ report prints Y 2244433.030 (a typo for 224433.030). The
+    user corrects ONLY the Y in the overlay; the typed Y replaces the printed
+    one and the provenance says "user" for Y, while the X and the system the
+    sheet printed are kept and stay "sheet".
+    """
+    persist = _Persist()
+    outcomes = await _use_case(store, persist).execute(
+        PROJECT,
+        SHA,
+        [PdfSoundingImportRequest(key="110", y=224433.03)],
+        confirm_refresh=False,
+    )
+    assert outcomes[0].status == "imported"
+    result = persist.calls[0][0]
+    assert (result.header.x, result.header.y, result.header.epsg) == (66980.21, 224433.03, 31370)
+    provenance = result.import_provenance
+    assert provenance is not None
+    assert provenance["header_sources"]["y"] == "user"
+    assert provenance["header_sources"]["x"] == "sheet"
+    assert provenance["header_sources"]["epsg"] == "sheet"
+
+
+def test_a_typed_ground_level_and_date_override_the_printed_ones() -> None:
+    """A printed ground level and date are overridden by typed ones, tagged "user"."""
+    header = _header(
+        _listed("110", 231, True),
+        PdfSoundingImportRequest(key="110", ground_level_m=5.5, test_date="1-3-2024"),
+        "CAMZ-001",
+    )
+    assert (header.ground_level_m, header.test_date) == (5.5, "1-3-2024")
+    assert (header.sources["ground_level_m"], header.sources["test_date"]) == ("user", "user")
+    assert (header.sources["x"], header.sources["y"]) == ("sheet", "sheet")
+
+
+@pytest.mark.asyncio
+async def test_an_untouched_header_keeps_every_printed_value_and_its_source(
+    store: PdfReportStore,
+) -> None:
+    """Near miss: nothing typed, every printed value is kept and tagged "sheet"."""
+    persist = _Persist()
+    await _use_case(store, persist).execute(
+        PROJECT, SHA, [PdfSoundingImportRequest(key="110")], confirm_refresh=False
+    )
+    result = persist.calls[0][0]
+    assert (result.header.x, result.header.y, result.header.epsg) == (66980.21, 224746.0, 31370)
+    assert result.import_provenance["header_sources"] == {
+        "x": "sheet",
+        "y": "sheet",
+        "epsg": "sheet",
+        "ground_level_m": "sheet",
+        "test_date": "sheet",
+    }
+
+
+@pytest.mark.asyncio
+async def test_half_a_typed_position_on_a_sheet_without_one_is_still_no_position(
+    store: PdfReportStore,
+) -> None:
+    """Boundary: 7 prints no position; a typed Y alone does not place it (refused)."""
+    persist = _Persist()
+    outcomes = await _use_case(store, persist).execute(
+        PROJECT, SHA, [PdfSoundingImportRequest(key="7", y=224800.0)], confirm_refresh=False
+    )
+    assert outcomes[0].status == "refused"
+    assert outcomes[0].code == "pdf_no_xy"
