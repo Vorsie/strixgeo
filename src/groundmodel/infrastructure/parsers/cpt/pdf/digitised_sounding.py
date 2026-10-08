@@ -77,6 +77,10 @@ class DigitisedSounding:
     printed_pre_drill_m : float or None
         A pre-drill depth the sheet PRINTS ("voorgeduwd ... tot een diepte van
         1 m"); the stored provenance takes it over the first row's depth.
+    effective_pre_drill_m : float or None
+        A printed table's first real row: below the printed pre-drill when
+        rows printing the floor qc follow it (no reading, owner 2026-10-09).
+        None for a digitised graph.
     printed_cpt_type : str or None
         The CPT classification the sheet prints ("CPTE", "CPTM"); the stored
         type takes it over the one guessed from the curves read.
@@ -97,6 +101,7 @@ class DigitisedSounding:
     seam_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
     sheet_axis_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
     printed_pre_drill_m: float | None = None
+    effective_pre_drill_m: float | None = None
     printed_cpt_type: str | None = None
     table_provenance: dict[str, Any] | None = None
     issues: tuple[ValidationIssue, ...] = field(default_factory=tuple)
