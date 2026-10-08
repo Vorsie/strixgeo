@@ -49,6 +49,11 @@ export const CPT_PDF_NL: Partial<Messages> = {
     'Coördinaat buiten het bereik van het stelsel (X {x}, Y {y}): controleer de hoofding',
   'cptPdf.note.SHEET_AXIS_GAP':
     'Blad {sheet} eindigt op {d1} m, blad {next} begint op {d2} m: geen meting ertussen',
+  'cptPdf.note.READ_FROM_PRINTED_TABLE': 'Gelezen uit de gedrukte tabel: de waarden zoals gedrukt',
+  'cptPdf.note.TABLE_ROWS_REJECTED': '{count} gedrukte rij(en) niet gelezen',
+  'cptPdf.note.TABLE_RF_MISMATCH': '{count} gedrukte Rf-waarde(n) strijdig met fs / qc: weggelaten, de Rf-cel blijft leeg',
+  'cptPdf.note.PRE_DRILL_FLOOR_ROWS':
+    '{count} rij(en) met qc 0,01 net onder de voorboring: geen meting, de curve begint op {depth} m',
   'cptPdf.selectAll': 'Alles selecteren',
   'cptPdf.selectNone': 'Niets selecteren',
   'cptPdf.importSelected': 'Selectie importeren ({n})',
@@ -102,5 +107,16 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.issue.PDF_DRILLED_INTERVALS': 'Overboring zonder meting: {list}; leeg gelaten, nooit geïnterpoleerd',
   'cptPdf.issue.PDF_NO_XY': 'Geen ligging op het blad: typ X en Y om deze sondering te plaatsen',
   'cptPdf.issue.PDF_OCR_UNAVAILABLE': 'Gelezen zonder OCR: de aswaarden zijn getypt of van het raster genomen',
+  'cptPdf.issue.PDF_TABLE_RF_MISMATCH':
+    '{count} gedrukte Rf-waarde(n) strijdig met de gedrukte fs / qc: weggelaten, de Rf-cel leeg gelaten, qc en fs zoals gedrukt',
+  'cptPdf.issue.PDF_TABLE_LEVEL_MISMATCH':
+    '{count} gedrukte TAW-waarde(n) niet gelijk aan maaiveld min diepte: de diepte zoals gedrukt behouden',
+  'cptPdf.issue.PDF_TABLE_ROWS_REJECTED': '{count} gedrukte rij(en) niet gelezen en niet opgeslagen',
+  'cptPdf.issue.PDF_TABLE_COLUMNS_NOT_IMPORTED':
+    'Gedrukte kolommen niet geïmporteerd (berekend of zonder eigen kolom): {columns}',
+  'cptPdf.issue.PDF_TABLE_PRE_DRILL_FLOOR_ROWS':
+    '{count} rij(en) met qc 0,01 net onder de voorboring ({pre_drill_m} m): geen meting, leeg gelaten; de curve begint op {depth} m',
+  'cptPdf.issue.PDF_TABLE_QTOTAL_CONE_AREA':
+    'Het blad noemt een conus van {area_cm2} cm²: de totaalweerstand {column} (kN) is alleen bij de standaardconus van 10 cm² gelijk aan MPa; leeg gelaten, nooit omgerekend',
   'cptPdf.toast.none': 'Niets geïmporteerd uit het rapport',
 }
