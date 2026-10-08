@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_depth_helpers import (
     depth_below,
     ground_level_of,
     header_value,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_header_helpers import (
+    assumed_crs,
     coordinates,
     water_depth_m,
 )
@@ -19,15 +23,17 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_constants impo
     DEPTH_DECIMALS,
     GROUND_FROM_FIRST_LEVEL,
     GROUND_LEVEL_TOLERANCE_M,
+    ISSUE_CRS_ASSUMED,
     ISSUE_GROUND_LEVEL_DISAGREES,
     ISSUE_GROUND_LEVEL_FROM_FIRST_LEVEL,
     ISSUE_NO_GROUND_LEVEL,
     ISSUE_NO_XY,
     ISSUE_OPEN_BASE,
-    ISSUE_PRINTED_AGAIN,
+    ISSUE_REPEAT_DIFFERS,
+    ISSUE_REPEAT_DROPPED,
     ISSUE_SAMPLE_WITHOUT_AXIS,
+    ISSUE_WATER_UNIT_ASSUMED,
     ISSUE_WATER_UNIT_UNPRINTED,
-    ISSUE_XY_SYSTEM_UNNAMED,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_header import (
     BoreholePdfHeader,
@@ -36,6 +42,10 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_sheet import Boreh
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_sheet_join_helpers import (
     join_sheets,
     sheet_intervals,
+)
+from groundmodel.infrastructure.parsers.borehole.pdf.borehole_text_helpers import (
+    lithology_absent_reason,
+    sample_label,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_triage_result import (
     BoreholeTriageResult,
@@ -62,9 +72,15 @@ class BoreholePdfDigitiser(GroundModelLogger):
     Depths come from the printed levels only (depth = ground level - level);
     a level that cannot be read leaves its boundary without a depth. Rows a
     sheet cut are joined over sheets. Sample bars get their depth through
-    the sheet's depth axis; the water level comes from the header field when
-    its label names the unit and the reference. Descriptions stay verbatim:
-    no DOV code is set here.
+    the sheet's depth axis (the interval as drawn); the water level comes from
+    the header field. Descriptions stay verbatim: no DOV code is set here.
+
+    The owner's 2026-10-08 rulings: the surface word is a header note; an
+    interval printing only the technique and a sample remark has an empty
+    lithology (``"sampled"``); X/Y without a named system are Lambert 72 and a
+    water level without unit or reference is cm below ground, both flagged for
+    the user to confirm; a repeat print that differs is flagged on both prints
+    (an identical one is dropped by the triage, with a notice here).
     """
 
     def __init__(self) -> None:
@@ -101,7 +117,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
                     listing.profile,
                 )
                 continue
-            borehole = self._borehole(listing, [result.sheets[p] for p in listing.pages], identity)
+            borehole = self.parse(listing, [result.sheets[p] for p in listing.pages], identity)
             self.debug(
                 "[%d/%d] %s: %d interval(s), %d sample(s), %d issue(s)",
                 i,
@@ -112,6 +128,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
                 len(borehole.issues),
             )
             out.append(borehole)
+        self._repeat_findings(result, out)
         self.success(
             "digitise %s: %d borehole(s), %d interval(s)",
             identity.file_name,
@@ -120,29 +137,45 @@ class BoreholePdfDigitiser(GroundModelLogger):
         )
         return out
 
-    def _borehole(
+    def parse(
         self,
         listing: ReportBorehole,
         sheets: list[BoreholeSheet],
         identity: PdfReportIdentity,
     ) -> DigitisedBorehole:
-        """Return one borehole from its sheets."""
+        """Return one borehole read from its sheets.
+
+        Parameters
+        ----------
+        listing : ReportBorehole
+            The borehole as the triage lists it.
+        sheets : list of BoreholeSheet
+            Its sheets, in order.
+        identity : PdfReportIdentity
+            The report file.
+
+        Returns
+        -------
+        DigitisedBorehole
+            The borehole; a listed repeat that differs carries
+            ``REPEAT_DIFFERS`` with the differing rows.
+        """
         first_page = sheets[0].page_number
         issues: list[ValidationIssue] = [i for s in sheets for i in s.issues]
-        if listing.repeat_of is not None:
+        if listing.repeat_of is not None and listing.repeat_differences:
             issues.append(
-                make_issue(
-                    ValidationLevel.WARNING,
-                    ISSUE_PRINTED_AGAIN,
-                    f"{listing.name}: printed again from page {first_page}, inside the depth "
-                    f"range of {listing.repeat_of}",
-                    {"page": first_page, "repeat_of": listing.repeat_of},
+                _repeat_differs(
+                    listing.name, first_page, listing.repeat_of, listing.repeat_differences
                 )
             )
         ground, z_epsg, source = ground_level_of(sheets)
         self._check_ground(sheets, ground, source, issues)
         intervals, join_issues = join_sheets([sheet_intervals(s, ground) for s in sheets])
         issues.extend(join_issues)
+        intervals = [
+            replace(i, lithology_absent_reason=lithology_absent_reason(i.description))
+            for i in intervals
+        ]
         if intervals and intervals[-1].depth_base_m is None and intervals[-1].base_label is None:
             issues.append(
                 make_issue(
@@ -166,13 +199,15 @@ class BoreholePdfDigitiser(GroundModelLogger):
                     {"page": first_page},
                 )
             )
-        elif epsg is None:
+        epsg, crs_assumed = assumed_crs(x, y, epsg)
+        if crs_assumed:
             issues.append(
                 make_issue(
                     ValidationLevel.WARNING,
-                    ISSUE_XY_SYSTEM_UNNAMED,
-                    f"{listing.name}: X/Y printed without a coordinate system; kept raw",
-                    {"page": first_page, "x": x, "y": y},
+                    ISSUE_CRS_ASSUMED,
+                    f"{listing.name}: X/Y printed without a coordinate system; read as "
+                    f"EPSG:{epsg} (Lambert 72), to confirm at import",
+                    {"page": first_page, "x": x, "y": y, "epsg": epsg},
                 )
             )
         profile = self._profiles[sheets[0].profile]
@@ -189,6 +224,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
             x=x,
             y=y,
             epsg=epsg,
+            crs_assumed=crs_assumed,
             ground_level_m=ground,
             z_epsg=z_epsg,
             ground_level_source=source,
@@ -199,7 +235,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
             project_code=header_value(sheets, "project_code"),
             project_name=header_value(sheets, "project_name"),
             remark=header_value(sheets, "remark"),
-            surface_text=sheets[0].surface_text,
+            surface_label=sheets[0].surface_text,
             identification_standard=next(
                 (
                     s.header.identification_standard
@@ -219,6 +255,8 @@ class BoreholePdfDigitiser(GroundModelLogger):
             "pages": [s.page_number for s in sheets],
             "text_sources": {str(s.page_number): s.text_source for s in sheets},
             "ocr_available": identity.ocr_available,
+            "crs_assumed": crs_assumed,
+            "water_unit_assumed": any(w.unit_assumed for w in water),
             "sheets": [s.provenance() for s in sheets],
         }
         return DigitisedBorehole(
@@ -230,6 +268,52 @@ class BoreholePdfDigitiser(GroundModelLogger):
             provenance=provenance,
             issues=issues,
         )
+
+    def _repeat_findings(
+        self, result: BoreholeTriageResult, boreholes: list[DigitisedBorehole]
+    ) -> None:
+        """Put the repeat findings on the first prints.
+
+        A dropped identical repeat leaves ``REPEAT_DROPPED`` (INFO) on the
+        print that stays; a listed repeat that differs puts ``REPEAT_DIFFERS``
+        on the first print too (the repeat itself got it in :meth:`parse`).
+        """
+        by_key = {b.key: b for b in boreholes}
+        for dropped in result.digest.dropped:
+            kept = by_key.get(dropped.kept_key)
+            if kept is None:
+                continue
+            kept.issues.append(
+                make_issue(
+                    ValidationLevel.INFO,
+                    ISSUE_REPEAT_DROPPED,
+                    f"{dropped.name}: printed again on page(s) {list(dropped.pages)} with "
+                    "exactly the same data; that print is dropped",
+                    {
+                        "page": dropped.pages[0],
+                        "dropped_key": dropped.key,
+                        "pages": list(dropped.pages),
+                    },
+                )
+            )
+            self.info("%s: identical repeat %s dropped", kept.key, dropped.key)
+        for listing in result.digest.boreholes:
+            if listing.repeat_of is None or not listing.repeat_differences:
+                continue
+            kept = by_key.get(listing.repeat_of)
+            if kept is None:
+                continue
+            kept.issues.append(
+                _repeat_differs(
+                    listing.name, listing.pages[0], listing.key, listing.repeat_differences
+                )
+            )
+            self.warning(
+                "%s: printed again as %s with %d differing row(s); both kept",
+                kept.key,
+                listing.key,
+                len(listing.repeat_differences),
+            )
 
     @staticmethod
     def _check_ground(
@@ -317,6 +401,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
                     mark=mark.mark,
                     sample_type=meaning.get(mark.mark),
                     pages=tuple(dict.fromkeys(pages)),
+                    sample_label=sample_label(mark.sample_id),
                 )
         return sorted(
             merged.values(),
@@ -333,15 +418,26 @@ class BoreholePdfDigitiser(GroundModelLogger):
             value = sheet.header.value("water")
             if label is None or not value:
                 continue
-            depth = water_depth_m(label, value)
-            if depth is None:
+            depth, assumed = water_depth_m(label, value)
+            params: dict[str, Any] = {"page": sheet.page_number, "label": label, "value": value}
+            if assumed:
+                issues.append(
+                    make_issue(
+                        ValidationLevel.WARNING,
+                        ISSUE_WATER_UNIT_ASSUMED,
+                        f"page {sheet.page_number}: water level {value!r} ({label}) names no "
+                        f"unit or reference; read as {depth} m below ground, to confirm at import",
+                        {**params, "depth_m": depth},
+                    )
+                )
+            elif depth is None:
                 issues.append(
                     make_issue(
                         ValidationLevel.INFO,
                         ISSUE_WATER_UNIT_UNPRINTED,
-                        f"page {sheet.page_number}: water level {value!r} ({label}) names no "
-                        "unit or reference; kept raw",
-                        {"page": sheet.page_number, "label": label, "value": value},
+                        f"page {sheet.page_number}: water level {value!r} ({label}) cannot be "
+                        "read as a depth below ground; kept raw",
+                        params,
                     )
                 )
             return [
@@ -351,6 +447,20 @@ class BoreholePdfDigitiser(GroundModelLogger):
                     label=label,
                     source="header",
                     page=sheet.page_number,
+                    unit_assumed=assumed,
                 )
             ]
         return []
+
+
+def _repeat_differs(
+    name: str, page: int, other_key: str, rows: tuple[dict[str, Any], ...]
+) -> ValidationIssue:
+    """Return the ``REPEAT_DIFFERS`` finding of one print, naming the other print."""
+    return make_issue(
+        ValidationLevel.WARNING,
+        ISSUE_REPEAT_DIFFERS,
+        f"{name}: printed twice with {len(rows)} differing row(s) (other print {other_key}); "
+        "choose the print to withhold",
+        {"page": page, "other_key": other_key, "rows": [dict(r) for r in rows]},
+    )
