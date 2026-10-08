@@ -55,6 +55,15 @@ export const CPT_PDF = {
     'Coordinate outside the range of its system (X {x}, Y {y}): check the sheet header',
   'cptPdf.note.SHEET_AXIS_GAP':
     'Sheet {sheet} ends at {d1} m, sheet {next} starts at {d2} m: no reading in between',
+  // A sounding read from its printed table (owner 2026-10-08), and the table
+  // rulings of 2026-10-09: a printed Rf its own row contradicts is dropped;
+  // floor qc rows directly after the pre-drill are no reading ({depth} = the
+  // first real row).
+  'cptPdf.note.READ_FROM_PRINTED_TABLE': 'read from the printed table: the values as printed',
+  'cptPdf.note.TABLE_ROWS_REJECTED': '{count} printed row(s) not read',
+  'cptPdf.note.TABLE_RF_MISMATCH': '{count} printed Rf value(s) contradict fs / qc: dropped, the Rf cell empty',
+  'cptPdf.note.PRE_DRILL_FLOOR_ROWS':
+    '{count} row(s) with qc 0.01 directly after the pre-drill: no reading, the curve starts at {depth} m',
   'cptPdf.selectAll': 'Select all',
   'cptPdf.selectNone': 'Select none',
   'cptPdf.importSelected': 'Import selected ({n})',
@@ -111,5 +120,18 @@ export const CPT_PDF = {
   'cptPdf.issue.PDF_DRILLED_INTERVALS': 'Drilled without measurement: {list}; left empty, never interpolated',
   'cptPdf.issue.PDF_NO_XY': 'No position on the sheet: type X and Y to place this sounding',
   'cptPdf.issue.PDF_OCR_UNAVAILABLE': 'Read without OCR: the axis values were typed or taken from the grid',
+  // A sounding read from its printed table. {columns} is the printed column
+  // names, comma-separated; {area_cm2} the cone area the sheet names.
+  'cptPdf.issue.PDF_TABLE_RF_MISMATCH':
+    '{count} printed Rf value(s) contradict the printed fs / qc: dropped, the Rf cell left empty, qc and fs as printed',
+  'cptPdf.issue.PDF_TABLE_LEVEL_MISMATCH':
+    '{count} printed level(s) differ from ground level - depth: the depth kept as printed',
+  'cptPdf.issue.PDF_TABLE_ROWS_REJECTED': '{count} printed row(s) not read and not stored',
+  'cptPdf.issue.PDF_TABLE_COLUMNS_NOT_IMPORTED':
+    'Printed columns not imported (calculated, or no stored column): {columns}',
+  'cptPdf.issue.PDF_TABLE_PRE_DRILL_FLOOR_ROWS':
+    '{count} row(s) with qc 0.01 directly after the pre-drill ({pre_drill_m} m): no reading, left empty; the curve starts at {depth} m',
+  'cptPdf.issue.PDF_TABLE_QTOTAL_CONE_AREA':
+    'The sheet names a {area_cm2} cm² cone: the total resistance {column} (kN) equals MPa only for the standard 10 cm² cone; left empty, never converted',
   'cptPdf.toast.none': 'Nothing imported from the report',
 } as const
