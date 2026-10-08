@@ -284,6 +284,7 @@ def _header(
         for name in ("x", "y", "epsg"):
             sources.pop(name, None)
     return PdfImportHeader(
+    header = PdfImportHeader(
         # The ids a GEF of the same sounding carries (owner ruling 2026-10-04):
         # the sheet's project number, so a later GEF import is matched as the
         # same CPT. A typed number (the dialog's "Projectnummer", ruling
@@ -300,3 +301,8 @@ def _header(
         test_date=_pick("test_date", request.test_date, listed.test_date, sources),
         sources=sources,
     )
+    if sources.get("ground_level_m") == "sheet" and listed.ground_level_source is not None:
+        # Not printed as such: derived from the sheet (a printed table's level
+        # + depth); the provenance says from what.
+        sources["ground_level_m"] = listed.ground_level_source
+    return header
