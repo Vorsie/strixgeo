@@ -96,25 +96,57 @@ and the raster fallback. Package files `printed_table_*.py`,
   (`PDF_TABLE_ROWS_REJECTED`). Stored row for row, no resampling (`series_sampling
   = "printed table rows (no resampling)"`, `depth_source = "printed depth
   (table)"`). Not imported: the calculated columns (φ', C: listed under
-  `derived_columns_ignored`), inclination and the mechanical cone's total
-  force Qt in kN (`columns_not_stored`, no stored column; never converted).
+  `derived_columns_ignored`), inclination and Qst (`columns_not_stored`, no
+  stored column).
+* **Qt of a CPT-M table** (role `TOTAL_RESISTANCE`): stored as `q_total_mpa`
+  with the kN value kept as-is, the GEF quantity 128 rule (the standard
+  10 cm² mechanical cone makes kN == MPa; see [parsers-gef.md](parsers-gef.md)),
+  `printed_table.q_total_column = "Qt"`. Only a CPTM sounding (CPTM ⇒
+  `q_total_mpa`, CPTU ⇒ `qt_mpa`, never both): a Qt column on a CPT-E / CPTU
+  sheet is listed under `columns_not_stored`. A CPT-M sheet whose cone line
+  names another area (`cone_area_cm2`, read from "CPT-x N cm²"; the test
+  report's CPT-M sheets print "CPT-M M1", no area) leaves `q_total_mpa` empty
+  and raises `PDF_TABLE_QTOTAL_CONE_AREA` (WARNING, `area_cm2`, `column`):
+  never a conversion.
 * **Pre-drill and gaps**: "voorgeduwd ... tot een diepte van N m" is the
   pre-drill (`pre_drill_m = N`, owner vocabulary voorboring); the table simply
-  starts below it. A missing block of rows (a step > 1.5 printed steps) or a
-  printed "gesloten punt vanaf A m tot B m : geen meetwaarden" lying between two
-  rows starts a new stroke: a drilled interval, a gap, never interpolated
+  starts below it. Rows printing the floor value qc 0,01 MPa
+  (`PRE_DRILL_FLOOR_QC_MPA`) as a run from the first printed row, below a
+  PRINTED pre-drill, are no reading: every cell empty (qc, fs, Rf, Qt), no
+  drilled gap, nothing interpolated. The curve starts at the first real row
+  (`effective_pre_drill_m`, top-level and in `printed_table`;
+  `pre_drill_floor_rows_m`; INFO `PDF_TABLE_PRE_DRILL_FLOOR_ROWS`; row note
+  `PRE_DRILL_FLOOR_ROWS`); `pre_drill_m` stays the printed depth. A stored row
+  needs a qc, so the emptied rows stay in the reading but not in the stored
+  series. The same 0,01 later in a table, or at the top of a table that prints
+  no pre-drill, stays as printed. A missing block of rows (a step > 1.5
+  printed steps) or a printed "gesloten punt vanaf A m tot B m : geen
+  meetwaarden" lying between two rows starts a new stroke: a drilled interval
+  from the row above to the row below, both rows kept, never interpolated
   (owner ruling "a", 2026-10-04). A page break inside the table is no gap.
-* **Checks (flag, never correct)**: a printed Rf its own printed fs and qc
-  cannot give within their printed rounding (`PDF_TABLE_RF_MISMATCH`), a row
-  whose level + depth is off the ground level by more than the two values'
-  rounding (`PDF_TABLE_LEVEL_MISMATCH`).
+* **Checks**: a printed Rf its own printed fs and qc cannot give within their
+  printed rounding is flagged AND dropped (`PDF_TABLE_RF_MISMATCH`, row note
+  `TABLE_RF_MISMATCH`): the Rf cell empty, qc and fs as printed, the row kept,
+  the printed value in `printed_table.rf_dropped` (`[depth, Rf]`). A row whose
+  level + depth is off the ground level by more than the two values' rounding
+  is flagged, never corrected (`PDF_TABLE_LEVEL_MISMATCH`).
 * **Provenance**: `import_provenance.printed_table` (additive key, only on these
-  CPTs): the header as printed (test type, standard, class, date, groundwater
-  and free remark verbatim, pre-drill, no-measurement stretches), printed
-  columns, ignored columns, ground level + first row, level / Rf mismatches,
+  CPTs): the header as printed (test type, standard, class, cone area, date,
+  groundwater and free remark verbatim, pre-drill, no-measurement stretches),
+  printed columns, ignored columns, `q_total_column`, ground level + first row,
+  level / Rf mismatches, `rf_dropped`, floor rows + effective pre-drill,
   rejected rows, data / graph / calculation pages, the named systems. A
   printed-table sounding has no calibration: the digitise call returns it as
   read and refuses a posted calibration.
+* **Owner rulings 2026-10-09 (report Z1234567)**: a contradicting printed Rf
+  is dropped ("laat die maar vallen die rf"); a closed-point stretch between
+  two rows breaks the line row above to row below ("a, break the line"); Qt
+  of a CPT-M table is stored like GEF quantity 128, another cone area is
+  flagged; floor qc rows directly after the pre-drill are no reading ("they
+  prolly drilled a bit too deep"). Pins in
+  `tests/unit/infrastructure/parsers/cpt/pdf/test_printed_table_profile.py`.
+* **App text**: every note / issue code above has its EN + NL sentence in
+  `cptPdf.note.<code>` / `cptPdf.issue.<code>` (`utils/cptPdfNoteText.ts`).
 
 ## Owner rulings (2026-09-30) and where they live
 
