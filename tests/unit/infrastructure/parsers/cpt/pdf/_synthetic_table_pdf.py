@@ -75,7 +75,8 @@ class TableReportSpec:
     ``depths`` are the printed rows; ``page_break_after`` splits them over
     two table sheets (the continuation repeats the header and the column
     names, not the title). ``overrides`` replaces one printed cell
-    ``(depth, column) -> text``.
+    ``(depth, column) -> text``. ``cone_line`` replaces the printed cone line
+    ("CPT-M 15 cm²"); ``qt_on_e`` adds a Qt column to a CPT-E table.
     """
 
     cone: str = "E"
@@ -91,6 +92,8 @@ class TableReportSpec:
     system_line: bool = True
     calculation_page: bool = False
     graph_page: bool = True
+    cone_line: str | None = None
+    qt_on_e: bool = False
 
 
 def default_depths() -> list[float]:
@@ -109,7 +112,7 @@ def _header(page: pymupdf.Page, spec: TableReportSpec) -> None:
         cone = "CPT-M M1"
     page.insert_text((222, 54), standard, fontsize=8)
     page.insert_text((222, 78), f"{REPORT} - {spec.sounding}", fontsize=8)
-    page.insert_text((404, 78), cone, fontsize=8)
+    page.insert_text((404, 78), spec.cone_line or cone, fontsize=8)
     page.insert_text((222, 88), "Uitvoeringsdatum: 04-07-2022", fontsize=8)
     page.insert_text((404, 88), "200 kN", fontsize=8)
     page.insert_text((222, 98), "1000 TESTSTAD", fontsize=8)
@@ -126,6 +129,18 @@ def _right(page: pymupdf.Page, right: float, y: float, text: str, size: float = 
     page.insert_text((right - width, y), text, fontsize=size, fontname=font)
 
 
+def qt_of(depth_m: float) -> float:
+    """Return the printed total resistance Qt (kN, 2 decimals) at a depth."""
+    return round(10.0 + depth_m, 2)
+
+
+def _columns(spec: TableReportSpec) -> dict[str, float]:
+    """Return the printed columns of the spec's table, name -> right edge (pt)."""
+    if spec.cone != "E":
+        return COLUMN_RIGHT_M
+    return {**COLUMN_RIGHT_E, "Qt": 430.0} if spec.qt_on_e else COLUMN_RIGHT_E
+
+
 def _row(depth: float, cone: str) -> dict[str, str]:
     """Return the printed cells of one row."""
     cells = {
@@ -139,8 +154,7 @@ def _row(depth: float, cone: str) -> dict[str, str]:
         cells["Fs"] = comma(fs_of(depth), 3)
         cells["Rf, %"] = comma(rf_of(depth), 2)
         cells["Inclinatie, °"] = comma(3.1, 1)
-    else:
-        cells["Qt"] = comma(10.0 + depth, 2)
+    cells["Qt"] = comma(qt_of(depth), 2)
     return cells
 
 
@@ -150,7 +164,7 @@ def _table_page(
     """Append one numeric table sheet holding ``depths``."""
     page = doc.new_page(width=PAGE_W, height=PAGE_H)
     _header(page, spec)
-    columns = COLUMN_RIGHT_E if spec.cone == "E" else COLUMN_RIGHT_M
+    columns = _columns(spec)
     y = 168.0
     if title:
         page.insert_text((52, 165), "De terreingegevens en parameters", fontsize=8)
