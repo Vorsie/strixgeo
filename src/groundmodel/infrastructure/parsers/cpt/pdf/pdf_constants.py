@@ -247,6 +247,9 @@ STORED_COLUMN_BY_KIND: dict[PanelKind, str] = {
     PanelKind.FS: "fs_mpa",
     PanelKind.RF: "rf_pct",
     PanelKind.U2: "u2_mpa",
+    # CPTM total resistance (GEF quantity 128): only a printed CPT-M table
+    # feeds it (owner 2026-10-09); never a CPTU's qt_mpa.
+    PanelKind.Q_TOTAL: "q_total_mpa",
 }
 
 # The score leaves out grid points that fall between two scans more than this
