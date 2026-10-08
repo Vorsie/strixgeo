@@ -202,6 +202,98 @@ describe('CptPdfCalibrationOverlay', () => {
     )
   })
 
+  // Owner finding 2026-10-08 (packaged 0.1.5): sounding S28A of a CAMZ report
+  // PRINTS a wrong Y (2244433.030, meant 224433.030) and the header could not be
+  // corrected, because the header fields showed only for a value the sheet did
+  // not print. Every header field is now always editable: the printed value is
+  // the grey hint, an empty field keeps it, a typed value overrides it.
+  describe('a printed header value can be overwritten', () => {
+    function printedAnswer(cal = calibration()): CptPdfDigitised {
+      return {
+        ...answer(cal),
+        header: { x: 67592.443, y: 2244433.03, epsg: 31370, ground_level_m: 6.02, z_epsg: 5710, test_date: '28-2-2024' },
+        warnings: [],
+      }
+    }
+
+    beforeEach(() => {
+      digitise.mockImplementation(async (body: { calibrations?: PageCalibrationDict[] }) =>
+        printedAnswer(body.calibrations?.[0] ?? calibration()),
+      )
+    })
+
+    it('shows every header field although the sheet printed them all, each EMPTY with the printed value as its grey hint', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const expected: Array<[string, string]> = [
+        ['cpt-pdf-header-x', '67592.443'],
+        ['cpt-pdf-header-y', '2244433.03'],
+        ['cpt-pdf-header-epsg', '31370'],
+        ['cpt-pdf-header-ground_level_m', '6.02'],
+        ['cpt-pdf-header-date', '28-2-2024'],
+      ]
+      for (const [id, hint] of expected) {
+        const input = screen.getByTestId(id) as HTMLInputElement
+        expect(input.value, id).toBe('')
+        expect(input.placeholder, id).toBe(hint)
+      }
+    })
+
+    it('says the printed values can be overwritten, and not that something is missing', async () => {
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      expect(screen.getByTestId('cpt-pdf-header-printed-hint').textContent).toBe(
+        'Read from the sheet: type a new value to replace a wrong one.',
+      )
+      expect(screen.queryByTestId('cpt-pdf-header-not-printed-hint')).toBeNull()
+    })
+
+    it('in Dutch the overwrite line reads in Dutch', async () => {
+      setLanguage('nl')
+      renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      expect(screen.getByTestId('cpt-pdf-header-printed-hint').textContent).toBe(
+        'Gelezen van het blad: typ een nieuwe waarde om een foute waarde te vervangen.',
+      )
+    })
+
+    it('typing a Y over the printed one hands back ONLY the typed Y; the printed X and system are kept', async () => {
+      const { onDone } = renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const y = screen.getByTestId('cpt-pdf-header-y')
+      fireEvent.focus(y)
+      fireEvent.change(y, { target: { value: '224433.03' } })
+      fireEvent.blur(y)
+      fireEvent.click(screen.getByTestId('cpt-pdf-use'))
+      expect(onDone.mock.calls[0][0].header).toEqual({ y: 224433.03 })
+    })
+
+    it('a header left empty keeps every printed value: no header edit goes out', async () => {
+      const { onDone } = renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      fireEvent.click(screen.getByTestId('cpt-pdf-use'))
+      expect(onDone.mock.calls[0][0].header).toEqual({})
+    })
+
+    it('emptying a typed override goes back to the printed value', async () => {
+      const { onDone } = renderOverlay()
+      await screen.findByTestId('cpt-pdf-overlay-image')
+      const date = screen.getByTestId('cpt-pdf-header-date') as HTMLInputElement
+      fireEvent.change(date, { target: { value: '1-3-2024' } })
+      fireEvent.change(date, { target: { value: '' } })
+      fireEvent.click(screen.getByTestId('cpt-pdf-use'))
+      expect(onDone.mock.calls[0][0].header).toEqual({})
+    })
+  })
+
+  it('a sheet that printed no position says so next to the fields to type, and still offers the printed ones', async () => {
+    renderOverlay()
+    await screen.findByTestId('cpt-pdf-overlay-image')
+    expect(screen.getByTestId('cpt-pdf-header-not-printed-hint').textContent).toBe('Not printed on the sheet: type it.')
+    expect(screen.getByTestId('cpt-pdf-header-printed-hint')).toBeTruthy()
+    expect((screen.getByTestId('cpt-pdf-header-ground_level_m') as HTMLInputElement).placeholder).toBe('6.02')
+  })
+
   // Owner dogfeed 2026-10-04: "with assen controleren, you should give the
   // values that are selected right now in grey" / "i can type but the text is
   // white on white" / "you also need a reset button to auto pick".
