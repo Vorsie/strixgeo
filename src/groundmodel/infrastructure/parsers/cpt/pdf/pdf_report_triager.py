@@ -47,6 +47,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants i
     NOTE_ELEVATION_AXIS,
     NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
     NOTE_NO_POSITION_PRINTED,
+    NOTE_PRE_DRILL_FLOOR_ROWS,
     NOTE_READ_FROM_IMAGE,
     NOTE_READ_FROM_PRINTED_TABLE,
     NOTE_SHEET_AXIS_GAP,
@@ -498,8 +499,18 @@ def _table_report_sounding(
     if rf_flags:
         note(
             NOTE_TABLE_RF_MISMATCH,
-            f"{len(rf_flags)} printed Rf value(s) differ from fs / qc: kept as printed",
+            f"{len(rf_flags)} printed Rf value(s) contradict fs / qc: dropped, the Rf cell empty",
             count=len(rf_flags),
+        )
+    floor = provenance.get("pre_drill_floor_rows_m") or []
+    effective = provenance.get("effective_pre_drill_m")
+    if floor and effective is not None:
+        note(
+            NOTE_PRE_DRILL_FLOOR_ROWS,
+            f"{len(floor)} row(s) with qc 0.01 directly after the pre-drill: no reading, "
+            f"the curve starts at {effective:.2f} m",
+            count=len(floor),
+            depth=effective,
         )
     return ReportSounding(
         key=key,
