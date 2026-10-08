@@ -12,7 +12,7 @@ function fileMenu(language: 'en' | 'nl', send = vi.fn()) {
     rawBackendLogAffordance: false,
     recent: [],
     send,
-    onShowLogFile: () => {},
+    onOpenLogFolder: () => {},
     onSaveLogsForSupport: () => {},
     onAbout: () => {},
   })
