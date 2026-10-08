@@ -27,6 +27,10 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
   SHEET_AXIS_GAP: 'cptPdf.note.SHEET_AXIS_GAP',
   COORDINATE_OUT_OF_RANGE: 'cptPdf.note.COORDINATE_OUT_OF_RANGE',
+  READ_FROM_PRINTED_TABLE: 'cptPdf.note.READ_FROM_PRINTED_TABLE',
+  TABLE_ROWS_REJECTED: 'cptPdf.note.TABLE_ROWS_REJECTED',
+  TABLE_RF_MISMATCH: 'cptPdf.note.TABLE_RF_MISMATCH',
+  PRE_DRILL_FLOOR_ROWS: 'cptPdf.note.PRE_DRILL_FLOOR_ROWS',
 }
 
 /** Catalogue key per known import-issue code (``POST /cpt/pdf/import``). */
@@ -36,6 +40,12 @@ const ISSUE_KEYS: Readonly<Record<string, MessageKey>> = {
   PDF_DRILLED_INTERVALS: 'cptPdf.issue.PDF_DRILLED_INTERVALS',
   PDF_NO_XY: 'cptPdf.issue.PDF_NO_XY',
   PDF_OCR_UNAVAILABLE: 'cptPdf.issue.PDF_OCR_UNAVAILABLE',
+  PDF_TABLE_RF_MISMATCH: 'cptPdf.issue.PDF_TABLE_RF_MISMATCH',
+  PDF_TABLE_LEVEL_MISMATCH: 'cptPdf.issue.PDF_TABLE_LEVEL_MISMATCH',
+  PDF_TABLE_ROWS_REJECTED: 'cptPdf.issue.PDF_TABLE_ROWS_REJECTED',
+  PDF_TABLE_COLUMNS_NOT_IMPORTED: 'cptPdf.issue.PDF_TABLE_COLUMNS_NOT_IMPORTED',
+  PDF_TABLE_PRE_DRILL_FLOOR_ROWS: 'cptPdf.issue.PDF_TABLE_PRE_DRILL_FLOOR_ROWS',
+  PDF_TABLE_QTOTAL_CONE_AREA: 'cptPdf.issue.PDF_TABLE_QTOTAL_CONE_AREA',
 }
 
 /** A ``{name}`` slot interpolation left unfilled. */
@@ -46,8 +56,9 @@ const UNFILLED_SLOT = /\{\w+\}/
  * drilled stretches (``intervals``) names each one ("32.0 to 32.3 m", one
  * decimal) joined by commas under ``list``, in the app language.
  *
- * The axis depths of a sheet axis gap (``d1``, ``d2``) are written to the
- * centimetre.
+ * The axis depths of a sheet axis gap (``d1``, ``d2``) and the first real row
+ * of a printed table (``depth``) are written to the centimetre. A list of
+ * printed column names (``columns``) is written comma-separated.
  *
  * @returns The message params, or null when the ``intervals`` are malformed or empty.
  */
@@ -86,25 +97,30 @@ function codedText(
   return UNFILLED_SLOT.test(text) ? fallback || code : text
 }
 
-/** The params that name a printed axis depth (``SHEET_AXIS_GAP``: where one
- *  sheet's axis ends, where the next one's starts). */
-const AXIS_DEPTH_PARAMS = ['d1', 'd2'] as const
+/** The params that name a depth read to the centimetre: ``SHEET_AXIS_GAP``
+ *  (where one sheet's axis ends, where the next one's starts) and
+ *  ``PRE_DRILL_FLOOR_ROWS`` (the first real row of a printed table). */
+const CENTIMETRE_DEPTH_PARAMS = ['d1', 'd2', 'depth'] as const
 
-/** Write the axis depths to the centimetre, as the backend's English sentence. */
+/** Write those depths to the centimetre, as the backend's English sentence. */
 function axisDepthParams(params: MessageParams): MessageParams {
   const out: Record<string, string | number> = { ...params }
-  for (const name of AXIS_DEPTH_PARAMS) {
+  for (const name of CENTIMETRE_DEPTH_PARAMS) {
     const value = out[name]
     if (typeof value === 'number') out[name] = value.toFixed(2)
   }
   return out
 }
 
-/** Keep only the params a message can show (strings and numbers). */
+/** Keep only the params a message can show: strings, numbers, and a list of
+ *  strings (printed column names) written comma-separated. */
 function messageParams(params: Record<string, unknown>): MessageParams {
   const out: Record<string, string | number> = {}
   for (const [name, value] of Object.entries(params)) {
     if (typeof value === 'string' || typeof value === 'number') out[name] = value
+    else if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string')) {
+      out[name] = value.join(', ')
+    }
   }
   return out
 }
