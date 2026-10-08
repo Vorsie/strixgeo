@@ -87,7 +87,9 @@ export interface CptPdfSounding {
   origin: 'campaign' | 'unknown'
   page_numbers: number[]
   sheet_count: number
-  graph_kind: 'vector' | 'raster'
+  /** ``printed-table``: read from the sounding's own printed numeric table
+   *  (owner 2026-10-08), nothing traced; absent from an older backend. */
+  graph_kind: 'vector' | 'raster' | 'printed-table'
   profile_name: string
   ground_level_m: number | null
   z_epsg: number | null
@@ -111,6 +113,9 @@ export interface CptPdfSounding {
   /** The name the imported CPT is shown under ("23.15-002-S110"); absent
    *  from an older backend (then the printed sounding id is shown). */
   display_name?: string
+  /** Where ``ground_level_m`` comes from when the sheet does not print it as
+   *  such (``printed-table`` = the table's level + depth); absent otherwise. */
+  ground_level_source?: string
 }
 
 /** A sheet set aside: a desk-study reprint, a repeat, or an unreadable sheet. */
