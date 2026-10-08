@@ -30,7 +30,12 @@ class ReportBorehole:
     x, y : float or None
         Printed position.
     epsg : int or None
-        The coordinate system the labels name; None when not named.
+        The coordinate system the labels name; Lambert 72 (31370) with
+        ``crs_assumed`` when X/Y are printed without a named system; None
+        when no position is printed.
+    crs_assumed : bool
+        True when ``epsg`` is the ruled Lambert 72 assumption (owner
+        2026-10-08): the import asks the user to confirm it.
     ground_level_m : float or None
         Printed ground level (header), else the first printed level.
     z_epsg : int or None
@@ -46,7 +51,12 @@ class ReportBorehole:
     repeat_of : str or None
         The key of an earlier borehole of the same name whose depth range
         this one lies in (a sheet printed again, e.g. an overview at another
-        scale); None for a borehole listed once.
+        scale) whose data differs; None for a borehole listed once. A repeat
+        with exactly the same data is not listed (the digest's ``dropped``).
+    repeat_differences : tuple of dict
+        For a listed repeat: the rows that differ from the first print
+        (``kind`` "interval"/"sample", depths, ``kept`` and ``repeat`` text);
+        the user picks the print to withhold. Empty otherwise.
     """
 
     key: str
@@ -58,6 +68,7 @@ class ReportBorehole:
     x: float | None = None
     y: float | None = None
     epsg: int | None = None
+    crs_assumed: bool = False
     ground_level_m: float | None = None
     z_epsg: int | None = None
     date_text: str | None = None
@@ -68,6 +79,7 @@ class ReportBorehole:
     depth_top_m: float | None = None
     depth_base_m: float | None = None
     repeat_of: str | None = None
+    repeat_differences: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return the listing as a JSON-ready dict."""
@@ -81,6 +93,7 @@ class ReportBorehole:
             "x": self.x,
             "y": self.y,
             "epsg": self.epsg,
+            "crs_assumed": self.crs_assumed,
             "ground_level_m": self.ground_level_m,
             "z_epsg": self.z_epsg,
             "date_text": self.date_text,
@@ -91,4 +104,5 @@ class ReportBorehole:
             "depth_top_m": self.depth_top_m,
             "depth_base_m": self.depth_base_m,
             "repeat_of": self.repeat_of,
+            "repeat_differences": [dict(d) for d in self.repeat_differences],
         }
