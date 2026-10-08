@@ -5,8 +5,11 @@
 // the orange line against the printed one and corrects the calibration: drag a
 // frame corner, type the two tick values of an axis, name the panel's quantity,
 // pick the curve colour off the page (eyedropper, for scans), then "Re-extract"
-// posts the calibration dict and the overlay is redrawn through it. What the
-// sheet did not print (position, ground level, date) is typed here too.
+// posts the calibration dict and the overlay is redrawn through it. The sheet
+// header (position, ground level, date) is always editable here: a printed
+// value is the grey hint and an empty field keeps it, a typed value overrides
+// it (owner finding 2026-10-08: a sheet can PRINT a wrong Y), and a value the
+// sheet did not print is typed in the same field.
 //
 // Detected vs edited (owner dogfeed 2026-10-04): the component keeps the
 // digitiser's own calibration (``detected``, the backend's
@@ -300,7 +303,9 @@ export default function CptPdfCalibrationOverlay({
 
   const done = (): void => {
     const typed: CptPdfHeaderEdit = { ...header }
-    if ((typed.x !== undefined || typed.y !== undefined) && typed.epsg === undefined) {
+    // The default system stands in only when the sheet printed none; a printed
+    // one is kept by the backend for a typed X or Y (per-field override).
+    if ((typed.x !== undefined || typed.y !== undefined) && typed.epsg === undefined && (printed?.epsg ?? null) === null) {
       typed.epsg = DEFAULT_EPSG
     }
     onDone({ calibrations: cals, header: typed, detected, edits })
@@ -316,9 +321,13 @@ export default function CptPdfCalibrationOverlay({
     void read({})
   }
 
-  const needsPosition = printed ? printed.x === null || printed.y === null : false
-  const needsGround = printed ? printed.ground_level_m === null : false
-  const needsDate = printed ? printed.test_date === null : false
+  // Which header fields the sheet printed: the overwrite line shows when it
+  // printed any, the "type it" line when it left any out.
+  const printedFlags = printed
+    ? [printed.x, printed.y, printed.epsg, printed.ground_level_m, printed.test_date].map(v => v !== null)
+    : []
+  const anyPrinted = printedFlags.some(Boolean)
+  const anyMissing = printedFlags.some(flag => !flag)
 
   return (
     <div className="flex flex-col gap-2 text-xs" data-testid="cpt-pdf-overlay">
@@ -439,31 +448,36 @@ export default function CptPdfCalibrationOverlay({
                 ))}
               </ul>
             </details>
-            {(needsPosition || needsGround || needsDate) && (
-              <fieldset className="flex flex-col gap-1">
-                <legend className="font-semibold">{t('cptPdf.overlay.header')}</legend>
-                <p className="text-text-secondary">{t('cptPdf.overlay.notPrinted')}</p>
-                {needsPosition && headerInput('x', t('cptPdf.overlay.x'))}
-                {needsPosition && headerInput('y', t('cptPdf.overlay.y'))}
-                {needsPosition && headerInput('epsg', t('cptPdf.overlay.epsg'), DEFAULT_EPSG)}
-                {needsGround && headerInput('ground_level_m', t('cptPdf.overlay.groundLevel'))}
-                {needsDate && (
-                  <label className="flex flex-col">
-                    <span className="text-text-secondary">{t('cptPdf.overlay.date')}</span>
-                    <input
-                      data-testid="cpt-pdf-header-date"
-                      className={`w-28 px-1 ${FIELD_CLASS}`}
-                      placeholder={printed?.test_date ?? ''}
-                      value={header.test_date ?? ''}
-                      onChange={e => {
-                        const v = e.target.value
-                        setHeader(h => (v === '' ? withoutHeaderKey(h, 'test_date') : { ...h, test_date: v }))
-                      }}
-                    />
-                  </label>
-                )}
-              </fieldset>
-            )}
+            <fieldset className="flex flex-col gap-1" data-testid="cpt-pdf-header">
+              <legend className="font-semibold">{t('cptPdf.overlay.header')}</legend>
+              {anyPrinted && (
+                <p data-testid="cpt-pdf-header-printed-hint" className="text-text-secondary">
+                  {t('cptPdf.overlay.printedEditable')}
+                </p>
+              )}
+              {anyMissing && (
+                <p data-testid="cpt-pdf-header-not-printed-hint" className="text-text-secondary">
+                  {t('cptPdf.overlay.notPrinted')}
+                </p>
+              )}
+              {headerInput('x', t('cptPdf.overlay.x'))}
+              {headerInput('y', t('cptPdf.overlay.y'))}
+              {headerInput('epsg', t('cptPdf.overlay.epsg'), DEFAULT_EPSG)}
+              {headerInput('ground_level_m', t('cptPdf.overlay.groundLevel'))}
+              <label className="flex flex-col">
+                <span className="text-text-secondary">{t('cptPdf.overlay.date')}</span>
+                <input
+                  data-testid="cpt-pdf-header-date"
+                  className={`w-28 px-1 ${FIELD_CLASS}`}
+                  placeholder={printed?.test_date ?? ''}
+                  value={header.test_date ?? ''}
+                  onChange={e => {
+                    const v = e.target.value
+                    setHeader(h => (v === '' ? withoutHeaderKey(h, 'test_date') : { ...h, test_date: v }))
+                  }}
+                />
+              </label>
+            </fieldset>
           </div>
         </div>
       )}
