@@ -39,7 +39,22 @@ the `/cpt/pdf/*` routes or the import dialog.
 3. **Calibrate + extract** per page: vector pages from the drawing commands
    (the polyline vertices ARE the scans, exact), raster pages rendered,
    deskewed, grid-detected, OCR-calibrated where possible and traced row by
-   row. Every page carries a `PageCalibration` (frames + two anchors per axis +
+   row. A raster sheet whose graph is ONE frame with no grid panels (or a grid
+   too light to survive the render) is read too (owner 2026-10-08: "it should
+   work on scanned pdf's"): `RasterFrameDetector` takes the largest rectangle
+   the long lines close as a graph when a vertical axis line at or left of its
+   left edge carries SHORT tick marks (the ink stops; a table's rules run on)
+   at whole steps of one pitch over the frame's full height (>= 80 % of the
+   steps, so a ruled table of uneven rows is not a graph); grid pieces that sit on
+   ONE pitch lattice spanning that frame are its own faint grid
+   (`framed_or_grid_panels`), side-by-side gridded panels stay panels.
+   `RasterFrameCalibrator` fits each value axis from its OCR'd tick labels
+   above / below the frame and names it by the axis label printed in the SAME
+   colour (that colour is the curve's colour); the depth axis is the number
+   column nearest the frame that grows downward, a falling column beside it
+   (m TAW) gives the ground level at depth 0. A black curve's mask leaves out
+   coloured pixels (the black fs curve crosses the red qc and blue Rf curves
+   in one frame). Every page carries a `PageCalibration` (frames + two anchors per axis +
    curve colour + assumptions) that round-trips through `to_dict`/`from_dict`.
    `CptPdfDigitiser.digitise_with_calibration` re-reads a page through a
    user-edited calibration; `join_sheets` folds a sounding's pages back into one.
@@ -49,6 +64,57 @@ the `/cpt/pdf/*` routes or the import dialog.
    project_id = campaign code (or `"PDF"`), XY/EPSG, Z = ground level
    (`elevation_source = "pdf"`), date (ISO when day-month-year), CPT type from
    the curves (u2 → CPTU, fs → CPTE, qc alone → UNKNOWN).
+
+## Printed-table reports (profile family `printed-table`)
+
+Some reports print every sounding twice: a graph sheet (one pasted picture)
+and the measured values as a numeric table, a row per 0.20 m, under the same
+text header ("<report> - <id>", ISO 22476 test type, `Uitvoeringsdatum`,
+`GPS X / GPS Y`, `GRW`, `Opmerking`). The table wins (owner 2026-10-08:
+"the import takes the EXACT printed values"); the picture is the visual twin
+and the raster fallback. Package files `printed_table_*.py`,
+`printed_sheet_header.py`, `table_column_role.py`; the family's conventions in
+`PrintedTableProfile` (`printed_table_constants.py`).
+
+* **Triage**: `PrintedTableReportReader` reads every page's text; a sheet
+  naming "<report> - <id>" is a data sheet (a column header D / TAW / qc / Fs /
+  "Rf, %" / "Inclinatie, °" / φ' / C, or the mechanical D / TAW / qc / Qt / φ'
+  / C, then right-aligned rows), a graph sheet (a picture covering >= 35 %), a
+  calculation table (a column the profile does not know: bearing capacity,
+  never read) or a header-only page (an empty continuation of a data sheet).
+  Sheets join per sounding by their header; graph and table sheets are
+  "claimed" and never digitised as graphs. The listed sounding: `graph_kind =
+  printed-table`, origin campaign, project number = the report number (the
+  GEF-compatible project id; display name per `cpt_display_name`), CPT type
+  from the cone line (CPT-E -> CPTE, CPT-M -> CPTM). Position: the printed GPS
+  X / Y in the system the REPORT names in its text (exactly one named, else
+  left for the user, never guessed). Ground level = printed level + printed
+  depth (median over the rows, `ground_level_source = "printed-table"`).
+* **Values**: `PrintedTableDigitiser` turns the rows into curves with
+  `source = GraphKind.TABLE`: qc, fs, Rf as printed, a blank cell empty, a row
+  whose depth or qc (or any present cell) is not a number left out and named
+  (`PDF_TABLE_ROWS_REJECTED`). Stored row for row, no resampling (`series_sampling
+  = "printed table rows (no resampling)"`, `depth_source = "printed depth
+  (table)"`). Not imported: the calculated columns (φ', C: listed under
+  `derived_columns_ignored`), inclination and the mechanical cone's total
+  force Qt in kN (`columns_not_stored`, no stored column; never converted).
+* **Pre-drill and gaps**: "voorgeduwd ... tot een diepte van N m" is the
+  pre-drill (`pre_drill_m = N`, owner vocabulary voorboring); the table simply
+  starts below it. A missing block of rows (a step > 1.5 printed steps) or a
+  printed "gesloten punt vanaf A m tot B m : geen meetwaarden" lying between two
+  rows starts a new stroke: a drilled interval, a gap, never interpolated
+  (owner ruling "a", 2026-10-04). A page break inside the table is no gap.
+* **Checks (flag, never correct)**: a printed Rf its own printed fs and qc
+  cannot give within their printed rounding (`PDF_TABLE_RF_MISMATCH`), a row
+  whose level + depth is off the ground level by more than the two values'
+  rounding (`PDF_TABLE_LEVEL_MISMATCH`).
+* **Provenance**: `import_provenance.printed_table` (additive key, only on these
+  CPTs): the header as printed (test type, standard, class, date, groundwater
+  and free remark verbatim, pre-drill, no-measurement stretches), printed
+  columns, ignored columns, ground level + first row, level / Rf mismatches,
+  rejected rows, data / graph / calculation pages, the named systems. A
+  printed-table sounding has no calibration: the digitise call returns it as
+  read and refuses a posted calibration.
 
 ## Owner rulings (2026-09-30) and where they live
 
@@ -101,7 +167,8 @@ as "digitised from <file>, p. <pages>" on the CPT chart (`CptProvenanceTag`).
 Company specifics (label words, curve colours, units, sounding-block labels,
 campaign-code pattern) live in `LayoutProfile`s (`layout_profile_constants.py`):
 `van-der-straaten`, `dov` (always desk study), and the `generic` fallback. A new
-company's report needs a profile, not new code.
+company's report needs a profile, not new code. Reports that print their values
+as tables use the separate `PrintedTableProfile` family (see above).
 
 ## OCR is optional (`pdf-ocr` extra)
 
