@@ -1,0 +1,78 @@
+// Owner finding 2026-10-08: he reinstalled 0.1.4 over 0.1.5. The 0.1.4 engine
+// refused the store with NewerDatabaseError ("This project's database was
+// written by a newer version of StrixGeo..."), but the user saw only the generic
+// "the backend process exited before it was ready" dialog. The failure signal
+// must NAME the cause when the engine's output says the store is from a newer
+// version, so the dialog can send the user to the update that cures it.
+
+import { describe, expect, it } from 'vitest'
+
+import {
+  backendFailedPayload,
+  backendFailureReasonFromOutput,
+  createBackendFailureReasonTracker,
+} from './backendFailureReason'
+
+/** The tail of a real lifespan traceback for the newer-store refusal. */
+const NEWER_DB_TRACEBACK =
+  'Traceback (most recent call last):\n' +
+  '  File "groundmodel/api/boot_migration.py", line 131, in run_boot_migration\n' +
+  'groundmodel.infrastructure.db.database_migrator.NewerDatabaseError: ' +
+  "This project's database was written by a newer version of StrixGeo. " +
+  'Install the current version of StrixGeo to open it — your data is intact.'
+
+describe('backendFailureReasonFromOutput — the engine output names the cause', () => {
+  it('BFR1 - the NewerDatabaseError traceback reads as a newer-database failure', () => {
+    expect(backendFailureReasonFromOutput(NEWER_DB_TRACEBACK)).toBe('newer-database')
+  })
+
+  it('BFR2 - the migrator message alone (no class name) is enough', () => {
+    expect(
+      backendFailureReasonFromOutput(
+        "ERROR This project's database was written by a newer version of StrixGeo.",
+      ),
+    ).toBe('newer-database')
+  })
+
+  it("BFR3 - alembic's own unknown-revision text is the same cause", () => {
+    expect(
+      backendFailureReasonFromOutput("Can't locate revision identified by 'c8d9e0f1a2b4'"),
+    ).toBe('newer-database')
+  })
+
+  it('BFR4 - any other startup crash names no cause (the generic dialog stays)', () => {
+    expect(backendFailureReasonFromOutput('asyncpg.exceptions.InvalidPasswordError: password')).toBeNull()
+    expect(backendFailureReasonFromOutput('')).toBeNull()
+  })
+})
+
+describe('createBackendFailureReasonTracker — one tracker per backend spawn', () => {
+  it('BFR5 - a marker split across two output chunks is still recognised', () => {
+    const tracker = createBackendFailureReasonTracker()
+    tracker.observe('groundmodel.infrastructure.db.database_migrator.NewerDa')
+    tracker.observe('tabaseError: this project ...')
+    expect(tracker.reason()).toBe('newer-database')
+  })
+
+  it('BFR6 - the reason latches: later unrelated output does not clear it', () => {
+    const tracker = createBackendFailureReasonTracker()
+    tracker.observe(NEWER_DB_TRACEBACK)
+    tracker.observe('INFO:     Waiting for application shutdown.')
+    tracker.observe('x'.repeat(10_000))
+    expect(tracker.reason()).toBe('newer-database')
+  })
+
+  it('BFR7 - a clean boot log names no cause', () => {
+    const tracker = createBackendFailureReasonTracker()
+    tracker.observe('INFO:     Started server process [1234]')
+    tracker.observe('INFO:     Application startup complete.')
+    expect(tracker.reason()).toBeNull()
+  })
+})
+
+describe('backendFailedPayload — the additive app:backend-failed payload', () => {
+  it('BFR8 - carries the reason, or null when the cause is unknown', () => {
+    expect(backendFailedPayload('newer-database')).toEqual({ reason: 'newer-database' })
+    expect(backendFailedPayload(null)).toEqual({ reason: null })
+  })
+})
