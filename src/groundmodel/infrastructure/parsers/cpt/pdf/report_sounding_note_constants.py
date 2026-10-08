@@ -35,6 +35,10 @@ NOTE_COORDINATE_OUT_OF_RANGE = "COORDINATE_OUT_OF_RANGE"
 NOTE_READ_FROM_PRINTED_TABLE = "READ_FROM_PRINTED_TABLE"
 #: Printed table rows that could not be read (not stored); param ``count``.
 NOTE_TABLE_ROWS_REJECTED = "TABLE_ROWS_REJECTED"
-#: Printed Rf values their own printed fs and qc cannot give (kept as printed);
-#: param ``count``.
+#: Printed Rf values their own printed fs and qc cannot give: dropped, the Rf
+#: cell left empty, qc and fs as printed (owner 2026-10-09); param ``count``.
 NOTE_TABLE_RF_MISMATCH = "TABLE_RF_MISMATCH"
+#: Rows printing the floor value qc 0,01 MPa directly after the printed
+#: pre-drill: no reading, their cells left empty (owner 2026-10-09); params
+#: ``count`` and ``depth`` (m, the first real row: the effective pre-drill).
+NOTE_PRE_DRILL_FLOOR_ROWS = "PRE_DRILL_FLOOR_ROWS"
