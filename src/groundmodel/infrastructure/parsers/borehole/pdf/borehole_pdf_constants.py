@@ -11,7 +11,7 @@ import re
 
 # Stamped on the provenance of every parsed borehole. Bump when a change moves
 # a parsed depth, text or sample, so a stored borehole says which rules read it.
-BOREHOLE_DIGITISER_VERSION = "borehole-pdf-digitiser 0.1"
+BOREHOLE_DIGITISER_VERSION = "borehole-pdf-digitiser 0.2"
 
 # --- Rules: the horizontal lines that separate the description rows -------
 # A description rule spans the description column (170-240 pt on the real
@@ -62,7 +62,9 @@ DESCRIPTION_LINE_TOLERANCE_PT = 2.5
 # --- Sample marks ------------------------------------------------------------
 # A sample bar is a thin vertical rectangle (4 pt wide on the boorstaat).
 SAMPLE_BAR_MAX_WIDTH_PT = 8.0
-SAMPLE_BAR_MIN_HEIGHT_PT = 2.0
+# The 24.13-002 overview print (16 pt per m) draws a 0.18 m sample as a bar
+# 1.44 pt high; a bar still needs its id printed right of it to count.
+SAMPLE_BAR_MIN_HEIGHT_PT = 1.0
 # Its id is printed just right of it (1.5 pt on the boorstaat).
 SAMPLE_LABEL_REACH_PT = 8.0
 # Words of one sample id lie at most this far apart ("D1" 12 pt right of
@@ -144,8 +146,6 @@ ISSUE_NO_GROUND_LEVEL = "PDF_BOREHOLE_NO_GROUND_LEVEL"
 ISSUE_GROUND_LEVEL_FROM_FIRST_LEVEL = "PDF_BOREHOLE_GROUND_LEVEL_FROM_FIRST_LEVEL"
 # Header ground level and first printed level disagree (WARNING; header kept).
 ISSUE_GROUND_LEVEL_DISAGREES = "PDF_BOREHOLE_GROUND_LEVEL_DISAGREES"
-# X/Y printed without a named coordinate system (WARNING; numbers kept).
-ISSUE_XY_SYSTEM_UNNAMED = "PDF_BOREHOLE_XY_SYSTEM_UNNAMED"
 # No X/Y printed (ERROR for a later import).
 ISSUE_NO_XY = "PDF_BOREHOLE_NO_XY"
 # A continuation sheet's first row overlaps the previous sheet with another
@@ -155,13 +155,79 @@ ISSUE_SHEET_JOIN_TEXT_DIFFERS = "PDF_BOREHOLE_SHEET_JOIN_TEXT_DIFFERS"
 ISSUE_OPEN_BASE = "PDF_BOREHOLE_OPEN_BASE"
 # A row between two rules carries no text (WARNING).
 ISSUE_EMPTY_DESCRIPTION = "PDF_BOREHOLE_EMPTY_DESCRIPTION"
-# A water level whose unit or reference is not printed: raw text only (INFO).
+# A water level the owner's cm-below-ground reading does not cover either (a
+# value with decimals and no unit, a level against another reference): raw
+# text only (INFO).
 ISSUE_WATER_UNIT_UNPRINTED = "PDF_BOREHOLE_WATER_UNIT_UNPRINTED"
-# A borehole printed again inside an earlier one's depth range (WARNING; the
-# owner has not ruled whether to drop it like the CPT digitiser drops repeats).
-ISSUE_PRINTED_AGAIN = "PDF_BOREHOLE_PRINTED_AGAIN"
 # A sample bar found but the depth axis could not be fitted (WARNING).
 ISSUE_SAMPLE_WITHOUT_AXIS = "PDF_BOREHOLE_SAMPLE_WITHOUT_AXIS"
+
+# --- Owner rulings 2026-10-08: findings the import dialog asks the user about.
+# Bare codes (the brief's words), like the CPT digitiser's notes: each one is
+# a question for the user at import, not a defect of the read.
+# X/Y printed without a named system: read as Lambert 72, the user confirms
+# (this test / every test of the report / another CRS) (WARNING).
+ISSUE_CRS_ASSUMED = "CRS_ASSUMED"
+# A water level printed as a bare number or "in cm" without a reference: read
+# as cm below ground level, the user confirms (WARNING).
+ISSUE_WATER_UNIT_ASSUMED = "WATER_UNIT_ASSUMED"
+# A borehole printed again with exactly the same data: the repeat is dropped,
+# this notice sits on the kept print (INFO).
+ISSUE_REPEAT_DROPPED = "REPEAT_DROPPED"
+# A borehole printed again with something different: both prints stay listed,
+# both carry this finding with the differing rows; the user picks the print
+# to withhold. Never merged (WARNING).
+ISSUE_REPEAT_DIFFERS = "REPEAT_DIFFERS"
+
+# --- Assumptions the owner ruled (2026-10-08) ---------------------------------
+# X/Y printed without a named coordinate system are Belgian Lambert 72.
+ASSUMED_HORIZONTAL_EPSG = 31370
+# A water level without unit or reference is in cm below ground level.
+ASSUMED_WATER_UNIT_M = 0.01
+# A bare water value read under that assumption: digits only ("380"); a value
+# with decimals ("3.80") would read 100x too shallow, so it stays raw.
+ASSUMED_WATER_VALUE_PATTERN = re.compile(r"^\s*\d+\s*$")
+
+# --- Sampled intervals (ruling 2) ---------------------------------------------
+# Why an interval has no lithology: it prints only the drill technique and a
+# sample remark (the sample was taken there, no field description exists; a
+# later grain-size result on the sample may fill it).
+LITHOLOGY_ABSENT_SAMPLED = "sampled"
+# A description is split into comma-separated phrases; an interval is
+# "sampled" when every phrase is a drill technique or a sample remark and at
+# least one is a sample remark. Phrases seen on the owner's boorstaten
+# (149d, 24.13-002): "Sonic Drill, Steekbus", "steekbus niet vol", "Steek
+# mislukt, geen monster", "liber gestoken" (a liner, as printed),
+# "Edelmanboor, steekbus".
+DRILL_TECHNIQUE_PHRASE = re.compile(
+    r"sonic\s+drill|edelmanboor|zuigerboor|zuigboren|asfaltboor"
+    r"|pulsinstallatie(?:\s+machinaal)?",
+    re.IGNORECASE,
+)
+SAMPLE_REMARK_PHRASE = re.compile(
+    r"steek(?:bus)?(?:\s+(?:niet\s+vol|mislukt))?|geen\s+monster|li[nb]er\s+gestoken"
+    r"|(?:on)?geroerd(?:\s+monster)?",
+    re.IGNORECASE,
+)
+
+# --- Sample labels (ruling 6) -------------------------------------------------
+# The printed sample number before the dash ("S10" of "S10-0550471459/", "9"
+# of "9-0550471461X", "1" of "1 -"): what the lab reports reference. Up to
+# three letters may lead the number ("ST1", "D1", "L1" on the 149d and
+# 24.13-002 boorstaten); free text ("5groteemmers(40kg)-") has no label.
+SAMPLE_LABEL_PATTERN = re.compile(r"^\s*([A-Z]{0,3}\s?\d+)\s*(?:-|$)", re.IGNORECASE)
+
+# --- Repeated prints (ruling 5) -----------------------------------------------
+# Sample bars of two prints are placed through two axis fits: their ends
+# agree within this (m) ...
+REPEAT_SAMPLE_TOLERANCE_M = 0.05
+# ... or within this many points of the coarser print, whichever is larger:
+# the 24.13-002 overview of B-PB10-F3 (p102, 16 pt per m against 113 on
+# p57-75) draws every bar about 1 pt shorter at each end so neighbouring bars
+# stay apart (0.04-0.07 m at that scale); same ids, same order, same rows.
+REPEAT_SAMPLE_TOLERANCE_PT = 1.5
+# Why a print was set aside (stored on the digest's dropped list).
+DROPPED_DUPLICATE = "duplicate"
 
 # --- Overlay -----------------------------------------------------------------
 OVERLAY_RULE_RGB = (0.0, 0.7, 0.9)
