@@ -13,8 +13,8 @@ class DigitisedWaterLevel:
     Parameters
     ----------
     depth_m : float or None
-        Depth below ground (m); None when the label names no unit or no
-        below-ground reference (the raw text stays).
+        Depth below ground (m); None when it cannot be read even under the
+        ruled assumption (the raw text stays).
     raw_text : str
         The printed value ("200").
     label : str
@@ -24,6 +24,11 @@ class DigitisedWaterLevel:
         drawn in the log is not read in phase 1.
     page : int
         The sheet it was read from.
+    unit_assumed : bool
+        True when the sheet prints no unit or no reference ("GWS: 380",
+        "Grondwaterstand in cm': 234") and ``depth_m`` is the ruled reading
+        as cm below ground level (owner 2026-10-08); the import asks the user
+        to confirm it.
     """
 
     depth_m: float | None
@@ -31,6 +36,7 @@ class DigitisedWaterLevel:
     label: str
     source: str
     page: int
+    unit_assumed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return the water level as a JSON-ready dict."""
