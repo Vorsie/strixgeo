@@ -227,12 +227,22 @@ def _markdown(out: Path) -> str:
         for b in d["boreholes"]:
             top, base = b["depth_top_m"], b["depth_base_m"]
             depth = f"{top:.2f}-{base:.2f}" if top is not None and base is not None else "-"
+            epsg = _cell(b["epsg"]) + (" (assumed)" if b.get("crs_assumed") else "")
+            repeat = b["repeat_of"] or "-"
+            if b.get("repeat_differences"):
+                repeat += f" ({len(b['repeat_differences'])} row(s) differ)"
             lines.append(
                 f"| {b['name']} | {_ranges(tuple(b['pages']))} | {b['profile']} | "
                 f"{b['text_verdict']} | {depth} | {_cell(b['x'])} | {_cell(b['y'])} | "
-                f"{_cell(b['epsg'])} | {_cell(b['ground_level_m'])} | {b['date_text'] or '-'} | "
-                f"{issues.get(b['key'], '-')} | {b['repeat_of'] or '-'} |"
+                f"{epsg} | {_cell(b['ground_level_m'])} | {b['date_text'] or '-'} | "
+                f"{issues.get(b['key'], '-')} | {repeat} |"
             )
+        for dropped in d.get("dropped", []):
+            lines += [
+                "",
+                f"Dropped: {dropped['key']} (pages {_ranges(tuple(dropped['pages']))}), "
+                f"{dropped['reason']}: {dropped['note']}.",
+            ]
     return "\n".join(lines) + "\n"
 
 
