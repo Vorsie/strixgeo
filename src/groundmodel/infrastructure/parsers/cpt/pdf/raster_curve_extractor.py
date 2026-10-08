@@ -18,6 +18,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     FULL_WIDTH_RULE_SHARE,
     IMAGE_PIXELS,
     LINE_INK_THRESHOLD,
+    MIN_CURVE_SATURATION,
     STORED_COLUMN_BY_KIND,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import (
@@ -152,8 +153,11 @@ def _curve_mask(hsv: np.ndarray, gray: np.ndarray, panel: PanelCalibration) -> n
     colour = panel.curve_colour
     if colour is not None and is_chromatic(colour):
         return hue_mask(hsv, colour)
-    # Black curve: dark pixels minus the straight grid lines under them.
-    dark = gray < BLACK_CURVE_THRESHOLD
+    # Black curve: dark pixels minus the straight grid lines under them. A
+    # dark COLOURED pixel is another curve (pure blue is grey 29, pure red 76:
+    # both "dark"), never the black one: in a one-frame sheet the black fs
+    # curve crosses the red qc and blue Rf curves (owner test 2026-10-08).
+    dark = (gray < BLACK_CURVE_THRESHOLD) & (hsv[:, :, 1] < MIN_CURVE_SATURATION)
     ink = (gray < LINE_INK_THRESHOLD).astype(np.uint8)
     h, w = ink.shape
     cv2 = require_cv2()
