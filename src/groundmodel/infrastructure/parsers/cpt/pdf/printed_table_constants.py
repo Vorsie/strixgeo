@@ -48,6 +48,18 @@ PAGE_KIND_GRAPH = "graph"
 PAGE_KIND_CALCULATION = "calculation"
 PAGE_KIND_HEADER_ONLY = "header-only"
 
+# The floor value a table prints where the cone measured nothing (qc 0,01
+# MPa: the smallest number its two decimals can show). Rows printing it
+# DIRECTLY AFTER the printed pre-drill are no reading (owner 2026-10-09: "they
+# prolly drilled a bit too deep"); the same value later in a table stays.
+PRE_DRILL_FLOOR_QC_MPA = 0.01
+
+# The standard mechanical cone (ISO 22476-12, 1000 mm2 = 10 cm2): its total
+# resistance Qt in kN equals the stress in MPa, so the GEF importer stores
+# quantity 128 as-is (gef_constants.py). A sheet naming another cone area is
+# flagged, never converted (owner 2026-10-09).
+STANDARD_MECHANICAL_CONE_AREA_CM2 = 10.0
+
 # ``import_provenance.printed_table.source_kind`` and the digest profile name.
 PRINTED_TABLE_SOURCE_KIND = "printed-table"
 
@@ -65,7 +77,7 @@ PRINTED_TABLE_COLUMN_ROLES: dict[str, TableColumnRole] = {
     "rf": TableColumnRole.RF,
     "inclinatie°": TableColumnRole.INCLINATION,
     "inclinatie": TableColumnRole.INCLINATION,
-    "qt": TableColumnRole.TOTAL_FORCE,
+    "qt": TableColumnRole.TOTAL_RESISTANCE,
     "qst": TableColumnRole.TOTAL_FORCE,
     "φ'": TableColumnRole.DERIVED,
     "φ": TableColumnRole.DERIVED,
@@ -90,6 +102,9 @@ PRINTED_TABLE_PROFILE = PrintedTableProfile(
     # ISO 22476-1 electric cone = CPTE (CPTU with a pore-pressure sensor);
     # ISO 22476-12 mechanical cone = CPTM: the GEF classification names.
     cpt_type_by_cone={"E": "CPTE", "U": "CPTU", "M": "CPTM"},
+    # "CPT-E 15 cm²": the cone area the sheet names. The mechanical sheets of
+    # the test report print "CPT-M M1" (no area: the standard cone).
+    cone_area=re.compile(r"\bCPT-[EMU]\s+(?P<area>\d+(?:[.,]\d+)?)\s*cm(?:²|2)"),
     test_date=re.compile(
         r"Uitvoeringsdatum\s*:\s*(?P<date>\d{1,2}[-/.]\d{1,2}[-/.]\d{4})", re.IGNORECASE
     ),
