@@ -15,6 +15,7 @@ gap, never interpolated (owner ruling "a", 2026-10-04).
 from __future__ import annotations
 
 import functools
+import math
 
 import pytest
 
@@ -25,6 +26,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding_adapter impor
     DigitisedSoundingAdapter,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_kind import GraphKind
+from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_import_header import PdfImportHeader
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_digest import PdfReportDigest
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_identity import PdfReportIdentity
@@ -32,6 +34,8 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_triager import PdfRep
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants import (
     NOTE_DRILLED_INTERVALS,
+    NOTE_PRE_DRILL_FLOOR_ROWS,
+    NOTE_TABLE_RF_MISMATCH,
 )
 
 from . import _synthetic_table_pdf as synth
@@ -143,6 +147,9 @@ def test_the_calculated_columns_are_never_imported() -> None:
     assert table["derived_columns_ignored"] == ["φ'", "C"]
     # Inclination is measured but the CPT has no column for it.
     assert table["columns_not_stored"] == ["Inclinatie, °"]
+    # The app names the printed columns in its own language: one list param.
+    (issue,) = [i for i in result.issues if i.code == "PDF_TABLE_COLUMNS_NOT_IMPORTED"]
+    assert issue.params["columns"] == ["φ'", "C", "Inclinatie, °"]
 
 
 def test_the_voorgeduwd_remark_is_the_pre_drill_not_a_drilled_interval() -> None:
@@ -170,12 +177,17 @@ def test_a_page_break_inside_the_table_is_not_a_gap() -> None:
         assert not top <= 5.01 < 5.21 <= base
 
 
-def test_a_printed_rf_that_its_own_fs_and_qc_cannot_give_is_flagged_and_kept() -> None:
-    """Rf kept as printed; flagged when outside fs / qc x 100 within the printed rounding."""
+def test_a_printed_rf_that_its_own_fs_and_qc_cannot_give_is_flagged_and_dropped() -> None:
+    """Rf outside fs / qc x 100 within the printed rounding: flagged, the cell left empty.
+
+    Owner 2026-10-09: a printed Rf that contradicts its own row is dropped
+    ("laat die maar vallen die rf"); the flag stays so the user sees why.
+    """
     spec = synth.TableReportSpec(overrides={(6.01, "Rf, %"): "9,99"})
     _, result = _imported(spec)
     rows = {r["depth_m"]: r for r in result.data.iter_rows(named=True)}
-    assert rows[6.01]["rf_pct"] == pytest.approx(9.99)
+    assert rows[6.01]["rf_pct"] is None
+    assert rows[6.01]["qc_mpa"] == pytest.approx(synth.qc_of(6.01))
     flagged = [i for i in result.issues if i.code == "PDF_TABLE_RF_MISMATCH"]
     assert len(flagged) == 1
     assert flagged[0].params["depths_m"] == [6.01]
@@ -212,16 +224,53 @@ def test_a_missing_cell_is_empty_not_invented() -> None:
     assert rows[3.01]["qc_mpa"] == pytest.approx(synth.qc_of(3.01))
 
 
-def test_a_cpt_m_table_stores_qc_only_and_names_the_total_force_column() -> None:
-    """CPT-M (proef type TM4): qc stored, Qt (total force, kN) not converted, listed."""
+def test_a_cpt_m_table_stores_qt_in_kn_as_q_total_like_the_gef_quantity_128() -> None:
+    """Owner 2026-10-09: "Is Qt not stored for other cptm?"
+
+    Qt (kN) of a CPT-M table is stored as q_total_mpa exactly like the GEF
+    importer's quantity 128: the kN value kept as-is, because the standard
+    10 cm² mechanical cone makes kN == MPa. CPTM => q_total_mpa, never qt_mpa.
+    """
     spec = synth.TableReportSpec(cone="M", sounding="CPTE002")
     listed, result = _imported(spec)
     assert listed.sounding_id == "CPTE002"
     assert result.cpt_type is CPTType.CPTM
-    assert set(result.data.columns) == {"depth_m", "qc_mpa"}
+    assert set(result.data.columns) == {"depth_m", "qc_mpa", "q_total_mpa"}
+    for row in result.data.iter_rows(named=True):
+        assert row["q_total_mpa"] == pytest.approx(synth.qt_of(row["depth_m"]))
     table = result.import_provenance["printed_table"]
     assert table["test_type"] == "TM4"
+    assert table["columns_not_stored"] == []
+    assert not [i for i in result.issues if i.code == "PDF_TABLE_QTOTAL_CONE_AREA"]
+
+
+def test_a_cpt_m_sheet_naming_another_cone_area_leaves_q_total_empty_and_flags_it() -> None:
+    """Owner 2026-10-09: a cone area other than 10 cm² = flag, never a silent conversion.
+
+    q_total_mpa stays empty; PDF_TABLE_QTOTAL_CONE_AREA names the printed area.
+    """
+    spec = synth.TableReportSpec(cone="M", sounding="CPTE002", cone_line="CPT-M 15 cm²")
+    _, result = _imported(spec)
+    assert result.cpt_type is CPTType.CPTM
+    assert "q_total_mpa" not in result.data.columns
+    flagged = [i for i in result.issues if i.code == "PDF_TABLE_QTOTAL_CONE_AREA"]
+    assert len(flagged) == 1
+    assert flagged[0].params["area_cm2"] == pytest.approx(15.0)
+    table = result.import_provenance["printed_table"]
+    assert table["cone_area_cm2"] == pytest.approx(15.0)
     assert table["columns_not_stored"] == ["Qt"]
+
+
+def test_a_cpt_e_sheet_never_gets_q_total_even_when_it_prints_qt() -> None:
+    """CPTM => q_total_mpa, CPTU / CPTE => qt_mpa, never both (project_qt_vs_qtotal).
+
+    A Qt column on an electric-cone sheet is listed, never stored as q_total_mpa.
+    """
+    spec = synth.TableReportSpec(qt_on_e=True)
+    _, result = _imported(spec)
+    assert result.cpt_type is CPTType.CPTE
+    assert "q_total_mpa" not in result.data.columns
+    assert "Qt" in result.import_provenance["printed_table"]["columns_not_stored"]
 
 
 def test_a_closed_cone_remark_breaks_the_curve_between_its_rows() -> None:
@@ -263,3 +312,120 @@ def test_a_row_whose_depth_is_not_a_number_does_not_end_the_table() -> None:
     assert 2.21 in depths and 5.01 in depths
     rejected = [i for i in result.issues if i.code == "PDF_TABLE_ROWS_REJECTED"]
     assert rejected and "2,O1" in rejected[0].params["rows"][0]["text"]
+
+
+# --- Owner rulings 2026-10-09 on report Z1234567 (printed-table profile) ---
+
+
+def _from_surface() -> list[float]:
+    """Return 0.01 .. 5.81 m every 0.20 m: a table without a pre-drill."""
+    return [round(0.01 + synth.STEP_M * i, 2) for i in range(30)]
+
+
+@pytest.mark.parametrize(
+    ("fs", "rf"),
+    [("0,006", "-28,00"), ("0,007", "-74,00"), ("0,003", "-29,00")],
+)
+def test_a_printed_rf_that_contradicts_its_own_row_is_dropped(fs: str, rf: str) -> None:
+    """Owner 2026-10-09, "laat die maar vallen die rf".
+
+    A printed Rf that contradicts its own row (Rf -28 on the 0,01 m row with
+    qc 0,01 / Fs 0,006) is DROPPED: the Rf cell becomes empty, qc and Fs stay
+    as printed, the row stays, and the flag stays so the user sees why the
+    cell is empty. A sane row is untouched.
+    """
+    spec = synth.TableReportSpec(
+        depths=_from_surface(),
+        remarks=[],
+        page_break_after=9.99,
+        overrides={(0.01, "qc"): "0,01", (0.01, "Fs"): fs, (0.01, "Rf, %"): rf},
+    )
+    listed, result = _imported(spec)
+    rows = {r["depth_m"]: r for r in result.data.iter_rows(named=True)}
+    assert rows[0.01]["rf_pct"] is None
+    # qc and Fs as printed. Without a printed pre-drill a leading 0,01 is not a
+    # floor row (that ruling is about the rows directly after a pre-drill).
+    assert rows[0.01]["qc_mpa"] == pytest.approx(0.01)
+    assert rows[0.01]["fs_mpa"] == pytest.approx(float(fs.replace(",", ".")))
+    assert rows[0.21]["rf_pct"] == pytest.approx(synth.rf_of(0.21))
+    assert rows[0.21]["qc_mpa"] == pytest.approx(synth.qc_of(0.21))
+    flagged = [i for i in result.issues if i.code == "PDF_TABLE_RF_MISMATCH"]
+    assert len(flagged) == 1 and flagged[0].params["depths_m"] == [0.01]
+    table = result.import_provenance["printed_table"]
+    assert table["rf_mismatch_depths_m"] == [0.01]
+    assert table["rf_dropped"] == [[0.01, float(rf.replace(",", "."))]]
+    assert NOTE_TABLE_RF_MISMATCH in [n.code for n in listed.notes]
+
+
+def test_a_closed_point_stretch_between_two_rows_breaks_the_line_above_to_below() -> None:
+    """Owner 2026-10-09, "a, break the line".
+
+    "gesloten punt vanaf 31,11 m tot 31,16 m" falls BETWEEN the printed rows
+    31,01 and 31,21, so the drilled interval runs from the row above to the
+    row below (31,01-31,21) and both rows are kept.
+    """
+    depths = [round(29.01 + synth.STEP_M * i, 2) for i in range(16)]
+    spec = synth.TableReportSpec(
+        depths=depths,
+        page_break_after=30.01,
+        remarks=[
+            "Opmerking: voorgeduwd met vast punt tot een diepte van 1 m : geen meetwaarden",
+            "gesloten punt vanaf 31,11 m tot 31,16 m :geen meetwaarden",
+        ],
+    )
+    _, result = _imported(spec)
+    assert result.import_provenance["drilled_intervals_m"] == [[31.01, 31.21]]
+    rows = {r["depth_m"]: r for r in result.data.iter_rows(named=True)}
+    assert rows[31.01]["qc_mpa"] == pytest.approx(synth.qc_of(31.01))
+    assert rows[31.21]["qc_mpa"] == pytest.approx(synth.qc_of(31.21))
+
+
+def _floor_rows_spec(*floor_depths: float) -> synth.TableReportSpec:
+    """Return the default table (pre-drill 1 m) with qc printed 0,01 on ``floor_depths``."""
+    overrides: dict[tuple[float, str], str] = {}
+    for depth in floor_depths:
+        overrides[(depth, "qc")] = "0,01"
+        overrides[(depth, "Fs")] = "0,000"
+        overrides[(depth, "Rf, %")] = "0,00"
+    return synth.TableReportSpec(overrides=overrides)
+
+
+def test_floor_rows_directly_after_the_pre_drill_are_no_reading() -> None:
+    """Owner 2026-10-09: qc 0,01 MPa rows DIRECTLY AFTER the pre-drill are NO READING.
+
+    "they prolly drilled a bit too deep": empty cells, no overboring, the
+    curve starts at the first real value. The printed pre-drill depth stays;
+    the effective one (the first real row) is recorded in the provenance.
+    """
+    floor = (1.01, 1.21, 1.41, 1.61, 1.81)
+    _, soundings = _triage(_floor_rows_spec(*floor))
+    listed, result = _imported(_floor_rows_spec(*floor))
+    # The rows stay in the reading, with empty cells.
+    qc = soundings[listed.key].curves[PanelKind.QC]
+    read = dict(zip(qc.depth_m.tolist(), qc.value.tolist(), strict=True))
+    assert all(math.isnan(read[d]) for d in floor)
+    # The curve starts at the first real value; nothing is drilled at its top.
+    assert result.data["depth_m"].to_list()[0] == pytest.approx(2.01)
+    assert result.import_provenance["drilled_intervals_m"] == [[4.01, 4.81]]
+    assert result.import_provenance["pre_drill_m"] == pytest.approx(1.0)
+    assert result.import_provenance["effective_pre_drill_m"] == pytest.approx(2.01)
+    table = result.import_provenance["printed_table"]
+    assert table["pre_drill_floor_rows_m"] == list(floor)
+    notes = {n.code: n.params for n in listed.notes}
+    assert notes[NOTE_PRE_DRILL_FLOOR_ROWS]["count"] == 5
+    issue = [i for i in result.issues if i.code == "PDF_TABLE_PRE_DRILL_FLOOR_ROWS"]
+    assert len(issue) == 1 and issue[0].params["count"] == 5
+
+
+def test_the_floor_value_later_in_the_table_stays_as_printed() -> None:
+    """Owner 2026-10-09: "the same value elsewhere in the table stays as printed".
+
+    A qc 0,01 below the first real row is a reading, never emptied.
+    """
+    listed, result = _imported(_floor_rows_spec(3.01))
+    rows = {r["depth_m"]: r for r in result.data.iter_rows(named=True)}
+    assert rows[3.01]["qc_mpa"] == pytest.approx(0.01)
+    assert result.data["depth_m"].to_list()[0] == pytest.approx(1.01)
+    assert result.import_provenance["effective_pre_drill_m"] == pytest.approx(1.01)
+    assert result.import_provenance["printed_table"]["pre_drill_floor_rows_m"] == []
+    assert NOTE_PRE_DRILL_FLOOR_ROWS not in [n.code for n in listed.notes]
