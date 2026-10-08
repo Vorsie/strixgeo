@@ -37,6 +37,9 @@ class PrintedTableProfile:
         The cone line ("CPT-E 15 cm²"), group ``kind`` = E / M / U.
     cpt_type_by_cone : dict
         Cone letter -> the GEF CPT classification it is ("E" -> "CPTE").
+    cone_area : re.Pattern or None
+        The cone area the cone line names ("CPT-E 15 cm²"), group ``area``
+        (cm²); None when the family prints none.
     test_date : re.Pattern
         The test date, group ``date``.
     position : re.Pattern
@@ -69,6 +72,7 @@ class PrintedTableProfile:
     required_roles: frozenset[TableColumnRole] = field(
         default_factory=lambda: frozenset({TableColumnRole.DEPTH, TableColumnRole.QC})
     )
+    cone_area: re.Pattern[str] | None = None
 
     def role_of(self, normalised_header: str) -> TableColumnRole | None:
         """Return the role of a normalised column header, or None when unknown.
