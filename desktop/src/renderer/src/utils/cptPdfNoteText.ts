@@ -26,6 +26,7 @@ const NOTE_KEYS: Readonly<Record<string, MessageKey>> = {
   READ_FROM_IMAGE: 'cptPdf.note.READ_FROM_IMAGE',
   DRILLED_INTERVALS: 'cptPdf.note.DRILLED_INTERVALS',
   SHEET_AXIS_GAP: 'cptPdf.note.SHEET_AXIS_GAP',
+  COORDINATE_OUT_OF_RANGE: 'cptPdf.note.COORDINATE_OUT_OF_RANGE',
 }
 
 /** Catalogue key per known import-issue code (``POST /cpt/pdf/import``). */
