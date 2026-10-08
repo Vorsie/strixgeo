@@ -18,7 +18,7 @@ against the truth, not against a second reading.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pymupdf
 
@@ -81,6 +81,8 @@ class Sheet:
     tight_sample_ids : bool
         Print each sample id as separate words a hair apart ("1", "-",
         "0550471478"), the way the real sheets extract.
+    water_line : str
+        The header's water-level field as printed (label and value).
     """
 
     top_depth_cm: float
@@ -92,6 +94,7 @@ class Sheet:
     samples: list[tuple[str, float, float, bool]] = field(default_factory=list)
     extra_words: list[tuple[float, float, str]] = field(default_factory=list)
     tight_sample_ids: bool = False
+    water_line: str = "Grondwaterstand [cm-mv]: 200"
 
 
 def _y(sheet: Sheet, depth_cm: float) -> float:
@@ -125,14 +128,14 @@ def build_overprinted_boorstaat_pdf() -> pymupdf.Document:
         _PRINT_OFFSETS[:] = [0.0]
 
 
-def _boorstaat_header(page: pymupdf.Page, name: str) -> None:
+def _boorstaat_header(page: pymupdf.Page, name: str, water_line: str) -> None:
     """Write the boorstaat header and footer fields."""
     _text(page, 340.0, 96.0, "Identificatie volgens NEN-EN-ISO 14688", 8.0)
     _text(page, 60.0, 108.0, f"Boring: {name}", 9.0)
     _text(page, 60.0, 124.0, "x-coordinaat [m Lambert72]: 68000,50", 8.0)
     _text(page, 60.0, 136.0, "y-coordinaat [m Lambert72]: 224000,25", 8.0)
     _text(page, 60.0, 148.0, "Maaiveldhoogte in mTAW: 6.5", 8.0)
-    _text(page, 60.0, 160.0, "Grondwaterstand [cm-mv]: 200", 8.0)
+    _text(page, 60.0, 160.0, water_line, 8.0)
     _text(page, 60.0, 762.0, "Projectcode: 00.00-000 TEST-001", 8.0)
     _text(page, 60.0, 776.0, "Projectnaam: Testproject", 8.0)
     _text(page, 60.0, 790.0, "Uitgevoerd op: 9-1-2024", 8.0)
@@ -152,7 +155,7 @@ def draw_boorstaat_sheet(doc: pymupdf.Document, sheet: Sheet, name: str = "B-T1"
         The borehole name printed after "Boring:".
     """
     page = doc.new_page(width=PAGE_W, height=PAGE_H)
-    _boorstaat_header(page, name)
+    _boorstaat_header(page, name, sheet.water_line)
     shape = page.new_shape()
     # Depth axis: a tick and a right-aligned label every 100 cm.
     first = int(-(-sheet.top_depth_cm // 100) * 100)
@@ -327,6 +330,7 @@ BP_LABEL_X = 267.5
 BP_RULE_X0 = 281.4
 BP_RULE_X1 = 522.5
 BP_TEXT_X = 284.8
+BP_SAMPLE_X0 = 240.0
 
 
 def _bp_y(level_m: float) -> float:
@@ -334,11 +338,22 @@ def _bp_y(level_m: float) -> float:
     return BP_GRAPH_TOP + (BP_TOP_LEVEL - level_m) * BP_PT_PER_M
 
 
-def build_boorprofiel_pdf() -> pymupdf.Document:
+def build_boorprofiel_pdf(
+    water: str | None = None,
+    sample_box: tuple[str, float, float] | None = None,
+) -> pymupdf.Document:
     """Return a one-sheet boorprofiel report (B-T2, top level 6.61 m TAW).
 
     Truth (depth below the top level, m): 0.00-2.50 sand with rubble,
     2.50-5.00 sand, 5.00-5.50 peat, 5.50-29.10 sand with shells.
+
+    Parameters
+    ----------
+    water : str or None
+        Printed after "GWS:" in the header (no unit, no reference: "380").
+    sample_box : tuple or None
+        ``(id, top level, base level)`` (m TAW): one open sample box of the
+        fixed size the real sheets draw, left of the level column.
 
     Returns
     -------
@@ -386,6 +401,16 @@ def build_boorprofiel_pdf() -> pymupdf.Document:
         for i, line in enumerate(lines):
             _text(page, BP_TEXT_X, _bp_y(level) + 6.5 + i * 7.0, line, 5.5)
     _text(page, BP_TEXT_X, _bp_y(6.61) - 1.0, "akker", 5.5)
+    if water is not None:
+        _text(page, 48.0, 94.0, "GWS:", 6.0)
+        _text(page, 110.0, 94.0, water, 6.0)
+    if sample_box is not None:
+        sample_id, top, base = sample_box
+        box = page.new_shape()
+        box.draw_rect(pymupdf.Rect(BP_SAMPLE_X0, _bp_y(top), BP_SAMPLE_X0 + 4.0, _bp_y(base)))
+        box.finish(color=(0, 0, 0), fill=(1, 1, 1), width=0.4)
+        box.commit()
+        _text(page, BP_SAMPLE_X0 + 5.5, (_bp_y(top) + _bp_y(base)) / 2.0 + 2.0, sample_id, 5.0)
     return doc
 
 
@@ -393,7 +418,7 @@ CLAY_LINES = ["Klei, matig zandig, standaard groengrijs, Sonic", "Drill"]
 DEEP_CLAY_LINES = ["Klei, matig siltig, resten veen, standaard", "bruingrijs, Sonic Drill"]
 
 
-def build_findings_pdf() -> pymupdf.Document:
+def build_findings_pdf(reprint_tube_text: str | None = None) -> pymupdf.Document:
     """Return B-T1 drawn the way the real reports showed it on 2026-10-08.
 
     * sheet 2 starts 1.74 m above sheet 1's cut (2.40 m): it reprints the end
@@ -406,6 +431,12 @@ def build_findings_pdf() -> pymupdf.Document:
     * after the legend, sheet 2 is printed again (an overview reprint).
 
     Truth: the seven intervals of :func:`boorstaat_sheets` (0..7.28 m).
+
+    Parameters
+    ----------
+    reprint_tube_text : str or None
+        When given, the reprint of sheet 2 prints this text for the tube
+        sample row (4.50-5.00 m) instead of the first print's text.
 
     Returns
     -------
@@ -432,7 +463,9 @@ def build_findings_pdf() -> pymupdf.Document:
         layer_depths_cm=[240.0, 250.0, 450.0, 500.0],
         end_label="-30",
         end_depth_cm=680.0,
-        samples=[("S1-0000000001", 450.0, 500.0, True)],
+        # Sheet 2 starts above sheet 1's cut, so it draws sheet 1's open bar
+        # again (the real sheets draw a bar on every sheet that spans it).
+        samples=[("1-0000000002", 350.0, 414.0, False), ("S1-0000000001", 450.0, 500.0, True)],
     )
     sheet3 = Sheet(
         top_depth_cm=650.0,
@@ -446,5 +479,10 @@ def build_findings_pdf() -> pymupdf.Document:
     for sheet in (sheet1, sheet2, sheet3):
         draw_boorstaat_sheet(doc, sheet)
     add_legend_page(doc)
-    draw_boorstaat_sheet(doc, sheet2)
+    reprint = sheet2
+    if reprint_tube_text is not None:
+        layers = list(sheet2.layers)
+        layers[2] = Layer("200", [reprint_tube_text])
+        reprint = replace(sheet2, layers=layers)
+    draw_boorstaat_sheet(doc, reprint)
     return doc
