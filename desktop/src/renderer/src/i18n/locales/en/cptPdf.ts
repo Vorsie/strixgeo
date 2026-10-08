@@ -51,6 +51,8 @@ export const CPT_PDF = {
   'cptPdf.drilledInterval': '{top} to {base} m',
   // Two sheets of one sounding whose printed depth axes leave a stretch
   // uncovered: unknown, not drilled (owner direction 2026-10-07).
+  'cptPdf.note.COORDINATE_OUT_OF_RANGE':
+    'Coordinate outside the range of its system (X {x}, Y {y}): check the sheet header',
   'cptPdf.note.SHEET_AXIS_GAP':
     'Sheet {sheet} ends at {d1} m, sheet {next} starts at {d2} m: no reading in between',
   'cptPdf.selectAll': 'Select all',
@@ -90,6 +92,7 @@ export const CPT_PDF = {
   'cptPdf.overlay.groundLevel': 'Ground level (m)',
   'cptPdf.overlay.date': 'Test date',
   'cptPdf.overlay.notPrinted': 'Not printed on the sheet: type it.',
+  'cptPdf.overlay.printedEditable': 'Read from the sheet: type a new value to replace a wrong one.',
   'cptPdf.overlay.readFailed': 'The sounding could not be read: {message}',
   'cptPdf.report.title': 'Import report',
   'cptPdf.report.status.imported': 'imported',
