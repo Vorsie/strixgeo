@@ -240,7 +240,7 @@ try {
     #   so a shipped build can never resolve dependencies that differ from the
     #   locked, hash-verified set the tests ran against (audit C4).
     # The export carries hashes, so the install below is pinned end to end.
-    uv export --no-dev --no-emit-project --frozen --format requirements-txt -o $requirements
+    uv export --no-dev --extra pdf-ocr --no-emit-project --frozen --format requirements-txt -o $requirements
     if ($LASTEXITCODE -ne 0) { throw "uv export failed with exit code $LASTEXITCODE" }
 
     Write-Step 'installing dependencies into the staged interpreter'
