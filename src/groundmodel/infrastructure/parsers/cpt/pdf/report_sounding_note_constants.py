@@ -30,3 +30,11 @@ NOTE_SHEET_AXIS_GAP = "SHEET_AXIS_GAP"
 #: typo on the sheet, owner finding 2026-10-08): the user checks the header;
 #: params ``x``, ``y`` (m) and ``epsg``.
 NOTE_COORDINATE_OUT_OF_RANGE = "COORDINATE_OUT_OF_RANGE"
+#: The values were read from the sounding's printed table, as printed (owner
+#: 2026-10-08): nothing was traced, there is no curve to compare.
+NOTE_READ_FROM_PRINTED_TABLE = "READ_FROM_PRINTED_TABLE"
+#: Printed table rows that could not be read (not stored); param ``count``.
+NOTE_TABLE_ROWS_REJECTED = "TABLE_ROWS_REJECTED"
+#: Printed Rf values their own printed fs and qc cannot give (kept as printed);
+#: param ``count``.
+NOTE_TABLE_RF_MISMATCH = "TABLE_RF_MISMATCH"
