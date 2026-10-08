@@ -267,16 +267,6 @@ async def import_cpt(
         has_errors=result.has_errors,
         refreshed=result.refreshed,
         name=result.name,
-        issues=[
-            ValidationIssueSchema(
-                level=i.level.value,
-                code=i.code,
-                message=i.message,
-                rows=i.rows,
-                params=i.params,
-            )
-            for i in result.issues
-        ],
         issues=[ValidationIssueSchema.from_issue(i) for i in result.issues],
     )
 
