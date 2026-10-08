@@ -45,6 +45,8 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.note.READ_FROM_IMAGE': 'Gelezen uit een afbeelding: vergelijk de oranje curve met het blad',
   'cptPdf.note.DRILLED_INTERVALS': 'Overboring: {list}',
   'cptPdf.drilledInterval': '{top} tot {base} m',
+  'cptPdf.note.COORDINATE_OUT_OF_RANGE':
+    'Coördinaat buiten het bereik van het stelsel (X {x}, Y {y}): controleer de hoofding',
   'cptPdf.note.SHEET_AXIS_GAP':
     'Blad {sheet} eindigt op {d1} m, blad {next} begint op {d2} m: geen meting ertussen',
   'cptPdf.selectAll': 'Alles selecteren',
@@ -84,6 +86,7 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.overlay.groundLevel': 'Maaiveld (m)',
   'cptPdf.overlay.date': 'Datum van de proef',
   'cptPdf.overlay.notPrinted': 'Niet op het blad gedrukt: typ het in.',
+  'cptPdf.overlay.printedEditable': 'Gelezen van het blad: typ een nieuwe waarde om een foute waarde te vervangen.',
   'cptPdf.overlay.readFailed': 'De sondering kon niet gelezen worden: {message}',
   'cptPdf.report.title': 'Importverslag',
   'cptPdf.report.status.imported': 'geïmporteerd',
