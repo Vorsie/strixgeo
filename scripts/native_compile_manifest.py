@@ -267,6 +267,8 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.cpt.pdf.axis_scale",
     "groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report",
     "groundmodel.infrastructure.parsers.cpt.pdf.colour_helpers",
+    "groundmodel.infrastructure.parsers.cpt.pdf.coordinate_extent_constants",
+    "groundmodel.infrastructure.parsers.cpt.pdf.coordinate_extent_helpers",
     "groundmodel.infrastructure.parsers.cpt.pdf.cpt_origin",
     "groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser",
     "groundmodel.infrastructure.parsers.cpt.pdf.depth_conversion",
