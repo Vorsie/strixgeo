@@ -388,6 +388,46 @@ OCR_STRIP_SHARE = 0.06
 # An OCR'd tick label snaps to the grid line within this share of the pitch.
 OCR_SNAP_PITCH_SHARE = 0.35
 
+# ONE-FRAME sheets (owner ruling 2026-10-08, "it should work on scanned pdf's,
+# which are all pictures"): some reports draw a sounding in one frame with no
+# grid panels (or a grid so light a render loses it), the depth axis on the
+# left and the value axes printed above / below the frame. Such a frame is a
+# graph panel when it is at least this share of the page wide ...
+FRAME_MIN_WIDTH_SHARE = 0.3
+# ... its edges meet within this share of the page width (a frame drawn at
+# 0.8 pt is 1-3 px thick; corners anti-alias) ...
+FRAME_EDGE_TOLERANCE_SHARE = 0.01
+# ... and its depth axis carries at least this many regular tick marks (a
+# metre a tick on the real sheets: 22 on a 21 m sheet; five rules out a
+# legend's few rules and a curve that happens to touch the axis).
+FRAME_MIN_TICKS = 5
+# A tick mark is a short horizontal stroke on a vertical axis line: the ink
+# run checked beside the line is this share of the page width long (the real
+# ticks are ~10 px at 100 dpi on an 827 px page: 0.006 = 5 px, half a tick).
+TICK_REACH_SHARE = 0.006
+# A row is a tick when this share of the checked run is ink (anti-aliasing
+# lightens the ends of a 1 px stroke).
+TICK_FILL_SHARE = 0.8
+# The checked run starts this far (px) beside the axis line's centre: a 1-2 px
+# line's centroid can sit a pixel off its darkest column, and a run that
+# starts further out misses the inner end of a 5 px tick at 100 dpi.
+TICK_GAP_PX = 2
+# A run of tick rows taller than this share of the page height is a bar or a
+# filled block (the pre-drill bar), not a tick.
+TICK_MAX_HEIGHT_SHARE = 0.004
+# Ticks of one axis are equally spaced within this share of their pitch.
+TICK_PITCH_RELATIVE_TOLERANCE = 0.1
+# The depth ticks (or grid rows) of a frame run its full height: at least
+# this share of its steps present (a 21 m sheet has 22 ticks; a scan may lose
+# one or two). A ruled table's rows are irregular and fail it.
+FRAME_AXIS_COVERAGE = 0.8
+# OCR of a one-frame sheet: the value-axis labels printed just INSIDE the top
+# edge (the Rf axis of the real sheets) lie within this share of the page
+# height below it.
+FRAME_INNER_LABEL_SHARE = 0.02
+# Ink of an OCR'd label (to name its colour): pixels darker than this grey.
+LABEL_INK_THRESHOLD = 170
+
 # The order raster panels are assumed to come in when neither an OCR'd label
 # nor a curve colour names them: the Flemish / Dutch convention qc | fs | Rf.
 RASTER_FALLBACK_PANEL_ORDER: tuple[PanelKind, ...] = (PanelKind.QC, PanelKind.FS, PanelKind.RF)
@@ -446,11 +486,16 @@ PDF_PROVENANCE_SOURCE = "pdf-digitised"
 # elevation" = printed ground level - elevation).
 DEPTH_SOURCE_PLOTTED = "plotted depth"
 DEPTH_SOURCE_ELEVATION = "derived from plotted elevation"
+# A printed-table sounding (owner 2026-10-08): the depth printed in its table.
+DEPTH_SOURCE_PRINTED = "printed depth (table)"
 
 # ``import_provenance.series_sampling`` (owner 2026-09-30: vector vertices ARE
 # the scans and are stored as they are; raster traces are resampled to 0.02 m).
 SAMPLING_VECTOR = "vector vertices (no resampling)"
 SAMPLING_RASTER = "raster trace resampled to 0.02 m"
+# A printed table: its rows are stored as printed (owner 2026-10-08: "the
+# import takes the EXACT printed values from the tables").
+SAMPLING_TABLE = "printed table rows (no resampling)"
 
 # A secondary curve's vertex counts as sitting on a qc scan when it is this
 # close in depth (m): half a millimetre, far below the 0.02 m scan step, so
