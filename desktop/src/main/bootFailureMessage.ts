@@ -31,7 +31,7 @@ export interface BootFailureDialogCopy {
  * the wild. Present only when the stamped revision is unknown to this build —
  * i.e. the database was written by a newer StrixGeo.
  */
-const NEWER_DATABASE_SIGNAL = /can'?t locate revision/i
+export const NEWER_DATABASE_SIGNAL = /can'?t locate revision/i
 
 /**
  * Map a boot failure to a tailored dialog copy, or ``null`` to use the generic
