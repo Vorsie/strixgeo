@@ -13,7 +13,8 @@ class DigitisedSample:
     Parameters
     ----------
     sample_id : str
-        The id printed next to the bar (phase 2: ``sample_number``).
+        The id printed next to the bar, verbatim with its trailing character
+        ("S10-0550471459/"; phase 2: ``sample_number``).
     depth_top_m, depth_base_m : float or None
         Depth range of the bar through the sheet's depth axis; None when the
         axis could not be fitted. A bar a sheet cut is merged over sheets.
@@ -24,6 +25,10 @@ class DigitisedSample:
         "ongeroerd"); None when the profile has no checked legend.
     pages : tuple of int
         Sheets the bar is drawn on.
+    sample_label : str or None
+        The printed sample number before the dash ("S10", or "9" where no S
+        is printed): what the lab reports reference (owner 2026-10-08); None
+        when the id starts with no number.
     """
 
     sample_id: str
@@ -32,6 +37,7 @@ class DigitisedSample:
     mark: str
     sample_type: str | None
     pages: tuple[int, ...]
+    sample_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the sample as a JSON-ready dict."""
@@ -42,6 +48,7 @@ class DigitisedSample:
             "mark": self.mark,
             "sample_type": self.sample_type,
             "pages": list(self.pages),
+            "sample_label": self.sample_label,
         }
 
     @classmethod
@@ -65,4 +72,5 @@ class DigitisedSample:
             mark=data["mark"],
             sample_type=data["sample_type"],
             pages=tuple(data["pages"]),
+            sample_label=data.get("sample_label"),
         )
