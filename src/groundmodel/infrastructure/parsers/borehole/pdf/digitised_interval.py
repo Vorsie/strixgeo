@@ -29,6 +29,11 @@ class DigitisedInterval:
         The printed lines (of the first sheet that printed the row).
     pages : tuple of int
         The sheets the row is printed on (two for a row a sheet cut).
+    lithology_absent_reason : str or None
+        Why the layer has no lithology: ``"sampled"`` when it prints only the
+        drill technique and a sample remark ("Sonic Drill, steekbus niet
+        vol"; owner 2026-10-08: the sample was taken there, leave it empty, a
+        later grain-size result may fill it); None for a described layer.
     """
 
     depth_top_m: float | None
@@ -40,6 +45,16 @@ class DigitisedInterval:
     description: str
     description_lines: tuple[str, ...]
     pages: tuple[int, ...]
+    lithology_absent_reason: str | None = None
+
+    @property
+    def lithology_text(self) -> str:
+        """Return the text the description -> codes rule parser maps.
+
+        The description for a described layer; empty when the layer has no
+        lithology (its raw text stays in ``description`` as a remark).
+        """
+        return "" if self.lithology_absent_reason else self.description
 
     def to_dict(self) -> dict[str, Any]:
         """Return the interval as a JSON-ready dict."""
@@ -53,6 +68,8 @@ class DigitisedInterval:
             "description": self.description,
             "description_lines": list(self.description_lines),
             "pages": list(self.pages),
+            "lithology_absent_reason": self.lithology_absent_reason,
+            "lithology_text": self.lithology_text,
         }
 
     @classmethod
@@ -79,4 +96,5 @@ class DigitisedInterval:
             description=data["description"],
             description_lines=tuple(data["description_lines"]),
             pages=tuple(data["pages"]),
+            lithology_absent_reason=data.get("lithology_absent_reason"),
         )
