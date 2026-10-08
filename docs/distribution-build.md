@@ -144,11 +144,13 @@ what the test suite runs against.
 a prebuilt `win_amd64` wheel that carries MuPDF as its own native library, so
 it rides into `site-packages` through the same `uv export --no-dev` +
 hash-pinned install as numba's llvmlite — no build step. Its OCR companion
-(RapidOCR + OpenCV) is the optional extra `pdf-ocr`, which `uv export
---no-dev` leaves out: the packaged app reads vector reports and tells the
-user to type the axis values where OCR would be needed. Every digitiser
-module imports without the extra (the smoke gate imports each compiled
-module). **The first build after this change must re-stage the interpreter
+(RapidOCR + OpenCV) is the optional extra `pdf-ocr`, which the export
+INCLUDES since 0.1.5 (`uv export --no-dev --extra pdf-ocr`, ~60 MB of
+onnxruntime + OpenCV): scanned reports without a text layer (the owner's
+2.3 report) are read by OCR in the packaged app too. Every digitiser module
+still imports without the extra (the smoke gate imports each compiled
+module), so dropping the flag ships a vector-only build that tells the user
+to type the axis values. **The first build after this change must re-stage the interpreter
 with `-Force`**: the reuse skip checks only that `python.exe` exists, not
 that `uv.lock` moved, so a reused tree has no PyMuPDF and the smoke gate's
 import of the compiled `cpt.pdf` modules fails (loudly). To ship OCR, add
