@@ -41,6 +41,16 @@ describe('cptPdfNoteText: one note in the app language', () => {
     )
   })
 
+  it('N2b: a printed coordinate outside its system asks for a check of the header (owner finding 2026-10-08)', () => {
+    const note = { code: 'COORDINATE_OUT_OF_RANGE', params: { x: 67592.443, y: 2244433.03, epsg: 31370 } }
+    expect(cptPdfNoteText(note, '', nl)).toBe(
+      'Coördinaat buiten het bereik van het stelsel (X 67592.443, Y 2244433.03): controleer de hoofding',
+    )
+    expect(cptPdfNoteText(note, '', en)).toBe(
+      'Coordinate outside the range of its system (X 67592.443, Y 2244433.03): check the sheet header',
+    )
+  })
+
   it('N3: in English the sentence is the one the backend always wrote', () => {
     expect(cptPdfNoteText({ code: 'CLIPPED_POINTS', params: { count: 3 } }, '', en)).toBe(
       '3 point(s) on an axis maximum: the true value is higher',
