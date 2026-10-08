@@ -42,6 +42,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     RASTER_TRIAGE_DPI,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_deskewer import RasterDeskewer
+from groundmodel.infrastructure.parsers.cpt.pdf.raster_frame_detector import RasterFrameDetector
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_grid_detector import RasterGridDetector
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
 from groundmodel.infrastructure.parsers.cpt.pdf.report_fingerprint import ReportFingerprint
@@ -100,6 +101,7 @@ class PageTriage(GroundModelLogger):
         self._block = SoundingBlockReader()
         self._deskewer = RasterDeskewer()
         self._grid = RasterGridDetector()
+        self._frames = RasterFrameDetector()
         # Image pages skipped because OpenCV is absent (see _raster_panels).
         self.raster_pages_unread = 0
         # Pages whose title strips went through OCR in the last classify().
@@ -497,7 +499,7 @@ class PageTriage(GroundModelLogger):
         return PageEvidence(page_class=PageClass.OTHER, reasons=prefix + ("no class fits",), **base)
 
     def _raster_panels(self, page: pymupdf.Page) -> int:
-        """Return how many graph panels the raster grid detector finds.
+        """Return how many graph panels the raster grid detector finds (a lone frame counts 1).
 
         Zero when OpenCV (the optional ``pdf-ocr`` extra) is not installed: an
         image page cannot be looked at then, and is counted in
@@ -520,7 +522,16 @@ class PageTriage(GroundModelLogger):
             if p.frame.height >= RASTER_GRAPH_MIN_PANEL_HEIGHT * height
             and len(p.horizontal_lines) >= RASTER_GRAPH_MIN_HORIZONTAL_LINES
         ]
-        return len(good)
+        if good:
+            return len(good)
+        # No gridded panel: ONE frame with regular depth ticks is a graph too
+        # (owner ruling 2026-10-08: scanned one-frame sheets, the axes printed
+        # around the frame, a grid too light to survive the render).
+        framed = self._frames.detect(straight, grid)
+        if framed is not None:
+            self.info("page %d: one-frame graph (no grid panels)", page.number + 1)
+            return 1
+        return 0
 
 
 def _curve_segments(content: VectorPageContent, aligned: np.ndarray) -> int:
