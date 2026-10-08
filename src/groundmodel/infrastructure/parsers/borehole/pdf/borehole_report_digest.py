@@ -12,6 +12,7 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_page_class import 
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_page_verdict import (
     BoreholePageVerdict,
 )
+from groundmodel.infrastructure.parsers.borehole.pdf.dropped_borehole import DroppedBorehole
 from groundmodel.infrastructure.parsers.borehole.pdf.report_borehole import ReportBorehole
 
 
@@ -30,13 +31,16 @@ class BoreholeReportDigest:
     pages : tuple of BoreholePageVerdict
         One verdict per triaged page.
     boreholes : tuple of ReportBorehole
-        The boreholes, in report order.
+        The boreholes offered for import, in report order.
     pages_not_triaged : int
         Pages beyond the page cap, not looked at.
     ocr_available : bool
         Whether OCR could be used.
     ocr_pages : tuple of int
         Pages read by OCR.
+    dropped : tuple of DroppedBorehole
+        Prints set aside (a repeat with exactly the same data), each naming
+        the print that stays listed.
     """
 
     file_name: str
@@ -47,6 +51,7 @@ class BoreholeReportDigest:
     pages_not_triaged: int = 0
     ocr_available: bool = False
     ocr_pages: tuple[int, ...] = field(default_factory=tuple)
+    dropped: tuple[DroppedBorehole, ...] = field(default_factory=tuple)
 
     @property
     def class_counts(self) -> dict[str, int]:
@@ -72,5 +77,6 @@ class BoreholeReportDigest:
             "ocr_available": self.ocr_available,
             "ocr_pages": list(self.ocr_pages),
             "boreholes": [b.to_dict() for b in self.boreholes],
+            "dropped": [d.to_dict() for d in self.dropped],
             "pages": [p.to_dict() for p in self.pages],
         }
