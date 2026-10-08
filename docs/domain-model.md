@@ -74,6 +74,31 @@ Geophysical: MASW, Seismic CPT
   all-or-nothing: a DOV track with no cached XML refuses the whole reset
   (`BoreholeResetNoDovSourceError`). A coded interval carries at most
   `MAX_ADMIXTURES_PER_INTERVAL` (3) admixtures when typed by hand.
+  **Re-import restores:** a CONSENTED refresh of the borehole from its source
+  (a future XML import branch, a future DOV refresh) must rewrite the imported
+  tracks from the fresh parse (dropping `edited_manually_at`) and leave the
+  manual tracks alone. No such automatic refresh exists — the DOV bbox import SKIPS
+  an interpretation it already holds (by `dov_permkey`) — so hand edits
+  survive a re-import, while a DELETED DOV observation track comes back on the
+  next DOV import of its area (its permkey is gone); a deleted DOV field-log
+  track does not come back on an import (field logs of an existing borehole are
+  not re-imported), only through Reset to DOV when the boring XML is cached.
+  Build the restore together with the refresh path, never as a silent
+  overwrite.
+- **LabSeries family** (rule (a): a four-level shape the catch-all cannot hold).
+  One family for both kinds (`LabSeriesKind`: oedometer / triaxial) because the
+  storage shape is identical. Every channel carries `SeriesProvenance`:
+  `measured` (the machine's log), `lab_derived` (the lab software's per-reading
+  column — never shown or exported as a measurement), `derived` (a Strix
+  computation with formula + inputs; today only the oedometer vertical strain
+  epsilon_v = delta_h / h0, `domain/services/oedometer_vertical_strain.py`).
+  The lab's summary values are `lab_reported` rows (owner 2026-09-29: "you can
+  list them but we'll be doing our own interpretations"). Not in the
+  `LAB_TEST_FAMILIES` registry (flat leaf rows only) and never eager-loaded by
+  the borehole detail; the matching rules (borehole name ends with
+  `<job>-<borehole>`; overlapping sample interval = same sample) live in
+  `domain/services/lab_sample_matching.py`. Formats: [parsers-lab.md](parsers-lab.md).
+
   **The badge follows the content (2026-10-01).** A save that puts a DOV
   track back to EXACTLY what DOV published (the undo of a first edit) clears
   `edited_manually_at`: an untouched DOV track compares with its stored rows
@@ -93,19 +118,6 @@ Geophysical: MASW, Seismic CPT
   through Reset to DOV. A CONSENTED refresh of a held borehole from its source
   (the XML-file import's Replace dialog) is the only path that rewrites
   imported tracks; never a silent overwrite.
-- **LabSeries family** (rule (a): a four-level shape the catch-all cannot hold).
-  One family for both kinds (`LabSeriesKind`: oedometer / triaxial) because the
-  storage shape is identical. Every channel carries `SeriesProvenance`:
-  `measured` (the machine's log), `lab_derived` (the lab software's per-reading
-  column — never shown or exported as a measurement), `derived` (a Strix
-  computation with formula + inputs; today only the oedometer vertical strain
-  epsilon_v = delta_h / h0, `domain/services/oedometer_vertical_strain.py`).
-  The lab's summary values are `lab_reported` rows (owner 2026-09-29: "you can
-  list them but we'll be doing our own interpretations"). Not in the
-  `LAB_TEST_FAMILIES` registry (flat leaf rows only) and never eager-loaded by
-  the borehole detail; the matching rules (borehole name ends with
-  `<job>-<borehole>`; overlapping sample interval = same sample) live in
-  `domain/services/lab_sample_matching.py`. Formats: [parsers-lab.md](parsers-lab.md).
 
 **Interpretation primitives by model kind (post-A4 Shape A):**
 - Geological models: ``FormationContact`` rows are the boundary-centric
