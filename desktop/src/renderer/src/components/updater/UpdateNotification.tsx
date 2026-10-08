@@ -10,8 +10,19 @@
 // wires the manual-check menu signal to window.electron.checkForUpdates(). All
 // the real update machinery is gated on app.isPackaged in main, so this is inert
 // in dev except for the "disabled" acknowledgement. See the design note.
+//
+// Reachable in EVERY renderer state (owner finding 2026-10-08: 0.1.4 over a
+// 0.1.5 store showed no update prompt, because the card was mounted only in the
+// welcome and project branches and a backend that never became ready never
+// reaches them). App mounts it in every branch; switching branches remounts it,
+// so on mount it PULLS the latched answer (``getLastUpdaterEvent``) besides the
+// push subscription, and it remembers a "Later" across those remounts. It
+// renders through a portal on document.body at the int32-max z-index, above the
+// dialogs (Modal / BackendFailedModal sit one below): on a fatal start failure
+// the update is the way out.
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, RefreshCw, X } from 'lucide-react'
 
 import Button from '../ui/Button'
@@ -40,6 +51,23 @@ const ERROR_REASON_KEY: Record<UpdaterErrorReasonDto, MessageKey> = {
   unexpected: 'updater.errorUnexpected',
 }
 
+/** Identity of an event for the remembered "Later": phase + version + cause. */
+function eventKey(event: UpdaterEventDto): string {
+  return `${event.phase}|${event.notice?.version ?? ''}|${event.errorReason ?? ''}`
+}
+
+/**
+ * The event the engineer last dismissed, kept at module level so a remount
+ * (App switching render branches) does not re-show a PULLED copy of it. A fresh
+ * PUSH (a manual check, a new phase) always shows, as before.
+ */
+let dismissedKey: string | null = null
+
+/** Test-only: forget the remembered dismissal between tests. */
+export function __resetUpdateNotificationDismissalForTests(): void {
+  dismissedKey = null
+}
+
 /**
  * The floating update notification.
  *
@@ -55,17 +83,39 @@ export default function UpdateNotification(): JSX.Element | null {
     // A renderer running against an older preload lacks this channel — degrade
     // to no notifications rather than throwing on the boot path.
     if (typeof window.electron.onUpdaterEvent !== 'function') return undefined
+    let pushed = false
+    let mounted = true
     const off = window.electron.onUpdaterEvent((next: UpdaterEventDto) => {
+      pushed = true
       setEvent(next)
       // Every fresh event re-surfaces the notification.
       setDismissed(false)
     })
-    return off
+    // The answer may have arrived before this mount (launch check during the
+    // loading screen, a branch switch). Pull it; a push that lands first wins,
+    // and a pulled copy of what the engineer dismissed stays dismissed.
+    if (typeof window.electron.getLastUpdaterEvent === 'function') {
+      window.electron
+        .getLastUpdaterEvent()
+        .then(latched => {
+          if (!mounted || pushed || latched === null || latched === undefined) return
+          if (eventKey(latched) === dismissedKey) return
+          setEvent(latched)
+        })
+        .catch(err => log.warn('updater', 'could not read the latched update event', err))
+    }
+    return () => {
+      mounted = false
+      off()
+    }
   }, [])
 
   if (event === null || dismissed || event.phase === 'idle') return null
 
-  const dismiss = (): void => setDismissed(true)
+  const dismiss = (): void => {
+    dismissedKey = eventKey(event)
+    setDismissed(true)
+  }
 
   const handleDownload = (): void => {
     void window.electron.downloadUpdate().catch(err => log.warn('updater', 'download failed', err))
@@ -76,9 +126,9 @@ export default function UpdateNotification(): JSX.Element | null {
 
   const version = event.notice?.version ?? '—'
 
-  return (
+  return createPortal(
     <div
-      className="fixed bottom-4 right-4 z-[2000] w-80 max-w-[92vw] rounded-lg border border-border-default bg-surface-overlay shadow-lg text-text-primary"
+      className="fixed bottom-4 right-4 z-[2147483647] w-80 max-w-[92vw] rounded-lg border border-border-default bg-surface-overlay shadow-lg text-text-primary"
       data-testid="update-notification"
       role="status"
     >
@@ -160,6 +210,7 @@ export default function UpdateNotification(): JSX.Element | null {
           </button>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }
