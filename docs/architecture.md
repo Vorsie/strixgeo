@@ -49,7 +49,10 @@ Strix/
 │   │   │   ├── borehole/      dov/dov_constants.py, dov_boring_parser.py,
 │   │   │   │                      borehole_parse_result.py,
 │   │   │   │                      dov_interpretation_parser.py,
-│   │   │   │                      interpretation_parse_result.py
+│   │   │   │                      interpretation_parse_result.py,
+│   │   │   │                      pdf/ (borehole-log PDF digitiser, phase 1 offline:
+│   │   │   │                      triage + layout profiles + DigitisedBorehole,
+│   │   │   │                      see docs/parsers-borehole-pdf.md)
 │   │   │   ├── lab/           dov/dov_constants.py, dov_grain_size_parser.py,
 │   │   │   │                      grain_size_parse_result.py
 │   │   │   └── validation/    validation_issue.py + validation_level.py —
