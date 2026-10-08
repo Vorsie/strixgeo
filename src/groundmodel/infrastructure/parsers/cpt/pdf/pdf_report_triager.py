@@ -8,6 +8,9 @@ from typing import Any, TypeVar
 
 import pymupdf
 
+from groundmodel.infrastructure.parsers.cpt.pdf.coordinate_extent_helpers import (
+    position_outside_extent,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_origin import CptOrigin
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import (
     CptPdfDigitiser,
@@ -31,6 +34,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding import ReportSou
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note import ReportSoundingNote
 from groundmodel.infrastructure.parsers.cpt.pdf.report_sounding_note_constants import (
     NOTE_CLIPPED_POINTS,
+    NOTE_COORDINATE_OUT_OF_RANGE,
     NOTE_DRILLED_INTERVALS,
     NOTE_ELEVATION_AXIS,
     NOTE_ELEVATION_AXIS_NO_GROUND_LEVEL,
@@ -320,6 +324,25 @@ def _report_sounding(
             note(NOTE_TICKS_UNAVAILABLE_NO_OCR, "tick reading unavailable: type the axis values")
     if placed is None:
         note(NOTE_NO_POSITION_PRINTED, "no position printed: type X and Y before importing")
+    elif (
+        placed.x is not None
+        and placed.y is not None
+        and position_outside_extent(placed.x, placed.y, placed.epsg)
+    ):
+        # The sheet itself can print a typo (owner finding 2026-10-08, S28A:
+        # Y 2244433.030); the value is kept as printed, the row asks for a check.
+        if logger is not None:
+            logger.warning(
+                f"sounding {key}: printed position ({placed.x}, {placed.y}) lies outside "
+                f"the extent of EPSG {placed.epsg}"
+            )
+        note(
+            NOTE_COORDINATE_OUT_OF_RANGE,
+            "coordinate outside the range of its system: check the sheet header",
+            x=placed.x,
+            y=placed.y,
+            epsg=placed.epsg,
+        )
     if elevation:
         if ground is not None:
             note(
