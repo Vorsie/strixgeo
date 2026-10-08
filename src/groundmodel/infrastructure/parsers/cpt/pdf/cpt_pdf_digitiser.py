@@ -32,6 +32,13 @@ from groundmodel.infrastructure.parsers.cpt.pdf.raster_curve_extractor import (
     RasterCurveExtractor,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_deskewer import RasterDeskewer
+from groundmodel.infrastructure.parsers.cpt.pdf.raster_frame_calibrator import (
+    RasterFrameCalibrator,
+)
+from groundmodel.infrastructure.parsers.cpt.pdf.raster_frame_detector import (
+    RasterFrameDetector,
+    framed_or_grid_panels,
+)
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_grid_detector import RasterGridDetector
 from groundmodel.infrastructure.parsers.cpt.pdf.raster_image_helpers import render_page
 from groundmodel.infrastructure.parsers.cpt.pdf.report_triage import ReportTriage
@@ -211,9 +218,18 @@ class CptPdfDigitiser(GroundModelLogger):
         grid = RasterGridDetector().detect(straight)
         text = page.get_text()
         profile = self._registry.match(text)
-        calibration = RasterAxisCalibrator(profile, self._ocr).calibrate(
-            straight, grid, RASTER_DPI, page_number, ground_level_m
+        panels = framed_or_grid_panels(
+            grid, RasterFrameDetector().detect(straight, grid), straight.shape[0]
         )
+        if panels and panels[0].framed:
+            # ONE frame, the axes printed around it (owner ruling 2026-10-08).
+            calibration = RasterFrameCalibrator(profile, self._ocr).calibrate(
+                straight, panels[0], RASTER_DPI, page_number, ground_level_m
+            )
+        else:
+            calibration = RasterAxisCalibrator(profile, self._ocr).calibrate(
+                straight, grid, RASTER_DPI, page_number, ground_level_m
+            )
         if skew:
             calibration = replace(
                 calibration,
