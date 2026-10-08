@@ -53,6 +53,7 @@ import TutorialOverlay from './tutorial/TutorialOverlay'
 import { clearTutorialProgress } from './tutorial/tutorialProgress'
 import LicensingDialog from './components/licensing/LicensingDialog'
 import UpdateNotification from './components/updater/UpdateNotification'
+import { backendFailureReasonOf, type BackendFailureReasonDto } from './utils/backendFailureTypes'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
 import { activationGateDecision, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
@@ -415,11 +416,18 @@ export default function App() {
   // process reports that the Python backend exited before it was ready.
   // The modal is non-dismissible — the app cannot function without the backend.
   const [backendFailed, setBackendFailed] = useState(false)
+  // The cause the main process recognised in the engine output (owner finding
+  // 2026-10-08: a store written by a newer StrixGeo), or null. An older main
+  // sends no payload, which reads as null: the generic dialog.
+  const [backendFailureReason, setBackendFailureReason] = useState<BackendFailureReasonDto | null>(null)
   const [logsPath, setLogsPath] = useState<string | null>(null)
   useEffect(() => {
     // Best-effort: fetch the logs path so the modal can display it.
     void window.electron.getLogsPath().then(setLogsPath).catch(() => {})
-    const off = window.electron.onAppBackendFailed(() => setBackendFailed(true))
+    const off = window.electron.onAppBackendFailed(payload => {
+      setBackendFailureReason(backendFailureReasonOf(payload))
+      setBackendFailed(true)
+    })
     return off
   // reason: empty dep array — subscribe once at mount; getLogsPath returns a
   // constant from the main process (app.getPath('logs')) so no dep needed.
@@ -1512,8 +1520,16 @@ export default function App() {
   // Backend-failed modal (#214d) — rendered in every branch because it is
   // a portal to document.body and must survive the early-return gates.
   const backendFailedModal = (
-    <BackendFailedModal open={backendFailed} logsPath={logsPath} />
+    <BackendFailedModal open={backendFailed} logsPath={logsPath} reason={backendFailureReason} />
   )
+
+  // The update card, in the branches that do not mount it themselves (the
+  // activation gate, the boot error, the loading splash). Owner finding
+  // 2026-10-08: a backend that never became ready never reached the welcome
+  // branch, so the published update that would cure it was never shown. It
+  // portals to document.body above every dialog and pulls the latched event
+  // on mount, so it survives these early returns like the modal above.
+  const updateNotification = <UpdateNotification />
 
   // Mid-session backend death (#FINDINGS-A 4). Rendered in EVERY branch for the
   // same reason as the modal above: the backend can go away at any moment, and
@@ -1544,12 +1560,13 @@ export default function App() {
           onClose={() => {}}
           onStatusChange={handleActivationStatusChange}
         />
+        {updateNotification}
       </>
     )
   }
 
-  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError /></>
-  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong} /></>
+  if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError />{updateNotification}</>
+  if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong} />{updateNotification}</>
 
 
   if (!project) {
