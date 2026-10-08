@@ -55,6 +55,10 @@ class ReportSounding:
     campaign_code : str or None
         The report's campaign code ("CAMZ-001"), the stand-in project id when
         the sheet prints no project number.
+    ground_level_source : str or None
+        Where ``ground_level_m`` comes from when the sheet does not print it
+        as such: ``"printed-table"`` = the table's printed level + depth.
+        None = printed on the sheet.
     """
 
     key: str
@@ -76,6 +80,7 @@ class ReportSounding:
     notes: tuple[ReportSoundingNote, ...] = field(default_factory=tuple)
     project_number: str | None = None
     campaign_code: str | None = None
+    ground_level_source: str | None = None
 
     @property
     def sheet_count(self) -> int:
@@ -119,4 +124,11 @@ class ReportSounding:
             "project_number": self.project_number,
             "campaign_code": self.campaign_code,
             "display_name": self.display_name,
+            # Only a sounding whose ground level is derived says so; the dict
+            # of every other sounding stays as it was (additive wire field).
+            **(
+                {"ground_level_source": self.ground_level_source}
+                if self.ground_level_source is not None
+                else {}
+            ),
         }
