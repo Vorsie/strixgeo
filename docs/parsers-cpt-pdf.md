@@ -69,6 +69,14 @@ sheet is `rf_source = measured`; without an Rf panel it is computed from fs/qc
 
 ## Validation issues
 
+Typed header values win per field over the printed ones (`_header` in
+`application/import_cpt_pdf.py`; a typed Y alone corrects a printed Y and keeps
+the printed X and system); `header_sources` records `user` or `sheet` per field;
+half a position (one coordinate only) is no position. The triage adds the row
+note `COORDINATE_OUT_OF_RANGE` when a printed position lies outside the extent
+of its system (`coordinate_extent_constants.py`; only EPSG 31370 is listed,
+other systems are not checked); the value itself is kept as printed.
+
 `PDF_CLIPPED_POINTS` (WARNING, one per clipped curve), `PDF_DEPTH_FROM_ELEVATION`
 (INFO), `PDF_NO_XY` (ERROR: no position printed and none typed — the import
 refuses that sounding with `code = "pdf_no_xy"`), `PDF_OCR_UNAVAILABLE` (INFO: a
