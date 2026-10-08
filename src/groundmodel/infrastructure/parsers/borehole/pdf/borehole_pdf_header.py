@@ -21,8 +21,12 @@ class BoreholePdfHeader:
     x, y : float or None
         Printed position.
     epsg : int or None
-        System the coordinate labels name (31370 for "Lambert72"); None when
-        not named.
+        System the coordinate labels name (31370 for "Lambert72"); 31370 with
+        ``crs_assumed`` when X/Y are printed without a named system (owner
+        2026-10-08); None when no position is printed.
+    crs_assumed : bool
+        True when ``epsg`` is the ruled Lambert 72 assumption, not printed:
+        the import asks the user to confirm it.
     ground_level_m : float or None
         Ground level (header), else the first printed level.
     z_epsg : int or None
@@ -37,9 +41,10 @@ class BoreholePdfHeader:
         "Uitvoering door" / "Boormeester" value.
     project_code, project_name, remark : str or None
         As printed.
-    surface_text : str
-        Text printed above the first rule of the first sheet (the surface
-        cover: "asfalt", "akker"), raw.
+    surface_label : str
+        The word printed on the surface line of the first sheet ("asfalt",
+        "akker", "braak"), raw: a header note, never a layer (owner
+        2026-10-08).
     identification_standard : str or None
         The identification standard the sheets name ("NEN-EN-ISO 14688").
     raw_fields : dict
@@ -51,6 +56,7 @@ class BoreholePdfHeader:
     x: float | None = None
     y: float | None = None
     epsg: int | None = None
+    crs_assumed: bool = False
     ground_level_m: float | None = None
     z_epsg: int | None = None
     ground_level_source: str | None = None
@@ -61,7 +67,7 @@ class BoreholePdfHeader:
     project_code: str | None = None
     project_name: str | None = None
     remark: str | None = None
-    surface_text: str = ""
+    surface_label: str = ""
     identification_standard: str | None = None
     raw_fields: dict[str, dict[str, str]] = field(default_factory=dict)
 
