@@ -96,7 +96,6 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
     en: 'Import CPTs from a PDF Report…',
     nl: 'Sonderingen uit een pdf-rapport importeren…',
   },
-  importBorehole: { en: 'Import Borehole…', nl: 'Boring importeren…' },
   importDmt: { en: 'Import DMT…', nl: 'DMT importeren…' },
   settings: { en: 'Settings…', nl: 'Instellingen…' },
   quit: { en: 'Quit', nl: 'Afsluiten' },
