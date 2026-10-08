@@ -26,3 +26,7 @@ NOTE_DRILLED_INTERVALS = "DRILLED_INTERVALS"
 #: uncovered: no reading in between, unknown, not drilled (owner direction
 #: 2026-10-07); params ``sheet`` (1-based), ``next``, ``d1`` and ``d2`` (m).
 NOTE_SHEET_AXIS_GAP = "SHEET_AXIS_GAP"
+#: The printed position lies outside the extent of its coordinate system (a
+#: typo on the sheet, owner finding 2026-10-08): the user checks the header;
+#: params ``x``, ``y`` (m) and ``epsg``.
+NOTE_COORDINATE_OUT_OF_RANGE = "COORDINATE_OUT_OF_RANGE"
