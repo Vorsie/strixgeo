@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { translate, type Translator } from '../i18n/translate'
-import { cptPdfNoteText, cptPdfNoteTexts } from './cptPdfNoteText'
+import { cptPdfIssueText, cptPdfNoteText, cptPdfNoteTexts } from './cptPdfNoteText'
 
 const nl: Translator = (key, params) => translate('nl', key, params)
 const en: Translator = (key, params) => translate('en', key, params)
@@ -127,5 +127,84 @@ describe('cptPdfNoteText: a stretch no sheet axis covers', () => {
     expect(cptPdfNoteText(note, '', en)).toBe(
       'Sheet 1 ends at 33.50 m, sheet 2 starts at 34.00 m: no reading in between',
     )
+  })
+})
+
+// The printed-table profile (owner 2026-10-08: "the import takes the EXACT
+// printed values from the tables") and its rulings of 2026-10-09: a printed Rf
+// that contradicts its own row is dropped (the note says why the cell is
+// empty), the floor qc 0,01 rows directly after the voorboring are no reading,
+// a CPT-M Qt is stored as q_total unless the sheet names another cone area.
+// NL first, plain, no em-dashes; "voorboring" is only the pre-drill from the
+// surface.
+describe('cptPdfNoteText: a sounding read from its printed table', () => {
+  it('N12: every printed-table row note reads in Dutch', () => {
+    expect(cptPdfNoteText({ code: 'READ_FROM_PRINTED_TABLE', params: {} }, '', nl)).toBe(
+      'Gelezen uit de gedrukte tabel: de waarden zoals gedrukt',
+    )
+    expect(cptPdfNoteText({ code: 'TABLE_ROWS_REJECTED', params: { count: 2 } }, '', nl)).toBe(
+      '2 gedrukte rij(en) niet gelezen',
+    )
+    expect(cptPdfNoteText({ code: 'TABLE_RF_MISMATCH', params: { count: 1 } }, '', nl)).toBe(
+      '1 gedrukte Rf-waarde(n) strijdig met fs / qc: weggelaten, de Rf-cel blijft leeg',
+    )
+    expect(
+      cptPdfNoteText({ code: 'PRE_DRILL_FLOOR_ROWS', params: { count: 6, depth: 2.21 } }, '', nl),
+    ).toBe('6 rij(en) met qc 0,01 net onder de voorboring: geen meting, de curve begint op 2.21 m')
+  })
+
+  it('N13: in English the row notes are the backend sentences', () => {
+    expect(cptPdfNoteText({ code: 'READ_FROM_PRINTED_TABLE', params: {} }, '', en)).toBe(
+      'read from the printed table: the values as printed',
+    )
+    expect(cptPdfNoteText({ code: 'TABLE_RF_MISMATCH', params: { count: 3 } }, '', en)).toBe(
+      '3 printed Rf value(s) contradict fs / qc: dropped, the Rf cell empty',
+    )
+    expect(
+      cptPdfNoteText({ code: 'PRE_DRILL_FLOOR_ROWS', params: { count: 6, depth: 2.21 } }, '', en),
+    ).toBe('6 row(s) with qc 0.01 directly after the pre-drill: no reading, the curve starts at 2.21 m')
+  })
+})
+
+describe('cptPdfIssueText: the printed-table import remarks', () => {
+  const issue = (code: string, params: Record<string, unknown>) => ({ code, message: 'english', params })
+
+  it('I1: every PDF_TABLE_* issue reads in Dutch', () => {
+    expect(cptPdfIssueText(issue('PDF_TABLE_RF_MISMATCH', { count: 3, depths_m: [0.01] }), nl)).toBe(
+      '3 gedrukte Rf-waarde(n) strijdig met de gedrukte fs / qc: weggelaten, de Rf-cel leeg gelaten, qc en fs zoals gedrukt',
+    )
+    expect(cptPdfIssueText(issue('PDF_TABLE_LEVEL_MISMATCH', { count: 1, rows: [[7.01, -0.16]] }), nl)).toBe(
+      '1 gedrukte TAW-waarde(n) niet gelijk aan maaiveld min diepte: de diepte zoals gedrukt behouden',
+    )
+    expect(cptPdfIssueText(issue('PDF_TABLE_ROWS_REJECTED', { count: 2, rows: [] }), nl)).toBe(
+      '2 gedrukte rij(en) niet gelezen en niet opgeslagen',
+    )
+    expect(
+      cptPdfIssueText(
+        issue('PDF_TABLE_COLUMNS_NOT_IMPORTED', { derived: ["φ'", 'C'], not_stored: ['Inclinatie, °'], columns: ["φ'", 'C', 'Inclinatie, °'] }),
+        nl,
+      ),
+    ).toBe("Gedrukte kolommen niet geïmporteerd (berekend of zonder eigen kolom): φ', C, Inclinatie, °")
+    expect(
+      cptPdfIssueText(
+        issue('PDF_TABLE_PRE_DRILL_FLOOR_ROWS', { count: 6, depths_m: [], pre_drill_m: 1, depth: 2.21 }),
+        nl,
+      ),
+    ).toBe('6 rij(en) met qc 0,01 net onder de voorboring (1 m): geen meting, leeg gelaten; de curve begint op 2.21 m')
+    expect(cptPdfIssueText(issue('PDF_TABLE_QTOTAL_CONE_AREA', { area_cm2: 15, column: 'Qt' }), nl)).toBe(
+      'Het blad noemt een conus van 15 cm²: de totaalweerstand Qt (kN) is alleen bij de standaardconus van 10 cm² gelijk aan MPa; leeg gelaten, nooit omgerekend',
+    )
+  })
+
+  it('I2: the English remarks name the same numbers', () => {
+    expect(cptPdfIssueText(issue('PDF_TABLE_QTOTAL_CONE_AREA', { area_cm2: 15, column: 'Qt' }), en)).toBe(
+      'The sheet names a 15 cm² cone: the total resistance Qt (kN) equals MPa only for the standard 10 cm² cone; left empty, never converted',
+    )
+    expect(
+      cptPdfIssueText(
+        issue('PDF_TABLE_PRE_DRILL_FLOOR_ROWS', { count: 6, depths_m: [], pre_drill_m: 1, depth: 2.21 }),
+        en,
+      ),
+    ).toBe('6 row(s) with qc 0.01 directly after the pre-drill (1 m): no reading, left empty; the curve starts at 2.21 m')
   })
 })
