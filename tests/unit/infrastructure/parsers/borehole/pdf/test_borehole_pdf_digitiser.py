@@ -80,7 +80,7 @@ def test_a_continuation_sheet_that_reprints_the_cut_layer_joins_into_one_interva
 
 def test_the_surface_cover_above_the_first_rule_is_not_an_interval(borehole) -> None:
     """ "asfalt" printed above the 650 rule is kept raw on the header, not as a layer."""
-    assert borehole.header.surface_text == "asfalt"
+    assert borehole.header.surface_label == "asfalt"
     assert all(i.description != "asfalt" for i in borehole.intervals)
 
 
