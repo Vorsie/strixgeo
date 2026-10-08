@@ -166,7 +166,13 @@ class DigitisedSoundingAdapter(GroundModelLogger):
         data = table.select(
             [
                 "depth_m",
-                *[c for c in ("qc_mpa", "fs_mpa", "rf_pct", "u2_mpa") if c in table.columns],
+                # q_total_mpa: only a printed CPT-M table's Qt (owner
+                # 2026-10-09, the GEF quantity 128 rule).
+                *[
+                    c
+                    for c in ("qc_mpa", "fs_mpa", "rf_pct", "u2_mpa", "q_total_mpa")
+                    if c in table.columns
+                ],
             ]
         )
         result = GEFParseResult(
@@ -203,6 +209,14 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 # could draw it, so it is unknown, not drilled.
                 "sheet_axis_gaps_m": [[d1, d2] for d1, d2 in sounding.sheet_axis_gaps_m],
                 "pre_drill_m": pre_drill,
+                # A printed table's first real row, below the printed pre-drill
+                # when floor-qc rows follow it (no reading, owner 2026-10-09);
+                # a digitised graph carries no such key.
+                **(
+                    {"effective_pre_drill_m": sounding.effective_pre_drill_m}
+                    if sounding.effective_pre_drill_m is not None
+                    else {}
+                ),
                 # A printed-table sounding says how its table was read (owner
                 # 2026-10-08); a digitised graph carries no such key.
                 **(
