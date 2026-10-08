@@ -19,7 +19,7 @@
 // data-loading effects stay dormant. Extending the test to cover a
 // loaded-project mount path is future work (debt #47 escalation).
 
-import { render, cleanup, waitFor, screen } from '@testing-library/react'
+import { act, render, cleanup, waitFor, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -436,5 +436,75 @@ describe('App (smoke)', () => {
     await findByText('Stratigraphy')
     await waitFor(() => expect(consoleWarnSpy).toHaveBeenCalled())
     expect(queryByTestId('recovery-prompt-dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Owner finding 2026-10-08: 0.1.4 opened over a 0.1.5 store, the engine refused
+// it, and NO update prompt appeared although 0.1.5 was published: the update
+// card was mounted only in the welcome and project branches, and a renderer
+// whose backend never becomes ready never reaches either. The update is the
+// cure exactly there, so the card must be reachable in EVERY renderer state.
+// ---------------------------------------------------------------------------
+describe('App (smoke) — the update notification is reachable in every state', () => {
+  type Push = (event: unknown) => void
+  type MockFn = ReturnType<typeof vi.fn>
+
+  /** Capture the updater push callback App's card subscribes with. */
+  function captureUpdaterPush(): () => Push {
+    let captured: Push | null = null
+    ;(window.electron as unknown as { onUpdaterEvent: MockFn }).onUpdaterEvent = vi.fn((cb: Push) => {
+      captured = cb
+      return () => {}
+    })
+    return () => {
+      if (captured === null) throw new Error('the update card never subscribed')
+      return captured
+    }
+  }
+
+  const AVAILABLE = {
+    phase: 'available',
+    notice: { version: '0.1.5', releaseName: null, releaseNotes: null },
+  }
+
+  it('APU1 - while the backend is still starting (!ready), an available update is shown', async () => {
+    const push = captureUpdaterPush()
+    ;(window.electron as unknown as { waitForApi: MockFn }).waitForApi = vi.fn(() => new Promise(() => {}))
+    render(<App />)
+    await screen.findByText('Starting StrixGeo API…')
+    await waitFor(() => expect(push).not.toThrow())
+    act(() => push()(AVAILABLE))
+    expect(await screen.findByText('Version 0.1.5 is ready to download.')).toBeInTheDocument()
+  })
+
+  it('APU2 - when the backend never became ready (apiError), an available update is shown', async () => {
+    const push = captureUpdaterPush()
+    ;(window.electron as unknown as { waitForApi: MockFn }).waitForApi = vi.fn().mockResolvedValue(false)
+    render(<App />)
+    await screen.findByText('Failed to start the StrixGeo API')
+    await waitFor(() => expect(push).not.toThrow())
+    act(() => push()(AVAILABLE))
+    expect(await screen.findByText('Version 0.1.5 is ready to download.')).toBeInTheDocument()
+  })
+
+  it('APU3 - a newer-database backend failure names the cause in the dialog', async () => {
+    let failed: ((payload?: unknown) => void) | null = null
+    ;(window.electron as unknown as { onAppBackendFailed: MockFn }).onAppBackendFailed = vi.fn(
+      (cb: (payload?: unknown) => void) => {
+        failed = cb
+        return () => {}
+      },
+    )
+    ;(window.electron as unknown as { waitForApi: MockFn }).waitForApi = vi.fn().mockResolvedValue(false)
+    render(<App />)
+    await waitFor(() => expect(failed).not.toBeNull())
+    act(() => failed?.({ reason: 'newer-database' }))
+    expect(
+      await screen.findByText(
+        'This project was saved by a newer version of StrixGeo. Install the latest version to open it. Your data is intact.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toBeInTheDocument()
   })
 })
