@@ -336,8 +336,11 @@ owner rulings are in [parsers-cpt-pdf.md](parsers-cpt-pdf.md).
   curve orange) with an SVG of draggable frame corners on top; per panel the two
   tick values of each axis (`NumericInput`), the quantity (`<select>`), and an
   eyedropper (one-pixel canvas read → curve colour → re-extract). "Read again"
-  posts the calibration dicts to `/cpt/pdf/digitise`; the header fields the sheet
-  did not print (X, Y, EPSG default 31370, ground level, date) are typed here.
+  posts the calibration dicts to `/cpt/pdf/digitise`. The sheet header (X, Y,
+  EPSG, ground level, date) is always editable: a printed value is the grey
+  placeholder and an empty field keeps it, a typed value overrides it per field
+  (a sheet can print a wrong value); EPSG 31370 stands in only when the sheet
+  printed no system.
   The dict edits are pure functions in `cptPdfCalibrationEdits.ts`; an axis anchor
   on a dragged frame edge moves with it, one on a tick inside the frame stays.
 - `CptProvenanceTag` — "digitised from <file>, p. <pages>" on the CPT chart for a
