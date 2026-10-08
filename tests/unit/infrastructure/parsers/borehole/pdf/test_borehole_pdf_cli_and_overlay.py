@@ -49,3 +49,17 @@ def test_the_overlay_of_a_parsed_sheet_is_a_png() -> None:
     result = BoreholePdfTriager(ocr=None).triage(doc, file_name="synthetic.pdf")
     png = BoreholeOverlayRenderer().overlay_png(doc, result.sheets[1], dpi=72)
     assert png[:4] == PNG_MAGIC
+
+
+def test_the_table_names_a_dropped_repeat_and_an_assumed_crs(tmp_path: Path) -> None:
+    """digest.md lists an identical repeat as dropped and marks an assumed Lambert 72."""
+    out = tmp_path / "out"
+    findings = tmp_path / "findings.pdf"
+    synth.build_findings_pdf().save(findings)
+    profile = tmp_path / "profile.pdf"
+    synth.build_boorprofiel_pdf().save(profile)
+    code = borehole_pdf_cli.main([str(findings), str(profile), "--out", str(out), "--no-ocr"])
+    assert code == 0
+    table = (out / "digest.md").read_text(encoding="utf-8")
+    assert "Dropped: B-T1@p5 (pages 5), duplicate" in table
+    assert "31370 (assumed)" in table
