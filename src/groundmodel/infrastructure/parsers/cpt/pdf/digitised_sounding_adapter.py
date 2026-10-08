@@ -19,6 +19,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     DEPTH_SOURCE_ELEVATION,
     DEPTH_SOURCE_PLOTTED,
+    DEPTH_SOURCE_PRINTED,
     DIGITISER_VERSION,
     PDF_PROVENANCE_SOURCE,
     STORED_COLUMN_BY_KIND,
@@ -29,6 +30,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.sheet_header_helpers import shee
 from groundmodel.infrastructure.parsers.cpt.pdf.stored_series_helpers import (
     clipped_column,
     clipped_intervals,
+    is_printed_table,
     stored_table,
 )
 from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
@@ -129,7 +131,14 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 )
             )
         drilled = self._drilled(sounding, issues)
-        pre_drill = _pre_drill(table)
+        # A pre-drill the sheet PRINTS (a printed table's "voorgeduwd ... tot
+        # een diepte van 1 m") wins over the first row's depth.
+        pre_drill = (
+            sounding.printed_pre_drill_m
+            if sounding.printed_pre_drill_m is not None
+            else _pre_drill(table)
+        )
+        issues.extend(sounding.issues)
         raster = any(c.source is GraphKind.RASTER for c in sounding.curves.values())
         if not report.ocr_available and raster:
             issues.append(
@@ -172,7 +181,7 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 epsg=header.epsg,
                 z_epsg=header.z_epsg,
             ),
-            cpt_type=_cpt_type(set(sounding.curves)),
+            cpt_type=_printed_type(sounding.printed_cpt_type) or _cpt_type(set(sounding.curves)),
             data=data,
             issues=issues,
             rf_source=rf_source,
@@ -194,6 +203,13 @@ class DigitisedSoundingAdapter(GroundModelLogger):
                 # could draw it, so it is unknown, not drilled.
                 "sheet_axis_gaps_m": [[d1, d2] for d1, d2 in sounding.sheet_axis_gaps_m],
                 "pre_drill_m": pre_drill,
+                # A printed-table sounding says how its table was read (owner
+                # 2026-10-08); a digitised graph carries no such key.
+                **(
+                    {"printed_table": sounding.table_provenance}
+                    if sounding.table_provenance is not None
+                    else {}
+                ),
             },
         )
         self.debug(
@@ -277,19 +293,26 @@ class DigitisedSoundingAdapter(GroundModelLogger):
         rf_source: DerivedValueSource | None,
     ) -> dict[str, Any]:
         """Return the JSON provenance stored on the CPT."""
+        table = is_printed_table(sounding)
+        if table:
+            graph_kind = GraphKind.TABLE.value
+        elif any(c.source is GraphKind.RASTER for c in sounding.curves.values()):
+            graph_kind = GraphKind.RASTER.value
+        else:
+            graph_kind = GraphKind.VECTOR.value
+        if table:
+            depth_source = DEPTH_SOURCE_PRINTED
+        else:
+            depth_source = DEPTH_SOURCE_ELEVATION if elevation else DEPTH_SOURCE_PLOTTED
         return {
             "source": PDF_PROVENANCE_SOURCE,
             "digitiser_version": DIGITISER_VERSION,
             "report_file_name": report.file_name,
             "report_sha256": report.file_sha,
             "pages": list(sounding.page_numbers),
-            "graph_kind": (
-                GraphKind.RASTER.value
-                if any(c.source is GraphKind.RASTER for c in sounding.curves.values())
-                else GraphKind.VECTOR.value
-            ),
+            "graph_kind": graph_kind,
             "series_sampling": sampling,
-            "depth_source": DEPTH_SOURCE_ELEVATION if elevation else DEPTH_SOURCE_PLOTTED,
+            "depth_source": depth_source,
             "rf_source": rf_source.value if rf_source else None,
             "clipped": clipped,
             "printed_values": [[round(d, 3), text] for d, text in sounding.annotations],
@@ -310,6 +333,11 @@ def _pre_drill(table: pl.DataFrame) -> float:
         return 0.0
     first = float(table["depth_m"].min())  # type: ignore[arg-type]
     return round(first, 3) if first > PRE_DRILL_APPLIED_TOLERANCE_M else 0.0
+
+
+def _printed_type(value: str | None) -> CPTType | None:
+    """Return the CPT type a sheet prints ("CPTM"), or None when it prints none we know."""
+    return next((t for t in CPTType if t.value == value), None)
 
 
 def _cpt_type(kinds: set[PanelKind]) -> CPTType:
