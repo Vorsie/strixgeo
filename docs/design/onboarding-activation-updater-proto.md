@@ -168,6 +168,26 @@ the blocking wiring lives in `App.tsx` above the workspace early-returns.
   latches the last event and replays it on `did-finish-load` — only
   `available`, `downloaded` and `error` (`shouldReplayOnLoad`), never a calm
   result a reload would re-toast (owner 2026-09-26: no prompt on startup).
+- **The update card is reachable in every renderer state** (owner finding
+  2026-10-08: 0.1.4 reinstalled over a 0.1.5 store showed no update prompt).
+  App mounts `UpdateNotification` in every branch, including the activation
+  gate, the loading splash and the boot error, so a backend that never becomes
+  ready still shows the update that cures it. Switching branches remounts the
+  card, so on mount it also PULLS the latched event (`updater:last-event` →
+  `lastReplayableUpdaterEvent()`, same phase filter as the replay) and keeps a
+  "Later" across remounts. It portals to `document.body` at the int32-max
+  z-index; dialogs (`Modal`, `BackendFailedModal`) sit one below.
+- **A newer-store refusal is named.** The main process reads the engine's
+  output per spawn (`backendFailureReason.ts`: `NewerDatabaseError`, its
+  message, or alembic's "Can't locate revision") and sends
+  `app:backend-failed` with an additive `{ reason: 'newer-database' | null }`
+  payload. `BackendFailedModal` then says the project was saved by a newer
+  version and offers a default-focused **Check for updates**; an older
+  renderer ignores the payload and shows the generic dialog.
+- **The updater logs to the main log** (`backend.log`): `attachUpdaterLogger`
+  sets `autoUpdater.logger` to an `[updater]`-prefixed adapter
+  (`updaterLog.ts`), and the service writes each check request, each emitted
+  phase (download progress once per quarter) and a rejected check or download.
 - **The feed is now real config** (senior review SHOULD-FIX 3): `package.json`'s
   `build.publish` names GitHub Releases on the PUBLIC releases-only repo
   `Vorsie/strixgeo-releases`, `releaseType: draft`. `electron-builder` generates
@@ -308,13 +328,16 @@ server yet).
 `activationRepository.ts`, `mockActivationRepository.ts` (+`.test.ts`),
 `activationStore.ts` (+`.test.ts`), `activationService.ts`, `prototypeFlags.ts`
 (+`.test.ts`), `updaterPolicy.ts` (+`.test.ts`), `updaterService.ts`,
+`updaterLog.ts` (+`.test.ts`), `backendFailureReason.ts` (+`.test.ts`,
+`updaterWiring.test.ts`),
 `prototypeIpc.ts`; edits to `index.ts` (the `launch:flags` sync handler + the
 preview-control gate).
 **Preload** — `desktop/src/preload/index.ts` (the `launchFlags` sendSync object).
 **Renderer (`desktop/src/renderer/src/`)** —
 `components/onboarding/OnboardingOverlay.tsx`,
 `components/licensing/LicensingDialog.tsx` (+`.test.ts`),
-`components/updater/UpdateNotification.tsx`,
+`components/updater/UpdateNotification.tsx` (+`.test.tsx`),
+`components/BackendFailedModal.tsx` (+`.test.tsx`), `utils/backendFailureTypes.ts`,
 `utils/onboardingSeen.ts` (+`.test.ts`), `utils/activationGate.ts` (+`.test.ts`),
 `utils/launchPrototypeTypes.ts`, `i18n/locales/en/launch.ts`,
 `i18n/locales/nl/launch.ts`; edits to `App.tsx`, the two i18n index files, and
