@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 // runtime (unlike RecentProject / RecoveryDescriptor below, which are duplicated
 // because they were carrying no shared definition to point at).
 import type { BackendReadyResult } from '../main/backendReadyResult'
+import type { BackendFailedPayload } from '../main/backendFailureReason'
 
 // Snapshot of a recent-project entry returned from the main process. Kept
 // inline (not imported from a shared module) so the preload stays
@@ -251,9 +252,11 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Backend-failed signal — fires when the Python backend process exits
   // before the API becomes ready (startup crash). The renderer subscribes
-  // once and shows BackendFailedModal when it arrives.
-  onAppBackendFailed: (cb: () => void): (() => void) =>
-    onMenuEvent('app:backend-failed', cb),
+  // once and shows BackendFailedModal when it arrives. The payload names the
+  // cause when the engine output did (``{ reason: 'newer-database' }``); it is
+  // additive and may be absent (an older main sends none).
+  onAppBackendFailed: (cb: (payload?: BackendFailedPayload) => void): (() => void) =>
+    onMenuEvent('app:backend-failed', cb as (...a: unknown[]) => void),
 
   // Mid-session backend restart (H3(a)). ``onAppBackendRestarting`` fires when
   // a backend that had been serving died and the main process is respawning it
@@ -340,4 +343,7 @@ contextBridge.exposeInMainWorld('electron', {
   // callback receives one plain object; see UPDATER_EVENT_CHANNEL in main.
   onUpdaterEvent: (cb: (event: unknown) => void) =>
     onMenuEvent('updater:event', cb as (...a: unknown[]) => void),
+  // The latched updater event a late-mounting update card should still show
+  // (available / downloaded / error), or null. Pulled once on mount.
+  getLastUpdaterEvent: (): Promise<unknown> => ipcRenderer.invoke('updater:last-event'),
 })
