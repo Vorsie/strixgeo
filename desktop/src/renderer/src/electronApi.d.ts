@@ -13,6 +13,7 @@ import type {
   UpdaterEventDto,
 } from './utils/launchPrototypeTypes'
 import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
+import type { BackendFailedPayloadDto } from './utils/backendFailureTypes'
 // The ``api:ready`` result shape, from its single source of truth. It is a
 // dependency-free declaration module, so this type-only cross-project import
 // pulls in no runtime and is accepted by the composite renderer project (item 2).
@@ -142,7 +143,8 @@ declare global {
       onMenuOpenSettings: (cb: () => void) => () => void
       onMenuOpenCheatsheet: (cb: () => void) => () => void
       // #214 — distribution robustness
-      onAppBackendFailed: (cb: () => void) => () => void
+      // The payload names the cause when known; absent from an older main.
+      onAppBackendFailed: (cb: (payload?: BackendFailedPayloadDto) => void) => () => void
       // H3(a) — mid-session backend restart. Optional so an older preload never
       // breaks a renderer that guards on the function being present.
       onAppBackendRestarting?: (cb: () => void) => () => void
@@ -200,6 +202,8 @@ declare global {
       downloadUpdate: () => Promise<void>
       quitAndInstallUpdate: () => Promise<void>
       onUpdaterEvent: (cb: (event: UpdaterEventDto) => void) => () => void
+      // Optional so a renderer on an older preload degrades to push-only.
+      getLastUpdaterEvent?: () => Promise<UpdaterEventDto | null>
       // Guided tutorial (Help → Tutorial / Restart tutorial).
       onMenuTutorial: (cb: () => void) => () => void
       onMenuRestartTutorial: (cb: () => void) => () => void
