@@ -21,6 +21,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.panel_kind import PanelKind
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     DEFAULT_RESAMPLE_STEP_M,
     SAMPLING_RASTER,
+    SAMPLING_TABLE,
     SAMPLING_VECTOR,
     STORED_COLUMN_BY_KIND,
     VERTEX_MATCH_TOLERANCE_M,
@@ -38,9 +39,16 @@ def clipped_column(value_column: str) -> str:
 
 
 def is_vector(sounding: DigitisedSounding) -> bool:
-    """Return whether every curve of the sounding was read from vector paths."""
+    """Return whether every curve's points are scans: vector vertices or printed table rows."""
     return bool(sounding.curves) and all(
-        c.source is GraphKind.VECTOR for c in sounding.curves.values()
+        c.source in (GraphKind.VECTOR, GraphKind.TABLE) for c in sounding.curves.values()
+    )
+
+
+def is_printed_table(sounding: DigitisedSounding) -> bool:
+    """Return whether the sounding was read from its printed table (no curve traced)."""
+    return bool(sounding.curves) and all(
+        c.source is GraphKind.TABLE for c in sounding.curves.values()
     )
 
 
@@ -120,7 +128,7 @@ def stored_table(sounding: DigitisedSounding) -> tuple[pl.DataFrame, str, int]:
             columns[name] = values
             columns[clipped_column(name)] = flags
         frame = pl.DataFrame(columns)
-        sampling = SAMPLING_VECTOR
+        sampling = SAMPLING_TABLE if is_printed_table(sounding) else SAMPLING_VECTOR
     else:
         frame = sounding.to_frame(DEFAULT_RESAMPLE_STEP_M).with_columns(
             pl.col("depth_m").round(_DEPTH_DECIMALS)
