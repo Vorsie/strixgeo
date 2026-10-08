@@ -40,6 +40,13 @@ import {
   type UpdateAvailableNotice,
   type UpdaterErrorReason,
 } from './updaterPolicy'
+import {
+  createUpdaterLogger,
+  describeCheckFailure,
+  describeUpdaterEvent,
+  shouldLogUpdaterEvent,
+  type UpdaterLineWriter,
+} from './updaterLog'
 
 /**
  * Whether this build is code-signed. FALSE until the signing cert lands (debt
@@ -108,10 +115,53 @@ let wired = false
  */
 let lastEvent: UpdaterEvent | null = null
 
-/** Push one event to the renderer, if a window is attached; remember it. */
+/**
+ * Where updater lines go. The console until {@link attachUpdaterLogger} hands
+ * over the main-log writer (a packaged app has no terminal, so a console line
+ * there reaches nobody; owner finding 2026-10-08).
+ */
+let writeLine: UpdaterLineWriter = line => console.log(line)
+
+/**
+ * Route every updater line into the main log.
+ *
+ * Sets ``autoUpdater.logger`` to an ``[updater]``-prefixed adapter over
+ * ``write``, so electron-updater's own messages (feed URL, versions, HTTP
+ * errors) land in ``backend.log`` next to the service's phase lines.
+ *
+ * Parameters
+ * ----------
+ * write : UpdaterLineWriter
+ *     The main-log writer (``writeMainLog`` in ``index.ts``).
+ */
+export function attachUpdaterLogger(write: UpdaterLineWriter): void {
+  writeLine = write
+  autoUpdater.logger = createUpdaterLogger(write)
+}
+
+/** Push one event to the renderer, if a window is attached; remember it; log it. */
 function emit(event: UpdaterEvent): void {
+  if (shouldLogUpdaterEvent(event, lastEvent)) writeLine(describeUpdaterEvent(event))
   lastEvent = event
   targetWindow?.webContents.send(UPDATER_EVENT_CHANNEL, event)
+}
+
+/**
+ * The latched event a renderer should still be shown, or null.
+ *
+ * Only phases that ask something of the engineer ({@link shouldReplayOnLoad}).
+ * Served to the renderer on request (``updater:last-event``) so a notification
+ * that MOUNTS late (App switches render branches, or the backend never became
+ * ready and the card mounts on the loading screen) still shows the answer the
+ * launch check gave before it existed.
+ *
+ * Returns
+ * -------
+ * UpdaterEvent | null
+ *     The last replayable event, or null.
+ */
+export function lastReplayableUpdaterEvent(): UpdaterEvent | null {
+  return lastEvent !== null && shouldReplayOnLoad(lastEvent) ? lastEvent : null
 }
 
 /**
@@ -124,8 +174,9 @@ function emit(event: UpdaterEvent): void {
  * ({@link shouldReplayOnLoad}); a reload never re-toasts a calm result.
  */
 export function replayLastUpdaterEvent(): void {
-  if (lastEvent === null || !shouldReplayOnLoad(lastEvent)) return
-  targetWindow?.webContents.send(UPDATER_EVENT_CHANNEL, lastEvent)
+  const replay = lastReplayableUpdaterEvent()
+  if (replay === null) return
+  targetWindow?.webContents.send(UPDATER_EVENT_CHANNEL, replay)
 }
 
 /**
@@ -181,6 +232,7 @@ export function configureUpdater(win: BrowserWindow): void {
  *     a launch check in dev is a silent no-op.
  */
 export function checkForUpdates(manual: boolean): void {
+  writeLine(`[updater] check requested (${manual ? 'manual' : 'launch'}, packaged=${app.isPackaged})`)
   if (!app.isPackaged) {
     // Dev: no feed, and electron-updater would throw. Tell the user only when
     // they asked; stay silent on the launch path.
@@ -197,8 +249,9 @@ export function checkForUpdates(manual: boolean): void {
   // resolves to `not-available` / `error`.
   // A feed with no published release (draft-only, as the closed beta ships)
   // rejects; that is a warning for the log, never an unhandled rejection.
+  // The line goes to the main log: a packaged app has no console to read.
   autoUpdater.checkForUpdates().catch((err: unknown) => {
-    console.warn(`[updater] check failed: ${err instanceof Error ? err.message : String(err)}`)
+    writeLine(describeCheckFailure(err))
   })
 }
 
@@ -216,11 +269,17 @@ export function checkForUpdatesOnLaunch(): void {
 /** Begin downloading the available update (the renderer's "Download" choice). */
 export function downloadUpdate(): void {
   if (!app.isPackaged) return
-  void autoUpdater.downloadUpdate()
+  writeLine('[updater] download requested')
+  // A failed download also arrives as an ``error`` event (shown + logged by
+  // emit); the rejection is caught so it is never an unhandled one.
+  autoUpdater.downloadUpdate().catch((err: unknown) => {
+    writeLine(`[updater] download failed: ${err instanceof Error ? err.message : String(err)}`)
+  })
 }
 
 /** Quit and install a downloaded update (the renderer's "Restart" choice). */
 export function quitAndInstall(): void {
   if (!app.isPackaged) return
+  writeLine('[updater] quit and install requested')
   autoUpdater.quitAndInstall()
 }
