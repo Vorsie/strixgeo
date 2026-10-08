@@ -3,8 +3,8 @@
 * levels with two decimals in m TAW, depth = ground level - level;
 * no ground level printed in the header -> the first level of the first
   sheet is the top of the borehole, and the parse says where it came from;
-* a position whose coordinate system the sheet does not name is kept raw and
-  never placed on a guessed system (the CPT digitiser's rule).
+* a position whose coordinate system the sheet does not name is kept, read
+  as Lambert 72 and flagged for the user to confirm (owner 2026-10-08).
 """
 
 from __future__ import annotations
@@ -52,13 +52,13 @@ def test_levels_in_m_taw_become_depths_below_the_first_level(parsed) -> None:
     assert borehole.header.ground_level_m == pytest.approx(6.61)
     assert borehole.header.ground_level_source == "first-level"
     assert borehole.intervals[2].description == "Veen, zwak zandig, donkerbruin"
-    assert borehole.header.surface_text == "akker"
+    assert borehole.header.surface_label == "akker"
 
 
-def test_xy_without_a_named_system_is_kept_raw_and_flagged(parsed) -> None:
-    """ "X: 67800,00" names no system: the numbers stay, the EPSG stays None, one finding."""
+def test_xy_without_a_named_system_is_kept_and_flagged_as_assumed(parsed) -> None:
+    """ "X: 67800,00" names no system: the numbers stay, Lambert 72 assumed, one finding."""
     _, borehole = parsed
     assert borehole.header.x == pytest.approx(67800.0)
     assert borehole.header.y == pytest.approx(224500.0)
-    assert borehole.header.epsg is None
-    assert "PDF_BOREHOLE_XY_SYSTEM_UNNAMED" in [i.code for i in borehole.issues]
+    assert (borehole.header.epsg, borehole.header.crs_assumed) == (31370, True)
+    assert [i.code for i in borehole.issues].count("CRS_ASSUMED") == 1
