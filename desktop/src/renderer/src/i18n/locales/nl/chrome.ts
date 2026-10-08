@@ -228,6 +228,9 @@ export const CHROME_NL = {
   // -------------------------------------------------------------------------
   'app.backendFailedBody':
     'Het StrixGeo-backendproces is afgesloten voordat het klaar was. Dit wijst meestal op een probleem met de databankverbinding of een crash bij het opstarten.',
+  'app.backendFailedNewerDatabaseBody':
+    'Dit project is opgeslagen door een nieuwere versie van StrixGeo. Installeer de nieuwste versie om het te openen. Je gegevens zijn intact.',
+  'app.checkForUpdates': 'Controleren op updates',
   'app.backendUnreachableBody':
     'Opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
   'app.backendRestartingBody':
