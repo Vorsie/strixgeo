@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
 from groundmodel.application.digitise_cpt_pdf_sounding import DigitiseCptPdfSounding
+from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_pdf import ImportCptPdf
 from groundmodel.application.import_cpt_result import ImportCptResult
 from groundmodel.application.pdf_sounding_import_request import PdfSoundingImportRequest
@@ -93,3 +94,30 @@ def test_a_posted_calibration_is_refused_for_a_printed_table(store: PdfReportSto
     }
     with pytest.raises(ValueError, match="printed table"):
         use_case.sounding(PROJECT, SHA, synth.SOUNDING, calibrations=[fake])
+
+
+async def test_a_cpt_m_table_reaches_the_stored_series_as_q_total(tmp_path: Path) -> None:
+    """Owner 2026-10-09: Qt (kN) of a printed CPT-M table is stored as q_total_mpa.
+
+    The same column and the same rule as the GEF importer's quantity 128 (kN
+    kept as-is for the standard 10 cm² cone): the adapter hands it to
+    ``ImportCpt.persist`` and the ORM row carries it, with the CPT typed CPTM.
+    """
+    doc = synth.table_report(synth.TableReportSpec(cone="M", sounding="CPTE002"))
+    path = tmp_path / "report.pdf"
+    doc.save(path)
+    digest, soundings = PdfReportTriager(ocr=False).run(doc, SHA)
+    store = PdfReportStore(tmp_path)
+    store.remember(
+        PROJECT,
+        CachedPdfReport(path=path, file_name="report.pdf", digest=digest, soundings=soundings),
+    )
+    persist = _Persist()
+    outcomes = await ImportCptPdf(AsyncMock(), store=store, persist=persist).execute(
+        PROJECT, SHA, [PdfSoundingImportRequest(key="CPTE002")], confirm_refresh=False
+    )
+    assert [o.status for o in outcomes] == ["imported"]
+    (result,) = persist.calls
+    orm = ImportCpt(MagicMock())._to_orm(uuid4(), "CPTE002", result, PROJECT)
+    assert orm.cpt_type == "CPTM"
+    assert orm.series.q_total_mpa == pytest.approx([synth.qt_of(d) for d in orm.series.depths_m])
