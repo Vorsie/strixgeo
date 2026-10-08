@@ -217,6 +217,10 @@ export const CHROME = {
   // -------------------------------------------------------------------------
   'app.backendFailedBody':
     'The StrixGeo backend process exited before it was ready. This usually means a database connection problem or a startup crash.',
+  // The engine refused a store a newer StrixGeo wrote (owner finding 2026-10-08).
+  'app.backendFailedNewerDatabaseBody':
+    'This project was saved by a newer version of StrixGeo. Install the latest version to open it. Your data is intact.',
+  'app.checkForUpdates': 'Check for updates',
   'app.backendUnreachableBody':
     'Saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
   'app.backendRestartingBody':
