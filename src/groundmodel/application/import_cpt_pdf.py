@@ -264,14 +264,25 @@ def _header(
 ) -> PdfImportHeader:
     """Combine the sheet's header with what the user typed (typed values win).
 
-    A typed position replaces X, Y and the system together: half a typed
-    position mixed with half a printed one is no position.
+    Every field is taken on its own: a typed value replaces the printed one
+    (owner finding 2026-10-08: a sheet that prints a wrong Y is corrected by
+    typing only the Y), an untyped field keeps what the sheet printed, and
+    ``sources`` names the origin of each. A position needs both X and Y: when
+    only half of one results (the sheet printed none and the user typed one
+    coordinate), the sounding has no position at all.
     """
     sources: dict[str, str] = {}
-    typed_xy = request.x is not None and request.y is not None
     typed_project = (request.project_number or "").strip() or None
     if typed_project is not None:
         sources["project_id"] = "user"
+    x = _pick("x", request.x, listed.x, sources)
+    y = _pick("y", request.y, listed.y, sources)
+    epsg = _pick("epsg", request.epsg, listed.epsg, sources)
+    if x is None or y is None:
+        # Half a position is no position.
+        x = y = epsg = None
+        for name in ("x", "y", "epsg"):
+            sources.pop(name, None)
     return PdfImportHeader(
         # The ids a GEF of the same sounding carries (owner ruling 2026-10-04):
         # the sheet's project number, so a later GEF import is matched as the
@@ -279,9 +290,9 @@ def _header(
         # 2026-10-05 a) wins; the campaign code stands in when neither exists.
         test_id=listed.sounding_id or listed.key,
         project_id=typed_project or listed.project_id or report_code or PDF_FALLBACK_PROJECT_ID,
-        x=_pick("x", request.x if typed_xy else None, listed.x, sources),
-        y=_pick("y", request.y if typed_xy else None, listed.y, sources),
-        epsg=_pick("epsg", request.epsg if typed_xy else None, listed.epsg, sources),
+        x=x,
+        y=y,
+        epsg=epsg,
         ground_level_m=_pick(
             "ground_level_m", request.ground_level_m, listed.ground_level_m, sources
         ),
