@@ -39,9 +39,9 @@ from uuid import UUID
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.dov_borehole_orm_builders import build_observation_orm
 from groundmodel.application.dov_interpretation_dedup import interpretation_dedup_verdict
 from groundmodel.application.dov_interpretation_verdict import DovInterpretationVerdict
-from groundmodel.application.dov_borehole_orm_builders import build_observation_orm
 from groundmodel.application.dov_wfs_fetch import fetch_wfs_or_raise
 from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
