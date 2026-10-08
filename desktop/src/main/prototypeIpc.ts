@@ -14,7 +14,13 @@ import { ipcMain } from 'electron'
 
 import type { LicenceState } from './activation'
 import type { ActivationService, ActivationStatus, ActivationActionResult } from './activationService'
-import { checkForUpdates, downloadUpdate, quitAndInstall } from './updaterService'
+import {
+  checkForUpdates,
+  downloadUpdate,
+  lastReplayableUpdaterEvent,
+  quitAndInstall,
+  type UpdaterEvent,
+} from './updaterService'
 
 /** Every licence state the prototype preview control may request. */
 const PREVIEWABLE_STATES: ReadonlySet<LicenceState> = new Set<LicenceState>([
@@ -102,4 +108,8 @@ export function registerPrototypeIpc(service: ActivationService, options: Protot
   ipcMain.handle('updater:check', (): void => checkForUpdates(true))
   ipcMain.handle('updater:download', (): void => downloadUpdate())
   ipcMain.handle('updater:quit-and-install', (): void => quitAndInstall())
+  // Pull the latched answer (owner finding 2026-10-08): an update card that
+  // mounts AFTER the launch check answered, and after the did-finish-load
+  // replay, still learns there is an update. Additive; an old renderer never asks.
+  ipcMain.handle('updater:last-event', (): UpdaterEvent | null => lastReplayableUpdaterEvent())
 }
