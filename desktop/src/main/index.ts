@@ -97,6 +97,7 @@ import { registerBackendLifecycle } from './backendLifecycle'
 import { killProcessTreeSync } from './killProcessTree'
 import { performShutdown, type ShutdownIo, type ShutdownMode } from './shutdownSequencer'
 import { tailoredBootFailureCopy } from './bootFailureMessage'
+import { backendFailedPayload, createBackendFailureReasonTracker } from './backendFailureReason'
 import {
   backendProbeHeaders,
   classifyBackendProbe,
@@ -118,7 +119,12 @@ import { resolveDeviceIdentity } from './deviceIdentity'
 import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
 import { installE2eDialogStubs, installE2eShellStubs } from './e2eDialogs'
 import { registerPrototypeIpc } from './prototypeIpc'
-import { checkForUpdatesOnLaunch, configureUpdater, replayLastUpdaterEvent } from './updaterService'
+import {
+  attachUpdaterLogger,
+  checkForUpdatesOnLaunch,
+  configureUpdater,
+  replayLastUpdaterEvent,
+} from './updaterService'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
@@ -269,6 +275,19 @@ let lastBackendRespawnAtMs: number | null = null
 // backend is spawned, so its later unintentional death is respawned normally.
 let intentionalBackendStop = false
 
+// What the CURRENT backend spawn's output says about why it failed (owner
+// finding 2026-10-08: a store written by a newer StrixGeo). Replaced on every
+// spawn; read by sendBackendFailed so app:backend-failed names the cause.
+let backendFailureTracker = createBackendFailureReasonTracker()
+
+// Resolves when the current spawn's stdout / stderr have closed. The 'exit'
+// event can fire before the last output chunk is read, and the newer-store
+// traceback is the LAST thing the engine prints.
+let backendOutputClosed: Promise<void> = Promise.resolve()
+
+// Upper bound on waiting for that output before signalling the failure anyway.
+const BACKEND_OUTPUT_DRAIN_TIMEOUT_MS = 1_000
+
 // Latched the moment the app begins quitting (window-all-closed, will-quit, a
 // boot-failure quit, or a main-process crash). Guards ``runShutdown`` against
 // running twice - a graceful quit fires window-all-closed AND will-quit - and
@@ -363,6 +382,14 @@ function startApi(): void {
 
   pipeBackendOutput(apiProcess, mainLog)
 
+  // A fresh spawn, a fresh reading of its output for a nameable failure cause.
+  backendFailureTracker = createBackendFailureReasonTracker()
+  const tracker = backendFailureTracker
+  apiProcess.stdout?.on('data', (d: Buffer | string) => tracker.observe(d.toString()))
+  apiProcess.stderr?.on('data', (d: Buffer | string) => tracker.observe(d.toString()))
+  const child = apiProcess
+  backendOutputClosed = new Promise<void>(resolve => child.once('close', () => resolve()))
+
   // Track whether the backend ever became ready so we can distinguish a
   // startup crash (exit before ready) from a normal shutdown (exit after
   // the user quit the app).
@@ -422,7 +449,7 @@ function startApi(): void {
         )
       }
       writeLog('[main] backend exited before ready and :8765 unreachable — sending app:backend-failed')
-      mainWindow?.webContents.send('app:backend-failed')
+      await sendBackendFailed()
     })()
   })
 
@@ -493,6 +520,24 @@ function runShutdown(mode: ShutdownMode): void {
 }
 
 /**
+ * Tell the renderer the backend failed, naming the cause when its output did.
+ *
+ * Waits (bounded) for the spawn's output to close first, so the cause printed
+ * last (the newer-store traceback) is read. The payload is ADDITIVE on the
+ * existing ``app:backend-failed`` channel: an older renderer ignores it and
+ * still shows its generic dialog (see ./backendFailureReason).
+ */
+async function sendBackendFailed(): Promise<void> {
+  await Promise.race([
+    backendOutputClosed,
+    new Promise<void>(resolve => setTimeout(resolve, BACKEND_OUTPUT_DRAIN_TIMEOUT_MS)),
+  ])
+  const reason = backendFailureTracker.reason()
+  writeMainLog(`[main] backend failure cause: ${reason ?? 'not recognised'}`)
+  mainWindow?.webContents.send('app:backend-failed', backendFailedPayload(reason))
+}
+
+/**
  * Probe ``:8765`` once to decide whether the listener is a backend we may adopt.
  *
  * A packaged probe carries this launch's token + ``Origin: null`` so a foreign
@@ -529,7 +574,7 @@ async function handleReadyBackendExit(): Promise<void> {
   }
   if (action === 'give-up') {
     writeMainLog('[main] backend died again within a minute of becoming ready — not respawning (crash loop)')
-    mainWindow?.webContents.send('app:backend-failed')
+    await sendBackendFailed()
     return
   }
   // The guard stamp is deliberately NOT taken here at the spawn: it is taken
@@ -582,7 +627,7 @@ async function awaitRespawnedBackendReady(): Promise<void> {
     return
   }
   writeMainLog('[main] respawned backend never became ready — sending app:backend-failed')
-  mainWindow?.webContents.send('app:backend-failed')
+  await sendBackendFailed()
 }
 
 /**
@@ -870,6 +915,9 @@ function createWindow(): void {
   // Prototype updater (#6): attach it to this window so update events reach the
   // renderer. Only registers listeners + flips autoDownload off — no network
   // until a check runs, which is itself gated on app.isPackaged.
+  // Its lines go to the main log: a packaged app has no terminal (owner finding
+  // 2026-10-08, a missing update prompt left no trace of why).
+  attachUpdaterLogger(writeMainLog)
   configureUpdater(win)
 
   // Window-close handler — runs on Windows X, Alt+F4, and any other
