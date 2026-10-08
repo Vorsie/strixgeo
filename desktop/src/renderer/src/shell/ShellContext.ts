@@ -488,8 +488,6 @@ export interface ShellContextValue {
     | 'cancelBoreholeRefresh'
     | 'boreholeImportReport'
     | 'closeBoreholeImportReport'
-  >
-    'refreshConfirm' | 'confirmRefreshImport' | 'cancelRefreshImport'
   > & {
     /** Data → Import → CPTs from a PDF report (picks the report, opens the
      *  dialog). Optional so the typed stage fixtures need not add it; the
