@@ -171,6 +171,8 @@ class DigitiseCptPdfSounding(GroundModelLogger):
             raise KeyError(key)
         if not calibrations and ground_level_m is None:
             return report.soundings[key]
+        if not report.soundings[key].calibrations:
+            return _printed_table(report.soundings[key], key, calibrations)
         with self._store.opened(project_id, file_sha) as doc:
             return self._resolve(doc, report, key, calibrations, ground_level_m)
 
@@ -184,6 +186,8 @@ class DigitiseCptPdfSounding(GroundModelLogger):
     ) -> DigitisedSounding:
         """Re-read every page of the sounding through its (overridden) calibration."""
         base = report.soundings[key]
+        if not base.calibrations:
+            return _printed_table(base, key, calibrations)
         overrides = {
             c.page_number: c for c in (PageCalibration.from_dict(d) for d in calibrations or [])
         }
@@ -201,3 +205,22 @@ class DigitiseCptPdfSounding(GroundModelLogger):
             sheets.append(digitiser.digitise_with_calibration(doc, cal))
         joined = join_sheets(sheets)
         return replace(joined, sounding_id=base.sounding_id)
+
+
+def _printed_table(
+    base: DigitisedSounding, key: str, calibrations: list[dict[str, Any]] | None
+) -> DigitisedSounding:
+    """Return a sounding read from its printed table as it is: there is nothing to re-read.
+
+    The table's values are the printed numbers (owner 2026-10-08), not a curve
+    read through a calibration, so a typed ground level changes nothing and a
+    posted calibration has no page to apply to.
+
+    Raises
+    ------
+    ValueError
+        When calibrations were posted for it.
+    """
+    if calibrations:
+        raise ValueError(f"sounding {key} is read from its printed table: no calibration applies")
+    return base
