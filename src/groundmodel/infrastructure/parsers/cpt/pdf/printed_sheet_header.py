@@ -27,6 +27,9 @@ class PrintedSheetHeader:
         The GEF classification of the printed cone ("CPTE", "CPTM").
     cone : str or None
         The printed cone letter ("E", "M", "U").
+    cone_area_cm2 : float or None
+        The cone area the cone line names ("CPT-E 15 cm²"); None when it
+        names none ("CPT-M M1": the standard cone).
     test_date : str or None
         The test date as printed ("04-07-2022").
     x, y : float or None
@@ -49,6 +52,7 @@ class PrintedSheetHeader:
     application_class: str | None = None
     cpt_type: str | None = None
     cone: str | None = None
+    cone_area_cm2: float | None = None
     test_date: str | None = None
     x: float | None = None
     y: float | None = None
@@ -66,6 +70,7 @@ class PrintedSheetHeader:
             "standard": self.standard,
             "application_class": self.application_class,
             "cpt_type": self.cpt_type,
+            "cone_area_cm2": self.cone_area_cm2,
             "test_date": self.test_date,
             "groundwater_remark": self.groundwater,
             "remark": self.remark,
