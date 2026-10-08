@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -23,6 +24,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.series_resampling import (
     nearest_flag,
     resample,
 )
+from groundmodel.infrastructure.parsers.validation.validation_issue import ValidationIssue
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Interval ends are reported to the millimetre: enough for a drilled stretch,
@@ -34,6 +36,10 @@ _INTERVAL_DECIMALS = 3
 _SAME_DEPTH_M = 0.0005
 
 _COLUMN = STORED_COLUMN_BY_KIND
+
+# Sources whose points ARE the scans (vector vertices, printed table rows):
+# never bridged across a stroke change, never resampled for storage.
+_EXACT_SOURCES = (GraphKind.VECTOR, GraphKind.TABLE)
 
 
 @dataclass(frozen=True, eq=False)
@@ -68,6 +74,18 @@ class DigitisedSounding:
     sheet_axis_gaps_m : tuple of tuple of float
         ``(D1, D2)`` per join whose axes leave a stretch uncovered (D2 > D1):
         no sheet could draw it, so it is unknown, never drilled.
+    printed_pre_drill_m : float or None
+        A pre-drill depth the sheet PRINTS ("voorgeduwd ... tot een diepte van
+        1 m"); the stored provenance takes it over the first row's depth.
+    printed_cpt_type : str or None
+        The CPT classification the sheet prints ("CPTE", "CPTM"); the stored
+        type takes it over the one guessed from the curves read.
+    table_provenance : dict or None
+        A printed-table sounding's own provenance (``printed_table`` in the
+        stored provenance); None for a digitised graph.
+    issues : tuple of ValidationIssue
+        Findings of the reading itself (a printed Rf its own fs and qc cannot
+        give, a malformed row), carried into the parse result.
     """
 
     sounding_id: str | None
@@ -78,6 +96,10 @@ class DigitisedSounding:
     sheet_joins_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
     seam_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
     sheet_axis_gaps_m: tuple[tuple[float, float], ...] = field(default_factory=tuple)
+    printed_pre_drill_m: float | None = None
+    printed_cpt_type: str | None = None
+    table_provenance: dict[str, Any] | None = None
+    issues: tuple[ValidationIssue, ...] = field(default_factory=tuple)
 
     def to_frame(self, step_m: float = DEFAULT_RESAMPLE_STEP_M) -> pl.DataFrame:
         """Resample every curve onto one regular depth grid.
@@ -110,7 +132,7 @@ class DigitisedSounding:
             # Never bridge a gap with a straight line: a vector pen lift is a
             # drilled stretch (owner ruling "a", 2026-10-04); a raster trace
             # has gaps where no pixel matched.
-            if curve.source is GraphKind.VECTOR:
+            if curve.source in _EXACT_SOURCES:
                 values = resample(curve.depth_m, curve.value, grid, no_bridge=curve.no_bridge())
             else:
                 values = resample(curve.depth_m, curve.value, grid, 5 * step_m)
@@ -159,7 +181,7 @@ class DigitisedSounding:
         """
         qc = self.curves.get(PanelKind.QC)
         no_bridge = qc.no_bridge() if qc is not None else None
-        if qc is None or qc.source is not GraphKind.VECTOR or no_bridge is None:
+        if qc is None or qc.source not in _EXACT_SOURCES or no_bridge is None:
             return []
         kept: list[tuple[float, float]] = []
         for top, base in gap_intervals(qc.depth_m, no_bridge):
