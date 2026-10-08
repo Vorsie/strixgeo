@@ -21,9 +21,14 @@ class RasterPanel:
         y of each horizontal grid line that crosses the panel, top to bottom.
     pitch : float
         Median spacing of the vertical lines (px).
+    framed : bool
+        True for ONE frame whose value axes are printed around it (no grid
+        panels): ``horizontal_lines`` are then the depth tick marks (or the
+        frame's own faint grid), and several quantities share the frame.
     """
 
     frame: FrameRect
     vertical_lines: tuple[float, ...]
     horizontal_lines: tuple[float, ...]
     pitch: float
+    framed: bool = False
