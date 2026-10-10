@@ -236,6 +236,7 @@ function installElectronStub(): void {
     notifyQuitDecision: vi.fn().mockResolvedValue(undefined),
     onMenuImportCpt: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuImportCptPdf: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuImportBoreholePdf: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuImportCptDov: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuImportBorehole: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuImportBoreholeDov: vi.fn().mockReturnValue(noopUnsubscribe),
