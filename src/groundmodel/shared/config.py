@@ -31,6 +31,11 @@ def _default_cpt_pdf_store_dir() -> Path:
     return Path(tempfile.gettempdir()) / "strixgeo-cpt-pdf"
 
 
+def _default_borehole_pdf_store_dir() -> Path:
+    """Return the default spool directory for uploaded PDF borehole reports (the OS temp dir)."""
+    return Path(tempfile.gettempdir()) / "strixgeo-borehole-pdf"
+
+
 class Settings(BaseSettings):
     """Application configuration, resolved in this priority order:
 
@@ -125,6 +130,12 @@ class Settings(BaseSettings):
     # a 50 MB report). A temp location: the stored CPT keeps the provenance,
     # not the file. Override with CPT_PDF_STORE_DIR.
     cpt_pdf_store_dir: Path = _default_cpt_pdf_store_dir()
+    # The same for uploaded PDF borehole-log reports. A directory of its own:
+    # each store prunes its project folder to a few reports, so a borehole
+    # report and a CPT report never push each other out, and the same PDF
+    # triaged for both keeps two independent triages. Override with
+    # BOREHOLE_PDF_STORE_DIR.
+    borehole_pdf_store_dir: Path = _default_borehole_pdf_store_dir()
 
     model_config = {"env_file": ".env"}
 
