@@ -65,10 +65,13 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import GARBLED_TEX
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_identity import PdfReportIdentity
 from groundmodel.infrastructure.parsers.cpt.pdf.sheet_header_helpers import sheet_date_iso
 from groundmodel.infrastructure.parsers.cpt.pdf.word_geometry import text_layer_quality
+from groundmodel.shared.exceptions import TriageCancelled
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 #: ``progress(done, total)`` after every page.
-TriageProgress = Callable[[int, int], None]
+# ``progress(done, total, ocr=...)``: ``ocr`` is True when the page just
+# classified was read by OCR (the slow part the dialog names).
+TriageProgress = Callable[..., None]
 
 
 class BoreholePdfTriager(GroundModelLogger):
@@ -114,6 +117,7 @@ class BoreholePdfTriager(GroundModelLogger):
         max_pages: int | None = None,
         ocr_cache: OcrWordCache | None = None,
         progress: TriageProgress | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> BoreholeTriageResult:
         """Return the page verdicts, the boreholes and the sheets read.
 
@@ -130,12 +134,21 @@ class BoreholePdfTriager(GroundModelLogger):
         ocr_cache : OcrWordCache or None
             Where OCR'd page words are looked up first and remembered.
         progress : callable or None
-            ``progress(done, total)`` after every page.
+            ``progress(done, total, ocr=...)`` after every page.
+        should_stop : callable or None
+            The import job's cancel flag, checked before every page and
+            between OCR regions (the stop is cooperative: the triage runs in
+            a worker thread). What OCR read before the stop stays cached.
 
         Returns
         -------
         BoreholeTriageResult
             The digest and the sheets by page number.
+
+        Raises
+        ------
+        TriageCancelled
+            When ``should_stop`` answered True.
         """
         total = doc.page_count if max_pages is None else min(max_pages, doc.page_count)
         self.info(
@@ -149,10 +162,17 @@ class BoreholePdfTriager(GroundModelLogger):
         sheets: dict[int, BoreholeSheet] = {}
         ocr_pages: list[int] = []
         previous: BoreholeSheet | None = None
-        session = self._ocr.session(cache=ocr_cache) if self._ocr is not None else nullcontext()
+        session = (
+            self._ocr.session(cache=ocr_cache, should_stop=should_stop)
+            if self._ocr is not None
+            else nullcontext()
+        )
         try:
             with session:
                 for index in range(total):
+                    if should_stop is not None and should_stop():
+                        self.info("triage of %s stopped before page %d", file_name, index + 1)
+                        raise TriageCancelled(index, total)
                     page = doc[index]
                     verdict, sheet = self._classify(page, previous)
                     if verdict.text_source == "ocr":
@@ -170,7 +190,7 @@ class BoreholePdfTriager(GroundModelLogger):
                         f" ({verdict.borehole_name})" if verdict.borehole_name else "",
                     )
                     if progress is not None:
-                        progress(index + 1, total)
+                        progress(index + 1, total, ocr=verdict.text_source == "ocr")
         finally:
             if ocr_cache is not None:
                 ocr_cache.save()
