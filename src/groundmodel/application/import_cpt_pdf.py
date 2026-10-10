@@ -283,7 +283,6 @@ def _header(
         x = y = epsg = None
         for name in ("x", "y", "epsg"):
             sources.pop(name, None)
-    return PdfImportHeader(
     header = PdfImportHeader(
         # The ids a GEF of the same sounding carries (owner ruling 2026-10-04):
         # the sheet's project number, so a later GEF import is matched as the
