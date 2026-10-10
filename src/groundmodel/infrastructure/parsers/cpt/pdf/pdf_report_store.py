@@ -8,7 +8,7 @@ from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic
 from uuid import UUID
 
 from groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report import CachedPdfReport
@@ -18,6 +18,7 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     MAX_SPOOLED_PDF_REPORTS_PER_PROJECT,
     OCR_CACHE_SUFFIX,
 )
+from groundmodel.infrastructure.parsers.cpt.pdf.triaged_pdf_report import ReportT
 from groundmodel.shared.config import settings
 from groundmodel.shared.exceptions import CptPdfReportNotFoundError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -34,8 +35,14 @@ if TYPE_CHECKING:
 PDF_ENGINE_LOCK = threading.Lock()
 
 
-class PdfReportStore(GroundModelLogger):
+class PdfReportStore(GroundModelLogger, Generic[ReportT]):
     """Keep uploaded reports per project, keyed by the SHA-256 of their bytes.
+
+    Generic over the triaged report it remembers: the CPT digitiser's
+    ``CachedPdfReport`` and the borehole digitiser's
+    ``CachedBoreholePdfReport`` each get a store of their own (separate
+    roots, so neither prunes the other's reports). Every store shares
+    ``PDF_ENGINE_LOCK``: PyMuPDF has one global context.
 
     On disk: ``<root>/<project id>/<sha>.pdf`` -- the same report uploaded
     twice is stored once, and the triage, every re-extract and the import read
@@ -55,7 +62,7 @@ class PdfReportStore(GroundModelLogger):
     def __init__(self, root: Path) -> None:
         super().__init__(__name__)
         self._root = root
-        self._cache: OrderedDict[tuple[UUID, str], CachedPdfReport] = OrderedDict()
+        self._cache: OrderedDict[tuple[UUID, str], ReportT] = OrderedDict()
         self._lock = threading.Lock()
 
     def project_dir(self, project_id: UUID) -> Path:
@@ -192,17 +199,17 @@ class PdfReportStore(GroundModelLogger):
             finally:
                 doc.close()
 
-    def remember(self, project_id: UUID, report: CachedPdfReport) -> None:
+    def remember(self, project_id: UUID, report: ReportT) -> None:
         """Keep a triaged report in memory (least recently used ones drop out).
 
         Parameters
         ----------
         project_id : UUID
             The project.
-        report : CachedPdfReport
+        report : ReportT
             The triaged report.
         """
-        key = (project_id, report.digest.file_sha)
+        key = (project_id, report.report_sha)
         with self._lock:
             self._cache[key] = report
             self._cache.move_to_end(key)
@@ -210,7 +217,7 @@ class PdfReportStore(GroundModelLogger):
                 dropped, _ = self._cache.popitem(last=False)
                 self.debug("forgot triaged report %s", dropped[1][:12])
 
-    def recall(self, project_id: UUID, file_sha: str) -> CachedPdfReport | None:
+    def recall(self, project_id: UUID, file_sha: str) -> ReportT | None:
         """Return a triaged report of a project, if still in memory.
 
         Parameters
@@ -222,7 +229,7 @@ class PdfReportStore(GroundModelLogger):
 
         Returns
         -------
-        CachedPdfReport or None
+        ReportT or None
             The report, or None when it was never triaged or was forgotten.
         """
         with self._lock:
@@ -231,7 +238,7 @@ class PdfReportStore(GroundModelLogger):
                 self._cache.move_to_end((project_id, file_sha))
             return report
 
-    def require(self, project_id: UUID, file_sha: str) -> CachedPdfReport:
+    def require(self, project_id: UUID, file_sha: str) -> ReportT:
         """Return a triaged report or raise the not-found error the API maps to 404.
 
         Parameters
@@ -243,7 +250,7 @@ class PdfReportStore(GroundModelLogger):
 
         Returns
         -------
-        CachedPdfReport
+        ReportT
             The report.
 
         Raises
@@ -270,10 +277,10 @@ class PdfReportStore(GroundModelLogger):
             self.debug("pruned spooled report %s and its OCR cache", old.name[:12])
 
 
-_STORE: PdfReportStore | None = None
+_STORE: PdfReportStore[CachedPdfReport] | None = None
 
 
-def get_pdf_report_store() -> PdfReportStore:
+def get_pdf_report_store() -> PdfReportStore[CachedPdfReport]:
     """Return the process-wide report store (FastAPI dependency).
 
     Returns
