@@ -55,6 +55,7 @@ export type MenuLabelId =
   | 'importCptPdf'
   | 'importBoreholeMenu'
   | 'importBoreholeXml'
+  | 'importBoreholePdf'
   | 'importDmt'
   | 'settings'
   | 'quit'
@@ -104,6 +105,7 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   importCptPdf: { en: 'From a PDF report…', nl: 'Uit een pdf-rapport…' },
   importBoreholeMenu: { en: 'Import boreholes', nl: 'Boringen importeren' },
   importBoreholeXml: { en: 'DOV XML files…', nl: 'DOV-XML-bestanden…' },
+  importBoreholePdf: { en: 'From a PDF report…', nl: 'Uit een pdf-rapport…' },
   importDmt: { en: 'Import DMT…', nl: 'DMT importeren…' },
   settings: { en: 'Settings…', nl: 'Instellingen…' },
   quit: { en: 'Quit', nl: 'Afsluiten' },
