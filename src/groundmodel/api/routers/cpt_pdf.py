@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
-import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -40,6 +38,11 @@ from groundmodel.api.routers._dov_stream_helpers import (
     dov_sse_stream_response,
     map_duplicate_import_job,
 )
+from groundmodel.api.routers._pdf_report_helpers import (
+    pdf_not_found,
+    pdf_triage_job,
+    spool_pdf_upload,
+)
 from groundmodel.api.schemas.cpt.cpt_pdf_digitise_request import CptPdfDigitiseRequest
 from groundmodel.api.schemas.cpt.cpt_pdf_digitise_response import CptPdfDigitiseResponse
 from groundmodel.api.schemas.cpt.cpt_pdf_import_request import CptPdfImportRequest
@@ -49,6 +52,7 @@ from groundmodel.api.schemas.cpt.cpt_pdf_overlay import CptPdfOverlay
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report import CachedPdfReport
 from groundmodel.infrastructure.parsers.cpt.pdf.pdf_constants import (
     MAX_PDF_UPLOAD_BYTES,
     MAX_RENDER_DPI,
@@ -63,7 +67,6 @@ from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_store import (
 from groundmodel.shared.exceptions import (
     CptPdfReportNotFoundError,
     DuplicateImportJobError,
-    TriageCancelled,
 )
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -75,10 +78,6 @@ if TYPE_CHECKING:
 logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/cpt/pdf", tags=["cpt-pdf"])
-
-# Every PDF starts with this marker (ISO 32000); anything else named .pdf is
-# refused before it is spooled or opened.
-_PDF_MAGIC = b"%PDF-"
 
 
 def get_pdf_triager_factory() -> Callable[[], PdfReportTriager]:
@@ -96,121 +95,32 @@ def get_pdf_triager_factory() -> Callable[[], PdfReportTriager]:
     return PdfReportTriager
 
 
-def _not_found(code: str, message: str) -> HTTPException:
-    """Return the 404 the dialog branches on (``detail.code``)."""
-    return HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail={"code": code, "message": message}
-    )
-
-
-async def _spool(file: UploadFile, directory: Path) -> tuple[Path, str]:
-    """Stream an upload to a temp file under ``directory``, hashing it on the way.
-
-    Raises
-    ------
-    HTTPException(413)
-        Past ``MAX_PDF_UPLOAD_BYTES``.
-    HTTPException(400)
-        When the bytes are not a PDF.
-    """
-    directory.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256()
-    received = 0
-    head = b""
-    with tempfile.NamedTemporaryFile(dir=directory, suffix=".part", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        try:
-            while chunk := await file.read(1024 * 1024):
-                received += len(chunk)
-                if received > MAX_PDF_UPLOAD_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"PDF upload exceeds the {MAX_PDF_UPLOAD_BYTES // (1024 * 1024)} "
-                        "MiB cap",
-                    )
-                if len(head) < len(_PDF_MAGIC):
-                    head += chunk[: len(_PDF_MAGIC)]
-                digest.update(chunk)
-                tmp.write(chunk)
-        except HTTPException:
-            tmp.close()
-            tmp_path.unlink(missing_ok=True)
-            raise
-    if not head.startswith(_PDF_MAGIC):
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="the file is not a PDF")
-    return tmp_path, digest.hexdigest()
-
-
 def _triage_job(
-    store: PdfReportStore,
+    store: PdfReportStore[CachedPdfReport],
     project_id: UUID,
     file_sha: str,
     file_name: str,
     triager_factory: Callable[[], PdfReportTriager],
     cancel: threading.Event,
 ) -> Callable[[Any], Any]:
-    """Return the job factory: triage in a worker thread, progress onto the queue.
+    """Return the job factory: the CPT triage in a worker thread (shared plumbing)."""
 
-    ``cancel`` is the job's cooperative stop flag (the registry raises it when
-    the dialog closes the stream): cancelling the awaiting task cannot stop
-    the worker thread, so the triage checks the flag between pages, sheets and
-    OCR strips and ends with ``TriageCancelled``.
-    """
+    def run(progress: Callable[..., None], should_stop: Callable[[], bool]) -> dict[str, Any]:
+        from groundmodel.application.triage_cpt_pdf_report import TriageCptPdfReport
 
-    def factory(queue: Any) -> Any:
-        async def run() -> None:
-            from groundmodel.application.triage_cpt_pdf_report import TriageCptPdfReport
+        digest = TriageCptPdfReport(store, triager_factory).run(
+            project_id, file_sha, file_name, progress, should_stop
+        )
+        return digest.to_dict()
 
-            loop = asyncio.get_running_loop()
-
-            def progress(phase: str, done: int, total: int, ocr: bool = False) -> None:
-                # Called on the worker thread: hand the tick to the event loop.
-                # ``ocr`` is additive: older clients read phase / done / total.
-                loop.call_soon_threadsafe(
-                    queue.put_nowait,
-                    {"phase": phase, "done": done, "total": total, "ocr": ocr},
-                )
-
-            try:
-                digest = await asyncio.to_thread(
-                    TriageCptPdfReport(store, triager_factory).run,
-                    project_id,
-                    file_sha,
-                    file_name,
-                    progress,
-                    cancel.is_set,
-                )
-                await queue.put({"type": "done", "result": digest.to_dict()})
-            except asyncio.CancelledError:
-                # The awaiting task is gone; stop the thread too.
-                cancel.set()
-                raise
-            except TriageCancelled as exc:
-                # A cancel is the user's choice, not a failure: no error event.
-                logger.info(f"PDF triage {file_sha[:12]} cancelled: {exc}")
-                await queue.put({"type": "cancelled"})
-            except CptPdfReportNotFoundError as exc:
-                logger.warning(f"PDF triage {file_sha[:12]}: {exc}")
-                await queue.put(
-                    {"type": "error", "code": "cpt_pdf_report_unknown", "message": str(exc)}
-                )
-            except Exception as exc:  # noqa: BLE001 -- the stream must end with an event
-                logger.error(f"PDF triage {file_sha[:12]} failed: {type(exc).__name__}: {exc}")
-                await queue.put({"type": "error", "message": "The report could not be read"})
-            finally:
-                await queue.put(None)
-
-        return run()
-
-    return factory
+    return pdf_triage_job(run, file_sha, cancel, "cpt_pdf_report_unknown")
 
 
 @router.post("/triage", status_code=status.HTTP_202_ACCEPTED)
 async def triage_cpt_pdf(
     file: UploadFile,
     project_id: UUID = Form(...),
-    store: PdfReportStore = Depends(get_pdf_report_store),
+    store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
     registry: JobRegistry = Depends(get_job_registry),
     triager_factory: Callable[[], PdfReportTriager] = Depends(get_pdf_triager_factory),
 ) -> dict[str, str]:
@@ -255,7 +165,9 @@ async def triage_cpt_pdf(
     file_name = Path(file.filename or "report.pdf").name
     logger.info(f"POST /cpt/pdf/triage: project {project_id}")
     logger.debug(f"POST /cpt/pdf/triage: file {file_name!r}")
-    tmp_path, file_sha = await _spool(file, store.project_dir(project_id))
+    tmp_path, file_sha = await spool_pdf_upload(
+        file, store.project_dir(project_id), MAX_PDF_UPLOAD_BYTES
+    )
     store.put_file(project_id, file_sha, tmp_path)
     cancel = threading.Event()
     factory = _triage_job(store, project_id, file_sha, file_name, triager_factory, cancel)
@@ -308,7 +220,7 @@ async def get_cpt_pdf_page(
     page_number: int,
     project_id: UUID = Query(...),
     dpi: float = Query(PAGE_THUMBNAIL_DPI, ge=MIN_RENDER_DPI, le=MAX_RENDER_DPI),
-    store: PdfReportStore = Depends(get_pdf_report_store),
+    store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
 ) -> Response:
     """Return one page of a stored report as a PNG (the triage list's thumbnails).
 
@@ -344,9 +256,9 @@ async def get_cpt_pdf_page(
     try:
         png = await asyncio.to_thread(render)
     except CptPdfReportNotFoundError as exc:
-        raise _not_found("cpt_pdf_report_unknown", str(exc)) from exc
+        raise pdf_not_found("cpt_pdf_report_unknown", str(exc)) from exc
     except ValueError as exc:
-        raise _not_found("cpt_pdf_page_unknown", str(exc)) from exc
+        raise pdf_not_found("cpt_pdf_page_unknown", str(exc)) from exc
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
 
@@ -401,7 +313,7 @@ def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseRespons
 @router.post("/digitise", response_model=CptPdfDigitiseResponse)
 async def digitise_cpt_pdf_sounding(
     request: CptPdfDigitiseRequest,
-    store: PdfReportStore = Depends(get_pdf_report_store),
+    store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
 ) -> CptPdfDigitiseResponse:
     """Read one sounding through the calibration the user settled on.
 
@@ -446,9 +358,9 @@ async def digitise_cpt_pdf_sounding(
             OVERLAY_DPI,
         )
     except CptPdfReportNotFoundError as exc:
-        raise _not_found("cpt_pdf_report_unknown", str(exc)) from exc
+        raise pdf_not_found("cpt_pdf_report_unknown", str(exc)) from exc
     except KeyError as exc:
-        raise _not_found(
+        raise pdf_not_found(
             "cpt_pdf_sounding_unknown",
             f"sounding {request.sounding_id} is not one of this report's soundings",
         ) from exc
@@ -464,7 +376,7 @@ async def digitise_cpt_pdf_sounding(
 @router.post("/import", response_model=CptPdfImportResponse)
 async def import_cpt_pdf(
     request: CptPdfImportRequest,
-    store: PdfReportStore = Depends(get_pdf_report_store),
+    store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
     session: AsyncSession = Depends(get_session),
 ) -> CptPdfImportResponse:
     """Import the ticked soundings, one CPT each, through the GEF import's door.
@@ -526,7 +438,7 @@ async def import_cpt_pdf(
             request.project_id, request.file_sha, requests, request.confirm_refresh
         )
     except CptPdfReportNotFoundError as exc:
-        raise _not_found("cpt_pdf_report_unknown", str(exc)) from exc
+        raise pdf_not_found("cpt_pdf_report_unknown", str(exc)) from exc
     return CptPdfImportResponse(
         results=[
             CptPdfImportResultItem(
