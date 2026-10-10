@@ -52,6 +52,7 @@ import { useFormalStratigraphyCatalog } from '../../../hooks/useFormalStratigrap
 import { useT } from '../../../i18n/translate'
 import {
   TRACK_KINDS,
+  isDovBadge,
   listBoreholeTracks,
   newRowAfter,
   rowsFromIntervals,
@@ -98,6 +99,7 @@ const BADGE_CLASS: Record<TrackBadge, string> = {
   dov: 'border-border-subtle text-text-secondary',
   manual: 'border-blue-400 text-blue-700 dark:text-blue-300',
   edited: 'border-amber-400 text-amber-700 dark:text-amber-300',
+  pdf: 'border-violet-400 text-violet-700 dark:text-violet-300',
 }
 
 function formatDate(iso: string | null): string {
@@ -159,7 +161,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     [editor, tracks, t],
   )
 
-  const dovTracks = tracks.filter(tr => tr.badge !== 'manual')
+  const dovTracks = tracks.filter(tr => isDovBadge(tr.badge))
 
   const startNew = () => {
     setServerError(null)
@@ -261,6 +263,9 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
     const date = formatDate(track.editedAt)
     if (track.badge === 'manual') return t('tracks.badge.manualHint', { date })
     if (track.badge === 'edited') return t('tracks.badge.editedHint', { date })
+    if (track.badge === 'pdf') {
+      return track.editedAt ? t('tracks.badge.pdfEditedHint', { date }) : t('tracks.badge.pdfHint')
+    }
     return t('tracks.badge.dovHint')
   }
 
@@ -307,7 +312,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
                   <Button size="sm" variant="ghost" onClick={() => startEdit(track)}>
                     {t('tracks.edit')}
                   </Button>
-                  {track.badge !== 'manual' && (
+                  {isDovBadge(track.badge) && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -480,7 +485,7 @@ export default function BoreholeTracksDialog({ open, borehole, editing, onClose 
                   permkey is gone, so a deleted DOV observation track comes
                   back that way; field logs of an existing borehole are not
                   re-imported, so the sentence is not offered for them. */}
-              {pendingDelete.badge !== 'manual' && pendingDelete.family === 'observation' && (
+              {isDovBadge(pendingDelete.badge) && pendingDelete.family === 'observation' && (
                 <p className="mt-1">{t('tracks.delete.bodyDov')}</p>
               )}
             </>
