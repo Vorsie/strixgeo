@@ -1,6 +1,7 @@
 """Pydantic schema for the full borehole detail tree returned by GET /borehole/{id}."""
 
 from datetime import date
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -56,3 +57,7 @@ class BoreholeDetailResponse(BaseModel):
     field_log_intervals: list[FieldLogIntervalResponse]
     observations: list[ObservationResponse]
     samples: list[SampleResponse]
+    # How a borehole read off a PDF report was made (report, pages, profile,
+    # the user's CRS / water-unit confirmations); None for DOV and
+    # hand-made boreholes. Additive.
+    import_provenance: dict[str, Any] | None = None
