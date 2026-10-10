@@ -350,8 +350,9 @@ export class BoreholeRefreshConfirmationRequiredError extends Error {
   }
 }
 
-/** Map one backend diff row (snake_case) to the renderer's shape. */
-function toRefreshDiff(raw: Record<string, unknown>): BoreholeRefreshDiff {
+/** Map one backend diff row (snake_case) to the renderer's shape (shared with
+ *  the PDF borehole import, whose 409 carries the same rows). */
+export function toRefreshDiff(raw: Record<string, unknown>): BoreholeRefreshDiff {
   const num = (v: unknown): number | null => (typeof v === 'number' ? v : null)
   return {
     boreholeId: String(raw.borehole_id ?? ''),
