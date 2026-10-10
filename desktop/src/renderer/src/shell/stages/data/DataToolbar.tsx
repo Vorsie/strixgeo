@@ -46,6 +46,7 @@ export default function DataToolbar(): JSX.Element {
     handleImportBoreholeDov,
     handleImportBoreholeXml,
     handleImportCptPdf,
+    handleImportBoreholePdf,
   } = shell.investigations
   // The guided tutorial's "Open the Import menu" step moves on by itself when
   // the dropdown opens (owner ruling 1, 2026-09-06). Read defensively: a partial
@@ -124,6 +125,7 @@ export default function DataToolbar(): JSX.Element {
       cptPdf: handleImportCptPdf ? () => void handleImportCptPdf() : undefined,
       boreholeDov: handleImportBoreholeDov,
       boreholeXml: handleImportBoreholeXml ? () => void handleImportBoreholeXml() : undefined,
+      boreholePdf: handleImportBoreholePdf ? () => void handleImportBoreholePdf() : undefined,
       labTests: () => void handleImportLabSeries(),
     },
     isImporting,
