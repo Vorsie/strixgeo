@@ -1,16 +1,18 @@
-# PDF borehole-log digitiser (phase 1: offline tooling)
+# PDF borehole-log digitiser (Data → Import → Boring → Uit een pdf-rapport)
 
 Reads the borehole logs (boorstaten / boorprofielen) of a contractor's PDF
 report back into depth intervals with their descriptions verbatim, samples
-and the printed water level, so a campaign delivered only as a PDF can later
-be imported like a DOV borehole XML file. The sibling of the CPT digitiser
-([parsers-cpt-pdf.md](parsers-cpt-pdf.md)). Package:
+and the printed water level, so a campaign delivered only as a PDF is
+imported like a DOV borehole XML file. The sibling of the CPT digitiser
+([parsers-cpt-pdf.md](parsers-cpt-pdf.md)), on the same user path. Package:
 `infrastructure/parsers/borehole/pdf/` (compiled to `.pyd` in the installer
-like every parser module). Load before touching the borehole digitiser.
+like every parser module). Load before touching the borehole digitiser, the
+`/borehole/pdf/*` routes or the import dialog.
 
-**Phase 1 (current):** triage, two layout profiles, sheet reading, the
-per-borehole parse (`DigitisedBorehole`), overlays and an offline runner. No
-API route, no desktop, nothing is stored.
+**Built:** triage, two layout profiles, sheet reading, the per-borehole parse
+(`DigitisedBorehole`), overlays and an offline runner (phase 1); the import
+(phase 2): routes, the consented import into the borehole tables, the desktop
+dialog with the two confirmations. See "The import flow" below.
 
 ## Reuse from the CPT digitiser (by import)
 
@@ -180,14 +182,81 @@ under `<DOV cache dir>/borehole_pdf/<sha>.ocr.json`. The runner is source-only
 tooling: it is in the compiled manifest with the package, and `python -m`
 does not run a compiled module.
 
-## Phase 2 (not built)
+## The import flow (API + dialog)
 
-Routes like the CPT digitiser's (`POST /borehole/pdf/triage` as a job with a
-spooled report store, `.../import`), an `ImportBoreholeFile`-style consented
-import (refresh confirmation, provenance on the borehole), a desktop triage
-dialog listing the boreholes with their overlays, the description track
-coded through the track editor, the three-choice CRS confirmation and the
-water-unit confirmation on the flagged rows, the choice of the print to
-withhold for a `REPEAT_DIFFERS` pair. Open for later: the water / special
-constituent symbols drawn in the log, the standpipe column, the coloured
-lithology column, scanned logs (OCR rows), more layout profiles.
+**Triage.** `POST /borehole/pdf/triage` spools the upload into its own
+`PdfReportStore` (`<BOREHOLE_PDF_STORE_DIR>/<project>/<sha256>.pdf`; the
+store class is shared with the CPT import, generic over the cached report,
+but the root is separate so neither import prunes the other's reports) and
+runs `TriageBoreholePdfReport` as a job: the triager (OCR when the `pdf-ocr`
+extra is installed, words cached per report SHA-256 next to the file), then
+the digitiser; progress `classify` per page (`ocr: true` on a page OCR read),
+then `digitise`; a cooperative cancel checked before every page and between
+OCR regions (`TriageCancelled`). The result is remembered in memory as a
+`CachedBoreholePdfReport` (digest + parsed boreholes), so a second triage of
+the same file answers at once. The stream's `done` result is
+`to_triage_dict()`: the digest plus, per borehole, `parsed`, the interval and
+sample counts, the water level and `water_unit_assumed`, every finding
+(`level/code/message/params`) and `importable` (parsed, with a position and a
+ground level: `IMPORT_BLOCKING_ISSUES`). The job plumbing, the upload spool
+and the 404 shape are shared with the CPT routes
+(`api/routers/_pdf_report_helpers.py`).
+
+**Import.** `POST /borehole/pdf/import` runs `ImportBoreholePdf`. Each ticked
+borehole is shaped by `DigitisedBoreholeAdapter` into a
+`PdfBoreholeImportEntry` and stored through the DOV borehole ORM builders
+(`dov_borehole_orm_builders`, the XML file import's own):
+
+* identity: printed project code (`"PDF"` when none) + printed name;
+* header -> `borehole` (X/Y, EPSG, ground level -> `elevation_m` with
+  `elevation_source = "pdf"`, total depth, date, driller -> `executor`,
+  water level -> `water_table_depth_m`); no drill segments, no field log;
+* intervals -> ONE `lithological_description` observation, `source =
+  "pdf-digitised"` (`TrackSource.PDF_DIGITISED`), one layer per interval with
+  the printed description verbatim and no code; an interval without readable
+  depths is not stored (`PDF_BOREHOLE_INTERVAL_NOT_STORED`);
+* samples -> `sample` rows as drawn (top/base), id verbatim in
+  `sample_number` (cut at 50 characters with `PDF_BOREHOLE_SAMPLE_ID_CUT`, the
+  whole id in the description), the printed prefix in the new
+  `sample.sample_label`, the legend's mark meaning in `sample_type`;
+* `borehole.import_provenance` (JSONB, migration `p6d7e8f9a0b1`): the
+  digitiser provenance plus the printed `header` in full (surface label,
+  remark, project name, raw fields), `sampled_intervals_m` (ruling 2) and the
+  user's `confirmations` (`crs: {epsg, scope}` or null,
+  `water_unit_confirmed`).
+
+Refused before anything is written (`BoreholePdfImportRefusedError` -> 422):
+a key the triage did not parse (`borehole_pdf_borehole_not_offered`), an EPSG
+outside 31370 / 28992 (`borehole_pdf_crs_unsupported`), a `CRS_ASSUMED` or
+`WATER_UNIT_ASSUMED` finding without its answer
+(`borehole_pdf_assumption_unconfirmed`; a CRS answer with scope `report`
+answers every borehole of the import), two prints of one borehole
+(`borehole_pdf_repeat_choose_one`). A borehole already in the project follows
+the XML import's consent rule (409 + diff, nothing written; with
+`confirm_refresh` the same id is refreshed: header, elevation unless manual,
+provenance, the `pdf-digitised` track IN PLACE, samples matched by number +
+top depth). A description track the engineer edited by hand is kept
+(`PDF_BOREHOLE_EDITED_TRACK_KEPT`). A new borehole with no position or ground
+level is skipped (`NOT_IMPORTED`); as a refresh it is refused
+(`borehole_refresh_refused`). One commit per import.
+
+**Dialog** (`desktop/.../components/boreholePdf/`): Data -> Import -> Boring ->
+"Uit een pdf-rapport" (and File -> Boringen importeren, channel
+`menu:import-borehole-pdf`) picks the report; `BoreholePdfImportDialog`
+follows the triage through the shared registry (`hooks/pdfTriageRegistry.ts`,
+spawn-or-attach, StrictMode-safe), `BoreholePdfTriageList` lists one row per
+borehole (thumbnail through a blob URL, sheets, depth, X/Y, ground level,
+date, counts, the OCR marker, the findings as notes in the app language via
+`importFlagText`), `BoreholePdfQuestions` asks the two questions on the rows
+that carry them ("Deze boring is Lambert 72" / "Alle boringen in dit rapport
+zijn Lambert 72" / "Ander stelsel" + EPSG list; "cm onder maaiveld"). Import
+stays disabled while a ticked row waits for an answer or two prints are
+ticked. A 409 opens `BoreholeRefreshConfirmDialog`; the settled answer goes to
+`useBoreholePdfImport` (toast, 10 s for several boreholes; adopted into the
+project; the XML import's flags report).
+
+**Not built:** typing X/Y or a ground level for a row that prints none (the
+CPT dialog's header edit); an overlay view per borehole in the dialog; the
+water / special constituent symbols drawn in the log, the standpipe column,
+the coloured lithology column; scanned logs read row by row (OCR rows); more
+layout profiles; a sample panel / lab link keyed on `sample_label`.
