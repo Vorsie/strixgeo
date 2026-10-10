@@ -71,6 +71,13 @@ metadata editor.
   owner ruling 2026-09-06; additive, absent in older files, restores to an
   empty list); and per-(project, investigation) decisions
   (``investigation_reviews``).
+* **PDF borehole provenance (2026-10-10, additive, no version bump):** a
+  borehole row carries ``import_provenance`` (JSON, null for DOV and
+  hand-made boreholes) and each sample row ``sample_label`` (null for DOV
+  samples), migration ``p6d7e8f9a0b1``; both ride column by column like
+  ``cpt.import_provenance`` (pinned in ``bundle_columns_expected.py``). A file
+  written before carries neither key and restores them as null; an older
+  build drops them silently.
 * **Raw lab series (2026-09-29, additive, no version bump):** each sample
   payload may carry ``lab_series_tests: [...]`` — test → ``specimens[]`` →
   ``stages[]`` (reading axis: ``reading_timestamps`` as ISO strings or
