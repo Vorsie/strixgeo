@@ -8,6 +8,7 @@ import type { SectionModelAxis } from './hooks/useSections'
 import { useBedOverrides } from './hooks/useBedOverrides'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useCptPdfImport } from './hooks/useCptPdfImport'
+import { useBoreholePdfImport } from './hooks/useBoreholePdfImport'
 import { useProjectBodyRecompute } from './hooks/useProjectBodyRecompute'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useRecoveryAutosave } from './hooks/useRecoveryAutosave'
@@ -35,6 +36,7 @@ import CptRefreshConfirmDialog from './components/CptRefreshConfirmDialog'
 import BoreholeRefreshConfirmDialog from './components/BoreholeRefreshConfirmDialog'
 import BoreholeImportReportPanel from './components/BoreholeImportReportPanel'
 import CptPdfImportDialog from './components/cptPdf/CptPdfImportDialog'
+import BoreholePdfImportDialog from './components/boreholePdf/BoreholePdfImportDialog'
 import ConfirmDialog from './components/ui/ConfirmDialog'
 import { usePromiseConfirm } from './hooks/usePromiseConfirm'
 import {
@@ -1060,6 +1062,29 @@ export default function App() {
     return off
   }, [handleImportCptPdf])
 
+  // Data → Import → Boring → from a PDF report: the picked report opens the
+  // triage / confirm / import dialog; the settled import is booked like the
+  // DOV XML borehole import (toast, adopted boreholes, the flags report).
+  const {
+    boreholePdfImport,
+    handleImportBoreholePdf,
+    closeBoreholePdfImport,
+    handleBoreholePdfImported,
+    boreholePdfReport,
+    closeBoreholePdfReport,
+  } = useBoreholePdfImport({
+    project,
+    toast,
+    adoptImportedBoreholes,
+    unhideBoreholes,
+    markMutated,
+    refreshBoreholeList,
+  })
+  useEffect(() => {
+    const off = window.electron.onMenuImportBoreholePdf(() => void handleImportBoreholePdf())
+    return off
+  }, [handleImportBoreholePdf])
+
   // Cross-section state and handlers — sections list, selection, draw
   // mode, focused-contact highlight, and all CRUD. The lifecycle
   // callbacks (handleSectionCreated / handleSectionDeleted) are
@@ -1470,7 +1495,7 @@ export default function App() {
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
-    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, handleImportCptPdf,
+    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleImportBoreholeXml, handleBboxDrawn, handleImportCptPdf, handleImportBoreholePdf,
     pendingCptPins, adoptImportedBoreholes,
     // visible + geo
     visibleCpts, visibleBoreholes, geo,
@@ -1697,6 +1722,19 @@ export default function App() {
         report={boreholeImportReport}
         onClose={closeBoreholeImportReport}
       />
+
+      {/* Boreholes read off a PDF report: the triage / confirm / import
+          dialog, then the same flags report as the XML import. */}
+      {boreholePdfImport && (
+        <BoreholePdfImportDialog
+          open
+          filePath={boreholePdfImport.filePath}
+          projectId={project.id}
+          onClose={closeBoreholePdfImport}
+          onImported={(response, fileName) => void handleBoreholePdfImported(response, fileName)}
+        />
+      )}
+      <BoreholeImportReportPanel report={boreholePdfReport} onClose={closeBoreholePdfReport} />
 
       {/* App-level overlays (toasts + the 4 global dialogs) — R5
           (debt #12). Outside ShellContext.Provider so they sit above
