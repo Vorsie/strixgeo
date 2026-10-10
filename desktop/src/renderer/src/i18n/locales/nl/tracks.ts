@@ -21,6 +21,9 @@ export const TRACKS_NL = {
   'tracks.badge.dovHint': 'Geïmporteerd uit DOV, niet gewijzigd.',
   'tracks.badge.manualHint': 'Met de hand toegevoegd op {date}.',
   'tracks.badge.editedHint': 'Geïmporteerd uit DOV, met de hand gewijzigd op {date}.',
+  'tracks.badge.pdf': 'Pdf',
+  'tracks.badge.pdfHint': 'Gelezen uit een pdf-rapport, niet gewijzigd.',
+  'tracks.badge.pdfEditedHint': 'Gelezen uit een pdf-rapport, met de hand gewijzigd op {date}.',
   'tracks.drawn': 'In profielen',
   'tracks.drawnHint': 'De doorsneden tekenen dit spoor voor zijn soort.',
   'tracks.notDrawnHint':
