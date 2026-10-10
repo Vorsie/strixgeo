@@ -86,4 +86,43 @@ export const IMPORT_FLAGS_NL = {
     "monster '{sample}' hoort bij boring '{boring}', die niet in dit bestand zit; niet ingelezen",
   'importFlags.code.SAMPLE_OBSERVATIONS_NOT_IMPORTED':
     "monster '{sample}': {count} labo-observatie(s) niet ingelezen ({parameters}); uit een bestand worden enkel korrelverdelingen gelezen",
+
+  // ---- pdf-boorstaten (vaststellingen van de digitizer + importmeldingen) ----
+  'importFlags.code.CRS_ASSUMED':
+    'X/Y zonder coördinatenstelsel gedrukt; gelezen als Lambert 72 (EPSG {epsg}), te bevestigen bij de import',
+  'importFlags.code.WATER_UNIT_ASSUMED':
+    "grondwaterstand '{value}' zonder eenheid of referentie; gelezen als {depth} m onder maaiveld, te bevestigen bij de import",
+  'importFlags.code.REPEAT_DIFFERS':
+    'twee keer gedrukt met {count} verschillende rij(en) (andere afdruk {other}); kies welke afdruk je achterhoudt',
+  'importFlags.code.REPEAT_DROPPED':
+    'opnieuw gedrukt op blz. {pages} met exact dezelfde gegevens; die afdruk is weggelaten',
+  'importFlags.code.PDF_BOREHOLE_LEVEL_UNREADABLE':
+    "blz. {page}: het niveaulabel '{text}' is geen getal; die grens heeft geen diepte",
+  'importFlags.code.PDF_BOREHOLE_LEVEL_COUNT_MISMATCH':
+    'blz. {page}: {labels} niveaulabels voor {rules} lijnen; de rijen van dit blad krijgen geen diepte',
+  'importFlags.code.PDF_BOREHOLE_LEVELS_NOT_FALLING':
+    'blz. {page}: de gedrukte niveaus stijgen ergens op het blad',
+  'importFlags.code.PDF_BOREHOLE_NO_GROUND_LEVEL':
+    'blz. {page}: geen maaiveldhoogte en geen eerste niveau gedrukt; geen dieptes',
+  'importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_FROM_FIRST_LEVEL':
+    'blz. {page}: geen maaiveldhoogte in de kop; het eerste niveau {z} m is de top van de boring',
+  'importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_DISAGREES':
+    'blz. {page}: maaiveldhoogte in de kop {z} m, eerste gedrukte niveau {first} m; de dieptes volgen de kop',
+  'importFlags.code.PDF_BOREHOLE_NO_XY': 'geen positie gedrukt; deze boring kan niet geïmporteerd worden',
+  'importFlags.code.PDF_BOREHOLE_SHEET_JOIN_TEXT_DIFFERS':
+    'blz. {page}: een rij die het vorige blad al dekt ({top}/{base}) draagt een andere tekst; bewaard zoals gedrukt',
+  'importFlags.code.PDF_BOREHOLE_OPEN_BASE': 'blz. {page}: de laatste laag heeft geen afsluitend niveau',
+  'importFlags.code.PDF_BOREHOLE_EMPTY_DESCRIPTION': 'blz. {page}: een rij tussen twee lijnen draagt geen tekst',
+  'importFlags.code.PDF_BOREHOLE_WATER_UNIT_UNPRINTED':
+    "grondwaterstand '{value}' is niet te lezen als diepte onder maaiveld; ruw bewaard",
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_WITHOUT_AXIS':
+    'blz. {page}: monster {sample} gevonden, maar geen diepteas om het te plaatsen',
+  'importFlags.code.PDF_BOREHOLE_INTERVAL_NOT_STORED':
+    "de laag '{text}' heeft geen leesbaar dieptebereik; niet opgeslagen",
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_NOT_STORED':
+    'monster {sample} kon niet op de diepteas geplaatst worden; niet opgeslagen',
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_ID_CUT':
+    "monster-id '{sample}' is langer dan {max} tekens; ingekort, het volledige id staat in de beschrijving",
+  'importFlags.code.PDF_BOREHOLE_EDITED_TRACK_KEPT':
+    'de beschrijving werd met de hand bewerkt; ze is behouden en de beschrijving uit het rapport is er niet over geschreven',
 } as const
