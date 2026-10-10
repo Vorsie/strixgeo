@@ -51,7 +51,7 @@ class DigitiseCptPdfSounding(GroundModelLogger):
 
     def __init__(
         self,
-        store: PdfReportStore,
+        store: PdfReportStore[CachedPdfReport],
         digitiser_factory: Callable[[], CptPdfDigitiser] = _no_ocr_digitiser,
         renderer: PdfPageRenderer | None = None,
     ) -> None:
