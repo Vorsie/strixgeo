@@ -80,6 +80,25 @@ describe('listBoreholeTracks — source badges and the drawn track', () => {
     expect(byId['obs-dov']).toBe('dov')
   })
 
+  it('badges a track read off a PDF report "PDF", edited or not, never "DOV"', () => {
+    // Data Integrity rule 1 (a value must never pass for one DOV published):
+    // the PDF borehole import stores its description track with source
+    // "pdf-digitised" (owner 2026-10-10, phase 2).
+    const bh = makeFixtureBorehole()
+    const pdf = { ...bh.observations[0], id: 'obs-pdf', source: 'pdf-digitised', edited_manually_at: null }
+    const pdfEdited = {
+      ...bh.observations[0],
+      id: 'obs-pdf-edited',
+      observation_type: 'formal_stratigraphy',
+      source: 'pdf-digitised',
+      edited_manually_at: '2026-10-10T10:00:00Z',
+    }
+    const tracks = listBoreholeTracks({ ...bh, observations: [pdf, pdfEdited] })
+    const byId = Object.fromEntries(tracks.map(t => [t.trackId, t.badge]))
+    expect(byId['obs-pdf']).toBe('pdf')
+    expect(byId['obs-pdf-edited']).toBe('pdf')
+  })
+
   it('marks the first track of each kind as the one the sections draw', () => {
     const tracks = listBoreholeTracks(detailWithTracks())
     const drawn = Object.fromEntries(tracks.map(t => [t.trackId, t.drawnInSections]))
