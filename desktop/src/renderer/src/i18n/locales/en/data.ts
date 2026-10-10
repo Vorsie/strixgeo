@@ -165,6 +165,7 @@ export const DATA = {
   // each naming its boring); only the chrome around them is catalogued.
   // -------------------------------------------------------------------------
   'data.toolbar.boreholeXml': 'DOV XML files',
+  'data.toolbar.boreholePdf': 'From a PDF report',
   'data.import.boreholeRefreshedOne': 'Refreshed existing borehole {name} from file',
   'data.import.flagsToReviewOne': '{n} flag to review',
   'data.import.flagsToReviewMany': '{n} flags to review',
