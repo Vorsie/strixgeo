@@ -1,7 +1,8 @@
-"""Domain → ORM builders shared by the two DOV borehole import paths.
+"""Domain → ORM builders shared by the borehole import paths.
 
 The DOV bbox import (``ImportBoreholeDov`` + ``ImportInterpretationsDov`` +
-``ImportSamplesDov``) and the local-file import (``ImportBoreholeFile``) persist
+``ImportSamplesDov``), the local-file import (``ImportBoreholeFile``) and the
+PDF borehole-log import (``ImportBoreholePdf``) persist
 the SAME shapes: a borehole row with its drill segments and field log,
 observations with their layers and admixtures, and grain-size curves on
 samples. The mapping lives here once so the two paths
@@ -85,8 +86,10 @@ def build_borehole_orm(
     borehole_id: UUID,
     test_id: str,
     app_project_id: UUID | None,
+    project_id: str = DOV_PROJECT_ID,
+    elevation_source: ElevationSource = ElevationSource.DOV,
 ) -> BoreholeOrm:
-    """Build a new DOV ``BoreholeOrm`` (with its children) from a parsed boring.
+    """Build a new ``BoreholeOrm`` (with its children) from a parsed boring.
 
     Parameters
     ----------
@@ -102,6 +105,12 @@ def build_borehole_orm(
         dedup key.
     app_project_id : UUID | None
         App project scope.
+    project_id : str
+        Source project id of the dedup key (``"DOV"`` for both DOV paths; the
+        printed project code for a PDF borehole).
+    elevation_source : ElevationSource
+        Stamped when the header carries a Z (``DOV``; ``PDF`` for a ground
+        level printed on a PDF borehole log).
 
     Returns
     -------
@@ -112,17 +121,17 @@ def build_borehole_orm(
         id=borehole_id,
         name=bh.name,
         app_project_id=app_project_id,
-        project_id=DOV_PROJECT_ID,
+        project_id=project_id,
         test_id=test_id,
         location_x=bh.location_x,
         location_y=bh.location_y,
         elevation_m=bh.elevation_m,
-        # DOV imports always stamp the DOV source when Z was present, NONE
+        # Imports always stamp their source when Z was present, NONE
         # otherwise. The refresh-on-duplicate path checks this before
         # overwriting an imported Z so manual edits survive re-imports
         # (debt #8).
         elevation_source=(
-            ElevationSource.DOV.value if bh.elevation_m is not None else ElevationSource.NONE.value
+            elevation_source.value if bh.elevation_m is not None else ElevationSource.NONE.value
         ),
         epsg=bh.epsg,
         z_epsg=bh.z_epsg,
@@ -285,6 +294,50 @@ def apply_file_sample(orm: SampleOrm, sample: DovFileSample) -> None:
     orm.grain_sizes = kept + [
         build_grain_size_orm(curve, orm.id, permkey) for permkey, curve in sample.grain_sizes
     ]
+
+
+def refresh_file_samples(existing: BoreholeOrm, samples: list[DovFileSample]) -> list[SampleOrm]:
+    """Refresh a stored borehole's samples from a file's, in place where they match.
+
+    A file sample matches a stored one by DOV permkey, else (no permkey on
+    either side) by sample number + top depth; a match is updated IN PLACE
+    (same sample id, so its lab tests and its geotech assignment survive); an
+    unmatched file sample is added; stored samples the file does not carry are
+    kept (a file is not the whole record).
+
+    Parameters
+    ----------
+    existing : BoreholeOrm
+        The stored borehole, its ``samples`` loaded.
+    samples : list[DovFileSample]
+        The file's samples.
+
+    Returns
+    -------
+    list[SampleOrm]
+        Per file sample, in order: the row it was written to (refreshed or
+        added); ``len`` minus the added ones = the refreshed count.
+    """
+    stored: list[SampleOrm] = list(existing.samples)
+    by_permkey = {s.dov_permkey: s for s in stored if s.dov_permkey}
+    by_number: dict[tuple[str | None, float], SampleOrm] = {
+        (s.sample_number, s.depth_top_m): s for s in stored if s.sample_number
+    }
+    written: list[SampleOrm] = []
+    for sample in samples:
+        match = (
+            by_permkey.get(sample.permkey)
+            if sample.permkey
+            else by_number.get((sample.sample_number, sample.depth_top_m))
+        )
+        if match is not None:
+            apply_file_sample(match, sample)
+            written.append(match)
+            continue
+        orm = build_sample_orm(sample, existing.id)
+        existing.samples.append(orm)
+        written.append(orm)
+    return written
 
 
 def build_sample_orm(sample: DovFileSample, borehole_id: UUID) -> SampleOrm:
