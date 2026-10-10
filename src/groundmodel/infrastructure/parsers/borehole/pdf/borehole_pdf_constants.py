@@ -179,6 +179,36 @@ ISSUE_REPEAT_DROPPED = "REPEAT_DROPPED"
 # to withhold. Never merged (WARNING).
 ISSUE_REPEAT_DIFFERS = "REPEAT_DIFFERS"
 
+# --- Import (phase 2) ------------------------------------------------------------
+# Findings that leave nothing to store: no position (the borehole cannot be
+# placed; ``borehole.location_x/y`` are NOT NULL) or no ground level (no depth
+# at all). Such a borehole is listed but not importable, and a re-import
+# without them never replaces a stored borehole.
+IMPORT_BLOCKING_ISSUES = frozenset({ISSUE_NO_XY, ISSUE_NO_GROUND_LEVEL})
+# The findings the import asks the user to confirm (rulings 3 and 4): a
+# borehole carrying one is refused unless its confirmation is in the request.
+ISSUES_NEEDING_CONFIRMATION = (ISSUE_CRS_ASSUMED, ISSUE_WATER_UNIT_ASSUMED)
+# Provenance token of everything the PDF borehole import stores (borehole
+# provenance, track source).
+PDF_DIGITISED_SOURCE = "pdf-digitised"
+# Stand-in source project id of a borehole whose sheets print no project code
+# (the CPT digitiser's ``PDF_FALLBACK_PROJECT_ID`` twin): the dedup key is
+# (project id, borehole name), never an empty project id.
+PDF_BOREHOLE_FALLBACK_PROJECT_ID = "PDF"
+# Flags the import adapter adds while shaping a borehole for storage.
+# A described interval whose depth could not be read (an unreadable level):
+# not stored, its text kept in the finding (WARNING).
+ISSUE_INTERVAL_NOT_STORED = "PDF_BOREHOLE_INTERVAL_NOT_STORED"
+# A sample bar whose depth could not be placed (no axis): not stored (WARNING).
+ISSUE_SAMPLE_NOT_STORED = "PDF_BOREHOLE_SAMPLE_NOT_STORED"
+# A printed sample id longer than the stored column: cut, the whole id kept in
+# the sample's description (WARNING).
+ISSUE_SAMPLE_ID_CUT = "PDF_BOREHOLE_SAMPLE_ID_CUT"
+# sample.sample_number / sample.sample_label are VARCHAR(50).
+SAMPLE_ID_MAX_CHARS = 50
+# borehole.project_id / test_id / name are VARCHAR(200).
+BOREHOLE_ID_MAX_CHARS = 200
+
 # --- Assumptions the owner ruled (2026-10-08) ---------------------------------
 # X/Y printed without a named coordinate system are Belgian Lambert 72.
 ASSUMED_HORIZONTAL_EPSG = 31370
