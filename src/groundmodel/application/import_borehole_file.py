@@ -26,14 +26,18 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.borehole_import_constants import (
+    NOT_IMPORTED_CODE,
+    REFRESHED_HEADER_COLUMNS,
+)
 from groundmodel.application.dov_borehole_orm_builders import (
-    apply_file_sample,
     build_borehole_orm,
     build_drill_segment_orms,
     build_field_log_orms,
     build_observation_layer_orms,
     build_observation_orm,
     build_sample_orm,
+    refresh_file_samples,
 )
 from groundmodel.application.import_borehole_file_result import ImportBoreholeFileResult
 from groundmodel.application.imported_boring import ImportedBoring
@@ -41,7 +45,6 @@ from groundmodel.application.stale_investigation_caches import StaleInvestigatio
 from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
     borehole_full_tree_options,
@@ -61,29 +64,6 @@ from groundmodel.shared.exceptions import (
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
-
-# Header columns a refresh takes from the file WHEN THE FILE HAS A VALUE. A
-# value the file lacks is kept: the stored row may carry it from the DOV WFS
-# row (bbox import), and a local file is not the whole DOV record. Excluded on
-# purpose: id / app_project_id / project_id / test_id (identity and scope),
-# drill_method (WFS-only summary), elevation (handled separately so a manual
-# collar edit outranks the file, debt #8).
-_REFRESHED_HEADER_COLUMNS: tuple[str, ...] = (
-    "name",
-    "location_x",
-    "location_y",
-    "epsg",
-    "start_date",
-    "borehole_type",
-    "purpose",
-    "municipality",
-    "executor",
-    "total_depth_m",
-    "water_table_depth_m",
-)
-
-# Code of the ERROR a new boring gets when it is not persisted.
-NOT_IMPORTED_CODE = "NOT_IMPORTED"
 
 
 class ImportBoreholeFile(GroundModelLogger):
@@ -318,7 +298,7 @@ class ImportBoreholeFile(GroundModelLogger):
         """
         t_refresh = time.perf_counter()
         fresh = entry.borehole.borehole
-        for column in _REFRESHED_HEADER_COLUMNS:
+        for column in REFRESHED_HEADER_COLUMNS:
             value = getattr(fresh, column)
             if value is not None:
                 setattr(existing, column, value)
@@ -388,25 +368,10 @@ class ImportBoreholeFile(GroundModelLogger):
         tuple[int, int]
             (refreshed, added) counts.
         """
-        stored: list[SampleOrm] = list(existing.samples)
-        by_permkey = {s.dov_permkey: s for s in stored if s.dov_permkey}
-        by_number: dict[tuple[str | None, float], SampleOrm] = {
-            (s.sample_number, s.depth_top_m): s for s in stored if s.sample_number
-        }
-        refreshed = added = 0
-        for sample in entry.samples:
-            match = (
-                by_permkey.get(sample.permkey)
-                if sample.permkey
-                else by_number.get((sample.sample_number, sample.depth_top_m))
-            )
-            if match is not None:
-                apply_file_sample(match, sample)
-                refreshed += 1
-                continue
-            existing.samples.append(build_sample_orm(sample, existing.id))
-            added += 1
-        return refreshed, added
+        before = {id(s) for s in existing.samples}
+        written = refresh_file_samples(existing, entry.samples)
+        refreshed = sum(1 for s in written if id(s) in before)
+        return refreshed, len(written) - refreshed
 
     async def _load_existing(self, ids: list[UUID]) -> dict[UUID, BoreholeOrm]:
         """Load the stored boreholes a refresh touches, with every child eager-loaded."""
