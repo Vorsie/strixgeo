@@ -90,4 +90,43 @@ export const IMPORT_FLAGS = {
     "sample '{sample}' belongs to boring '{boring}', which is not in this file; not imported",
   'importFlags.code.SAMPLE_OBSERVATIONS_NOT_IMPORTED':
     "sample '{sample}': {count} lab observation(s) not imported ({parameters}); only grain-size curves are read from a file",
+
+  // ---- PDF borehole logs (digitiser findings + import flags) ----------------
+  'importFlags.code.CRS_ASSUMED':
+    'X/Y printed without a coordinate system; read as Lambert 72 (EPSG {epsg}), to confirm at import',
+  'importFlags.code.WATER_UNIT_ASSUMED':
+    "water level '{value}' names no unit or reference; read as {depth} m below ground, to confirm at import",
+  'importFlags.code.REPEAT_DIFFERS':
+    'printed twice with {count} differing row(s) (other print {other}); choose the print to withhold',
+  'importFlags.code.REPEAT_DROPPED':
+    'printed again on p. {pages} with exactly the same data; that print is left out',
+  'importFlags.code.PDF_BOREHOLE_LEVEL_UNREADABLE':
+    "p. {page}: the level label '{text}' is not a number; that boundary has no depth",
+  'importFlags.code.PDF_BOREHOLE_LEVEL_COUNT_MISMATCH':
+    'p. {page}: {labels} level labels for {rules} rules; the rows of this sheet get no depth',
+  'importFlags.code.PDF_BOREHOLE_LEVELS_NOT_FALLING':
+    'p. {page}: the printed levels rise somewhere down the sheet',
+  'importFlags.code.PDF_BOREHOLE_NO_GROUND_LEVEL':
+    'p. {page}: neither a ground level nor a first level printed; no depths',
+  'importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_FROM_FIRST_LEVEL':
+    'p. {page}: no ground level in the header; the first level {z} m is the top of the borehole',
+  'importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_DISAGREES':
+    'p. {page}: header ground level {z} m, first printed level {first} m; the depths follow the header',
+  'importFlags.code.PDF_BOREHOLE_NO_XY': 'no position printed; this borehole cannot be imported',
+  'importFlags.code.PDF_BOREHOLE_SHEET_JOIN_TEXT_DIFFERS':
+    'p. {page}: a row the previous sheet already covers ({top}/{base}) prints another text; kept as printed',
+  'importFlags.code.PDF_BOREHOLE_OPEN_BASE': 'p. {page}: the last layer has no closing level',
+  'importFlags.code.PDF_BOREHOLE_EMPTY_DESCRIPTION': 'p. {page}: a row between two rules carries no text',
+  'importFlags.code.PDF_BOREHOLE_WATER_UNIT_UNPRINTED':
+    "water level '{value}' cannot be read as a depth below ground; kept raw",
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_WITHOUT_AXIS':
+    'p. {page}: sample {sample} found but no depth axis to place it',
+  'importFlags.code.PDF_BOREHOLE_INTERVAL_NOT_STORED':
+    "the layer '{text}' has no readable depth range; not stored",
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_NOT_STORED':
+    'sample {sample} could not be placed on the depth axis; not stored',
+  'importFlags.code.PDF_BOREHOLE_SAMPLE_ID_CUT':
+    "sample id '{sample}' is longer than {max} characters; cut, the whole id is in its description",
+  'importFlags.code.PDF_BOREHOLE_EDITED_TRACK_KEPT':
+    "the description track was edited by hand; it was kept and the report's description was not written over it",
 } as const
