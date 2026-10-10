@@ -33,7 +33,7 @@ class TriageCptPdfReport(GroundModelLogger):
 
     def __init__(
         self,
-        store: PdfReportStore,
+        store: PdfReportStore[CachedPdfReport],
         triager_factory: Callable[[], PdfReportTriager] = PdfReportTriager,
     ) -> None:
         super().__init__(__name__)
