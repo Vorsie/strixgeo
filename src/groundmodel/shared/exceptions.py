@@ -161,6 +161,35 @@ class BoreholeRefreshRefusedError(GroundModelError):
         self.reason = reason
 
 
+class BoreholePdfImportRefusedError(GroundModelError):
+    """Raised when a PDF borehole import request cannot be honoured as asked.
+
+    Raised BEFORE anything is written (the API answers 422 with
+    ``detail.code`` and ``detail.boreholes``): a borehole the triage did not
+    offer, a coordinate system outside the supported list, an assumed CRS or
+    water unit the user did not confirm (owner rulings 2026-10-08, 3 and 4:
+    "never silent"), or two prints of one borehole ticked together (ruling 5:
+    the user chooses which print to withhold, never merged).
+
+    Parameters
+    ----------
+    code : str
+        Machine-readable refusal (``borehole_pdf_*``, see
+        ``application/borehole_import_constants.py``).
+    message : str
+        Human-readable refusal naming the boreholes.
+    boreholes : list[dict[str, object]]
+        One entry per offending borehole: ``key``, ``name`` and, for an
+        unconfirmed assumption, ``codes`` (the findings not confirmed).
+    """
+
+    def __init__(self, code: str, message: str, boreholes: list[dict[str, object]]) -> None:
+        """Initialise with the refusal code, its message and the boreholes it names."""
+        super().__init__(message)
+        self.code = code
+        self.boreholes = boreholes
+
+
 class LithoLayerOverlapError(GroundModelError):
     """Raised when a litho-layer edit would overlap an accepted sibling on its column.
 
