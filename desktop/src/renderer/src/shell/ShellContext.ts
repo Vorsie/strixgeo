@@ -493,6 +493,9 @@ export interface ShellContextValue {
      *  dialog). Optional so the typed stage fixtures need not add it; the
      *  real bus always passes it. */
     handleImportCptPdf?: () => Promise<void>
+    /** Data → Import → Boring → from a PDF report (picks the report, opens
+     *  the dialog). Optional like ``handleImportCptPdf``. */
+    handleImportBoreholePdf?: () => Promise<void>
   }
   /**
    * Manifest-filtered, removed-set-filtered CPT list.
