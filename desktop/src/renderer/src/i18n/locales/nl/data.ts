@@ -167,6 +167,7 @@ export const DATA_NL = {
   // lokale DOV-boring-XML-import (useBoreholeXmlImport).
   // -------------------------------------------------------------------------
   'data.toolbar.boreholeXml': 'DOV-XML-bestanden',
+  'data.toolbar.boreholePdf': 'Uit een pdf-rapport',
   'data.import.boreholeRefreshedOne': 'Bestaande boring {name} vernieuwd uit bestand',
   'data.import.flagsToReviewOne': '{n} melding om na te kijken',
   'data.import.flagsToReviewMany': '{n} meldingen om na te kijken',
