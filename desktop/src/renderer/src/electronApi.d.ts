@@ -132,6 +132,8 @@ declare global {
       onMenuImportBorehole: (cb: () => void) => () => void
       /** File > Import boreholes > From DOV (draw box). */
       onMenuImportBoreholeDov: (cb: () => void) => () => void
+      /** File > Import boreholes > From a PDF report. */
+      onMenuImportBoreholePdf: (cb: () => void) => () => void
       onMenuProjectNew: (cb: () => void) => () => void
       onMenuProjectOpen: (cb: () => void) => () => void
       onMenuProjectSave: (cb: () => void) => () => void
