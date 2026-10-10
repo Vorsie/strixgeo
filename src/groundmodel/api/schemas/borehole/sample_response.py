@@ -45,6 +45,9 @@ class SampleResponse(BaseModel):
     depth_base_m: float
     description: str
     sample_number: str | None
+    # The printed sample number before the dash ("S10"), set by the PDF
+    # borehole import (what the lab reports reference). Additive.
+    sample_label: str | None = None
     sample_type: str | None
     composition: str | None
     instrument: str | None
