@@ -55,6 +55,7 @@ export interface UseShellContextValueArgs {
   // so the auto-derived dep array keeps a stable length.
   handleImportBoreholeXml?: ShellContextValue['investigations']['handleImportBoreholeXml']
   handleImportCptPdf?: ShellContextValue['investigations']['handleImportCptPdf']
+  handleImportBoreholePdf?: ShellContextValue['investigations']['handleImportBoreholePdf']
   handleBboxDrawn: ShellContextValue['investigations']['handleBboxDrawn']
   pendingCptPins: ShellContextValue['investigations']['pendingCptPins']
   // Required KEY (value may be undefined in partial shells): the lab import's
@@ -221,7 +222,7 @@ export function useShellContextValue(
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
-    handleImportBoreholeDov, handleImportBoreholeXml, handleImportCptPdf, handleBboxDrawn, pendingCptPins, adoptImportedBoreholes, visibleCpts, visibleBoreholes, sections,
+    handleImportBoreholeDov, handleImportBoreholeXml, handleImportCptPdf, handleImportBoreholePdf, handleBboxDrawn, pendingCptPins, adoptImportedBoreholes, visibleCpts, visibleBoreholes, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
@@ -311,6 +312,7 @@ export function useShellContextValue(
       handleImportBoreholeDov,
       handleImportBoreholeXml,
       handleImportCptPdf,
+      handleImportBoreholePdf,
       handleBboxDrawn,
       pendingCptPins,
       adoptImportedBoreholes,
