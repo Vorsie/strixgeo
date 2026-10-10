@@ -2,7 +2,7 @@
 
 Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the deprecation cycle when fields must be removed or repurposed. The frontend always goes through the API — never directly to domain or DB.
 
-One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 149 routes across 24 router modules. Conflict semantics that need more than one line follow the catalogue.
+One line per route: `METHOD path — purpose`. The purpose is the endpoint's own docstring summary. Catalogue regenerated from the routers under `src/groundmodel/api/routers/` — 170 routes across 27 router modules (counted from the live app, 2026-10-10). Conflict semantics that need more than one line follow the catalogue.
 
 All **Geology** routes are mounted under one parent prefix `/projects/{project_id}/geology` (the `geology` package aggregates 13 sub-routers, debt #40); the paths in that section are shown relative to that prefix. **Borehole** routes are mounted under `/borehole`.
 
@@ -64,6 +64,16 @@ GET    /borehole/ — Return a lightweight summary list of boreholes.
 GET    /borehole/{borehole_id} — Retrieve full borehole detail (header + drill segments + field log + observations).
 POST   /borehole/detail-batch — Batch the per-borehole detail endpoint into one round-trip (debt #39).
 PATCH  /borehole/{borehole_id}/elevation — Update the manually-entered surface elevation for a borehole.
+```
+
+**Borehole from a PDF report — `borehole_pdf.py`** (registered before `borehole.py`;
+the pipeline is in [parsers-borehole-pdf.md](parsers-borehole-pdf.md))
+
+```
+POST   /borehole/pdf/triage — Spool a borehole-log report and triage it as a background job.
+GET    /borehole/pdf/triage/{job_id} — Drain the SSE progress stream of a borehole triage job.
+GET    /borehole/pdf/page/{file_sha}/{page_number}.png — Return one page of a stored borehole report as a PNG (the list's thumbnails).
+POST   /borehole/pdf/import — Import the ticked boreholes of a triaged report, one borehole each.
 ```
 
 **Borehole tracks — `borehole_tracks.py` (mounted at `/borehole`, 2026-09-29)** — add a track by hand or change any track, imported ones included, or reset the DOV tracks to what DOV published. All four require `?project_id` (404 across projects) and commit once.
@@ -424,6 +434,29 @@ position and none was typed; `cpt_refresh_refused`;
 `pdf_sounding_not_offered` — a desk-study id), or `failed`. Each sounding
 commits on its own. `GET /cpt/{cpt_id}` carries the additive
 `import_provenance` (null for GEF / DOV).
+
+PDF borehole import (`/borehole/pdf/*`): the CPT path's upload, job, stream,
+cancel and cache-by-sha (a store of its own, `BOREHOLE_PDF_STORE_DIR`); a
+second upload of a report whose triage runs answers `409` naming the job (the
+client attaches). The stream's `done` result is the digest plus, per
+borehole, `parsed`, `n_intervals`, `n_samples`, `water_level_m`,
+`water_unit_assumed`, `findings[]` (`{level, code, message, params}`) and
+`importable`. A forgotten report answers `404`
+`borehole_pdf_report_unknown`. `POST /borehole/pdf/import`
+(`{project_id, file_sha, boreholes: [{key, crs?: {epsg, scope: "this" |
+"report"}, water_unit_confirmed?}], confirm_refresh}`) answers like
+`POST /borehole/import`: `201` with one entry per borehole and its flags
+(`200` when one was refreshed), `409` `borehole_refresh_confirmation_required`
++ `diffs` (nothing written), `422` `borehole_refresh_refused` for a re-read
+with no position or ground level. It also refuses (`422`, nothing written,
+`detail.boreholes` names them): `borehole_pdf_assumption_unconfirmed` (a
+`CRS_ASSUMED` / `WATER_UNIT_ASSUMED` finding without its answer; a `crs` with
+scope `report` on one borehole answers every borehole of the import),
+`borehole_pdf_crs_unsupported` (only 31370 and 28992),
+`borehole_pdf_borehole_not_offered`, `borehole_pdf_repeat_choose_one` (two
+prints of one borehole). One commit per import. `GET /borehole/{borehole_id}`
+carries the additive `import_provenance` (null for DOV and hand-made
+boreholes) and each sample the additive `sample_label`.
 
 DEM endpoints refuse an impossible extent locally: `GET /dem/sample` (and the
 ground-surface build `POST .../ground-surface/build`) answer `422` naming the
