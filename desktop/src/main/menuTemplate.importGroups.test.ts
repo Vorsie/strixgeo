@@ -50,17 +50,25 @@ describe('File menu: one import submenu per kind of investigation', () => {
     ])
   })
 
-  it('Import boreholes holds From DOV and DOV XML files (Ctrl+Shift+B)', () => {
+  it('Import boreholes holds From DOV, DOV XML files (Ctrl+Shift+B) and From a PDF report', () => {
+    // Owner 2026-10-10 (borehole PDF phase 2): the PDF route sits in the
+    // borehole submenu too, on its own channel, like the CPT one.
     const send = vi.fn()
     const bh = byLabel(fileMenu('en', send), 'Import boreholes')
     const sub = bh.submenu as Item[]
-    expect(sub.map(i => i.label)).toEqual(['From DOV (draw box)…', 'DOV XML files…'])
+    expect(sub.map(i => i.label)).toEqual([
+      'From DOV (draw box)…',
+      'DOV XML files…',
+      'From a PDF report…',
+    ])
     expect(sub[1].accelerator).toBe('CmdOrCtrl+Shift+B')
     ;(sub[0].click as () => void)()
     ;(sub[1].click as () => void)()
+    ;(sub[2].click as () => void)()
     expect(send.mock.calls.map(c => c[0])).toEqual([
       'menu:import-borehole-dov',
       'menu:import-borehole',
+      'menu:import-borehole-pdf',
     ])
   })
 
@@ -82,6 +90,7 @@ describe('File menu: one import submenu per kind of investigation', () => {
     expect((byLabel(items, 'Boringen importeren').submenu as Item[]).map(i => i.label)).toEqual([
       'Uit DOV (kader tekenen)…',
       'DOV-XML-bestanden…',
+      'Uit een pdf-rapport…',
     ])
   })
 })
