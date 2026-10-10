@@ -347,6 +347,26 @@ owner rulings are in [parsers-cpt-pdf.md](parsers-cpt-pdf.md).
   CPT whose `import_provenance.source` is `pdf-digitised`; `ElevationEditor`
   labels its Z source "(PDF)".
 
+## PDF borehole import dialog (`components/boreholePdf/`)
+Data → Import → Boring → "Uit een pdf-rapport" (toolbar route `import-verb-borehole-pdf`,
+File → Boringen importeren, channel `menu:import-borehole-pdf`). `useBoreholePdfImport`
+(App level) picks the report and books the settled import like the DOV XML import:
+one summary toast (`TOAST_LONG_TIMEOUT_MS` when it sums up several boreholes), new
+boreholes adopted (`adoptImportedBoreholes`), a refreshed one → `markMutated`, and
+the XML import's flags report (`BoreholeImportReportPanel`). `BoreholePdfImportDialog`
+follows the triage through `useBoreholePdfTriage`, which binds the shared
+`hooks/pdfTriageRegistry.ts` (upload → SSE job, spawn-or-attach on a 409,
+StrictMode-safe registry; `useCptPdfTriage` binds the same module).
+`BoreholePdfTriageList` shows one row per borehole (thumbnail via
+`usePdfPageThumbnail(..., 'borehole')`, sheets, depth, X/Y, ground level, date,
+counts, an OCR marker, the findings as notes through `importFlagText`);
+`BoreholePdfQuestions` asks the two confirmations of owner rulings 3/4 on the rows
+that carry `CRS_ASSUMED` / `WATER_UNIT_ASSUMED` (answers and the import body are
+pure functions in `boreholePdfConfirmations.ts`). Import stays disabled while a
+ticked row waits or two prints of one borehole are ticked; a 409 opens
+`BoreholeRefreshConfirmDialog` and only "Replace" re-posts with `confirm_refresh`.
+The pipeline and the rulings are in [parsers-borehole-pdf.md](parsers-borehole-pdf.md).
+
 ## Litho accept flow (Phase 1, #55)
 
 Accept flow wires the Robertson-SBT / borehole suggestion output through to the geological model.
