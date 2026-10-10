@@ -65,7 +65,7 @@ class ImportCptPdf(GroundModelLogger):
     def __init__(
         self,
         session: AsyncSession,
-        store: PdfReportStore,
+        store: PdfReportStore[CachedPdfReport],
         persist: Persist | None = None,
     ) -> None:
         super().__init__(__name__)
