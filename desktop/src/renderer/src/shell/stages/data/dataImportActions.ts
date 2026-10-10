@@ -24,6 +24,7 @@ export interface ImportMenuHandlers {
   cptPdf?: () => void
   boreholeDov: () => void
   boreholeXml?: () => void
+  boreholePdf?: () => void
   labTests: () => void
 }
 
@@ -83,6 +84,15 @@ export function buildImportMenuItems(
                 key: 'data.toolbar.boreholeXml' as const,
                 testid: 'import-verb-borehole-xml',
                 onClick: handlers.boreholeXml,
+              },
+            ]
+          : []),
+        ...(handlers.boreholePdf
+          ? [
+              {
+                key: 'data.toolbar.boreholePdf' as const,
+                testid: 'import-verb-borehole-pdf',
+                onClick: handlers.boreholePdf,
               },
             ]
           : []),
