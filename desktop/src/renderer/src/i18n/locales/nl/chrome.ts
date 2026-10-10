@@ -65,6 +65,12 @@ export const CHROME_NL = {
   'app.backendUnreachable': 'Backend onbereikbaar',
   // Weigeringscodes van de backend die een ingenieur in normaal gebruik kan zien.
   'api.code.cptPdfReportUnknown': 'Dit rapport is niet meer open in de app. Kies de pdf opnieuw.',
+  'api.code.boreholePdfReportUnknown': 'Dit rapport is niet meer open in de app. Kies de pdf opnieuw.',
+  'api.code.boreholePdfAssumptionUnconfirmed':
+    'Bevestig het coördinatenstelsel en de eenheid van de grondwaterstand van elke aangevinkte boring die erom vraagt.',
+  'api.code.boreholePdfCrsUnsupported': 'Dat coördinatenstelsel kan niet op de kaart geplaatst worden. Kies een ander.',
+  'api.code.boreholePdfNotOffered': 'Deze boring hoort niet meer bij de boringen van het rapport. Kies de pdf opnieuw.',
+  'api.code.boreholePdfRepeatChooseOne': 'Twee afdrukken van dezelfde boring zijn aangevinkt. Vink er één uit.',
   'api.code.dovImportTooLarge': 'Dit kader bevat meer records dan één import aankan. Teken een kleiner kader.',
   'api.code.dovImportAlreadyRunning': 'Deze DOV-import loopt al.',
   'api.code.bodyPartitionLocked': 'Een andere bewerking op de lichamen loopt nog op dit model. Probeer het zo opnieuw.',
