@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import Date, DateTime, Double, Index, Integer, String, func, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -104,6 +105,14 @@ class BoreholeOrm(Base):
     deleted_dov_permkeys: Mapped[list[str]] = mapped_column(
         ARRAY(String(64)), nullable=False, default=list, server_default=text("'{}'")
     )
+
+    # How a borehole that did not come from a data file was made (Data
+    # Integrity rule 1): the PDF digitiser's report name + SHA-256, pages,
+    # layout profile, version, per-sheet reading and the user's confirmations
+    # of an assumed CRS / water unit. NULL for DOV and hand-made boreholes.
+    # The twin of ``cpt.import_provenance``; additive (migration p6d7e8f9a0b1),
+    # rides the ``.strix`` bundle column by column with no format bump.
+    import_provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     # ``created_at`` and ``updated_at`` are timestamps — they record WHEN the
     # row was inserted or last changed, NOT what changed. We deliberately do
