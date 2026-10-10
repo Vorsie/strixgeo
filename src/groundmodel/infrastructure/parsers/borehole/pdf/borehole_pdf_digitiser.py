@@ -34,6 +34,7 @@ from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_constants impo
     ISSUE_SAMPLE_WITHOUT_AXIS,
     ISSUE_WATER_UNIT_ASSUMED,
     ISSUE_WATER_UNIT_UNPRINTED,
+    PDF_DIGITISED_SOURCE,
 )
 from groundmodel.infrastructure.parsers.borehole.pdf.borehole_pdf_header import (
     BoreholePdfHeader,
@@ -247,7 +248,7 @@ class BoreholePdfDigitiser(GroundModelLogger):
             raw_fields=raw,
         )
         provenance = {
-            "source": "pdf-digitised",
+            "source": PDF_DIGITISED_SOURCE,
             "digitiser_version": BOREHOLE_DIGITISER_VERSION,
             "report_file_name": identity.file_name,
             "report_sha256": identity.file_sha,
