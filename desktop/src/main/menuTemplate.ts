@@ -139,6 +139,10 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
               accelerator: 'CmdOrCtrl+Shift+B',
               click: () => send('menu:import-borehole'),
             },
+            {
+              label: menuLabel('importBoreholePdf', language),
+              click: () => send('menu:import-borehole-pdf'),
+            },
           ],
         },
         {
