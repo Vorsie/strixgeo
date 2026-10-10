@@ -70,6 +70,10 @@ class SampleOrm(Base):
     # real-world data.
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     sample_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # The printed sample number before the dash ("S10" of "S10-0550471459/"):
+    # what the lab reports reference (owner ruling 2026-10-08, 6). Set by the
+    # PDF borehole import; NULL for DOV samples (migration p6d7e8f9a0b1).
+    sample_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sample_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     composition: Mapped[str | None] = mapped_column(String(50), nullable=True)
     instrument: Mapped[str | None] = mapped_column(String(50), nullable=True)
