@@ -14,8 +14,13 @@
 // shows another page, so a URL never outlives the row that uses it.
 import { useEffect, useState } from 'react'
 
+import { boreholePdfClient } from '../api/clients/boreholePdf'
 import { cptPdfClient } from '../api/clients/cptPdf'
 import { log } from '../utils/log'
+
+/** Which import's report store holds the page: the CPT and the borehole PDF
+ *  imports keep their reports apart (``/cpt/pdf`` vs ``/borehole/pdf``). */
+export type PdfPageSource = 'cpt' | 'borehole'
 
 /** Pages kept in memory. An 80-dpi page PNG is ~20-60 kB, so 120 pages stay
  *  well under 10 MB and hold every sheet of a large report's list. */
@@ -26,8 +31,8 @@ const cache = new Map<string, Blob>()
 /** Loads in flight, shared by every row asking for the same page. */
 const inFlight = new Map<string, Promise<Blob>>()
 
-function cacheKey(fileSha: string, page: number): string {
-  return `${fileSha}#${page}`
+function cacheKey(fileSha: string, page: number, source: PdfPageSource): string {
+  return `${source}:${fileSha}#${page}`
 }
 
 /** Store a loaded page, dropping the oldest once the cache is full. */
@@ -42,8 +47,8 @@ function remember(key: string, blob: Blob): void {
 }
 
 /** The page's Blob: from the cache, from a load already running, or fetched. */
-function loadPage(fileSha: string, page: number, projectId: string): Promise<Blob> {
-  const key = cacheKey(fileSha, page)
+function loadPage(fileSha: string, page: number, projectId: string, source: PdfPageSource): Promise<Blob> {
+  const key = cacheKey(fileSha, page, source)
   const hit = cache.get(key)
   if (hit) {
     remember(key, hit)
@@ -51,7 +56,8 @@ function loadPage(fileSha: string, page: number, projectId: string): Promise<Blo
   }
   const running = inFlight.get(key)
   if (running) return running
-  const load = cptPdfClient
+  const client = source === 'borehole' ? boreholePdfClient : cptPdfClient
+  const load = client
     .pageBlob(fileSha, page, projectId)
     .then(blob => {
       remember(key, blob)
@@ -82,16 +88,22 @@ export interface PdfPageThumbnail {
  * @param fileSha - SHA-256 of the triaged report.
  * @param page - 1-based page number.
  * @param projectId - The open project (the endpoint is project-scoped).
+ * @param source - Which import's store holds the report (default ``cpt``).
  * @returns ``{ url, error }``; ``url`` is null while loading and on failure.
  */
-export function usePdfPageThumbnail(fileSha: string, page: number, projectId: string): PdfPageThumbnail {
+export function usePdfPageThumbnail(
+  fileSha: string,
+  page: number,
+  projectId: string,
+  source: PdfPageSource = 'cpt',
+): PdfPageThumbnail {
   const [state, setState] = useState<PdfPageThumbnail>({ url: null, error: false })
 
   useEffect(() => {
     let cancelled = false
     let objectUrl: string | null = null
     setState({ url: null, error: false })
-    loadPage(fileSha, page, projectId).then(
+    loadPage(fileSha, page, projectId, source).then(
       blob => {
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
@@ -107,7 +119,7 @@ export function usePdfPageThumbnail(fileSha: string, page: number, projectId: st
       cancelled = true
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl)
     }
-  }, [fileSha, page, projectId])
+  }, [fileSha, page, projectId, source])
 
   return state
 }
