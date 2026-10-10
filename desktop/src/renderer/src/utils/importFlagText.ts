@@ -236,6 +236,60 @@ const RENDERERS: Record<string, Renderer> = {
       count: num(p, 'count'),
       parameters: list(p, 'parameters').map(String).join(', '),
     }),
+
+  // ---- PDF borehole logs: the digitiser's findings + the import's flags. The
+  // triage list shows them as row notes, the import report as flags.
+  CRS_ASSUMED: (p, t) => t('importFlags.code.CRS_ASSUMED', { epsg: num(p, 'epsg') }),
+  WATER_UNIT_ASSUMED: (p, t) =>
+    t('importFlags.code.WATER_UNIT_ASSUMED', { value: str(p, 'value'), depth: metres(num(p, 'depth_m')) }),
+  REPEAT_DIFFERS: (p, t) =>
+    t('importFlags.code.REPEAT_DIFFERS', { count: list(p, 'rows').length, other: str(p, 'other_key') }),
+  REPEAT_DROPPED: (p, t) =>
+    t('importFlags.code.REPEAT_DROPPED', { pages: list(p, 'pages').map(String).join(', ') }),
+  PDF_BOREHOLE_LEVEL_UNREADABLE: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_LEVEL_UNREADABLE', { page: num(p, 'page'), text: str(p, 'text') }),
+  PDF_BOREHOLE_LEVEL_COUNT_MISMATCH: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_LEVEL_COUNT_MISMATCH', {
+      page: num(p, 'page'),
+      labels: num(p, 'labels'),
+      rules: num(p, 'rules'),
+    }),
+  PDF_BOREHOLE_LEVELS_NOT_FALLING: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_LEVELS_NOT_FALLING', { page: num(p, 'page') }),
+  PDF_BOREHOLE_NO_GROUND_LEVEL: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_NO_GROUND_LEVEL', { page: num(p, 'page') }),
+  PDF_BOREHOLE_GROUND_LEVEL_FROM_FIRST_LEVEL: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_FROM_FIRST_LEVEL', {
+      page: num(p, 'page'),
+      z: metres(num(p, 'ground_level_m')),
+    }),
+  PDF_BOREHOLE_GROUND_LEVEL_DISAGREES: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_GROUND_LEVEL_DISAGREES', {
+      page: num(p, 'page'),
+      z: metres(num(p, 'ground_level_m')),
+      first: metres(num(p, 'first_level_m')),
+    }),
+  PDF_BOREHOLE_NO_XY: (_p, t) => t('importFlags.code.PDF_BOREHOLE_NO_XY'),
+  PDF_BOREHOLE_SHEET_JOIN_TEXT_DIFFERS: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_SHEET_JOIN_TEXT_DIFFERS', {
+      page: num(p, 'page'),
+      top: optStr(p, 'top_label') ?? '?',
+      base: optStr(p, 'base_label') ?? '?',
+    }),
+  PDF_BOREHOLE_OPEN_BASE: (p, t) => t('importFlags.code.PDF_BOREHOLE_OPEN_BASE', { page: num(p, 'page') }),
+  PDF_BOREHOLE_EMPTY_DESCRIPTION: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_EMPTY_DESCRIPTION', { page: num(p, 'page') }),
+  PDF_BOREHOLE_WATER_UNIT_UNPRINTED: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_WATER_UNIT_UNPRINTED', { value: str(p, 'value') }),
+  PDF_BOREHOLE_SAMPLE_WITHOUT_AXIS: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_SAMPLE_WITHOUT_AXIS', { page: num(p, 'page'), sample: str(p, 'sample_id') }),
+  PDF_BOREHOLE_INTERVAL_NOT_STORED: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_INTERVAL_NOT_STORED', { text: str(p, 'text') }),
+  PDF_BOREHOLE_SAMPLE_NOT_STORED: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_SAMPLE_NOT_STORED', { sample: str(p, 'sample_id') }),
+  PDF_BOREHOLE_SAMPLE_ID_CUT: (p, t) =>
+    t('importFlags.code.PDF_BOREHOLE_SAMPLE_ID_CUT', { sample: str(p, 'sample_id'), max: num(p, 'max') }),
+  PDF_BOREHOLE_EDITED_TRACK_KEPT: (_p, t) => t('importFlags.code.PDF_BOREHOLE_EDITED_TRACK_KEPT'),
 }
 
 /** Codes this module renders in the interface language (the rest show ``message``). */
