@@ -53,6 +53,7 @@ test.describe('flow_data_stage_ui', () => {
       await page.getByTestId('import-group-borehole').hover()
       await expect(page.getByTestId('import-verb-borehole-dov')).toBeVisible()
       await expect(page.getByTestId('import-verb-borehole-xml')).toBeVisible()
+      await expect(page.getByTestId('import-verb-borehole-pdf')).toBeVisible()
       await expect(page.getByTestId('import-verb-lab')).toBeVisible()
 
       // Not-yet-available verbs render (dimmed) so the roadmap is visible.
