@@ -223,6 +223,7 @@ contextBridge.exposeInMainWorld('electron', {
   onMenuImportCptDov: (cb: () => void) => onMenuEvent('menu:import-cpt-dov', cb),
   onMenuImportBorehole: (cb: () => void) => onMenuEvent('menu:import-borehole', cb),
   onMenuImportBoreholeDov: (cb: () => void) => onMenuEvent('menu:import-borehole-dov', cb),
+  onMenuImportBoreholePdf: (cb: () => void) => onMenuEvent('menu:import-borehole-pdf', cb),
 
   onMenuProjectNew: (cb: () => void) => onMenuEvent('menu:project-new', cb),
   onMenuProjectOpen: (cb: () => void) => onMenuEvent('menu:project-open', cb),
