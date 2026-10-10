@@ -29,8 +29,19 @@ export { MAX_ADMIXTURES_PER_INTERVAL }
 /** Which ORM family a track lives in. */
 export type TrackFamily = 'observation' | 'field_log'
 
-/** Provenance badge: an untouched import, a hand-made track, or an edited import. */
-export type TrackBadge = 'dov' | 'manual' | 'edited'
+/** Provenance badge: an untouched DOV import, a hand-made track, an edited DOV
+ *  import, or a track read off a PDF report (edited or not; the hint says
+ *  which). Only ``dov`` / ``edited`` tracks can be reset to DOV. */
+export type TrackBadge = 'dov' | 'manual' | 'edited' | 'pdf'
+
+/** The ``source`` of a track the PDF borehole import wrote (backend
+ *  ``TrackSource.PDF_DIGITISED``). */
+export const PDF_TRACK_SOURCE = 'pdf-digitised'
+
+/** @returns True for a badge of a track that came from DOV (it can be reset to DOV). */
+export function isDovBadge(badge: TrackBadge): boolean {
+  return badge === 'dov' || badge === 'edited'
+}
 
 /** What a row of a kind carries. */
 export type TrackContent = 'coded' | 'value' | 'text'
@@ -74,11 +85,14 @@ export function trackContent(kind: string): TrackContent {
 /**
  * The provenance badge of a track.
  *
- * @param source - ``"dov"`` / ``"manual"``; absent reads as an import.
+ * @param source - ``"dov"`` / ``"manual"`` / ``"pdf-digitised"``; absent reads
+ *   as a DOV import.
  * @param editedAt - Last track-editor save.
  */
 export function trackBadge(source: string | undefined, editedAt: string | null | undefined): TrackBadge {
   if (source === 'manual') return 'manual'
+  // Data Integrity rule 1: a track read off a PDF never passes for DOV.
+  if (source === PDF_TRACK_SOURCE) return 'pdf'
   return editedAt ? 'edited' : 'dov'
 }
 
