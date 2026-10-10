@@ -58,6 +58,12 @@ export const CHROME = {
   'app.backendUnreachable': 'Backend unreachable',
   // Backend refusal codes an engineer can hit in normal use (api/clients/apiCodeMessages.ts).
   'api.code.cptPdfReportUnknown': 'This report is no longer open in the app. Pick the PDF again.',
+  'api.code.boreholePdfReportUnknown': 'This report is no longer open in the app. Pick the PDF again.',
+  'api.code.boreholePdfAssumptionUnconfirmed':
+    'Confirm the coordinate system and the water-level unit of every ticked borehole that asks for it.',
+  'api.code.boreholePdfCrsUnsupported': 'That coordinate system cannot be placed on the map. Pick another one.',
+  'api.code.boreholePdfNotOffered': 'This borehole is no longer one of the report’s boreholes. Pick the PDF again.',
+  'api.code.boreholePdfRepeatChooseOne': 'Two prints of the same borehole are ticked. Untick one of them.',
   'api.code.dovImportTooLarge': 'This box holds more records than one import can take. Draw a smaller box.',
   'api.code.dovImportAlreadyRunning': 'This DOV import is already running.',
   'api.code.bodyPartitionLocked': 'Another body operation is still running on this model. Try again in a moment.',
