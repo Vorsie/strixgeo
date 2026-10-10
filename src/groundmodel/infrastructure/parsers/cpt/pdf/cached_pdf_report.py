@@ -30,3 +30,8 @@ class CachedPdfReport:
     file_name: str
     digest: PdfReportDigest
     soundings: dict[str, DigitisedSounding]
+
+    @property
+    def report_sha(self) -> str:
+        """Return the SHA-256 hex of the report (the store's key)."""
+        return self.digest.file_sha
