@@ -13,6 +13,10 @@ class TrackSource(StrEnum):
       STAYS ``dov`` (it keeps its ``dov_permkey`` upstream identity) and gets
       ``edited_manually_at`` stamped, so the UI can say "edited by hand".
     * MANUAL — created by hand in the borehole's Tracks panel.
+    * PDF_DIGITISED — read off a contractor's PDF borehole log by the PDF
+      digitiser (description verbatim, no codes). An edit stamps
+      ``edited_manually_at`` like a DOV track; a re-import of the report
+      replaces it only while it is unedited.
 
     Stored as a plain VARCHAR (like ``observation_type``) so a future source
     (a GEF borehole import, a BRO import) needs no ENUM-evolution migration.
@@ -20,3 +24,4 @@ class TrackSource(StrEnum):
 
     DOV = "dov"
     MANUAL = "manual"
+    PDF_DIGITISED = "pdf-digitised"
