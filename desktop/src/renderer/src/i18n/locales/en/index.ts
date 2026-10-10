@@ -30,6 +30,7 @@
 // than one dialog at a time.
 
 import { BED_OVERRIDE } from './bedOverride'
+import { BOREHOLE_PDF } from './boreholePdf'
 import { CHROME } from './chrome'
 import { CPT_PDF } from './cptPdf'
 import { DATA } from './data'
@@ -52,6 +53,7 @@ export const EN = {
   ...DATA,
   ...IMPORT_FLAGS,
   ...CPT_PDF,
+  ...BOREHOLE_PDF,
   ...BED_OVERRIDE,
   ...LAB_SERIES,
   ...SETTINGS,
@@ -73,6 +75,7 @@ export const EN_MODULES = {
   data: DATA,
   importFlags: IMPORT_FLAGS,
   cptPdf: CPT_PDF,
+  boreholePdf: BOREHOLE_PDF,
   bedOverride: BED_OVERRIDE,
   labSeries: LAB_SERIES,
   settings: SETTINGS,
