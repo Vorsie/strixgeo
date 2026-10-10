@@ -25,6 +25,9 @@ export const TRACKS = {
   'tracks.badge.dovHint': 'Imported from DOV, not changed.',
   'tracks.badge.manualHint': 'Added by hand on {date}.',
   'tracks.badge.editedHint': 'Imported from DOV, changed by hand on {date}.',
+  'tracks.badge.pdf': 'PDF',
+  'tracks.badge.pdfHint': 'Read from a PDF report, not changed.',
+  'tracks.badge.pdfEditedHint': 'Read from a PDF report, changed by hand on {date}.',
   'tracks.drawn': 'In sections',
   'tracks.drawnHint': 'The cross-sections draw this track for its kind.',
   'tracks.notDrawnHint':
