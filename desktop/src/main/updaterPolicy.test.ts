@@ -12,17 +12,55 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
-  autoInstallOnQuit,
   classifyUpdaterError,
   shouldAutoCheckOnLaunch,
   shouldReplayOnLoad,
+  shouldResumePendingDownload,
   summariseUpdateInfo,
 } from './updaterPolicy'
 
 describe('updaterPolicy', () => {
-  it('auto-checks on launch ONLY when the app is packaged', () => {
-    expect(shouldAutoCheckOnLaunch(true)).toBe(true)
-    expect(shouldAutoCheckOnLaunch(false)).toBe(false)
+  // Owner ruling 2026-10-11 (option a): "Check for updates at start" is a
+  // setting, default on. On = a packaged build checks once at start. Off = no
+  // automatic check at all. A dev run never checks, whatever the setting says.
+  it('CS1 - a packaged build with the setting ON checks at start', () => {
+    expect(shouldAutoCheckOnLaunch(true, true)).toBe(true)
+  })
+
+  it('CS2 - a packaged build with the setting OFF does not check at start', () => {
+    expect(shouldAutoCheckOnLaunch(true, false)).toBe(false)
+  })
+
+  it('CS3 - a dev run never checks at start, setting on or off', () => {
+    expect(shouldAutoCheckOnLaunch(false, true)).toBe(false)
+    expect(shouldAutoCheckOnLaunch(false, false)).toBe(false)
+  })
+
+  // Owner ruling 2026-10-11: a downloaded update installs at the NEXT START,
+  // never on quit. electron-updater 6.8.9 cannot run the installer at launch
+  // by itself; what it can do is serve the same version from its pending cache
+  // without a new download. So at the next start the card must offer
+  // "Install and restart" for the update already on disk.
+  it('NS1 - the version offered at start is the one already downloaded: offer the install, no new download', () => {
+    expect(
+      shouldResumePendingDownload({ version: '0.1.6', downloadedFile: 'C:/c/pending/s.exe' }, '0.1.6', true),
+    ).toBe(true)
+  })
+
+  it('NS2 - a NEWER version is on offer: ask again, the old download is not it', () => {
+    expect(
+      shouldResumePendingDownload({ version: '0.1.6', downloadedFile: 'C:/c/pending/s.exe' }, '0.1.7', true),
+    ).toBe(false)
+  })
+
+  it('NS3 - the downloaded file is gone: ask again rather than download silently', () => {
+    expect(
+      shouldResumePendingDownload({ version: '0.1.6', downloadedFile: 'C:/c/pending/s.exe' }, '0.1.6', false),
+    ).toBe(false)
+  })
+
+  it('NS4 - nothing was downloaded before: the normal offer', () => {
+    expect(shouldResumePendingDownload(null, '0.1.6', false)).toBe(false)
   })
 
 
@@ -45,14 +83,6 @@ describe('updaterPolicy', () => {
 
   it('RP3 — a failure is replayed too: the engineer must learn the check could not run', () => {
     expect(shouldReplayOnLoad({ phase: 'error' })).toBe(true)
-  })
-
-  it('H6 — never auto-installs an update on quit for an UNSIGNED build', () => {
-    // An unsigned installer that silently swaps itself in on quit is
-    // untrustworthy — the only trust is TLS to GitHub plus one account. Auto
-    // install-on-quit is allowed only once the app is code-signed.
-    expect(autoInstallOnQuit(false)).toBe(false)
-    expect(autoInstallOnQuit(true)).toBe(true)
   })
 
   it('summarises an electron-updater UpdateInfo into a renderer-safe notice', () => {
@@ -166,24 +196,44 @@ describe('classifyUpdaterError', () => {
   })
 })
 
-describe('updaterService wires autoInstallOnAppQuit through the signing gate', () => {
+describe('updaterService: an update installs at the next start, never on quit', () => {
   // Source-text pin (updaterService imports electron, so it cannot be imported
-  // here). Guards against a regression that hardcodes the flag true again.
+  // here). Owner ruling 2026-10-11: no quit-time install, signed or unsigned.
   const SERVICE_SOURCE = readFileSync(join(__dirname, 'updaterService.ts'), 'utf-8').replace(
     /\r\n/g,
     '\n',
   )
+  const MAIN_SOURCE = readFileSync(join(__dirname, 'index.ts'), 'utf-8').replace(/\r\n/g, '\n')
+  const IPC_SOURCE = readFileSync(join(__dirname, 'prototypeIpc.ts'), 'utf-8').replace(/\r\n/g, '\n')
 
-  it('H6-wiring — the quit-time install flag is not hardcoded true', () => {
-    expect(SERVICE_SOURCE).not.toMatch(/autoInstallOnAppQuit\s*=\s*true/)
-    expect(SERVICE_SOURCE).toContain('autoInstallOnAppQuit = autoInstallOnQuit(APP_IS_SIGNED)')
-    // The beta ships unsigned, so the gate is closed today.
-    expect(SERVICE_SOURCE).toMatch(/const APP_IS_SIGNED = false/)
+  it('IQ1 - a downloaded update never installs when the app quits', () => {
+    expect(SERVICE_SOURCE).toContain('autoUpdater.autoInstallOnAppQuit = false')
+    expect(SERVICE_SOURCE).not.toMatch(/autoInstallOnAppQuit\s*=(?!\s*false\b)/)
+    // No signing switch can turn it back on.
+    expect(SERVICE_SOURCE).not.toContain('APP_IS_SIGNED')
   })
 
-  it('H6-wiring — the explicit "Install now" path is still exposed', () => {
+  it('IQ2 - the explicit "Install and restart" path is still exposed', () => {
     // quitAndInstall stays as the user-driven install, wired to
     // updater:quit-and-install in prototypeIpc.
     expect(SERVICE_SOURCE).toContain('export function quitAndInstall()')
+    expect(IPC_SOURCE).toContain("ipcMain.handle('updater:quit-and-install'")
+  })
+
+  it('IQ3 - the check runs only at start: no timer anywhere starts a check', () => {
+    // The only callers of checkForUpdates are the start check and the manual
+    // Help > Check for updates handler.
+    expect(SERVICE_SOURCE).not.toMatch(/setInterval|setTimeout/)
+    const serviceCalls = SERVICE_SOURCE.match(/\bcheckForUpdates\((true|false)\)/g) ?? []
+    expect(serviceCalls).toEqual(['checkForUpdates(false)'])
+    expect(IPC_SOURCE.match(/\bcheckForUpdates\((true|false)\)/g)).toEqual(['checkForUpdates(true)'])
+    // index.ts calls the start check exactly once, never inside a timer.
+    expect(MAIN_SOURCE.match(/checkForUpdatesOnLaunch\(/g)).toHaveLength(1)
+    expect(MAIN_SOURCE).not.toMatch(/(setInterval|setTimeout)\([^)]*checkForUpdates/)
+    expect(MAIN_SOURCE).not.toMatch(/autoUpdater\.checkForUpdates/)
+  })
+
+  it('IQ4 - the start check reads the "Check for updates at start" setting', () => {
+    expect(SERVICE_SOURCE).toContain('shouldAutoCheckOnLaunch(app.isPackaged, readCheckAtStart())')
   })
 })
