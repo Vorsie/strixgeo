@@ -89,6 +89,8 @@ import {
   type EmbeddedStackPrep,
 } from './embedded/embeddedStack'
 import { coordinatePackagedBoot } from './embedded/packagedBootCoordinator'
+import { DEFAULT_API_PORT, apiBaseUrl } from './embedded/apiPort'
+import { describePortOwner } from './portOwner'
 import { forceStopCluster, stopClusterClean, type RunningCluster } from './embedded/postgresCluster'
 import { configurePgdataRoot } from './embedded/embeddedPaths'
 import type { BootFailure } from './embedded/bootSequence'
@@ -107,7 +109,11 @@ import {
   readinessDeadlineResult,
   pollBackendUntilReady,
 } from './backendProbe'
-import { decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
+import {
+  BACKEND_RESPAWN_GUARD_MS,
+  decideExitAfterReady,
+  decideExitBeforeReady,
+} from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 // Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
 import { configureActivationStore, readActivationState } from './activationStore'
@@ -207,8 +213,18 @@ interface RecentProject {
   lastOpened: string  // ISO timestamp
 }
 
-const API_PORT = 8765
-const API_BASE = `http://127.0.0.1:${API_PORT}`
+// The engine's loopback port. Dev and e2e pin 8765 (the hand-started uvicorn,
+// run-e2e.ps1, the Playwright specs). A packaged boot replaces it with the port
+// its ``acquire-api-port`` stage chose (embedded/apiPort): another program on
+// the user's PC may own 8765 (tester finding 2026-10-12). Set once, before the
+// engine spawns and before the window (CSP, token filter) is created; a respawn
+// reuses it, because the renderer has already learned its base URL.
+let apiPort = DEFAULT_API_PORT
+
+/** The engine origin every main-side call, the CSP and the renderer use. */
+function currentApiBase(): string {
+  return apiBaseUrl(apiPort)
+}
 
 // Secret shared with THIS launch's backend child, proving that a request
 // claiming the ``null`` origin really comes from our window and not from a
@@ -350,7 +366,7 @@ function startApi(): void {
   apiProcess = spawn(pythonExe, [
     '-m', 'groundmodel.api.serve',
     '--host', '127.0.0.1',
-    '--port', String(API_PORT),
+    '--port', String(apiPort),
   ], {
     // Packaged: the install directory is read-only, so the child runs from
     // the per-user data directory — anything that ever resolves a relative
@@ -419,7 +435,7 @@ function startApi(): void {
     }
     if (backendBecameReady) {
       // The backend was serving and then died — respawn it once (H3(a)) rather
-      // than leave the app talking to a dead API. Unless :8765 still answers:
+      // than leave the app talking to a dead API. Unless the port still answers:
       // then readiness was confirmed against an EXTERNAL backend (the dev
       // session's uvicorn, the e2e harness) and this exit is our child losing
       // the port race, not a crash (decideExitAfterReady).
@@ -428,28 +444,35 @@ function startApi(): void {
     }
 
     // The app's spawned backend exited before we confirmed readiness — but an
-    // externally-run backend may still own :8765 (the dev session's own
+    // externally-run backend may still own the port (the dev session's own
     // uvicorn, or the e2e harness which starts its own). In that case the
     // app's child losing the port race is NOT a failure: the API is reachable.
-    // Only surface BackendFailedModal when :8765 is genuinely unreachable, so
+    // Only surface BackendFailedModal when the port is genuinely unreachable, so
     // we don't false-positive over a live external backend (#214d — fixes the
-    // e2e regression where the modal blocked the welcome screen).
+    // e2e regression where the modal blocked the welcome screen). Dev / e2e
+    // only: a packaged app never adopts (decideExitBeforeReady).
     void (async () => {
       const verdict = await probeBackendOnce()
-      if (verdict === 'reachable') {
-        writeLog('[main] backend child exited but :8765 is reachable — not signalling failure')
+      if (decideExitBeforeReady(app.isPackaged, verdict) === 'adopt') {
+        writeLog(`[main] backend child exited but :${apiPort} is reachable, not signalling failure`)
         markBackendReady?.()
         return
       }
+      if (verdict === 'reachable') {
+        // Packaged only: our child is gone, so whatever answers on the port this
+        // launch chose is another program, never our engine (tester finding
+        // 2026-10-12). Never adopt it.
+        writeLog(`[main] :${apiPort} answers but our engine exited; another program owns it, refusing to adopt`)
+      }
       if (verdict === 'foreign') {
-        // Packaged only: :8765 is held by an orphaned uvicorn from a crashed
+        // Packaged only: the port is held by an orphaned uvicorn from a crashed
         // previous launch, whose token differs from ours — adopting it would
         // 403 every request (H3(b)). Refuse rather than adopt.
         writeLog(
-          '[main] :8765 is held by a FOREIGN backend (wrong launch token, 403) — refusing to adopt it',
+          `[main] :${apiPort} is held by a FOREIGN backend (wrong launch token, 403); refusing to adopt it`,
         )
       }
-      writeLog('[main] backend exited before ready and :8765 unreachable — sending app:backend-failed')
+      writeLog(`[main] backend exited before ready and :${apiPort} is not ours, sending app:backend-failed`)
       await sendBackendFailed()
     })()
   })
@@ -535,11 +558,16 @@ async function sendBackendFailed(): Promise<void> {
   ])
   const reason = backendFailureTracker.reason()
   writeMainLog(`[main] backend failure cause: ${reason ?? 'not recognised'}`)
-  mainWindow?.webContents.send('app:backend-failed', backendFailedPayload(reason))
+  if (reason === 'port-busy') {
+    // Best effort: name the program, so support can tell the user what to close.
+    const owner = await describePortOwner(apiPort)
+    writeMainLog(`[main] engine port ${apiPort} is held by ${owner ?? 'an unknown program'}`)
+  }
+  mainWindow?.webContents.send('app:backend-failed', backendFailedPayload(reason, apiPort))
 }
 
 /**
- * Probe ``:8765`` once to decide whether the listener is a backend we may adopt.
+ * Probe the engine port once to decide whether the listener is a backend we may adopt.
  *
  * A packaged probe carries this launch's token + ``Origin: null`` so a foreign
  * (orphaned previous-launch) uvicorn answers 403 and is never adopted (H3(b));
@@ -549,7 +577,7 @@ async function sendBackendFailed(): Promise<void> {
  */
 async function probeBackendOnce(): Promise<ProbeVerdict> {
   try {
-    const res = await fetch(`${API_BASE}/openapi.json`, {
+    const res = await fetch(`${currentApiBase()}/openapi.json`, {
       headers: backendProbeHeaders(app.isPackaged, localClientToken),
     })
     return classifyBackendProbe(app.isPackaged, res.status)
@@ -568,9 +596,15 @@ async function probeBackendOnce(): Promise<ProbeVerdict> {
  */
 async function handleReadyBackendExit(): Promise<void> {
   const verdict = await probeBackendOnce()
-  const action = decideExitAfterReady(verdict, lastBackendRespawnAtMs, Date.now(), BACKEND_RESPAWN_GUARD_MS)
+  const action = decideExitAfterReady(
+    verdict,
+    lastBackendRespawnAtMs,
+    Date.now(),
+    BACKEND_RESPAWN_GUARD_MS,
+    app.isPackaged,
+  )
   if (action === 'ignore') {
-    writeMainLog('[main] backend child exited after readiness but :8765 still answers — an external backend owns the port, not respawning')
+    writeMainLog(`[main] backend child exited after readiness but :${apiPort} still answers; an external backend owns the port, not respawning`)
     return
   }
   if (action === 'give-up') {
@@ -725,8 +759,12 @@ async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<bo
     prepare: () =>
       prepareEmbeddedStack(process.resourcesPath, app.getPath('userData'), writeMainLog),
     onPrepared: prep => {
+      // Before the engine spawns and before the window exists: the spawn, the
+      // probe, the CSP and the token filter all read it.
+      apiPort = prep.apiPort
       embeddedStack = {
         port: prep.port,
+        apiPort: prep.apiPort,
         pythonExe: prep.layout.pythonExe,
         backendEnv: prep.backendEnv,
         // The cluster is set asynchronously by startCluster below; both closures
@@ -790,7 +828,7 @@ function createWindow(): void {
   // every request and leave a packaged build unable to reach its own backend,
   // with the backend's 403 as the only clue. One line, once per launch.
   let loggedTokenInjection = false
-  const tokenFilter = localApiRequestFilter(API_BASE)
+  const tokenFilter = localApiRequestFilter(currentApiBase())
   // eslint-disable-next-line no-console
   const tokenAudit = createTokenInjectionAudit(tokenFilter.urls, { error: console.error })
   session.defaultSession.webRequest.onBeforeSendHeaders(
@@ -817,13 +855,13 @@ function createWindow(): void {
   // audit version armed on a wall clock instead and cried wolf on any session
   // that never left the start screen (owner dogfeed 2026-08-03).
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    if (details.url.startsWith(`${API_BASE}/`)) {
+    if (details.url.startsWith(`${currentApiBase()}/`)) {
       tokenAudit.noteApiRequestObserved(details.url)
     }
     callback({})
   })
 
-  const csp = buildContentSecurityPolicy(isDev)
+  const csp = buildContentSecurityPolicy(isDev, apiPort)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -1193,7 +1231,7 @@ function bootstrapAuthorisedPaths(): void {
 // IPC handlers
 // ---------------------------------------------------------------------------
 
-ipcMain.handle('api:base-url', () => API_BASE)
+ipcMain.handle('api:base-url', () => currentApiBase())
 
 // Boot flags surfaced SYNCHRONOUSLY to the renderer through the preload, so the
 // renderer can gate boot-time UI (the onboarding auto-open, the packaged
