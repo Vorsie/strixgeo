@@ -156,6 +156,7 @@ describe('describeStage', () => {
       'resolve-paths',
       'load-secrets',
       'acquire-port',
+      'acquire-api-port',
       'init-cluster',
       'start-postgres',
       'await-postgres-ready',
