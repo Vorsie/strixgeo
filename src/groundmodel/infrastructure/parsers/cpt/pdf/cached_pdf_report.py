@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
@@ -24,12 +24,18 @@ class CachedPdfReport:
     soundings : dict
         Sounding key -> the digitised sounding, as the triage read it (no
         user calibration applied).
+    graph_twins : dict
+        Sounding key -> the graph sheet of a printed-table sounding as read
+        automatically when the overlay first opened it (the triage never
+        reads it: that costs OCR per sheet). Filled on demand, kept for the
+        report's lifetime so reopening the overlay does not read it again.
     """
 
     path: Path
     file_name: str
     digest: PdfReportDigest
     soundings: dict[str, DigitisedSounding]
+    graph_twins: dict[str, DigitisedSounding] = field(default_factory=dict)
 
     @property
     def report_sha(self) -> str:
