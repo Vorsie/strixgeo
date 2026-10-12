@@ -102,7 +102,7 @@ export const LAUNCH = {
   'updater.later': 'Later',
   'updater.downloading': 'Downloading update… {percent}%',
   'updater.downloadedTitle': 'Update ready to install',
-  'updater.downloadedBody': 'Version {version} will be applied when you restart.',
+  'updater.downloadedBody': 'Version {version} is ready. Install it now with the button, or at the next start.',
   'updater.restart': 'Restart & install',
   'updater.upToDate': 'You are on the latest version.',
   // No release published yet (finding g): calm, not a failure.
