@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { BootSequence, type BootFailure } from './bootSequence'
 import { resolveEmbeddedLayout, type EmbeddedLayout } from './embeddedPaths'
+import { chooseApiPort, describeApiPortChoice, isLoopbackPortFree } from './apiPort'
 import { acquireFreePort, probeEphemeralPort } from './freePort'
 import { loadOrCreateSecrets, type InstallSecrets } from './installSecrets'
 import { buildSqlAlchemyDsn, redactPasswords } from './pgDsn'
@@ -49,6 +50,8 @@ import {
 export interface EmbeddedStack {
   /** The port PostgreSQL ended up on. */
   port: number
+  /** The loopback port the engine listens on (8765 when it was free). */
+  apiPort: number
   /** The bundled interpreter to run the backend with. */
   pythonExe: string
   /** Environment the backend child must inherit. */
@@ -77,6 +80,11 @@ export interface EmbeddedStackPrep {
   secrets: InstallSecrets
   /** The free TCP port PostgreSQL will bind. */
   port: number
+  /**
+   * The free loopback port the engine will bind: 8765 when free, else the next
+   * free one, else an OS-assigned one (./apiPort; tester finding 2026-10-12).
+   */
+  apiPort: number
   /** The SQLAlchemy-form DSN for the freshly picked port. */
   databaseUrl: string
   /** The environment both Python children inherit (incl. ``STRIX_ENGINE_MIGRATE``). */
@@ -135,6 +143,19 @@ export async function prepareEmbeddedStack(
     const port = await acquireFreePort(probeEphemeralPort, new Set())
     boot.succeed(`port ${port}`)
 
+    // Its own stage: another program on the PC may own 8765 (AnkiConnect and
+    // several vendor tools use it), and a hard-coded engine port then dies on
+    // bind with only a generic dialog. The Postgres port is excluded so the two
+    // children never race for one number.
+    boot.begin('acquire-api-port')
+    const apiPortChoice = await chooseApiPort({
+      isFree: isLoopbackPortFree,
+      osAssigned: probeEphemeralPort,
+      taken: new Set([port]),
+    })
+    const apiPort = apiPortChoice.port
+    boot.succeed(describeApiPortChoice(apiPortChoice))
+
     const databaseUrl = buildSqlAlchemyDsn({
       host: '127.0.0.1',
       port,
@@ -144,7 +165,7 @@ export async function prepareEmbeddedStack(
     })
     const backendEnv = buildBackendEnv(layout, userDataPath, databaseUrl, secrets)
 
-    return { ok: true, prep: { layout, secrets, port, databaseUrl, backendEnv, boot } }
+    return { ok: true, prep: { layout, secrets, port, apiPort, databaseUrl, backendEnv, boot } }
   } catch (error) {
     const failure = boot.fail(
       redactPasswords(error instanceof Error ? error.message : String(error)),
