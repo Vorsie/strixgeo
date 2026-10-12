@@ -8,7 +8,11 @@
  * ## Guards, so the dev workflow is untouched
  *
  * Every auto path is gated on ``app.isPackaged``:
- *   * a dev launch never auto-checks ({@link ./updaterPolicy.shouldAutoCheckOnLaunch});
+ *   * a dev launch never auto-checks, and a packaged one checks ONCE at start
+ *     only when the "Check for updates at start" setting is on
+ *     ({@link ./updaterPolicy.shouldAutoCheckOnLaunch}); there is no periodic check;
+ *   * a downloaded update never installs on quit; the next start offers
+ *     "Install and restart" for it without a new download;
  *   * a manual "Check for updates" in dev reports ``disabled`` and does nothing,
  *     so the renderer UX is still demonstrable without a feed.
  * ``electron-updater`` itself throws in an unpackaged app ("dev-app-update.yml
@@ -28,14 +32,21 @@
  * trusted.
  */
 
+import { existsSync } from 'fs'
+
 import { app, type BrowserWindow } from 'electron'
-import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater'
+import {
+  autoUpdater,
+  type ProgressInfo,
+  type UpdateDownloadedEvent,
+  type UpdateInfo,
+} from 'electron-updater'
 
 import {
-  autoInstallOnQuit,
   classifyUpdaterError,
   shouldAutoCheckOnLaunch,
   shouldReplayOnLoad,
+  shouldResumePendingDownload,
   summariseUpdateInfo,
   type UpdateAvailableNotice,
   type UpdaterErrorReason,
@@ -47,14 +58,7 @@ import {
   shouldLogUpdaterEvent,
   type UpdaterLineWriter,
 } from './updaterLog'
-
-/**
- * Whether this build is code-signed. FALSE until the signing cert lands (debt
- * #6): the closed beta ships unsigned (owner ruling 2026-09-02). Flip to true in
- * the same change that wires electron-builder's signing, so ``autoInstallOnQuit``
- * turns the silent quit-time install back on only for a trusted binary.
- */
-const APP_IS_SIGNED = false
+import { readCheckAtStart, readPendingDownload, writePendingDownload } from './updaterPreferenceStore'
 
 /** The channel the renderer subscribes to for every updater state change. */
 export const UPDATER_EVENT_CHANNEL = 'updater:event'
@@ -199,22 +203,40 @@ export function configureUpdater(win: BrowserWindow): void {
   // The renderer decides when to download (the "Download / Later" choice), so
   // the updater must not pull bytes on its own.
   autoUpdater.autoDownload = false
-  // Never silently install an unsigned update on quit (audit H6). The explicit
-  // "Install now" path (``updater:quit-and-install`` → {@link quitAndInstall})
-  // stays available. Turns back on for a signed build via APP_IS_SIGNED.
-  autoUpdater.autoInstallOnAppQuit = autoInstallOnQuit(APP_IS_SIGNED)
+  // Owner ruling 2026-10-11: a downloaded update installs at the NEXT START,
+  // never on quit, signed or unsigned (audit H6 was the first reason). The
+  // explicit "Install and restart" path (``updater:quit-and-install`` ->
+  // {@link quitAndInstall}) is the only install.
+  autoUpdater.autoInstallOnAppQuit = false
 
   autoUpdater.on('checking-for-update', () => emit({ phase: 'checking' }))
-  autoUpdater.on('update-available', (info: UpdateInfo) =>
-    emit({ phase: 'available', notice: summariseUpdateInfo(info) }),
-  )
+  autoUpdater.on('update-available', (info: UpdateInfo) => {
+    // The same version was downloaded in an earlier session: do not ask
+    // "Download?" again. electron-updater finds the file in its pending cache
+    // (sha512-checked) and emits ``update-downloaded`` with no new download,
+    // so the card offers "Install and restart" (next-start install).
+    const pending = readPendingDownload()
+    const fileExists = pending !== null && existsSync(pending.downloadedFile)
+    if (shouldResumePendingDownload(pending, info.version, fileExists)) {
+      writeLine(`[updater] ${info.version} already downloaded; offering the install`)
+      downloadUpdate()
+      return
+    }
+    emit({ phase: 'available', notice: summariseUpdateInfo(info) })
+  })
   autoUpdater.on('update-not-available', () => emit({ phase: 'not-available' }))
   autoUpdater.on('download-progress', (progress: ProgressInfo) =>
     emit({ phase: 'downloading', progressPercent: Math.round(progress.percent) }),
   )
-  autoUpdater.on('update-downloaded', (info: UpdateInfo) =>
-    emit({ phase: 'downloaded', notice: summariseUpdateInfo(info) }),
-  )
+  autoUpdater.on('update-downloaded', (info: UpdateDownloadedEvent) => {
+    // Remember it for the next start; a failed write only costs a re-download.
+    try {
+      writePendingDownload({ version: info.version, downloadedFile: info.downloadedFile })
+    } catch (err) {
+      writeLine(`[updater] could not remember the download: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    emit({ phase: 'downloaded', notice: summariseUpdateInfo(info) })
+  })
   // A feed with no published release yet reaches us here as an error event; it
   // is classified into the calm ``no-release`` phase rather than a failure
   // (owner finding (g)). A real failure keeps ``error`` and names its cause.
@@ -256,13 +278,18 @@ export function checkForUpdates(manual: boolean): void {
 }
 
 /**
- * Auto-check on launch, gated on ``app.isPackaged``.
+ * The ONE automatic check: at start, gated on ``app.isPackaged`` and on the
+ * "Check for updates at start" setting (owner ruling 2026-10-11).
  *
- * Called from ``app.whenReady`` after the window exists. A dev launch returns
- * immediately.
+ * Called once from ``app.whenReady`` after the window exists. A dev launch, or
+ * a user who switched the setting off, returns immediately: no check, now or
+ * later. There is no periodic check; Help > Check for updates still works.
  */
 export function checkForUpdatesOnLaunch(): void {
-  if (!shouldAutoCheckOnLaunch(app.isPackaged)) return
+  if (!shouldAutoCheckOnLaunch(app.isPackaged, readCheckAtStart())) {
+    writeLine(`[updater] no check at start (packaged=${app.isPackaged}, setting=${readCheckAtStart() ? 'on' : 'off'})`)
+    return
+  }
   checkForUpdates(false)
 }
 
