@@ -7,7 +7,9 @@
 //        id in the session-imports manifest (dirty flag), and registers undo.
 //   CC2  (one-top-per-formation-per-borehole rule) A 409 DuplicateContactError
 //        does NOT refuse — it MOVES the existing contact to the clicked depth
-//        (the engineer clearly wants that formation's top there).
+//        (the engineer clearly wants that formation's top there). A slot the
+//        local list shows as taken is moved WITHOUT the refused POST; a 409
+//        from a stale list (CC2-net) still lands on the same move.
 //   CC3  Snap flags: a snapped placement is source=borehole_observation /
 //        confidence=high; a free pick is manual_pick / medium (debt #22/#23).
 //   CC4  (P2 explicit-content) A create on a section threads section_id into
@@ -217,10 +219,32 @@ describe('handleCreateContact', () => {
     expect(cid).toBe('C-existing')
     // The move lands the existing top at the CLICKED depth (4), not its old 1.
     expect(patch.depth_top_m).toBe(4)
-    // The failed create is NOT retried.
-    expect(createSpy).toHaveBeenCalledTimes(1)
+    // The slot is visibly taken in local state, so the create is never sent
+    // (walker finding 2026-10-12: a 409 prints a console error).
+    expect(createSpy).not.toHaveBeenCalled()
     // The move itself is undoable, same as a direct depth drag.
     expect(h.pushUndo).toHaveBeenCalledTimes(1)
+  })
+
+  it('CC2-net: a 409 from a stale local list still MOVES the existing contact, no retry', async () => {
+    // Local state does not show F1 on BH1 yet (stale list), so the POST goes
+    // out; the backend 409s and hands back the existing id.
+    createSpy.mockRejectedValue(new DuplicateContactError('C-existing'))
+    updateContactSpy.mockResolvedValue({
+      contact: makeContact({ id: 'C-existing', depth_top_m: 4 }),
+      deletedContactIds: [],
+    })
+    const stale = makeContact({ id: 'C-existing', formation_id: 'F-before-refresh', depth_top_m: 1 })
+    const h = renderHarness({ contacts: [stale] })
+
+    await act(async () => {
+      await h.result.current.handleCreateContact('borehole', 'BH1', 4, 'F1', false)
+    })
+
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(updateContactSpy).toHaveBeenCalledTimes(1)
+    expect(updateContactSpy.mock.calls[0][2]).toBe('C-existing')
+    expect(updateContactSpy.mock.calls[0][3].depth_top_m).toBe(4)
   })
 
   it('CC3: snap flags — snapped=borehole_observation/high, free=manual_pick/medium', async () => {
