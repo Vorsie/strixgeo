@@ -93,6 +93,18 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.overlay.notPrinted': 'Niet op het blad gedrukt: typ het in.',
   'cptPdf.overlay.printedEditable': 'Gelezen van het blad: typ een nieuwe waarde om een foute waarde te vervangen.',
   'cptPdf.overlay.readFailed': 'De sondering kon niet gelezen worden: {message}',
+  'cptPdf.overlay.source': 'Bron',
+  'cptPdf.overlay.sourceTable': 'gedrukte tabel (standaard)',
+  'cptPdf.overlay.sourceGraph': 'afgelezen grafiek',
+  'cptPdf.overlay.sourceGraphHint': 'Stel eerst de assen in en lees opnieuw af om de grafiek te lezen.',
+  'cptPdf.overlay.tableRows': '{n} rijen uit de gedrukte tabel',
+  'cptPdf.overlay.graphRows': '{n} rijen van de grafiek afgelezen',
+  'cptPdf.overlay.graphNotRead':
+    'Nog geen qc-curve van de grafiek afgelezen: typ twee schaalwaarden per as en lees opnieuw af.',
+  'cptPdf.overlay.graphComparison': 'Grafiek t.o.v. tabel (qc, {n} rijen): mediaan {median} MPa, RMS {rms} MPa',
+  'cptPdf.overlay.noGraphSheet':
+    'Geen grafiekblad gedrukt voor deze sondering: de waarden komen uit de gedrukte tabel.',
+  'cptPdf.overlay.saveHeader': 'Hoofding opslaan',
   'cptPdf.report.title': 'Importverslag',
   'cptPdf.report.status.imported': 'geïmporteerd',
   'cptPdf.report.status.refreshed': 'vervangen',
