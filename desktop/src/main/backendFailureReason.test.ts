@@ -76,3 +76,32 @@ describe('backendFailedPayload — the additive app:backend-failed payload', () 
     expect(backendFailedPayload(null)).toEqual({ reason: null })
   })
 })
+
+// Tester finding 2026-10-12: another program owned the engine port; uvicorn
+// printed "[Errno 10048] error while attempting to bind on address
+// ('127.0.0.1', 8765)" and the user saw the generic dialog. The engine's
+// bind-failure output must read as the cause ``port-busy`` so the dialog can say
+// which port is taken and what to do.
+const BIND_FAILURE =
+  "ERROR:    [Errno 10048] error while attempting to bind on address ('127.0.0.1', 8765): " +
+  'only one usage of each socket address (protocol/network address/port) is normally permitted'
+
+describe('backendFailureReasonFromOutput - a port another program holds', () => {
+  it('BFR9 - the uvicorn bind failure reads as port-busy', () => {
+    expect(backendFailureReasonFromOutput(BIND_FAILURE)).toBe('port-busy')
+  })
+
+  it('BFR10 - the tracker latches port-busy across chunks', () => {
+    const tracker = createBackendFailureReasonTracker()
+    tracker.observe('INFO:     engine READY\nERROR:    [Errno 10048] error while attempting to bi')
+    tracker.observe("nd on address ('127.0.0.1', 8765): only one usage")
+    tracker.observe('INFO:     Waiting for application shutdown.')
+    expect(tracker.reason()).toBe('port-busy')
+  })
+})
+
+describe('backendFailedPayload - names the engine port', () => {
+  it('BFR11 - carries the port the engine was told to bind', () => {
+    expect(backendFailedPayload('port-busy', 8767)).toEqual({ reason: 'port-busy', port: 8767 })
+  })
+})
