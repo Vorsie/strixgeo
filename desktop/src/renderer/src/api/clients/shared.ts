@@ -144,6 +144,30 @@ function isDegradableGet(method: string, path: string, detail?: unknown): boolea
 }
 
 /**
+ * ``DELETE /projects/{pid}/geology/models/{mid}``: the model delete whose 409
+ * means "another model refines this one" (``api/routers/geology/models.py``).
+ * The backend sends that refusal as a plain-string ``detail`` with no
+ * machine ``code``, so the status + path is the discriminator.
+ */
+const MODEL_DELETE_PATH = /^\/projects\/[^/]+\/geology\/models\/[^/]+$/
+
+/**
+ * Whether a failed request is an EXPECTED refusal: the app working, logged at
+ * WARN instead of ERROR (the walker counts console errors; walker finding
+ * 2026-10-12). Today only the refused model delete: the delete buttons
+ * disable themselves when the local model list shows a dependent model, so the
+ * 409 is the backend safety net for a stale list. It is still captured as an
+ * ``api-refusal`` diagnostic like any 4xx.
+ */
+function isExpectedRefusal(method: string, path: string, status: number): boolean {
+  return (
+    status === 409 &&
+    method.toUpperCase() === 'DELETE' &&
+    MODEL_DELETE_PATH.test(stripQuery(path))
+  )
+}
+
+/**
  * Attach a timeout abort signal to a mutating request that has none.
  *
  * GET/HEAD are left untouched (a read that hangs is annoying, not a stuck busy
@@ -465,7 +489,11 @@ export async function request(
       // diagnostic. See DEGRADABLE_GET_PATHS for the full rationale.
       log.warn('api', method, cleanPath, res.status, detail.detail)
     } else {
-      log.error('api', method, cleanPath, res.status, detail.detail)
+      if (isExpectedRefusal(method, path, res.status)) {
+        log.warn('api', method, cleanPath, res.status, detail.detail)
+      } else {
+        log.error('api', method, cleanPath, res.status, detail.detail)
+      }
       // #16 — a 5xx is a bug nobody else witnesses (the traceback stays in the
       // backend log on the user's own machine), captured as an error. A 4xx is
       // the backend REFUSING something the user did (a 409 refresh confirmation,
