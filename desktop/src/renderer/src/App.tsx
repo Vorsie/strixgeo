@@ -190,6 +190,7 @@ export default function App() {
   // NEVER into a useEffect / useCallback dep list.
   const undoStack = useUndoStack({
     onError: msg => toast('error', msg),
+    onWarning: msg => toast('warning', msg),
   })
   const {
     push: pushUndo,
