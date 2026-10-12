@@ -316,6 +316,7 @@ _PARSERS = [
     "groundmodel.infrastructure.parsers.cpt.pdf.dropped_sheet",
     "groundmodel.infrastructure.parsers.cpt.pdf.frame_rect",
     "groundmodel.infrastructure.parsers.cpt.pdf.graph_kind",
+    "groundmodel.infrastructure.parsers.cpt.pdf.graph_twin_helpers",
     "groundmodel.infrastructure.parsers.cpt.pdf.grid_line_helpers",
     "groundmodel.infrastructure.parsers.cpt.pdf.layout_profile",
     "groundmodel.infrastructure.parsers.cpt.pdf.layout_profile_constants",
