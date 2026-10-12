@@ -1493,6 +1493,72 @@ describe('ContactsLayer', () => {
     expect(creates[0].cpt_id).toBeNull()
   })
 
+  // Walker finding 2026-10-12 (step 192): a contact strip dragged onto a
+  // column and RELEASED over a sidebar button (outside the section canvas)
+  // still copied the contact. The rule: "a drop outside any valid target is a
+  // plain no-op". The column under the cursor X is only a target while the
+  // release lands on the section canvas.
+  describe('cross-column drop outside the section canvas', () => {
+    function setup() {
+      const onCreate = vi.fn().mockResolvedValue(undefined)
+      const onUpdate = vi.fn().mockResolvedValue(undefined)
+      const contacts = [
+        makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-X' }),
+      ]
+      const { container } = renderLayer(
+        contacts,
+        [makeFormation({ id: 'f-X', name: 'X' })],
+        [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 200)],
+        undefined,
+        {
+          onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+          onBatchUpdateContacts: onUpdate,
+          onBatchCreateContacts: onCreate,
+        },
+      )
+      // jsdom lays nothing out: give the section canvas a real 400x300 box.
+      const svg = container.querySelector('svg')!
+      svg.getBoundingClientRect = () =>
+        ({ left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300, x: 0, y: 0 }) as DOMRect
+      const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+      fireEvent.mouseDown(strip, { button: 0, clientX: 50, clientY: 10 })
+      act(() => {
+        document.dispatchEvent(
+          new MouseEvent('mousemove', { clientX: 200, clientY: 10, buttons: 1 }),
+        )
+      })
+      return { onCreate, onUpdate }
+    }
+
+    it('release outside the canvas is a plain no-op: no copy, no move', () => {
+      const { onCreate, onUpdate } = setup()
+      act(() => {
+        document.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 520 }))
+      })
+      expect(onCreate).not.toHaveBeenCalled()
+      expect(onUpdate).not.toHaveBeenCalled()
+    })
+
+    it('release outside the canvas with Alt is a plain no-op too', () => {
+      const { onCreate, onUpdate } = setup()
+      act(() => {
+        document.dispatchEvent(
+          new MouseEvent('mouseup', { clientX: 640, clientY: 10, altKey: true }),
+        )
+      })
+      expect(onCreate).not.toHaveBeenCalled()
+      expect(onUpdate).not.toHaveBeenCalled()
+    })
+
+    it('release on the canvas over the target column still copies', () => {
+      const { onCreate } = setup()
+      act(() => {
+        document.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 10 }))
+      })
+      expect(onCreate).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('cross-column Alt+drag fires onBatchUpdateContacts (MOVE — explicit opt-in)', () => {
     // Same setup as above but the mouseup carries altKey=true →
     // re-anchor (the original first-ship behaviour, now opt-in).
