@@ -55,7 +55,11 @@ import TutorialOverlay from './tutorial/TutorialOverlay'
 import { clearTutorialProgress } from './tutorial/tutorialProgress'
 import LicensingDialog from './components/licensing/LicensingDialog'
 import UpdateNotification from './components/updater/UpdateNotification'
-import { backendFailureReasonOf, type BackendFailureReasonDto } from './utils/backendFailureTypes'
+import {
+  backendFailurePortOf,
+  backendFailureReasonOf,
+  type BackendFailureReasonDto,
+} from './utils/backendFailureTypes'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
 import { activationGateDecision, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
@@ -422,12 +426,15 @@ export default function App() {
   // 2026-10-08: a store written by a newer StrixGeo), or null. An older main
   // sends no payload, which reads as null: the generic dialog.
   const [backendFailureReason, setBackendFailureReason] = useState<BackendFailureReasonDto | null>(null)
+  // The engine port the payload names (a packaged engine is not always on 8765).
+  const [backendFailurePort, setBackendFailurePort] = useState<number | null>(null)
   const [logsPath, setLogsPath] = useState<string | null>(null)
   useEffect(() => {
     // Best-effort: fetch the logs path so the modal can display it.
     void window.electron.getLogsPath().then(setLogsPath).catch(() => {})
     const off = window.electron.onAppBackendFailed(payload => {
       setBackendFailureReason(backendFailureReasonOf(payload))
+      setBackendFailurePort(backendFailurePortOf(payload))
       setBackendFailed(true)
     })
     return off
@@ -1545,7 +1552,12 @@ export default function App() {
   // Backend-failed modal (#214d) — rendered in every branch because it is
   // a portal to document.body and must survive the early-return gates.
   const backendFailedModal = (
-    <BackendFailedModal open={backendFailed} logsPath={logsPath} reason={backendFailureReason} />
+    <BackendFailedModal
+      open={backendFailed}
+      logsPath={logsPath}
+      reason={backendFailureReason}
+      port={backendFailurePort}
+    />
   )
 
   // The update card, in the branches that do not mount it themselves (the
