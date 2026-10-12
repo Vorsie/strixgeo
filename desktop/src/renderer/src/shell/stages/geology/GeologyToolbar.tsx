@@ -46,6 +46,8 @@ import { computeDoomedFormations } from '../../../utils/formationDeletionScope'
 import type { DoomedFormation } from '../../../utils/formationDeletionScope'
 import FormationSelectionDialog from './FormationSelectionDialog'
 import type { AutoPopulateMode } from '../../../api/client'
+import { isApiStatus } from '../../../api/clients/shared'
+import { deleteBlockedMessageKey, findDependentModel } from '../../../utils/modelDependents'
 import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
 import {
   resetCameraCallback,
@@ -72,6 +74,7 @@ export default function GeologyToolbar(): JSX.Element {
     lifecycle: { currentLumping },
     geoModel: {
       activeGeologicalModel,
+      models,
       formations,
       contacts,
       staleSurfaceCount,
@@ -308,10 +311,16 @@ export default function GeologyToolbar(): JSX.Element {
     try {
       await handleDeleteModel()
     } catch (err) {
-      // The server's 409 guard ("delete the dependent litho/geotech model
-      // first") arrives as the Error message — show it instead of letting
-      // it become a silent uncaught rejection.
-      toast('error', err instanceof Error ? err.message : t('geology.deleteFailed'))
+      // The server's 409 guard ("delete the dependent litho model first") is
+      // the safety net behind the disabled button (a stale model list): an
+      // expected refusal, shown as a warning in the app's language with the
+      // same sentence the disabled button carries. Anything else is an error
+      // with the server's own message.
+      if (isApiStatus(err, 409)) {
+        toast('warning', t(deleteBlockedMessageKey('lithostratigraphic')))
+      } else {
+        toast('error', err instanceof Error ? err.message : t('geology.deleteFailed'))
+      }
     } finally {
       setDeletingModel(false)
       setDeleteModelConfirmOpen(false)
@@ -323,6 +332,13 @@ export default function GeologyToolbar(): JSX.Element {
   // ---------------------------------------------------------------------------
 
   const hasModel = activeGeologicalModel !== null
+  // A geological model a lithostratigraphic model refines cannot be deleted
+  // (backend 409): disable Delete up front and say why (walker finding
+  // 2026-10-12, same guard as the litho ModelKindPicker).
+  const dependentModel = findDependentModel(models, activeGeologicalModel?.id)
+  const deleteBlockedReason =
+    dependentModel !== null ? t(deleteBlockedMessageKey(dependentModel.kind)) : null
+  const canDeleteModel = hasModel && !deletingModel && deleteBlockedReason === null
   // Fill is enabled when boreholes are present and no operation is in flight.
   // No model is required — discoverBoreholeFormations creates the Default
   // model on demand via ensureActiveGeologicalModel.
@@ -349,7 +365,7 @@ export default function GeologyToolbar(): JSX.Element {
   }
 
   const requestDeleteModel = (): void => {
-    if (!hasModel || deletingModel) return
+    if (!canDeleteModel) return
     setDeleteModelConfirmOpen(true)
   }
 
@@ -527,7 +543,8 @@ export default function GeologyToolbar(): JSX.Element {
           label: t('geology.deleteStratigraphy'),
           icon: <Trash2 size={12} />,
           onClick: requestDeleteModel,
-          disabled: !hasModel || deletingModel,
+          disabled: !canDeleteModel,
+          title: deleteBlockedReason ?? undefined,
         },
       ],
       render: () => (
@@ -535,14 +552,14 @@ export default function GeologyToolbar(): JSX.Element {
           icon={<Trash2 size={13} />}
           label={deletingModel ? t('geology.deleting') : t('geology.deleteStratigraphyShort')}
           onClick={requestDeleteModel}
-          disabled={!hasModel || deletingModel}
+          disabled={!canDeleteModel}
           busy={deletingModel}
           danger
           testid="geology-delete-stratigraphy"
           title={
             !hasModel
               ? t('geology.noActiveStratigraphy')
-              : t('geology.deleteStratigraphyTitle')
+              : (deleteBlockedReason ?? t('geology.deleteStratigraphyTitle'))
           }
         />
       ),
@@ -685,12 +702,20 @@ export default function GeologyToolbar(): JSX.Element {
           >
             {t('geology.deleteModelConfirm')}
           </h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            <span className="font-medium text-gray-700 dark:text-gray-200">
-              {activeGeologicalModel?.name ?? t('geology.thisModel')}
-            </span>{' '}
-            {t('geology.deleteModelBody')}
-          </p>
+          {deleteBlockedReason !== null ? (
+            // A dependent model appeared while the dialog was open: explain
+            // instead of offering an action the backend will refuse.
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+              {deleteBlockedReason}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {activeGeologicalModel?.name ?? t('geology.thisModel')}
+              </span>{' '}
+              {t('geology.deleteModelBody')}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus — safe default for an irreversible confirm
                 dialog. See docs/ux.md: "default-focus on Cancel". */}
@@ -707,14 +732,16 @@ export default function GeologyToolbar(): JSX.Element {
             >
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="danger"
-              size="md"
-              onClick={() => void confirmDeleteModel()}
-              disabled={deletingModel}
-            >
-              {deletingModel ? t('geology.deleting') : t('geology.deleteModelButton')}
-            </Button>
+            {deleteBlockedReason === null && (
+              <Button
+                variant="danger"
+                size="md"
+                onClick={() => void confirmDeleteModel()}
+                disabled={deletingModel}
+              >
+                {deletingModel ? t('geology.deleting') : t('geology.deleteModelButton')}
+              </Button>
+            )}
           </div>
         </div>
       </Modal>
