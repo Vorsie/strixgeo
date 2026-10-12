@@ -34,6 +34,8 @@ export type BootStage =
   | 'load-secrets'
   /** Pick a TCP port nothing else is using. */
   | 'acquire-port'
+  /** Pick the engine's loopback port: 8765 when free, else a free one. */
+  | 'acquire-api-port'
   /** ``initdb`` — first launch only. */
   | 'init-cluster'
   /** Spawn ``postgres.exe`` against the data directory. */
@@ -83,6 +85,7 @@ const STAGE_SENTENCES: Record<BootStage, string> = {
   'resolve-paths': 'StrixGeo could not find its own bundled files.',
   'load-secrets': 'StrixGeo could not read its own database credentials.',
   'acquire-port': 'StrixGeo could not reserve a network port on this machine.',
+  'acquire-api-port': 'StrixGeo could not reserve a network port for its data service.',
   'init-cluster': 'StrixGeo could not create its database storage.',
   'start-postgres': 'StrixGeo could not start its database.',
   'await-postgres-ready': 'The database started but never became reachable.',
