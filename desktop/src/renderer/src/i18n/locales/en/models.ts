@@ -139,6 +139,12 @@ export const MODELS = {
   'geology.deleteModelBody':
     'and all its formations, contacts, and cached surfaces will be permanently deleted. This cannot be undone.',
   'geology.deleteModelButton': 'Delete stratigraphic model',
+  // A model another model refines cannot be deleted (backend 409); the name is
+  // the DEPENDENT model's kind, the one to delete first.
+  'geology.deleteBlockedByLitho':
+    'This model cannot be deleted while another model refines it. Delete the lithological model first.',
+  'geology.deleteBlockedByGeotech':
+    'This model cannot be deleted while another model refines it. Delete the geotechnical model first.',
   // GeologyStage spine summary.
   'geology.summaryFormationOne': '{n} formation',
   'geology.summaryFormationMany': '{n} formations',
