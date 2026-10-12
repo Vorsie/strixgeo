@@ -1,6 +1,6 @@
 """Pydantic schema for ``POST /cpt/pdf/import``."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -25,6 +25,11 @@ class CptPdfImportRequest(StrictRequestModel):
         the calibration overlay (pages left out keep the digitiser's own).
     headers:
         Sounding key -> typed header values (position, ground level, date).
+    series_source:
+        Sounding key -> where a printed-table sounding's stored series comes
+        from: ``"table"`` (the printed rows, the default when a key is absent)
+        or ``"graph"`` (the curve read off its graph sheet through the
+        calibration in ``calibrations``). Additive (owner 2026-10-12).
     confirm_refresh:
         The user consented to replacing these soundings where they are
         already in the project. The dialog re-posts only the soundings he
@@ -36,4 +41,5 @@ class CptPdfImportRequest(StrictRequestModel):
     sounding_ids: list[str] = Field(min_length=1, max_length=500)
     calibrations: dict[str, list[dict[str, Any]]] | None = None
     headers: dict[str, CptPdfHeaderEdit] | None = None
+    series_source: dict[str, Literal["table", "graph"]] | None = None
     confirm_refresh: bool = False
