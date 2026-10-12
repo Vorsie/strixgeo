@@ -230,6 +230,7 @@ class ImportCptPdf(GroundModelLogger):
             request.key,
             request.calibrations,
             request.ground_level_m,
+            request.series_source,
         )
         header = _header(listed, request, report.digest.report_code)
         identity = PdfReportIdentity(
