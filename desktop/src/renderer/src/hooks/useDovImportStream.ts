@@ -28,6 +28,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import { messageForApiCode, messageForDetail } from '../api/clients/apiCodeMessages'
+import { getBaseUrl } from '../api/clients/shared'
 import { log } from '../utils/log'
 import { readSseEvents } from '../utils/sseEvents'
 
@@ -221,9 +222,9 @@ export function useDovImportStream(): UseDovImportStreamResult {
     // can use ``for await`` on the ReadableStream without making the
     // ``useCallback`` body itself async.
     void (async () => {
-      // The desktop always targets 127.0.0.1:8765 — replicate the API
-      // client's default since the module-level ``_base`` is not exported.
-      const base = 'http://127.0.0.1:8765'
+      // The engine origin the boot learned from main (a packaged engine may
+      // not be on 8765), read at call time like every API client.
+      const base = getBaseUrl()
 
       try {
         // Step 1 — spawn: POST returns 202 { job_id } immediately.
