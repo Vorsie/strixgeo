@@ -167,6 +167,18 @@ export interface CptPdfSheetHeader {
   test_date: string | null
 }
 
+/** Where a printed-table sounding's stored series comes from (owner
+ *  2026-10-12): the printed rows (default) or the curve read off its graph sheet. */
+export type CptPdfSeriesSource = 'table' | 'graph'
+
+/** Picture qc vs printed qc of a printed-table sounding. */
+export interface CptPdfGraphComparison {
+  /** Printed rows compared (those on the picture's curve). */
+  n: number
+  median_abs_qc_mpa: number
+  rms_qc_mpa: number
+}
+
 /** ``POST /cpt/pdf/digitise`` answer. */
 export interface CptPdfDigitised {
   sounding_id: string
@@ -182,7 +194,16 @@ export interface CptPdfDigitised {
   warnings: string[]
   /** The same notes as codes (see {@link CptPdfSounding.notes}). */
   notes?: CptPdfNote[]
+  /** One overlay per page; a printed-table sounding: per GRAPH sheet. */
   overlays: CptPdfOverlay[]
+  /** A printed-table sounding only: the rows its graph sheet's reading would
+   *  store (``series`` stays the printed table); null while no qc is read off
+   *  the picture. Absent from an older backend. */
+  graph_series?: Record<string, (number | boolean | null)[]> | null
+  /** A printed-table sounding whose graph sheet has a qc reading. */
+  graph_comparison?: CptPdfGraphComparison | null
+  /** ``table`` for a printed-table sounding; null/absent otherwise. */
+  series_source_default?: CptPdfSeriesSource | null
 }
 
 /** ``POST /cpt/pdf/digitise`` body. */
@@ -218,6 +239,10 @@ export interface CptPdfImportBody {
   sounding_ids: string[]
   calibrations?: Record<string, PageCalibrationDict[]>
   headers?: Record<string, CptPdfHeaderEdit>
+  /** Sounding key -> the source of a printed-table sounding's series; a key
+   *  left out stores the printed table. Sent only when non-empty: a backend
+   *  that predates the field refuses it as an extra input. */
+  series_source?: Record<string, CptPdfSeriesSource>
   confirm_refresh?: boolean
 }
 
@@ -281,6 +306,11 @@ export function runningTriageJobId(err: unknown): string | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null
   const jobId = (err.detail as { job_id?: unknown } | null | undefined)?.job_id
   return typeof jobId === 'string' && jobId.length > 0 ? jobId : null
+}
+
+/** True for a sounding read from its printed numeric table (owner 2026-10-08). */
+export function isPrintedTableSounding(s: Pick<CptPdfSounding, 'graph_kind'>): boolean {
+  return s.graph_kind === 'printed-table'
 }
 
 /** Typed wrappers for the ``/cpt/pdf/*`` endpoints. */
