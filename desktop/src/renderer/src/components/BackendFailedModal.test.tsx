@@ -63,3 +63,25 @@ describe('BackendFailedModal', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 })
+
+// Tester finding 2026-10-12: another program owned the engine port. With the
+// reason ``port-busy`` the dialog names the port and tells the user what to do.
+describe('BackendFailedModal - port-busy', () => {
+  const PORT_BUSY_BODY =
+    'Port 8767 is in use by another program. Close that program or restart the computer, then start StrixGeo again.'
+
+  it('BFM5 - port-busy names the port and the cure instead of the generic body', () => {
+    render(<BackendFailedModal open logsPath="C:/logs" reason="port-busy" port={8767} />)
+    expect(screen.getByText(PORT_BUSY_BODY)).toBeTruthy()
+    expect(screen.queryByText(GENERIC_BODY)).toBeNull()
+    // No update check: an update does not free a port. Quit is focused.
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Quit StrixGeo' }))
+    expect(screen.getByText(/C:\/logs\/backend\.log/)).toBeTruthy()
+  })
+
+  it('BFM6 - port-busy without a port (older main) falls back to 8765', () => {
+    render(<BackendFailedModal open logsPath={null} reason="port-busy" />)
+    expect(screen.getByText(PORT_BUSY_BODY.replace('8767', '8765'))).toBeTruthy()
+  })
+})
