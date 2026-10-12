@@ -29,6 +29,7 @@ import { useShell } from '../../ShellContext'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { useT } from '../../../i18n/translate'
+import { deleteBlockedMessageKey, findDependentModel } from '../../../utils/modelDependents'
 
 /**
  * Compact lithostratigraphic-model selector + creator.
@@ -70,8 +71,9 @@ export default function ModelKindPicker(): JSX.Element | null {
       await handleDeleteLithoModel(activeLithoModel.id)
       setConfirmDeleteOpen(false)
     } catch {
-      // handleDeleteLithoModel already toasted the reason; keep the
-      // dialog open so the user sees the action did not complete.
+      // handleDeleteLithoModel already toasted the reason (a 409 "another
+      // model refines it" as a warning); keep the dialog open so the user
+      // sees the action did not complete.
     } finally {
       setDeleting(false)
     }
@@ -81,6 +83,12 @@ export default function ModelKindPicker(): JSX.Element | null {
   if (activeGeologicalModel === null) return null
 
   const lithoModels = models.filter(m => m.kind === 'lithostratigraphic')
+  // A litho model a geotechnical model refines cannot be deleted (backend
+  // 409). Disable the affordance up front and say why, instead of offering
+  // an action the backend will refuse (walker finding 2026-10-12).
+  const dependentModel = findDependentModel(models, activeLithoModel?.id)
+  const deleteBlockedReason =
+    dependentModel !== null ? t(deleteBlockedMessageKey(dependentModel.kind)) : null
 
   async function commitCreate(): Promise<void> {
     const name = draftName.trim()
@@ -199,9 +207,10 @@ export default function ModelKindPicker(): JSX.Element | null {
             <button
               type="button"
               onClick={() => setConfirmDeleteOpen(true)}
-              title={t('litho.deleteModelHint')}
+              disabled={deleteBlockedReason !== null}
+              title={deleteBlockedReason ?? t('litho.deleteModelHint')}
               aria-label={t('litho.deleteModel')}
-              className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-status-danger"
+              className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-status-danger disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
             >
               <Trash2 size={12} />
             </button>
@@ -244,12 +253,23 @@ export default function ModelKindPicker(): JSX.Element | null {
         >
           {t('litho.deleteModelConfirm')}
         </h2>
-        <p className="mb-4 text-xs text-text-secondary">
-          <span className="font-medium text-text-primary">
-            {activeLithoModel?.name ?? t('litho.thisModelFallback')}
-          </span>{' '}
-          {t('litho.deleteModelBody')}
-        </p>
+        {deleteBlockedReason !== null ? (
+          // A dependent model appeared while the dialog was open: explain
+          // instead of offering an action the backend will refuse.
+          <p
+            className="mb-4 text-xs text-text-secondary"
+            data-testid="delete-litho-model-blocked"
+          >
+            {deleteBlockedReason}
+          </p>
+        ) : (
+          <p className="mb-4 text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">
+              {activeLithoModel?.name ?? t('litho.thisModelFallback')}
+            </span>{' '}
+            {t('litho.deleteModelBody')}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <Button
             variant="secondary"
@@ -264,14 +284,16 @@ export default function ModelKindPicker(): JSX.Element | null {
           >
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="danger"
-            size="md"
-            onClick={() => void confirmDelete()}
-            disabled={deleting}
-          >
-            {t('common.deletePermanently')}
-          </Button>
+          {deleteBlockedReason === null && (
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {t('common.deletePermanently')}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>
