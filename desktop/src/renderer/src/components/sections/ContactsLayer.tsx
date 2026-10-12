@@ -1907,6 +1907,19 @@ export default function ContactsLayer({
     function cancel(): void {
       setDrag(null)
     }
+    // Whether a release landed outside the section canvas (the owner SVG's
+    // on-screen box). A zero box (jsdom, collapsed canvas) proves nothing,
+    // so it never counts as outside.
+    function releasedOutsideCanvas(e: MouseEvent): boolean {
+      const rect = rootGRef.current?.ownerSVGElement?.getBoundingClientRect()
+      if (!rect || rect.width === 0 || rect.height === 0) return false
+      return (
+        e.clientX < rect.left ||
+        e.clientX > rect.right ||
+        e.clientY < rect.top ||
+        e.clientY > rect.bottom
+      )
+    }
     function handleMove(e: MouseEvent): void {
       if (e.buttons === 0) {
         cancel()
@@ -2051,6 +2064,20 @@ export default function ContactsLayer({
       const single = final.contactsInDrag.length === 1
       const target = final.currentTargetCol
       const altMove = e.altKey
+
+      // A cross-column drop counts only when the release lands ON the section
+      // canvas: the target column comes from the cursor X alone, so a release
+      // over a sidebar button still had a "target" and copied the contact
+      // (walker finding 2026-10-12, step 192). Outside = a plain no-op, like
+      // dropping onto nothing. jsdom (and a collapsed canvas) reports a zero
+      // box; no box means no evidence, so the drop is kept there.
+      if (target !== null && releasedOutsideCanvas(e)) {
+        log.debug('contacts', '[drag-commit] cross-column drop outside the canvas, ignored', {
+          contactId: final.contactId,
+          target: target.proj.item.id,
+        })
+        return
+      }
 
       // Litho axis: a Shift + cross-column drag of ACCEPTED litho boundaries
       // COPIES them onto the target test (owner ask, installer #35; multi-boundary
