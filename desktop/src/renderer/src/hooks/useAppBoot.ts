@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { resolveApiBaseUrl } from '../api/apiBaseUrl'
 import { setBaseUrl } from '../api/client'
 import { log } from '../utils/log'
 
@@ -67,7 +68,9 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
     if (!gateOpen || startedRef.current) return
     startedRef.current = true
     async function boot(): Promise<void> {
-      const base = await window.electron.getApiBaseUrl()
+      // The engine port is chosen by main in a packaged build (not always
+      // 8765); the dev default is the fallback when the bridge cannot say.
+      const base = await resolveApiBaseUrl(window.electron)
       setBaseUrl(base)
       log.info('boot', `API base = ${base}`)
       for (;;) {
@@ -83,13 +86,13 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
         } else {
           // ``false`` is cause-agnostic: the main process returns it when the
           // backend child exited (a startup crash), when a FOREIGN process holds
-          // port 8765 (wrong launch token, never a crash), or when the child was
+          // the API port (wrong launch token, never a crash), or when the child was
           // alive but used every readiness window without binding the port. Keep
           // the message neutral so support does not hunt a crash traceback that
           // the foreign-port case never produced.
           log.error(
             'boot',
-            'API did not become ready: the backend process exited, a foreign process holds port 8765, or it never bound the port within the readiness budget',
+            `API did not become ready: the backend process exited, a foreign process holds the API port (${base}), or it never bound the port within the readiness budget`,
           )
           setApiError(true)
         }
