@@ -125,6 +125,7 @@ import {
   configureUpdater,
   replayLastUpdaterEvent,
 } from './updaterService'
+import { configureUpdaterPreferenceStore } from './updaterPreferenceStore'
 
 // FIRST userData-affecting statement in the process, deliberately ahead of the
 // single-instance lock and every store — see packagedProfile.ts for why a
@@ -2186,6 +2187,9 @@ if (!gotSingleInstanceLock) {
       buildId: betaBuildStamp?.buildId,
     })
     configureBetaExpiryStore({ userDataDir: app.getPath('userData') })
+    // "Check for updates at start" + the pending-download record (owner ruling
+    // 2026-10-11). Read by the start check below and by the updater IPC.
+    configureUpdaterPreferenceStore({ userDataDir: app.getPath('userData') })
 
     // Activation (#3). The store learns userData + the stable hardware-derived
     // device id (so a reinstall re-binds the same seat); the issuer is the mock
@@ -2255,8 +2259,10 @@ if (!gotSingleInstanceLock) {
     // configured, so the mock/dogfeed default sends nothing.
     startDiagnosticsUpload()
 
-    // Auto-update check (#6) — a no-op in dev (gated on app.isPackaged). The
-    // window exists now, so its renderer can receive update events.
+    // Auto-update check (#6): the ONE automatic check, at start only. A no-op
+    // in dev (gated on app.isPackaged) and when the user switched "Check for
+    // updates at start" off. The window exists now, so its renderer can
+    // receive update events.
     checkForUpdatesOnLaunch()
 
     app.on('activate', () => {
