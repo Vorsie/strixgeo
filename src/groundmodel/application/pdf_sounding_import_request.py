@@ -29,6 +29,9 @@ class PdfSoundingImportRequest:
         Typed test date.
     project_number : str or None
         Typed project number (stored as the CPT's project id); blank = none.
+    series_source : str or None
+        A printed-table sounding only: ``"table"`` (the default) or ``"graph"``
+        (the curve read off its graph sheet, owner 2026-10-12).
     """
 
     key: str
@@ -39,3 +42,4 @@ class PdfSoundingImportRequest:
     ground_level_m: float | None = None
     test_date: str | None = None
     project_number: str | None = None
+    series_source: str | None = None
