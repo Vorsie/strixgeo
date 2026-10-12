@@ -2,7 +2,8 @@
 //
 // Scope mix: most settings ride in ``project.view_state`` (per-project,
 // travel with the .gmproj bundle); the Appearance section is per-user
-// and persists to localStorage via useTheme. Each section labels its
+// and persists to localStorage via useTheme, except "Check for updates at
+// start", which main owns (the start check runs before any renderer exists). Each section labels its
 // scope so a colleague opening the same .gmproj knows why their theme
 // didn't follow your file.
 //
@@ -23,6 +24,7 @@ import { LANGUAGE_LABELS, LANGUAGES, type Language } from '../i18n/i18n_constant
 import { setLanguage, useLanguage } from '../i18n/languageSelect'
 import { useT } from '../i18n/translate'
 import type { MessageKey } from '../i18n/locales/en'
+import { log } from '../utils/log'
 import {
   GEOTECH_SUBDIVISION_BOUNDS,
   GEOTECH_SUBDIVISION_DEFAULTS,
@@ -699,6 +701,7 @@ function AppearanceSection({
   // immediately with no Save step, and threading it through App would touch a
   // component this change has no other business in.
   const language = useLanguage()
+  const [checkAtStart, setCheckAtStart] = useUpdateCheckAtStart()
 
   return (
     <SectionShell
@@ -758,8 +761,67 @@ function AppearanceSection({
           {t('settings.appearance.themeHint')}
         </p>
       </div>
+
+      {/* Owner ruling 2026-10-11: the update check is a setting, default on,
+          and runs only at start. Hidden until main answers (or for an older
+          preload without the bridge). */}
+      {checkAtStart !== null && (
+        <div>
+          <div className="block text-[11px] font-medium text-text-secondary mb-1">
+            {t('settings.appearance.updates')}
+          </div>
+          <CheckboxRow
+            id="settings-update-check-at-start"
+            label={t('settings.appearance.updateCheckAtStart')}
+            hint={t('settings.appearance.updateCheckAtStartHint')}
+            checked={checkAtStart}
+            onChange={setCheckAtStart}
+          />
+        </div>
+      )}
     </SectionShell>
   )
+}
+
+/**
+ * The "Check for updates at start" setting, mirrored from main.
+ *
+ * Main owns the value (``<userData>/updater-preferences.json``); this hook
+ * pulls it once and writes a change straight through, like the other
+ * Appearance controls (reversible, no Save step). Returns ``null`` until main
+ * answers, and for an older preload that lacks the bridge.
+ */
+function useUpdateCheckAtStart(): [boolean | null, (next: boolean) => void] {
+  const [value, setValue] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const get = window.electron?.getUpdateCheckAtStart
+    if (typeof get !== 'function') return undefined
+    let mounted = true
+    get()
+      .then(stored => {
+        if (mounted) setValue(stored)
+      })
+      .catch(err => log.warn('settings', 'could not read the update-check setting', err))
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const update = (next: boolean): void => {
+    const set = window.electron?.setUpdateCheckAtStart
+    if (typeof set !== 'function') return
+    const previous = value
+    setValue(next)
+    set(next)
+      .then(stored => setValue(stored))
+      .catch(err => {
+        log.warn('settings', 'could not save the update-check setting', err)
+        setValue(previous)
+      })
+  }
+
+  return [value, update]
 }
 
 // ---------------------------------------------------------------------------
