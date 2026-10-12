@@ -226,6 +226,9 @@ export const CHROME = {
   // The engine refused a store a newer StrixGeo wrote (owner finding 2026-10-08).
   'app.backendFailedNewerDatabaseBody':
     'This project was saved by a newer version of StrixGeo. Install the latest version to open it. Your data is intact.',
+  // Another program owns the engine port (tester finding 2026-10-12).
+  'app.backendFailedPortBusyBody':
+    'Port {port} is in use by another program. Close that program or restart the computer, then start StrixGeo again.',
   'app.checkForUpdates': 'Check for updates',
   'app.backendUnreachableBody':
     'Saving and every other change are unavailable, and recent actions may not have been stored. Restart the app to reconnect.',
