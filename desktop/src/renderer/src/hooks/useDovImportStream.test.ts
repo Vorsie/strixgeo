@@ -15,6 +15,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useDovImportStream } from './useDovImportStream'
+import { DEFAULT_API_BASE_URL, setBaseUrl } from '../api/clients/shared'
 
 vi.mock('../utils/log', () => ({
   log: {
@@ -178,5 +179,22 @@ describe('useDovImportStream', () => {
       result.current.reset()
     })
     expect(result.current.state.status).toBe('idle')
+  })
+})
+
+// Tester finding 2026-10-12: a packaged engine may listen on a port other than
+// 8765. The DOV import stream must target the API base the app learned from main,
+// never a hard-coded :8765.
+describe('useDovImportStream - the engine port the app learned', () => {
+  afterEach(() => setBaseUrl(DEFAULT_API_BASE_URL))
+
+  it('DS8: spawns against the configured API base, not :8765', () => {
+    setBaseUrl('http://127.0.0.1:8767')
+    fetchMock.mockReturnValue(new Promise(() => {}))
+    const { result } = renderHook(() => useDovImportStream())
+    act(() => {
+      result.current.start(CPT_START)
+    })
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^http:\/\/127\.0\.0\.1:8767\//)
   })
 })
