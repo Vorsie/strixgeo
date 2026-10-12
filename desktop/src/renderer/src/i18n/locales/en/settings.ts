@@ -91,4 +91,8 @@ export const SETTINGS = {
   'settings.appearance.language': 'Interface language',
   'settings.appearance.languageHint':
     'Applies immediately, everywhere in the app. Field data keeps the wording of its source: soil names, NAD packing classes and DOV codes are shown as recorded, in every language.',
+  'settings.appearance.updates': 'Updates',
+  'settings.appearance.updateCheckAtStart': 'Check for updates at start',
+  'settings.appearance.updateCheckAtStartHint':
+    'Off: no automatic check. Help > Check for updates keeps working.',
 } as const
