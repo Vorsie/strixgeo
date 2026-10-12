@@ -103,6 +103,21 @@ export const CPT_PDF = {
   'cptPdf.overlay.notPrinted': 'Not printed on the sheet: type it.',
   'cptPdf.overlay.printedEditable': 'Read from the sheet: type a new value to replace a wrong one.',
   'cptPdf.overlay.readFailed': 'The sounding could not be read: {message}',
+  // A printed-table sounding (owner 2026-10-12, report Z2255777): its graph
+  // sheet is calibrated like any CPT sheet; the printed table stays the
+  // default source of the stored series.
+  'cptPdf.overlay.source': 'Source',
+  'cptPdf.overlay.sourceTable': 'printed table (default)',
+  'cptPdf.overlay.sourceGraph': 'read graph',
+  'cptPdf.overlay.sourceGraphHint': 'Set the axes and Read again to read the graph first.',
+  'cptPdf.overlay.tableRows': '{n} rows from the printed table',
+  'cptPdf.overlay.graphRows': '{n} rows read off the graph',
+  'cptPdf.overlay.graphNotRead':
+    'No qc curve read off the graph yet: type two tick values per axis, then Read again.',
+  'cptPdf.overlay.graphComparison': 'Graph vs table (qc, {n} rows): median {median} MPa, RMS {rms} MPa',
+  'cptPdf.overlay.noGraphSheet':
+    'No graph sheet printed for this sounding: the values come from the printed table.',
+  'cptPdf.overlay.saveHeader': 'Save header',
   'cptPdf.report.title': 'Import report',
   'cptPdf.report.status.imported': 'imported',
   'cptPdf.report.status.refreshed': 'replaced',
