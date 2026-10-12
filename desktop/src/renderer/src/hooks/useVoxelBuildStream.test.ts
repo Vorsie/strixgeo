@@ -19,6 +19,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useVoxelBuildStream } from './useVoxelBuildStream'
+import { DEFAULT_API_BASE_URL, setBaseUrl } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 
 vi.mock('../utils/log', () => ({
@@ -284,5 +285,22 @@ describe('useVoxelBuildStream', () => {
     if (result.current.state.status === 'running') {
       expect(result.current.state.cancelRequested).toBe(true)
     }
+  })
+})
+
+// Tester finding 2026-10-12: a packaged engine may listen on a port other than
+// 8765. The voxel build stream must target the API base the app learned from
+// main, never a hard-coded :8765.
+describe('useVoxelBuildStream - the engine port the app learned', () => {
+  afterEach(() => setBaseUrl(DEFAULT_API_BASE_URL))
+
+  it('VB12: spawns against the configured API base, not :8765', () => {
+    setBaseUrl('http://127.0.0.1:8767')
+    fetchMock.mockReturnValue(new Promise(() => {}))
+    const { result } = renderHook(() => useVoxelBuildStream())
+    act(() => {
+      result.current.start(START)
+    })
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^http:\/\/127\.0\.0\.1:8767\//)
   })
 })
