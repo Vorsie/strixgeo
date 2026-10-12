@@ -9,9 +9,21 @@
  * ## The gate the brief fixes
  *
  * Everything auto is gated on ``app.isPackaged`` so ``npm run dev`` never talks
- * to an update feed. {@link shouldAutoCheckOnLaunch} is that gate expressed once,
- * as a pure function, so the service reads as intent rather than as an inline
- * ``if``.
+ * to an update feed, and (owner ruling 2026-10-11) on the per-user "Check for
+ * updates at start" setting. {@link shouldAutoCheckOnLaunch} is that gate
+ * expressed once, as a pure function, so the service reads as intent rather
+ * than as an inline ``if``. The check runs ONLY at start: there is no periodic
+ * check, and the manual Help > Check for updates works whatever the setting.
+ *
+ * ## Install at the next start, never on quit
+ *
+ * A downloaded update is never installed when the app quits
+ * (``autoInstallOnAppQuit = false``, signed or not). electron-updater 6.8.9 has
+ * no "run the installer at the next launch" mode; what it does have is the
+ * pending cache (``<LOCALAPPDATA>/<updaterCacheDirName>/pending``, validated by
+ * sha512 in ``DownloadedUpdateHelper.validateDownloadedPath``). So the next
+ * start re-uses the downloaded file without a new download and the card offers
+ * "Install and restart" ({@link shouldResumePendingDownload}).
  */
 
 /** A renderer-safe summary of an available update. Strings or null, never richer. */
@@ -43,16 +55,56 @@ export interface RawUpdateInfo {
  * isPackaged : boolean
  *     ``app.isPackaged``. Only a packaged build has an ``app-update.yml`` and a
  *     real feed; a dev run has neither, so it never checks.
+ * checkAtStartEnabled : boolean
+ *     The "Check for updates at start" setting (default on). Off means no
+ *     automatic check at all.
  *
  * Returns
  * -------
  * boolean
- *     True only for a packaged build.
+ *     True only for a packaged build with the setting on.
  */
-export function shouldAutoCheckOnLaunch(isPackaged: boolean): boolean {
-  return isPackaged
+export function shouldAutoCheckOnLaunch(isPackaged: boolean, checkAtStartEnabled: boolean): boolean {
+  return isPackaged && checkAtStartEnabled
 }
 
+/** An update downloaded in an earlier session, remembered for the next start. */
+export interface PendingDownload {
+  /** The version that was downloaded, e.g. ``0.1.6``. */
+  version: string
+  /** Absolute path electron-updater reported in ``update-downloaded``. */
+  downloadedFile: string
+}
+
+/**
+ * Whether the update offered at start is the one already downloaded.
+ *
+ * True means: do not ask "Download?" again; let electron-updater serve the file
+ * from its pending cache (no bytes over the network) so the card offers
+ * "Install and restart". A newer version, a missing file, or no record at all
+ * falls back to the normal offer.
+ *
+ * Parameters
+ * ----------
+ * pending : PendingDownload | null
+ *     The remembered download, or null.
+ * offeredVersion : string
+ *     The version the feed offers now.
+ * fileExists : boolean
+ *     Whether ``pending.downloadedFile`` is still on disk.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True only when the versions match and the file is there.
+ */
+export function shouldResumePendingDownload(
+  pending: PendingDownload | null,
+  offeredVersion: string,
+  fileExists: boolean,
+): boolean {
+  return pending !== null && pending.version === offeredVersion && fileExists
+}
 
 
 /**
@@ -79,30 +131,6 @@ export function shouldAutoCheckOnLaunch(isPackaged: boolean): boolean {
  */
 export function shouldReplayOnLoad(event: { phase: string }): boolean {
   return event.phase === 'available' || event.phase === 'downloaded' || event.phase === 'error'
-}
-
-/**
- * Whether an update may be installed automatically when the app quits.
- *
- * ``electron-updater``'s ``autoInstallOnAppQuit`` swaps the downloaded installer
- * in on the next quit with no further prompt. For an UNSIGNED build that is a
- * silent replacement whose only trust is TLS to GitHub plus one publishing
- * account — so it stays off until the code-signing cert lands (audit H6, debt
- * #6). The renderer's "Install now" (``updater:quit-and-install``) remains the
- * explicit path in the meantime.
- *
- * Parameters
- * ----------
- * isSigned : boolean
- *     Whether this build is code-signed.
- *
- * Returns
- * -------
- * boolean
- *     True only for a signed build.
- */
-export function autoInstallOnQuit(isSigned: boolean): boolean {
-  return isSigned
 }
 
 /**
