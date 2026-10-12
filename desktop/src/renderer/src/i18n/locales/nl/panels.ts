@@ -370,6 +370,9 @@ export const PANELS_NL = {
   // De vangnet-toast bij een uiteengelopen staat (geen kastlijntje).
   'undo.undoFailed': 'Ongedaan maken mislukt: {action}. Geschiedenis gewist om de staat veilig te houden.',
   'undo.redoFailed': 'Opnieuw uitvoeren mislukt: {action}. Geschiedenis gewist om de staat veilig te houden.',
+  // Een opnieuw-uitvoeren dat een contact zou herscheppen dat de proef al
+  // draagt: een verwacht conflict (waarschuwing), geen fout.
+  'undo.redoContactExists': 'Opnieuw uitvoeren niet mogelijk: het contact bestaat al. De geschiedenis is gewist.',
 
   // -------------------------------------------------------------------------
   // sneltoetsenoverzicht (F1)
