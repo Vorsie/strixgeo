@@ -32,7 +32,11 @@ desktop/src/
     │   │                  ``api`` object re-exported from per-domain sub-modules. Zero caller
     │   │                  changes required; import from ``api/client`` as before.
     │   └── clients/       Per-domain API modules (Move 2 of god-component decomposition):
-    │       ├── shared.ts     HTTP primitives: _base, setBaseUrl, get/del/patch/put/post helpers
+    │       ├── shared.ts     HTTP primitives: _base, setBaseUrl, getBaseUrl, get/del/patch/put/post helpers.
+    │       │                 The engine origin is 8765 in dev / e2e; a packaged main may pick another
+    │       │                 port (boot stage `acquire-api-port`) and the boot learns it via
+    │       │                 `api/apiBaseUrl.ts` `resolveApiBaseUrl` (8765 fallback). URL builders outside
+    │       │                 the wrappers (SSE hooks) read `getBaseUrl()`, never a copied constant.
     │       ├── borehole.ts   BoreholeListItem, BoreholeDetailResponse, sample/lab types, boreholeClient
     │       ├── codelist.ts   G3Dv3, FormalStratigraphy, VirtueleBoringPredictions, codelistClient,
     │       │                 virtueleboringClient
