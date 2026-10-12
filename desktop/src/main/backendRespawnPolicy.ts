@@ -31,6 +31,35 @@ export type ExitAfterReadyAction = BackendExitAction | 'ignore'
 /** The probe verdicts ``decideExitAfterReady`` understands (see backendProbe.ts). */
 export type PortVerdict = 'reachable' | 'foreign' | 'unreachable'
 
+/** What to do about a backend exit that happened BEFORE readiness. */
+export type ExitBeforeReadyAction = 'adopt' | 'fail'
+
+/**
+ * Decide what a backend exit BEFORE readiness means, given a fresh port probe.
+ *
+ * In dev and e2e a listener that still answers is the hand-started uvicorn or
+ * the harness: our child lost the port race and the API is alive, so adopt it
+ * (#214d). In a PACKAGED app the engine is our own child on a port this launch
+ * chose; once it has exited, whatever answers on that port is another program
+ * (tester finding 2026-10-12), and adopting it would point the app at a service
+ * that is not StrixGeo. A packaged app never adopts.
+ *
+ * Parameters
+ * ----------
+ * packaged : boolean
+ *     ``app.isPackaged``.
+ * verdict : PortVerdict
+ *     The probe of the engine port taken right after the exit.
+ *
+ * Returns
+ * -------
+ * ExitBeforeReadyAction
+ *     ``'adopt'`` only for a dev/e2e listener that answers; ``'fail'`` otherwise.
+ */
+export function decideExitBeforeReady(packaged: boolean, verdict: PortVerdict): ExitBeforeReadyAction {
+  return !packaged && verdict === 'reachable' ? 'adopt' : 'fail'
+}
+
 /**
  * Decide whether to respawn the backend.
  *
@@ -68,7 +97,7 @@ export function decideBackendRespawn(
 /**
  * Decide what a backend exit AFTER readiness means, given a fresh port probe.
  *
- * Readiness is confirmed by probing ``:8765``, not by watching our child — so
+ * Readiness is confirmed by probing the engine port, not by watching our child — so
  * when an EXTERNAL backend owns the port (the dev session's own uvicorn, the
  * e2e harness), our child loses the bind and exits after the app already
  * marked the backend ready. That exit is not a crash: the API is alive.
@@ -79,7 +108,7 @@ export function decideBackendRespawn(
  * Parameters
  * ----------
  * verdict : PortVerdict
- *     The probe of ``:8765`` taken right after the exit: ``'reachable'`` when a
+ *     The probe of the engine port taken right after the exit: ``'reachable'`` when a
  *     backend still answers 2xx; ``'foreign'`` when a packaged probe was refused
  *     (a stale token — adopting it would 403 forever); ``'unreachable'``
  *     otherwise.
@@ -89,19 +118,24 @@ export function decideBackendRespawn(
  *     The current time.
  * guardWindowMs : number
  *     The crash-loop window handed to :func:`decideBackendRespawn`.
+ * packaged : boolean, optional
+ *     ``app.isPackaged``. A packaged app never treats a listener on its own
+ *     engine port as an external backend (see :func:`decideExitBeforeReady`), so
+ *     the respawn policy applies. Defaults to false (dev / e2e behaviour).
  *
  * Returns
  * -------
  * ExitAfterReadyAction
- *     ``'ignore'`` while the port still answers; otherwise the respawn policy's
- *     ``'respawn'`` / ``'give-up'``.
+ *     ``'ignore'`` while the port still answers in dev / e2e; otherwise the
+ *     respawn policy's ``'respawn'`` / ``'give-up'``.
  */
 export function decideExitAfterReady(
   verdict: PortVerdict,
   lastRespawnAtMs: number | null,
   nowMs: number,
   guardWindowMs: number,
+  packaged = false,
 ): ExitAfterReadyAction {
-  if (verdict === 'reachable') return 'ignore'
+  if (verdict === 'reachable' && !packaged) return 'ignore'
   return decideBackendRespawn(lastRespawnAtMs, nowMs, guardWindowMs)
 }
