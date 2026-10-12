@@ -16,7 +16,7 @@
  * listing them would only churn callback identities. Varying values
  * (``project``, ``contacts``, ``lithoContacts``, ``lithoLayers``) ARE listed.
  */
-import { useCallback, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react'
 
 import { api, DuplicateContactError, isApiStatus } from '../api/client'
 import type {
@@ -29,6 +29,8 @@ import type {
 } from '../api/client'
 import type { ContactCopyPayload } from '../components/sections/ContactsLayer'
 import type { UndoCommand } from './useUndoStack'
+import { UndoConflictError } from './undoConflictError'
+import { findContactInSlot, type ContactSlot } from './contactDuplicateHelpers'
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
 
@@ -190,6 +192,31 @@ export function useContactCrud({
   markMutated,
   toast,
 }: UseContactCrudParams): UseContactCrudResult {
+  // The LIVE contacts list for undo/redo closures: a command recorded minutes
+  // ago must judge the model as it is at redo time, not as its callback saw it.
+  const contactsRef = useRef(contacts)
+  contactsRef.current = contacts
+
+  // A redo re-creates contacts; if a create's slot (formation on that test) is
+  // taken again because the state moved on, the backend would refuse it with
+  // 409 and print a console error. Refuse BEFORE any request instead, as an
+  // expected conflict the undo engine shows as a warning (walker finding
+  // 2026-10-12, step 258). Throws on the first taken slot; returns otherwise.
+  const refuseRedoIntoTakenSlots = useCallback(
+    (creates: readonly ContactSlot[]): void => {
+      for (const slot of creates) {
+        const occupying = findContactInSlot(contactsRef.current, slot)
+        if (occupying) {
+          throw new UndoConflictError(
+            'undo.redoContactExists',
+            `formation ${slot.formation_id} already on ${slot.borehole_id ?? slot.cpt_id} as ${occupying.id}`,
+          )
+        }
+      }
+    },
+    [],
+  )
+
   // Re-pick an existing contact's depth — the commit handler for
   // the drag interaction on the section's ContactsLayer. Updates the
   // local contacts list optimistically on success so the polyline
@@ -568,6 +595,33 @@ export function useContactCrud({
         `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId} snapped=${snapped}` +
           (sectionId ? ` section=${sectionId}` : ''),
       )
+      // One contact per formation per test: the user wants the formation at
+      // the clicked depth, so an occupied slot MOVES the existing contact.
+      // Checked against the loaded contacts first so the POST the backend
+      // would refuse with 409 is never sent (walker finding 2026-10-12: every
+      // 409 prints a console error); the 409 catch below stays as the net
+      // for a stale local list.
+      const moveExistingInstead = async (existingId: string, via: string): Promise<void> => {
+        log.info(
+          'geology',
+          `createContact ${via}: moving existing ${existingId} to ${depth_m.toFixed(3)}m instead`,
+        )
+        try {
+          await handleUpdateContactDepth(existingId, depth_m, snapped)
+        } catch (moveErr) {
+          log.error('geology', 'duplicate-contact move failed', moveErr)
+          toast('error', t('sections.toast.contactMoveFailed'))
+        }
+      }
+      const occupying = findContactInSlot(contacts, {
+        formation_id: formationId,
+        borehole_id: anchorKind === 'borehole' ? anchorId : null,
+        cpt_id: anchorKind === 'cpt' ? anchorId : null,
+      })
+      if (occupying) {
+        await moveExistingInstead(occupying.id, 'slot taken')
+        return
+      }
       try {
         // Snap-placed contacts: depth came from a stratigraphy
         // observation boundary on the borehole, so source =
@@ -614,6 +668,7 @@ export function useContactCrud({
             setContacts(prev => prev.filter(c => c.id !== currentId))
           },
           reapply: async () => {
+            refuseRedoIntoTakenSlots([payload])
             const recreated = await api.geology.createContact(
               projectId,
               modelId,
@@ -638,23 +693,22 @@ export function useContactCrud({
         const existingId =
           err instanceof DuplicateContactError ? err.existingContactId : null
         if (existingId) {
-          log.info(
-            'geology',
-            `createContact 409 — moving existing ${existingId} to ${depth_m.toFixed(3)}m instead`,
-          )
-          try {
-            await handleUpdateContactDepth(existingId, depth_m, snapped)
-          } catch (moveErr) {
-            log.error('geology', 'duplicate-contact move failed', moveErr)
-            toast('error', t('sections.toast.contactMoveFailed'))
-          }
+          await moveExistingInstead(existingId, '409')
           return
         }
         log.error('geology', 'createContact failed', err)
         toast('error', t('sections.toast.contactPlaceFailed'))
       }
     },
-    [project, activeGeologicalModel, addToSessionImports, pushUndo, handleUpdateContactDepth],
+    [
+      project,
+      activeGeologicalModel,
+      contacts,
+      addToSessionImports,
+      pushUndo,
+      handleUpdateContactDepth,
+      refuseRedoIntoTakenSlots,
+    ],
   )
 
   // Cross-column COPY commit — fired by plain-drag onto a different
@@ -701,6 +755,11 @@ export function useContactCrud({
         after: FormationContactResponse
       }
       const created: FormationContactResponse[] = []
+      // The payload behind each ``created`` row, index-aligned. Redo re-posts
+      // ONLY these: a payload that took the "stamp on target" lane moved an
+      // existing contact, and re-posting it is refused as a duplicate
+      // (walker finding 2026-10-12: "Copy 0 and move 1" redo always failed).
+      const createdPayloads: ContactCopyPayload[] = []
       const patched: PatchedItem[] = []
       let failed = 0
       // Ids a same-batch cross-merge deleted. A 409 "stamp on target" move can
@@ -732,19 +791,27 @@ export function useContactCrud({
       for (let i = 0; i < creates.length; i += 1) {
         const payload = creates[i]
         try {
+          // Slot already taken on the target (pre-existing OR created
+          // earlier in this batch): go straight to the "stamp on target"
+          // PATCH below instead of sending a POST the backend refuses with
+          // 409 (walker finding 2026-10-12: every 409 prints a console
+          // error). A 409 from a stale local list still lands there.
+          const occupying = findContactInSlot(idIndex.values(), payload)
+          if (occupying) throw new DuplicateContactError(occupying.id)
           const row = await api.geology.createContact(
             projectId,
             modelId,
             withSection(payload),
           )
           created.push(row)
+          createdPayloads.push(payload)
           idIndex.set(row.id, row)
         } catch (err) {
           if (err instanceof DuplicateContactError) {
-            // 409: target already has a contact for this formation
-            // (either pre-existing OR just inserted earlier in this
-            // same batch). PATCH it to the new depth — "stamp on
-            // target" semantic, latest-copy-wins.
+            // Target already has a contact for this formation (either
+            // pre-existing OR just inserted earlier in this same batch).
+            // PATCH it to the new depth: the "stamp on target" semantic,
+            // latest-copy-wins.
             const before = idIndex.get(err.existingContactId)
             if (!before) {
               // Defensive: existing contact id missing from both the
@@ -808,7 +875,10 @@ export function useContactCrud({
       // longer has (installer #20 dogfeed 2026-09-06).
       if (crossMergeDeletedIds.size > 0) {
         for (let k = created.length - 1; k >= 0; k -= 1) {
-          if (crossMergeDeletedIds.has(created[k].id)) created.splice(k, 1)
+          if (crossMergeDeletedIds.has(created[k].id)) {
+            created.splice(k, 1)
+            createdPayloads.splice(k, 1)
+          }
         }
         for (let k = patched.length - 1; k >= 0; k -= 1) {
           if (crossMergeDeletedIds.has(patched[k].after.id)) patched.splice(k, 1)
@@ -855,7 +925,6 @@ export function useContactCrud({
       // the same shape (re-POSTs the creates with fresh ids,
       // re-PATCHes the moves to the post state).
       let currentCreatedIds = created.map(c => c.id)
-      const createdPayloads = creates.slice()
       const patchedSnapshots = patched.slice()
       pushUndo({
         descriptionKey: patched.length > 0 ? 'undo.copyMoveContacts' : 'undo.copyContacts',
@@ -896,8 +965,10 @@ export function useContactCrud({
           // POST fresh creates — capture new server ids for the
           // next revert.
           const recreated: FormationContactResponse[] = []
-          // We may NOT 409 this time around (the previous revert
-          // deleted them), so a plain POST is safe.
+          // The previous revert deleted these rows, so their slots are
+          // free unless the state moved on since; refuse before any POST
+          // when one is taken again (an expected conflict, not a failure).
+          refuseRedoIntoTakenSlots(createdPayloads)
           for (let j = 0; j < createdPayloads.length; j += 1) {
             const r = await api.geology.createContact(
               projectId,
@@ -939,6 +1010,7 @@ export function useContactCrud({
       pushUndo,
       contacts,
       refetchContacts,
+      refuseRedoIntoTakenSlots,
     ],
   )
 
