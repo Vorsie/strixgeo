@@ -96,4 +96,8 @@ export const SETTINGS_NL = {
   'settings.appearance.language': 'Taal van de interface',
   'settings.appearance.languageHint':
     'Wordt meteen overal toegepast. Meetgegevens behouden de bewoording van hun bron: grondsoorten, NAD-pakkingsklassen en DOV-codes worden in elke taal getoond zoals ze geregistreerd zijn.',
+  'settings.appearance.updates': 'Updates',
+  'settings.appearance.updateCheckAtStart': 'Bij het starten controleren op updates',
+  'settings.appearance.updateCheckAtStartHint':
+    'Uit: geen automatische controle. Help > Controleren op updates blijft werken.',
 } as const
