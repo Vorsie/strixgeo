@@ -14,6 +14,10 @@
  * default-focused, because installing the update IS the cure. The update card
  * (UpdateNotification) paints above this dialog, so its Download is reachable.
  *
+ * Named cause ``port-busy`` (tester finding 2026-10-12): another program owns
+ * the engine port. The body names the port and the cure (close that program or
+ * restart the computer); no update action, an update does not free a port.
+ *
  * UX notes (docs/ux.md compliance):
  *   - role="alertdialog" (not generic dialog) because it represents a
  *     fatal condition the user must acknowledge.
@@ -34,6 +38,9 @@ import { useT } from '../i18n/translate'
 import { log } from '../utils/log'
 import type { BackendFailureReasonDto } from '../utils/backendFailureTypes'
 
+/** The port named when a ``port-busy`` payload carries none (an older main). */
+const FALLBACK_ENGINE_PORT = 8765
+
 interface Props {
   /** Whether the modal is visible. */
   open: boolean
@@ -41,6 +48,8 @@ interface Props {
   logsPath: string | null
   /** The cause the main process recognised, or null / absent when unknown. */
   reason?: BackendFailureReasonDto | null
+  /** The engine port, named by the ``port-busy`` copy; null / absent = 8765. */
+  port?: number | null
 }
 
 /**
@@ -55,9 +64,16 @@ interface Props {
  *     to the ``backend.log`` file for diagnosis.
  * reason : BackendFailureReasonDto | null, optional
  *     The recognised cause; ``'newer-database'`` switches to the named copy
- *     and the Check for updates action.
+ *     and the Check for updates action; ``'port-busy'`` names the busy port.
+ * port : number | null, optional
+ *     The engine port for the ``port-busy`` copy.
  */
-export default function BackendFailedModal({ open, logsPath, reason = null }: Props): JSX.Element | null {
+export default function BackendFailedModal({
+  open,
+  logsPath,
+  reason = null,
+  port = null,
+}: Props): JSX.Element | null {
   const t = useT()
   const quitRef = useRef<HTMLButtonElement>(null)
   const checkRef = useRef<HTMLButtonElement>(null)
@@ -111,7 +127,9 @@ export default function BackendFailedModal({ open, logsPath, reason = null }: Pr
         </h2>
 
         <p id="backend-failed-desc" className="text-sm text-text-secondary">
-          {t(newerDatabase ? 'app.backendFailedNewerDatabaseBody' : 'app.backendFailedBody')}
+          {reason === 'port-busy'
+            ? t('app.backendFailedPortBusyBody', { port: String(port ?? FALLBACK_ENGINE_PORT) })
+            : t(newerDatabase ? 'app.backendFailedNewerDatabaseBody' : 'app.backendFailedBody')}
         </p>
 
         {logsPath && (
