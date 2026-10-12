@@ -25,7 +25,7 @@
 
 import { resolve, sep } from 'path'
 
-const API_PORT = 8765
+import { DEFAULT_API_PORT } from './embedded/apiPort'
 
 /**
  * Canonicalises a filesystem path for membership checks in an
@@ -116,8 +116,14 @@ export function sanitizeSaveDialogDefault(name: unknown): string | undefined {
  * ``new Function()``; ``connect-src`` adds the Vite HMR websocket. The
  * dev relaxation is acceptable because the dev build doesn't ship to
  * users.
+ *
+ * ``apiPort`` is the engine port ``connect-src`` allows: 8765 by default
+ * (dev / e2e), the port the packaged boot acquired otherwise.
  */
-export function buildContentSecurityPolicy(isDev: boolean): string {
+export function buildContentSecurityPolicy(
+  isDev: boolean,
+  apiPort: number = DEFAULT_API_PORT,
+): string {
   // Production allows ``'wasm-unsafe-eval'`` — CesiumJS (the 3D geo viewer)
   // instantiates a WebAssembly module, which a bare ``script-src 'self'``
   // blocks (``CompileError: ... violates ... script-src 'self'``). This token
@@ -130,7 +136,9 @@ export function buildContentSecurityPolicy(isDev: boolean): string {
     : "'self' 'wasm-unsafe-eval'"
   const connectSrc = [
     "'self'",
-    `http://127.0.0.1:${API_PORT}`,
+    // The engine port: 8765 in dev / e2e, whatever the packaged boot acquired
+    // otherwise (embedded/apiPort, tester finding 2026-10-12).
+    `http://127.0.0.1:${apiPort}`,
     // DOV WFS + per-permkey XML downloads
     'https://www.dov.vlaanderen.be',
     // DHMVII DEM raster service
