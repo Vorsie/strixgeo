@@ -147,6 +147,12 @@ export const MODELS_NL = {
   'geology.deleteModelBody':
     'en al zijn formaties, laaggrenzen en opgeslagen oppervlakken worden permanent verwijderd. Dit kan niet ongedaan gemaakt worden.',
   'geology.deleteModelButton': 'Stratigrafisch model verwijderen',
+  // Een model dat een ander model verfijnt kan niet verwijderd worden (backend
+  // 409); de naam is de soort van het AFHANKELIJKE model.
+  'geology.deleteBlockedByLitho':
+    'Dit model kan niet verwijderd worden zolang een ander model het verfijnt. Verwijder eerst het lithologische model.',
+  'geology.deleteBlockedByGeotech':
+    'Dit model kan niet verwijderd worden zolang een ander model het verfijnt. Verwijder eerst het geotechnische model.',
   // GeologyStage-samenvatting op de stappenbalk.
   'geology.summaryFormationOne': '{n} formatie',
   'geology.summaryFormationMany': '{n} formaties',
