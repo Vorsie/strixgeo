@@ -94,7 +94,7 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
   'updater.later': 'Straks',
   'updater.downloading': 'Update ophalen… {percent}%',
   'updater.downloadedTitle': 'Update klaar om te installeren',
-  'updater.downloadedBody': 'Versie {version} wordt toegepast wanneer je herstart.',
+  'updater.downloadedBody': 'Versie {version} staat klaar. Installeer nu met de knop, of bij de volgende start.',
   'updater.restart': 'Herstarten & installeren',
   'updater.upToDate': 'Je gebruikt al de nieuwste versie.',
   // Nog geen release gepubliceerd (bevinding g): rustig, geen fout.
