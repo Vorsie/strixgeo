@@ -346,4 +346,9 @@ contextBridge.exposeInMainWorld('electron', {
   // The latched updater event a late-mounting update card should still show
   // (available / downloaded / error), or null. Pulled once on mount.
   getLastUpdaterEvent: (): Promise<unknown> => ipcRenderer.invoke('updater:last-event'),
+  // "Check for updates at start" (Settings). Main owns the value; set answers
+  // the stored value after the write.
+  getUpdateCheckAtStart: (): Promise<boolean> => ipcRenderer.invoke('updater:get-check-at-start'),
+  setUpdateCheckAtStart: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('updater:set-check-at-start', enabled),
 })
