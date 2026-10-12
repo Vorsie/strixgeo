@@ -14,8 +14,15 @@ import { log } from '../../utils/log'
 import { noteNetworkFailure, noteNetworkSuccess } from '../networkHealth'
 import { messageForDetail } from './apiCodeMessages'
 
+/**
+ * The engine origin dev and e2e pin, and the fallback when main cannot say.
+ * A packaged engine may listen elsewhere (main's ``acquire-api-port`` boot
+ * stage, tester finding 2026-10-12); the boot learns that from main.
+ */
+export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8765'
+
 /** Mutable backend origin — reconfigured once at boot by `setBaseUrl`. */
-export let _base = 'http://127.0.0.1:8765'
+export let _base = DEFAULT_API_BASE_URL
 
 /**
  * Override the base URL used by every API call.
@@ -27,6 +34,22 @@ export let _base = 'http://127.0.0.1:8765'
  */
 export function setBaseUrl(url: string): void {
   _base = url
+}
+
+/**
+ * The current backend origin, read at call time.
+ *
+ * For callers that build a URL outside this module's wrappers (the SSE stream
+ * hooks): reading through this, never a copied constant, keeps them on the
+ * port the boot learned.
+ *
+ * Returns
+ * -------
+ * string
+ *   The origin, e.g. ``"http://127.0.0.1:8765"``.
+ */
+export function getBaseUrl(): string {
+  return _base
 }
 
 // Strip query-string before logging so future license keys / session tokens
