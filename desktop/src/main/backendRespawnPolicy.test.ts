@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { decideBackendRespawn, decideExitAfterReady, BACKEND_RESPAWN_GUARD_MS } from './backendRespawnPolicy'
+import {
+  BACKEND_RESPAWN_GUARD_MS,
+  decideBackendRespawn,
+  decideExitAfterReady,
+  decideExitBeforeReady,
+} from './backendRespawnPolicy'
 
 describe('decideBackendRespawn', () => {
   it('respawns on the first exit-after-ready (no prior respawn this session)', () => {
@@ -67,5 +72,30 @@ describe('decideExitAfterReady', () => {
 
   it('treats a foreign backend on the port as dead (packaged: a stale token would 403 forever)', () => {
     expect(decideExitAfterReady('foreign', null, 10_000, BACKEND_RESPAWN_GUARD_MS)).toBe('respawn')
+  })
+})
+
+// Tester finding 2026-10-12: in a PACKAGED app the engine is OUR child on a port
+// this launch chose. When that child exits, a listener still answering on the
+// port is somebody else's program, never our backend: a packaged app never
+// adopts it. Dev and e2e keep adopting (the hand-started uvicorn, the harness).
+describe('packaged: never adopt a foreign listener on the engine port', () => {
+  it('RP1 - exit before ready, port answers, packaged: fail, do not adopt', () => {
+    expect(decideExitBeforeReady(true, 'reachable')).toBe('fail')
+  })
+
+  it('RP2 - exit before ready, port answers, dev: adopt (external backend)', () => {
+    expect(decideExitBeforeReady(false, 'reachable')).toBe('adopt')
+  })
+
+  it('RP3 - exit before ready, port silent or foreign: fail in both builds', () => {
+    expect(decideExitBeforeReady(true, 'unreachable')).toBe('fail')
+    expect(decideExitBeforeReady(false, 'unreachable')).toBe('fail')
+    expect(decideExitBeforeReady(true, 'foreign')).toBe('fail')
+  })
+
+  it('RP4 - exit after ready, port answers, packaged: not ignored (respawn policy applies)', () => {
+    expect(decideExitAfterReady('reachable', null, 10_000, BACKEND_RESPAWN_GUARD_MS, true)).toBe('respawn')
+    expect(decideExitAfterReady('reachable', 9_800, 10_000, BACKEND_RESPAWN_GUARD_MS, true)).toBe('give-up')
   })
 })
