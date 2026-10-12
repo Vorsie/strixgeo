@@ -341,6 +341,9 @@ export const PANELS = {
   // The diverged-state safety net toast (no em-dash: sentence-final period).
   'undo.undoFailed': 'Undo failed: {action}. History cleared to keep state safe.',
   'undo.redoFailed': 'Redo failed: {action}. History cleared to keep state safe.',
+  // A redo that would re-create a contact the test already carries: an
+  // expected conflict (warning), not a failure.
+  'undo.redoContactExists': 'Cannot redo: the contact already exists. History cleared.',
 
   // -------------------------------------------------------------------------
   // cheatsheet (F1).
