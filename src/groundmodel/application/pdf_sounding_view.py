@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import polars as pl
 
@@ -29,6 +30,13 @@ class PdfSoundingView:
         Page number -> the overlay PNG (page + frames + orange curve).
     overlay_dpi : float
         Resolution of the overlays.
+    graph : DigitisedSounding or None
+        A printed-table sounding's graph sheet read through its calibration
+        (the overlays draw it); None for every other sounding.
+    graph_table : polars.DataFrame or None
+        The rows the graph reading would store; None while no qc is read.
+    comparison : dict or None
+        Picture qc vs printed qc (``qc_comparison``) when both exist.
     """
 
     listed: ReportSounding
@@ -37,3 +45,6 @@ class PdfSoundingView:
     sampling: str | None
     overlays: dict[int, bytes]
     overlay_dpi: float
+    graph: DigitisedSounding | None = None
+    graph_table: pl.DataFrame | None = None
+    comparison: dict[str, Any] | None = None
