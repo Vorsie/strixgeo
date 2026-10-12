@@ -34,6 +34,59 @@ export const RESPONSIVENESS_BUDGET_MS = 5000
  */
 export const IGNORED_REFUSAL_STATUSES: ReadonlySet<number> = new Set([409])
 
+/** One captured renderer error, with where the browser says it came from. */
+export interface CapturedConsoleError {
+  /** ``console`` for a ``console.error`` line, ``pageerror`` for an uncaught error. */
+  readonly source: 'console' | 'pageerror'
+  /** The message text. */
+  readonly text: string
+  /** ``msg.location().url`` -- the resource or script the line belongs to ('' when unknown). */
+  readonly locationUrl: string
+}
+
+/** Hosts that ARE the app: the backend port and the dev renderer server. */
+const APP_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
+/** Chromium's line for a resource the NETWORK failed (no HTTP answer at all). */
+const NETWORK_LOAD_FAILURE = /^Failed to load resource: net::ERR_/
+
+/**
+ * Whether a location URL is the app itself: the ``file://`` renderer bundle or
+ * a request to 127.0.0.1 / localhost (backend port, dev renderer). An empty or
+ * unparsable location counts as the app, so an error is never dropped by doubt.
+ */
+function isAppLocation(locationUrl: string): boolean {
+  if (locationUrl === '') return true
+  let url: URL
+  try {
+    url = new URL(locationUrl)
+  } catch {
+    return true
+  }
+  if (url.protocol === 'file:') return true
+  return APP_HOSTS.has(url.hostname)
+}
+
+/**
+ * Whether a captured error is NOT an app finding.
+ *
+ * Only one shape is ignored: a resource-load failure with a ``net::`` code
+ * (the network gave no answer) whose location is an EXTERNAL host -- a basemap
+ * tile from Esri / Geopunt / OSM that the network reset (walker replay
+ * 2026-10-12, a click on the Leaflet "+" zoom control). Every error from the
+ * app's own origin or the backend port is kept (a backend 409 still logs
+ * "Failed to load resource: the server responded with a status of 409" and is
+ * still a finding), and every pageerror is kept.
+ *
+ * @param error - The captured error with its source and location.
+ * @returns ``true`` when the error must not become a finding.
+ */
+export function isIgnoredConsoleError(error: CapturedConsoleError): boolean {
+  if (error.source !== 'console') return false
+  if (!NETWORK_LOAD_FAILURE.test(error.text)) return false
+  return !isAppLocation(error.locationUrl)
+}
+
 /**
  * Every new renderer console error / uncaught page error is a finding.
  *
