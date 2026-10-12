@@ -100,6 +100,14 @@ describe('buildContentSecurityPolicy', () => {
     expect(csp).toContain('ws://localhost:*')
   })
 
+  // Tester finding 2026-10-12: a packaged engine may listen on a port other
+  // than 8765, so the renderer's connect-src must allow THAT port.
+  it('connect-src allows the engine port the packaged app chose', () => {
+    const csp = buildContentSecurityPolicy(false, 8767)
+    expect(csp).toContain('http://127.0.0.1:8767')
+    expect(csp).not.toContain('http://127.0.0.1:8765')
+  })
+
   it('connect-src whitelists the local API + DOV + DEM + OSM tiles', () => {
     const csp = buildContentSecurityPolicy(false)
     expect(csp).toContain('http://127.0.0.1:8765')
