@@ -4,8 +4,10 @@
   digitised sounding; the stored ground level is the table's printed level +
   depth, and the provenance says so (``ground_level_m`` sourced
   "printed-table", not "sheet").
-* A printed-table sounding has no calibration: a typed ground level or a
-  posted calibration never re-reads it (there is no curve to re-read).
+* A printed-table sounding's TABLE has no calibration: a typed ground level
+  never re-reads it, and a calibration on one of its table pages is refused.
+  Its graph sheet does take a calibration (owner 2026-10-12, report
+  Z2255777): see ``test_cpt_pdf_table_graph_twin.py``.
 """
 
 from __future__ import annotations
@@ -76,20 +78,23 @@ async def test_the_ground_level_is_stored_as_derived_from_the_printed_table(
 
 
 def test_a_typed_ground_level_does_not_re_read_a_printed_table(store: PdfReportStore) -> None:
-    """No calibration to re-read through: the table's own sounding comes back."""
+    """No calibration to re-read through: the table's own rows come back."""
     use_case = DigitiseCptPdfSounding(store)
     base = store.require(PROJECT, SHA).soundings[synth.SOUNDING]
-    assert use_case.sounding(PROJECT, SHA, synth.SOUNDING, ground_level_m=7.0) is base
+    stored = use_case.sounding(PROJECT, SHA, synth.SOUNDING, ground_level_m=7.0)
+    assert stored.curves is base.curves
+    assert stored.table_provenance is not None
+    assert stored.table_provenance["series_source"] == "table"
 
 
-def test_a_posted_calibration_is_refused_for_a_printed_table(store: PdfReportStore) -> None:
-    """A calibration names a graph page; a printed-table sounding has none to apply."""
+def test_a_calibration_on_a_table_page_is_refused(store: PdfReportStore) -> None:
+    """A calibration names a graph page; a printed table's own page has no axes."""
     use_case = DigitiseCptPdfSounding(store)
     fake = {
         "page_number": 2,
         "coordinate_space": "pdf-pt",
         "dpi": None,
-        "depth_reference": "depth-below-ground",
+        "depth_reference": "depth",
         "panels": [],
     }
     with pytest.raises(ValueError, match="printed table"):
