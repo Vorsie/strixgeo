@@ -236,6 +236,8 @@ export const CHROME_NL = {
     'Het StrixGeo-backendproces is afgesloten voordat het klaar was. Dit wijst meestal op een probleem met de databankverbinding of een crash bij het opstarten.',
   'app.backendFailedNewerDatabaseBody':
     'Dit project is opgeslagen door een nieuwere versie van StrixGeo. Installeer de nieuwste versie om het te openen. Je gegevens zijn intact.',
+  'app.backendFailedPortBusyBody':
+    'Poort {port} is bezet door een ander programma. Sluit dat programma of herstart de computer, en start StrixGeo opnieuw.',
   'app.checkForUpdates': 'Controleren op updates',
   'app.backendUnreachableBody':
     'Opslaan en alle andere wijzigingen zijn niet beschikbaar, en recente acties zijn mogelijk niet bewaard. Herstart de app om opnieuw verbinding te maken.',
