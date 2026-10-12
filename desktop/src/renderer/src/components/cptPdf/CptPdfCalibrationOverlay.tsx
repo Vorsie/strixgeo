@@ -23,6 +23,15 @@
 // resolves only the pages it is given), so the reset re-reads the page exactly
 // as the first open did.
 //
+// A printed-table sounding (owner ruling 2026-10-12, report Z2255777: "i see
+// the thumbnail, i should be able to set the axes, that is a cpt"): the
+// overlay shows its GRAPH sheet with the axes the backend detected and is
+// edited exactly as a raster sheet. The printed table stays the default
+// source of the stored series; the "Source" switch lets the user store the
+// curve read off the graph instead, once one is read. A report that prints no
+// graph sheet for it shows the sheet header to correct instead of an empty
+// panel.
+//
 // One component with a small canvas (the eyedropper's pixel read); the page
 // drawing lives in CptPdfOverlaySurface.tsx, the pure dict edits in
 // cptPdfCalibrationEdits.ts.
@@ -31,8 +40,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   cptPdfClient,
+  isPrintedTableSounding,
   type CptPdfDigitised,
   type CptPdfHeaderEdit,
+  type CptPdfSeriesSource,
   type CptPdfSounding,
   type PageCalibrationDict,
   type PanelKindValue,
@@ -65,6 +76,9 @@ export interface CptPdfSoundingEdit {
   detected?: PageCalibrationDict[]
   /** The user's edits over ``detected`` (reopening keeps them). */
   edits?: CalibrationEdits
+  /** A printed-table sounding stored from its graph sheet instead of its
+   *  printed table; absent = the printed table (the default). */
+  seriesSource?: Extract<CptPdfSeriesSource, 'graph'>
 }
 
 /** Reads one pixel of the overlay image (RGB 0..255), or null when unreadable. */
@@ -147,11 +161,19 @@ export default function CptPdfCalibrationOverlay({
   const [panelIdx, setPanelIdx] = useState(0)
   const [eyedropper, setEyedropper] = useState(false)
   const [header, setHeader] = useState<CptPdfHeaderEdit>(initial.header ?? {})
+  const [seriesSource, setSeriesSource] = useState<CptPdfSeriesSource>(initial.seriesSource ?? 'table')
   const dragRef = useRef<Drag | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
 
   const cals = useMemo(() => applyEdits(detected, edits), [detected, edits])
-  const edited = hasEdits(edits) || Object.keys(header).length > 0
+  const edited = hasEdits(edits) || Object.keys(header).length > 0 || seriesSource === 'graph'
+  // A printed-table sounding: the series is the printed table, the overlay
+  // calibrates its graph sheet (an older backend sends no default source).
+  const printedTable = isPrintedTableSounding(sounding) || data?.series_source_default === 'table'
+  const graphRows = data?.graph_series?.depth_m?.length ?? 0
+  // "Read graph" holds only while the picture has a qc reading.
+  const source: CptPdfSeriesSource = graphRows > 0 ? seriesSource : 'table'
+  const noGraphSheet = printedTable && data !== null && data.overlays.length === 0
 
   // ``adoptAsDetected``: the answer's calibration is the digitiser's own (a
   // read that posted none, or a reopen that kept no ``detected``).
@@ -308,7 +330,20 @@ export default function CptPdfCalibrationOverlay({
     if ((typed.x !== undefined || typed.y !== undefined) && typed.epsg === undefined && (printed?.epsg ?? null) === null) {
       typed.epsg = DEFAULT_EPSG
     }
-    onDone({ calibrations: cals, header: typed, detected, edits })
+    if (!printedTable) {
+      onDone({ calibrations: cals, header: typed, detected, edits })
+      return
+    }
+    // A printed-table sounding posts its graph calibration only once it reads
+    // a qc curve: a detected draft without tick values would fail the import.
+    log.info('cpt-pdf', `sounding ${sounding.key}: stored from the ${source === 'graph' ? 'graph sheet' : 'printed table'}`)
+    onDone({
+      ...(graphRows > 0 ? { calibrations: cals } : {}),
+      header: typed,
+      detected,
+      edits,
+      ...(source === 'graph' ? { seriesSource: 'graph' as const } : {}),
+    })
   }
 
   // Drop every edit and let the digitiser pick the calibration again: no
@@ -317,6 +352,7 @@ export default function CptPdfCalibrationOverlay({
     log.info('cpt-pdf', `sounding ${sounding.key}: user edits dropped, reading the detected calibration again`)
     setEdits({})
     setHeader({})
+    setSeriesSource('table')
     setEyedropper(false)
     void read({})
   }
@@ -329,6 +365,82 @@ export default function CptPdfCalibrationOverlay({
   const anyPrinted = printedFlags.some(Boolean)
   const anyMissing = printedFlags.some(flag => !flag)
 
+  // The sheet header (always editable, see the file comment); shared by the
+  // calibration side panel and the no-graph-sheet view of a printed table.
+  const headerFieldset = (
+    <fieldset className="flex flex-col gap-1" data-testid="cpt-pdf-header">
+      <legend className="font-semibold">{t('cptPdf.overlay.header')}</legend>
+      {anyPrinted && (
+        <p data-testid="cpt-pdf-header-printed-hint" className="text-text-secondary">
+          {t('cptPdf.overlay.printedEditable')}
+        </p>
+      )}
+      {anyMissing && (
+        <p data-testid="cpt-pdf-header-not-printed-hint" className="text-text-secondary">
+          {t('cptPdf.overlay.notPrinted')}
+        </p>
+      )}
+      {headerInput('x', t('cptPdf.overlay.x'))}
+      {headerInput('y', t('cptPdf.overlay.y'))}
+      {headerInput('epsg', t('cptPdf.overlay.epsg'), DEFAULT_EPSG)}
+      {headerInput('ground_level_m', t('cptPdf.overlay.groundLevel'))}
+      <label className="flex flex-col">
+        <span className="text-text-secondary">{t('cptPdf.overlay.date')}</span>
+        <input
+          data-testid="cpt-pdf-header-date"
+          className={`w-28 px-1 ${FIELD_CLASS}`}
+          placeholder={printed?.test_date ?? ''}
+          value={header.test_date ?? ''}
+          onChange={e => {
+            const v = e.target.value
+            setHeader(h => (v === '' ? withoutHeaderKey(h, 'test_date') : { ...h, test_date: v }))
+          }}
+        />
+      </label>
+    </fieldset>
+  )
+
+  // A printed-table sounding: the rows of the table, of the graph reading,
+  // how far apart they are, and which one the import stores.
+  const comparison = data?.graph_comparison
+  const sourceGroup = `cpt-pdf-series-source-${sounding.key}`
+  const tableSummary = data && printedTable && (
+    <>
+      <p data-testid="cpt-pdf-table-rows">{t('cptPdf.overlay.tableRows', { n: data.series.depth_m?.length ?? 0 })}</p>
+      {graphRows > 0 ? (
+        <p data-testid="cpt-pdf-graph-rows">{t('cptPdf.overlay.graphRows', { n: graphRows })}</p>
+      ) : (
+        <p data-testid="cpt-pdf-graph-not-read">{t('cptPdf.overlay.graphNotRead')}</p>
+      )}
+      {comparison && (
+        <p data-testid="cpt-pdf-graph-comparison">
+          {t('cptPdf.overlay.graphComparison', {
+            n: comparison.n,
+            median: comparison.median_abs_qc_mpa.toFixed(2),
+            rms: comparison.rms_qc_mpa.toFixed(2),
+          })}
+        </p>
+      )}
+      <fieldset className="flex flex-col gap-0.5" data-testid="cpt-pdf-series-source">
+        <legend className="font-semibold">{t('cptPdf.overlay.source')}</legend>
+        <label className="flex items-center gap-1">
+          <input type="radio" name={sourceGroup} checked={source === 'table'} onChange={() => setSeriesSource('table')} />
+          {t('cptPdf.overlay.sourceTable')}
+        </label>
+        <label className="flex items-center gap-1" title={graphRows > 0 ? undefined : t('cptPdf.overlay.sourceGraphHint')}>
+          <input
+            type="radio"
+            name={sourceGroup}
+            checked={source === 'graph'}
+            disabled={graphRows === 0}
+            onChange={() => setSeriesSource('graph')}
+          />
+          {t('cptPdf.overlay.sourceGraph')}
+        </label>
+      </fieldset>
+    </>
+  )
+
   return (
     <div className="flex flex-col gap-2 text-xs" data-testid="cpt-pdf-overlay">
       <h3 className="text-sm font-semibold">
@@ -339,6 +451,13 @@ export default function CptPdfCalibrationOverlay({
       </p>
       {!data && !error && <p>{t('cptPdf.overlay.loading')}</p>}
       {error && <p className="text-red-600">{t('cptPdf.overlay.readFailed', { message: error })}</p>}
+      {data && noGraphSheet && (
+        <div className="flex flex-col gap-2">
+          <p data-testid="cpt-pdf-no-graph-sheet">{t('cptPdf.overlay.noGraphSheet')}</p>
+          <p data-testid="cpt-pdf-table-rows">{t('cptPdf.overlay.tableRows', { n: data.series.depth_m?.length ?? 0 })}</p>
+          {headerFieldset}
+        </div>
+      )}
       {data && cal && overlay && (
         <div className="flex gap-3">
           <div className="max-h-[60vh] flex-1 overflow-auto border border-border-subtle">
@@ -430,11 +549,15 @@ export default function CptPdfCalibrationOverlay({
                 </Button>
               </>
             )}
-            <p>
-              {data.series.depth_m?.length
-                ? t('cptPdf.overlay.rows', { n: data.series.depth_m.length })
-                : t('cptPdf.overlay.noRows')}
-            </p>
+            {printedTable ? (
+              tableSummary
+            ) : (
+              <p>
+                {data.series.depth_m?.length
+                  ? t('cptPdf.overlay.rows', { n: data.series.depth_m.length })
+                  : t('cptPdf.overlay.noRows')}
+              </p>
+            )}
             {data.clipped_count > 0 && (
               <p data-testid="cpt-pdf-clipped" className="text-amber-700 dark:text-amber-400">
                 {t('cptPdf.overlay.clipped', { n: data.clipped_count })}
@@ -448,36 +571,7 @@ export default function CptPdfCalibrationOverlay({
                 ))}
               </ul>
             </details>
-            <fieldset className="flex flex-col gap-1" data-testid="cpt-pdf-header">
-              <legend className="font-semibold">{t('cptPdf.overlay.header')}</legend>
-              {anyPrinted && (
-                <p data-testid="cpt-pdf-header-printed-hint" className="text-text-secondary">
-                  {t('cptPdf.overlay.printedEditable')}
-                </p>
-              )}
-              {anyMissing && (
-                <p data-testid="cpt-pdf-header-not-printed-hint" className="text-text-secondary">
-                  {t('cptPdf.overlay.notPrinted')}
-                </p>
-              )}
-              {headerInput('x', t('cptPdf.overlay.x'))}
-              {headerInput('y', t('cptPdf.overlay.y'))}
-              {headerInput('epsg', t('cptPdf.overlay.epsg'), DEFAULT_EPSG)}
-              {headerInput('ground_level_m', t('cptPdf.overlay.groundLevel'))}
-              <label className="flex flex-col">
-                <span className="text-text-secondary">{t('cptPdf.overlay.date')}</span>
-                <input
-                  data-testid="cpt-pdf-header-date"
-                  className={`w-28 px-1 ${FIELD_CLASS}`}
-                  placeholder={printed?.test_date ?? ''}
-                  value={header.test_date ?? ''}
-                  onChange={e => {
-                    const v = e.target.value
-                    setHeader(h => (v === '' ? withoutHeaderKey(h, 'test_date') : { ...h, test_date: v }))
-                  }}
-                />
-              </label>
-            </fieldset>
+            {headerFieldset}
           </div>
         </div>
       )}
@@ -489,7 +583,7 @@ export default function CptPdfCalibrationOverlay({
           size="sm"
           variant="secondary"
           data-testid="cpt-pdf-reset"
-          disabled={busy || !data || !edited}
+          disabled={busy || !data || !edited || noGraphSheet}
           onClick={pickAutomatically}
         >
           {t('cptPdf.overlay.reset')}
@@ -498,13 +592,13 @@ export default function CptPdfCalibrationOverlay({
           size="sm"
           variant="secondary"
           data-testid="cpt-pdf-reextract"
-          disabled={busy || !data}
+          disabled={busy || !data || noGraphSheet}
           onClick={() => void read({ calibrations: cals, groundLevelM: header.ground_level_m })}
         >
           {t('cptPdf.overlay.reextract')}
         </Button>
         <Button size="sm" variant="primary" data-testid="cpt-pdf-use" disabled={busy || !data} onClick={done}>
-          {t('cptPdf.overlay.use')}
+          {noGraphSheet ? t('cptPdf.overlay.saveHeader') : t('cptPdf.overlay.use')}
         </Button>
       </div>
     </div>
