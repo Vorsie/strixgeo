@@ -40,7 +40,18 @@ class CptPdfDigitiseResponse(BaseModel):
         the same order; the desktop renders them in the app language. Empty
         by default, so an answer built without them still validates.
     overlays:
-        One overlay PNG per page.
+        One overlay PNG per page (a printed-table sounding: per graph sheet).
+    graph_series:
+        A printed-table sounding only: the rows its graph sheet's reading
+        would store (same shape as ``series``); None while no qc is read off
+        the picture and for every other sounding. ``series`` stays the
+        printed table, the default source (owner 2026-10-12).
+    graph_comparison:
+        A printed-table sounding whose graph sheet has a qc reading: picture
+        qc vs printed qc, ``{"n", "median_abs_qc_mpa", "rms_qc_mpa"}``.
+    series_source_default:
+        ``"table"`` for a printed-table sounding (what the import stores
+        unless told otherwise); None for every other sounding.
     """
 
     sounding_id: str
@@ -55,3 +66,6 @@ class CptPdfDigitiseResponse(BaseModel):
     warnings: list[str]
     notes: list[dict[str, Any]] = []
     overlays: list[CptPdfOverlay]
+    graph_series: dict[str, list[Any]] | None = None
+    graph_comparison: dict[str, Any] | None = None
+    series_source_default: str | None = None
