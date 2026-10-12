@@ -135,9 +135,29 @@ and the raster fallback. Package files `printed_table_*.py`,
   groundwater and free remark verbatim, pre-drill, no-measurement stretches),
   printed columns, ignored columns, `q_total_column`, ground level + first row,
   level / Rf mismatches, `rf_dropped`, floor rows + effective pre-drill,
-  rejected rows, data / graph / calculation pages, the named systems. A
-  printed-table sounding has no calibration: the digitise call returns it as
-  read and refuses a posted calibration.
+  rejected rows, data / graph / calculation pages, the named systems, the
+  stored `series_source` ("table" / "graph") and, when the graph sheet was
+  read too, `graph_comparison` (`n`, `median_abs_qc_mpa`, `rms_qc_mpa`:
+  picture qc minus printed qc at the printed depths).
+* **The graph sheet is a CPT sheet** (owner ruling 2026-10-12, report
+  Z2255777: "i see the thumbnail, i should be able to set the axes, that is a
+  cpt"). The triage never reads it (OCR per sheet); `DigitiseCptPdfSounding`
+  reads it on demand when the overlay opens: `digitise_raster` on each graph
+  page (one-frame axes by OCR when installed), else a qc draft on the page's
+  picture (`graph_twin_helpers.picture_draft`) so there is always a frame to
+  drag. The automatic reading is cached on `CachedPdfReport.graph_twins`. A
+  posted calibration on a graph page re-reads it through the raster path; one
+  on a table page is refused (422). The digitise answer keeps `series` = the
+  printed table and adds `graph_series`, `graph_comparison`,
+  `series_source_default = "table"`; `calibrations` / `overlays` are the graph
+  sheet's. The table stays the default stored series; the import body's
+  additive `series_source: {key: "graph"}` stores the picture reading instead
+  (a qc read off the picture is required, else the sounding fails with a
+  message), under the printed header (id, pre-drill, CPT type). Desktop:
+  "Assen controleren" works as for a raster sheet, with the switch "Bron:
+  gedrukte tabel (standaard) / afgelezen grafiek", "afgelezen grafiek" enabled
+  once a qc is read; a report that prints no graph sheet shows the header to
+  correct instead of an empty panel.
 * **Owner rulings 2026-10-09 (report Z1234567)**: a contradicting printed Rf
   is dropped ("laat die maar vallen die rf"); a closed-point stretch between
   two rows breaks the line row above to row below ("a, break the line"); Qt
