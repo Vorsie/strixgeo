@@ -204,6 +204,10 @@ declare global {
       onUpdaterEvent: (cb: (event: UpdaterEventDto) => void) => () => void
       // Optional so a renderer on an older preload degrades to push-only.
       getLastUpdaterEvent?: () => Promise<UpdaterEventDto | null>
+      // "Check for updates at start" (owner ruling 2026-10-11). Optional so a
+      // renderer on an older preload hides the Settings row instead of throwing.
+      getUpdateCheckAtStart?: () => Promise<boolean>
+      setUpdateCheckAtStart?: (enabled: boolean) => Promise<boolean>
       // Guided tutorial (Help → Tutorial / Restart tutorial).
       onMenuTutorial: (cb: () => void) => () => void
       onMenuRestartTutorial: (cb: () => void) => () => void
