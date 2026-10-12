@@ -35,6 +35,7 @@ import type {
   GeologicalModelResponse,
   ProjectResponse,
 } from '../api/client'
+import { isApiStatus } from '../api/clients/shared'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
@@ -614,7 +615,15 @@ export function useGeologicalModelOps({
       markMutated()
       log.success('geology', `handleDeleteModel ok model=${modelId}`)
     } catch (err) {
-      log.error('geology', `handleDeleteModel failed model=${modelId}`, err)
+      if (isApiStatus(err, 409)) {
+        // Expected refusal: a lithostratigraphic model refines this one. The
+        // toolbar disables Delete when the local list shows the child, so this
+        // is only the stale-list safety net; WARN, not ERROR (walker finding
+        // 2026-10-12). GeologyToolbar toasts the explanation.
+        log.warn('geology', `handleDeleteModel refused model=${modelId}: another model refines it`)
+      } else {
+        log.error('geology', `handleDeleteModel failed model=${modelId}`, err)
+      }
       throw err
     }
   }, [
