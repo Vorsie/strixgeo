@@ -44,4 +44,26 @@ describe('updater + backend-failed wiring', () => {
     expect(IPC).toContain("ipcMain.handle('updater:last-event'")
     expect(PRELOAD).toContain("ipcRenderer.invoke('updater:last-event')")
   })
+
+  // Owner ruling 2026-10-11 (option a): "Check for updates at start" is a
+  // setting in main's userData store, readable at launch, written through an
+  // additive IPC, mirrored in the Settings dialog.
+  it('UW5 - the start-check setting is read and written through IPC', () => {
+    expect(IPC).toContain("ipcMain.handle('updater:get-check-at-start'")
+    expect(IPC).toContain("ipcMain.handle('updater:set-check-at-start'")
+    expect(PRELOAD).toContain("ipcRenderer.invoke('updater:get-check-at-start')")
+    expect(PRELOAD).toContain("ipcRenderer.invoke('updater:set-check-at-start', enabled)")
+  })
+
+  it('UW6 - main points the preference store at userData before the start check', () => {
+    const configure = MAIN.indexOf("configureUpdaterPreferenceStore({ userDataDir: app.getPath('userData') })")
+    const check = MAIN.indexOf('checkForUpdatesOnLaunch()\n')
+    expect(configure).toBeGreaterThanOrEqual(0)
+    expect(check).toBeGreaterThan(configure)
+  })
+
+  it('UW7 - a finished download is remembered so the next start offers the install', () => {
+    expect(UPDATER).toContain('writePendingDownload({')
+    expect(UPDATER).toContain('shouldResumePendingDownload(')
+  })
 })
