@@ -153,4 +153,51 @@ describe('ModelKindPicker (#55)', () => {
       screen.getByLabelText('New lithological model name'),
     ).toBeInTheDocument()
   })
+
+  // Walker finding 2026-10-12: the backend refuses (409) to delete a model
+  // that another model refines. The rule, in the ruling's words: when the
+  // model to delete has a dependent model, the delete affordance is disabled
+  // with an explanation, and the dialog shows the explanation instead of the
+  // destructive button. No dependent model: the button stays active.
+  const GEOTECH_BLOCK_EN =
+    'This model cannot be deleted while another model refines it. Delete the geotechnical model first.'
+
+  it('a litho model with a geotechnical child: the delete button is disabled and explains why', () => {
+    const litho = model('l1', 'Litho A', 'lithostratigraphic', true)
+    const geotech = { ...model('t1', 'Geotech A', 'geotechnical'), parent_model_id: 'l1' }
+    geoModel.models = [model('g1', 'Geo backbone', 'geological', true), litho, geotech]
+    geoModel.activeLithoModel = litho
+    render(<ModelKindPicker />)
+    const trash = screen.getByRole('button', { name: 'Delete lithological model' })
+    expect(trash).toBeDisabled()
+    expect(trash).toHaveAttribute('title', GEOTECH_BLOCK_EN)
+    fireEvent.click(trash)
+    expect(screen.queryByRole('button', { name: 'Delete permanently' })).toBeNull()
+    expect(handleDeleteLithoModel).not.toHaveBeenCalled()
+  })
+
+  it('a geotechnical child of ANOTHER litho model does not block this one', () => {
+    const litho = model('l1', 'Litho A', 'lithostratigraphic', true)
+    const geotechOfOther = { ...model('t1', 'Geotech B', 'geotechnical'), parent_model_id: 'l2' }
+    geoModel.models = [litho, model('l2', 'Litho B', 'lithostratigraphic'), geotechOfOther]
+    geoModel.activeLithoModel = litho
+    render(<ModelKindPicker />)
+    const trash = screen.getByRole('button', { name: 'Delete lithological model' })
+    expect(trash).toBeEnabled()
+    expect(trash).toHaveAttribute('title', 'Delete the active lithological model')
+  })
+
+  it('the dialog, if open when a dependent appears, shows the explanation instead of the destructive button', () => {
+    const litho = model('l1', 'Litho A', 'lithostratigraphic', true)
+    geoModel.models = [litho]
+    geoModel.activeLithoModel = litho
+    const { rerender } = render(<ModelKindPicker />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete lithological model' }))
+    expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeInTheDocument()
+    geoModel.models = [litho, { ...model('t1', 'Geotech A', 'geotechnical'), parent_model_id: 'l1' }]
+    rerender(<ModelKindPicker />)
+    expect(screen.queryByRole('button', { name: 'Delete permanently' })).toBeNull()
+    expect(screen.getByText(GEOTECH_BLOCK_EN)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+  })
 })
