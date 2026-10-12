@@ -257,22 +257,37 @@ Stages, in order, recorded by `BootSequence` and written to the backend log:
 3. `acquire-port` — bind `:0` and take what the OS gives. **Never a fixed
    port**: a coworker running their own Postgres on 5433 is the target user,
    and the failure mode of a collision is connecting to *their* database.
-4. `init-cluster` — first launch only. `initdb -E UTF8 --locale=C
+4. `acquire-api-port`: the engine's loopback port (`embedded/apiPort.ts`):
+   8765 when nothing accepts a connection there and `127.0.0.1:8765` binds,
+   else the next free port of 8765..8774, else an OS-assigned one (never the
+   Postgres port). Another program on the PC may own 8765 (AnkiConnect and
+   several vendor tools use it; tester finding 2026-10-12). Main passes the
+   port as `--port` to `groundmodel.api.serve`, probes it, builds the CSP and
+   the token filter for it, and answers it over `api:base-url`; the renderer
+   reads it once at boot (`resolveApiBaseUrl`, 8765 as fallback). A packaged
+   app NEVER adopts a listener on its engine port once its own engine has
+   exited (`decideExitBeforeReady`). If the engine still cannot bind (a lost
+   race), uvicorn's `error while attempting to bind on address` reads as
+   `app:backend-failed { reason: 'port-busy', port }`, the dialog names the
+   port, and the log names the owner (`netstat -ano` + `tasklist`, best
+   effort). A respawn reuses the same port. Dev and e2e keep 8765 untouched.
+5. `init-cluster` — first launch only. `initdb -E UTF8 --locale=C
    --auth-host=scram-sha-256`, password via `--pwfile`. A directory that
    exists but has no `PG_VERSION` is a first launch that died part-way; it is
    moved aside and re-created rather than left to fail forever.
-5. `start-postgres` — `listen_addresses=127.0.0.1` only.
-6. `await-postgres-ready` — poll the bundled `pg_isready`, aborting early if
+6. `start-postgres` — `listen_addresses=127.0.0.1` only.
+7. `await-postgres-ready` — poll the bundled `pg_isready`, aborting early if
    the server process reported a spawn failure or already exited.
 
-Stages 1–3 are awaited (they produce the port the engine is spawned against);
-stages 4–6 run in the background while the engine imports. A failure in stages
-4–6 stops the engine and shows the native "could not start" dialog.
+Stages 1–4 are awaited (they produce the ports the engine is spawned against);
+stages 5–7 run in the background while the engine imports. A failure in stages
+5–7 stops the engine and shows the native "could not start" dialog.
 
 ```
 [boot] resolve-paths        ok       0ms — ...\embedded\pgsql
 [boot] load-secrets         ok       1ms
 [boot] acquire-port         ok       6ms — port 55385
+[boot] acquire-api-port     ok       3ms — port 8765 (preferred)
 [boot] init-cluster         ok       9777ms — created
 [boot] start-postgres       ok       11ms
 [boot] await-postgres-ready ok       589ms
@@ -290,13 +305,13 @@ when the process died. A startup log that survives only a graceful exit is
 worthless exactly when it is needed.
 
 `startApi()` spawns the backend against the resolved `DATABASE_URL` as soon as
-the licence gate passes — concurrently with stages 4–6 — and the renderer's
+the licence gate passes — concurrently with stages 5–7 — and the renderer's
 `api:ready` poll (three-minute packaged deadline) takes over unchanged.
 
 A failure in the awaited preparation stages shows a native dialog naming **what
 the app was doing** in plain language, plus the underlying error and the log
 path — then quits, before any window exists. A failure in the concurrent cluster
-stages (4–6) does the same once a window is up (the dialog layers over the
+stages (5–7) does the same once a window is up (the dialog layers over the
 splash). A failure inside the engine — the wait for Postgres, the in-process
 migration, or the engine import — is logged by the engine and surfaces as the
 renderer's "could not start the data service" message pointing at the same log.
