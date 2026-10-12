@@ -12,6 +12,11 @@
  * recognises that in the captured stdout / stderr and shapes the ADDITIVE
  * payload the signal now carries. An old renderer ignores the payload.
  *
+ * Second cause (tester finding 2026-10-12): another program owns the engine
+ * port, and uvicorn prints ``error while attempting to bind on address``. That
+ * reads as ``port-busy``; the payload then also carries the port, so the dialog
+ * can name it.
+ *
  * Pure: no Electron, no I/O, so it is unit-testable in jsdom.
  *
  * @module main/backendFailureReason
@@ -20,11 +25,13 @@
 import { NEWER_DATABASE_SIGNAL } from './bootFailureMessage'
 
 /** A recognised backend-failure cause the renderer can name. */
-export type BackendFailureReason = 'newer-database'
+export type BackendFailureReason = 'newer-database' | 'port-busy'
 
 /** The payload sent with ``app:backend-failed``. ``reason`` is null when unknown. */
 export interface BackendFailedPayload {
   reason: BackendFailureReason | null
+  /** The port the engine was told to bind (additive, 2026-10-12). */
+  port?: number
 }
 
 /**
@@ -38,6 +45,13 @@ const NEWER_DATABASE_MARKERS: readonly RegExp[] = [
   /written by a newer version of StrixGeo/i,
   NEWER_DATABASE_SIGNAL,
 ]
+
+/**
+ * uvicorn's wording when the listening socket cannot be bound (``[Errno 10048]``
+ * on Windows, ``[Errno 98]`` on Linux; the sentence is uvicorn's own and the
+ * same on every platform).
+ */
+const PORT_BUSY_MARKERS: readonly RegExp[] = [/error while attempting to bind on address/i]
 
 /**
  * How much of the previous chunk a tracker keeps, so a marker split across two
@@ -57,10 +71,13 @@ const CHUNK_OVERLAP_CHARS = 128
  * -------
  * BackendFailureReason | null
  *     ``'newer-database'`` when the store was written by a newer StrixGeo;
- *     ``null`` for any other output.
+ *     ``'port-busy'`` when the engine could not bind its port; ``null`` for any
+ *     other output.
  */
 export function backendFailureReasonFromOutput(text: string): BackendFailureReason | null {
-  return NEWER_DATABASE_MARKERS.some(marker => marker.test(text)) ? 'newer-database' : null
+  if (NEWER_DATABASE_MARKERS.some(marker => marker.test(text))) return 'newer-database'
+  if (PORT_BUSY_MARKERS.some(marker => marker.test(text))) return 'port-busy'
+  return null
 }
 
 /** A per-spawn observer of the engine output that latches the first cause. */
@@ -106,12 +123,17 @@ export function createBackendFailureReasonTracker(): BackendFailureReasonTracker
  * ----------
  * reason : BackendFailureReason | null
  *     The recognised cause, or null.
+ * port : number, optional
+ *     The port the engine was told to bind.
  *
  * Returns
  * -------
  * BackendFailedPayload
- *     ``{ reason }``; always an object so the renderer reads one shape.
+ *     ``{ reason, port? }``; always an object so the renderer reads one shape.
  */
-export function backendFailedPayload(reason: BackendFailureReason | null): BackendFailedPayload {
-  return { reason }
+export function backendFailedPayload(
+  reason: BackendFailureReason | null,
+  port?: number,
+): BackendFailedPayload {
+  return port === undefined ? { reason } : { reason, port }
 }
