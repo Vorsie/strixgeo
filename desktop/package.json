@@ -1,6 +1,6 @@
 {
   "name": "ground-model-desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "StrixGeo — desktop client",
   "main": "out/main/index.js",
   "engines": {
