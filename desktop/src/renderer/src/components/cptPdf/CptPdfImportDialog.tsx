@@ -17,6 +17,7 @@ import {
   type CptPdfDigest,
   type CptPdfHeaderEdit,
   type CptPdfImportResult,
+  type CptPdfSeriesSource,
   type PageCalibrationDict,
 } from '../../api/clients/cptPdf'
 import { useCptPdfTriage, type CptPdfTriagePhase } from '../../hooks/useCptPdfTriage'
@@ -148,11 +149,15 @@ export default function CptPdfImportDialog({
     if (keys.length === 0) return
     const calibrations: Record<string, PageCalibrationDict[]> = {}
     const headers: Record<string, CptPdfHeaderEdit> = {}
+    // A printed-table sounding stored from its graph sheet (owner 2026-10-12);
+    // every other one leaves the backend's default (its printed table).
+    const seriesSource: Record<string, CptPdfSeriesSource> = {}
     const byKey = new Map(listed.map(s => [s.key, s]))
     let filled = 0
     for (const key of keys) {
       const edit = edits[key]
       if (edit?.calibrations) calibrations[key] = edit.calibrations
+      if (edit?.seriesSource) seriesSource[key] = edit.seriesSource
       const header: CptPdfHeaderEdit = { ...edit?.header }
       const sounding = byKey.get(key)
       const fill = sounding ? fieldFillFor(sounding, projectNumber, edit?.header) : null
@@ -163,7 +168,16 @@ export default function CptPdfImportDialog({
       if (Object.keys(header).length > 0) headers[key] = header
     }
     if (filled > 0) log.info('cpt-pdf', `project number ${projectNumber.trim()} filled in for ${filled} sounding(s)`)
-    const body = { project_id: projectId, file_sha: digest.file_sha, calibrations, headers }
+    const graphSourced = Object.keys(seriesSource).length
+    if (graphSourced > 0) log.info('cpt-pdf', `${graphSourced} printed-table sounding(s) stored from the graph sheet`)
+    const body = {
+      project_id: projectId,
+      file_sha: digest.file_sha,
+      calibrations,
+      headers,
+      // Sent only when used: a backend that predates the field refuses it.
+      ...(graphSourced > 0 ? { series_source: seriesSource } : {}),
+    }
     setImporting(true)
     try {
       log.info('cpt-pdf', `importing ${keys.length} sounding(s) of ${digest.file_sha.slice(0, 12)}`)
