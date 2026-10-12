@@ -28,6 +28,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import type { RebuildLithoSolidsResponse } from '../api/client'
 import { messageForApiCode, messageForDetail } from '../api/clients/apiCodeMessages'
+import { getBaseUrl } from '../api/clients/shared'
 import type { VoxelBuildRequest } from '../utils/buildVoxelRequest'
 import { log } from '../utils/log'
 // Shared with the synchronous build path so a grid-too-large refusal shows the
@@ -90,9 +91,6 @@ export interface UseVoxelBuildStreamResult {
 /** The terminal SSE error code that means "the user cancelled", not "it broke". */
 const BUILD_CANCELLED_CODE = 'build_cancelled'
 
-// The desktop backend always listens on loopback :8765 — the same constant
-// ``useDovImportStream`` uses (the module-level API base is not exported).
-const API_BASE = 'http://127.0.0.1:8765'
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -141,7 +139,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
     )
     log.info('voxel-build', `cancelling build job ${jobId}`)
     void fetch(
-      `${API_BASE}/projects/${scope.projectId}/geology/models/${scope.modelId}` +
+      `${getBaseUrl()}/projects/${scope.projectId}/geology/models/${scope.modelId}` +
         `/litho-solids/build-voxel/jobs/${jobId}/cancel`,
       { method: 'POST' },
     ).catch(err => {
@@ -177,7 +175,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
     void (async () => {
       try {
         // Step 1 — spawn: POST returns 202 { job_id } immediately.
-        const spawnRes = await fetch(`${API_BASE}${spawnPath}`, {
+        const spawnRes = await fetch(`${getBaseUrl()}${spawnPath}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
@@ -200,7 +198,7 @@ export function useVoxelBuildStream(): UseVoxelBuildStreamResult {
         log.info('voxel-build', `build job spawned: ${job_id}`)
 
         // Step 2 — connect: GET the SSE stream by job_id.
-        const res = await fetch(`${API_BASE}${spawnPath}/${job_id}`, {
+        const res = await fetch(`${getBaseUrl()}${spawnPath}/${job_id}`, {
           method: 'GET',
           signal: controller.signal,
         })
