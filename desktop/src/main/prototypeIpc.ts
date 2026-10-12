@@ -21,6 +21,7 @@ import {
   quitAndInstall,
   type UpdaterEvent,
 } from './updaterService'
+import { readCheckAtStart, writeCheckAtStart } from './updaterPreferenceStore'
 
 /** Every licence state the prototype preview control may request. */
 const PREVIEWABLE_STATES: ReadonlySet<LicenceState> = new Set<LicenceState>([
@@ -112,4 +113,15 @@ export function registerPrototypeIpc(service: ActivationService, options: Protot
   // mounts AFTER the launch check answered, and after the did-finish-load
   // replay, still learns there is an update. Additive; an old renderer never asks.
   ipcMain.handle('updater:last-event', (): UpdaterEvent | null => lastReplayableUpdaterEvent())
+  // "Check for updates at start" (owner ruling 2026-10-11). Main owns the value
+  // because the start check runs before any renderer exists; the Settings
+  // dialog mirrors it. Additive; a non-boolean argument changes nothing and the
+  // handler answers the stored value either way.
+  ipcMain.handle('updater:get-check-at-start', (): boolean => readCheckAtStart())
+  ipcMain.handle('updater:set-check-at-start', (_event, enabled: unknown): boolean => {
+    if (typeof enabled !== 'boolean') return readCheckAtStart()
+    writeCheckAtStart(enabled)
+    console.info(`[main] updater check at start -> ${enabled ? 'on' : 'off'}`)
+    return readCheckAtStart()
+  })
 }
