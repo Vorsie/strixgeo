@@ -126,6 +126,7 @@ const INTENTIONALLY_IDENTICAL: ReadonlySet<MessageKey> = new Set([
   // Loanwords / words BE Dutch keeps identical (+ a placeholder or unit).
   'geotech.nadClassParen', // "(NAD {nad})" — NAD is a BE standard abbreviation
   'sections.header.buffer', // "Buffer"
+  'settings.appearance.updates', // "Updates" (the NL Help menu says "updates" too)
   'sections.vb.modelSlot', // "Model {label}"
   'params.zoneN', // "zone {n}"
   'params.bandCountOne', // "{n} band" — singular "band" like geotech.bandLabel
