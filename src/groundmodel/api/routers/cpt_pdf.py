@@ -262,17 +262,29 @@ async def get_cpt_pdf_page(
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
 
-def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseResponse:
-    """Build the digitise answer from the use case's view."""
+def _series(table: Any) -> dict[str, list[Any]]:
+    """Return a stored-rows frame as JSON lists (flag columns without nulls)."""
     series: dict[str, list[Any]] = {}
-    if view.table is not None:
-        for name in view.table.columns:
-            column = view.table[name]
+    if table is not None:
+        for name in table.columns:
+            column = table[name]
             if name.endswith("_clipped"):
                 column = column.fill_null(False)
             series[name] = column.to_list()
+    return series
+
+
+def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseResponse:
+    """Build the digitise answer from the use case's view.
+
+    A printed-table sounding answers its printed table as ``series`` and its
+    graph sheet as the calibrations / overlays the overlay edits, with the
+    picture's rows apart in ``graph_series`` (owner 2026-10-12).
+    """
+    series = _series(view.table)
+    drawn = view.graph if view.graph is not None else view.sounding
     assumptions: list[str] = []
-    for cal in view.sounding.calibrations:
+    for cal in drawn.calibrations:
         for text in (*cal.assumptions, *(a for p in cal.panels for a in p.assumptions)):
             if text not in assumptions:
                 assumptions.append(text)
@@ -292,10 +304,10 @@ def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseRespons
         page_numbers=list(view.sounding.page_numbers),
         series=series,
         sampling=view.sampling,
-        calibrations=[c.to_dict() for c in view.sounding.calibrations],
+        calibrations=[c.to_dict() for c in drawn.calibrations],
         assumptions=assumptions,
-        clipped_count=sum(int(c.clipped.sum()) for c in view.sounding.curves.values()),
-        printed_values=[[round(d, 3), t] for d, t in view.sounding.annotations],
+        clipped_count=sum(int(c.clipped.sum()) for c in drawn.curves.values()),
+        printed_values=[[round(d, 3), t] for d, t in drawn.annotations],
         header={
             "x": listed.x,
             "y": listed.y,
@@ -307,6 +319,11 @@ def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseRespons
         warnings=list(listed.warnings),
         notes=[n.to_dict() for n in listed.notes],
         overlays=overlays,
+        graph_series=_series(view.graph_table) if view.graph_table is not None else None,
+        graph_comparison=view.comparison,
+        # A printed-table sounding stores its table unless told otherwise
+        # (SERIES_SOURCE_TABLE; the pdf package is not imported at module load).
+        series_source_default="table" if view.graph is not None else None,
     )
 
 
@@ -431,6 +448,7 @@ async def import_cpt_pdf(
                 ground_level_m=typed.ground_level_m if typed else None,
                 test_date=typed.test_date if typed else None,
                 project_number=typed.project_number if typed else None,
+                series_source=(request.series_source or {}).get(key),
             )
         )
     try:
