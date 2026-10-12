@@ -23,7 +23,10 @@
 //   the entire history is cleared and an error toast surfaces.
 //   The local state is now ahead of (or behind) the server in an
 //   unknown way, so the safe move is to abandon all pending undo
-//   commands rather than risk corrupting more state.
+//   commands rather than risk corrupting more state. A command that
+//   refuses itself with ``UndoConflictError`` (the state moved on, so
+//   the step would duplicate a row) clears the history the same way,
+//   but at WARN with a warning toast: an expected conflict, not a bug.
 // * **Stack cap.** Bounded at 100 entries by default — the oldest
 //   action drops off the bottom. Geotechnical sessions are bursty
 //   (~tens of picks per workflow chunk); 100 is enough headroom
@@ -33,6 +36,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import { log } from '../utils/log'
 import { t } from '../i18n/translate'
+import { UndoConflictError } from './undoConflictError'
 import type { MessageKey } from '../i18n/locales/en'
 import type { MessageParams } from '../i18n/translate'
 
@@ -66,6 +70,10 @@ export interface UseUndoStackOptions {
    * surfaces in the same UX as other action toasts. When omitted,
    * the failure is logged but no toast fires. */
   onError?: (message: string) => void
+  /** Optional toast hook for an EXPECTED conflict: a step that threw
+   * {@link UndoConflictError} because the state moved on (walker finding
+   * 2026-10-12). History is still cleared; only the level differs. */
+  onWarning?: (message: string) => void
 }
 
 export interface UseUndoStackResult {
@@ -107,6 +115,8 @@ export function useUndoStack(
   const [busy, setBusy] = useState(false)
   const onErrorRef = useRef(options.onError)
   onErrorRef.current = options.onError
+  const onWarningRef = useRef(options.onWarning)
+  onWarningRef.current = options.onWarning
   // Serial queue — rapid Ctrl+Z presses (or holding the key with
   // browser auto-repeat) chain onto this promise so reverts run
   // one at a time. Each call returns its own slot's promise.
@@ -128,6 +138,22 @@ export function useUndoStack(
   function commitRedo(next: UndoCommand[]): void {
     redoStackRef.current = next
     setRedoStack(next)
+  }
+
+  // Helper: an EXPECTED conflict (the command refused itself because the
+  // state moved on, before sending anything). The history is cleared like a
+  // genuine failure, because the recorded command no longer matches the
+  // model, but it is not a bug: WARN + a warning toast, never ERROR
+  // (walker finding 2026-10-12: a refused redo counted as a console error).
+  function abandonOnConflict(
+    direction: 'revert' | 'reapply',
+    cmd: UndoCommand,
+    err: UndoConflictError,
+  ): void {
+    log.warn('undo', `${direction} skipped (state moved on): ${cmd.descriptionKey}`, err.message)
+    commitUndo([])
+    commitRedo([])
+    onWarningRef.current?.(t(err.messageKey))
   }
 
   const push = useCallback(
@@ -181,6 +207,10 @@ export function useUndoStack(
         commitRedo([...redoStackRef.current, cmd])
         log.debug('undo', `reverted: ${cmd.descriptionKey}`)
       } catch (err) {
+        if (err instanceof UndoConflictError) {
+          abandonOnConflict('revert', cmd, err)
+          return
+        }
         log.error('undo', `revert failed: ${cmd.descriptionKey}`, err)
         // State is now in an unknown relation to the server.
         // Abandon history rather than risk further corruption.
@@ -214,6 +244,10 @@ export function useUndoStack(
         commitUndo(capped)
         log.debug('undo', `reapplied: ${cmd.descriptionKey}`)
       } catch (err) {
+        if (err instanceof UndoConflictError) {
+          abandonOnConflict('reapply', cmd, err)
+          return
+        }
         log.error('undo', `reapply failed: ${cmd.descriptionKey}`, err)
         commitUndo([])
         commitRedo([])
