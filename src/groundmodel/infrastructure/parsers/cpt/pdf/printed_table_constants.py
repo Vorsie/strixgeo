@@ -131,3 +131,15 @@ PRINTED_TABLE_PROFILE = PrintedTableProfile(
 
 # The built-in printed-table profiles, tried in order (first sheet-id hit wins).
 BUILT_IN_PRINTED_TABLE_PROFILES: tuple[PrintedTableProfile, ...] = (PRINTED_TABLE_PROFILE,)
+
+# Where the stored series of a printed-table sounding comes from (owner
+# 2026-10-12, report Z2255777): the printed table by default; the user may
+# choose the curve read off its graph sheet instead. The token is written to
+# ``import_provenance.printed_table.series_source``.
+SERIES_SOURCE_TABLE = "table"
+SERIES_SOURCE_GRAPH = "graph"
+SERIES_SOURCES: tuple[str, ...] = (SERIES_SOURCE_TABLE, SERIES_SOURCE_GRAPH)
+
+# The graph-vs-table qc comparison is written to 0.1 kPa: finer than any
+# printed qc (two decimals of MPa), so rounding never hides a difference.
+GRAPH_COMPARISON_DECIMALS = 4
