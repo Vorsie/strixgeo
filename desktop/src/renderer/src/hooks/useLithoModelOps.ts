@@ -23,7 +23,9 @@ import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction 
 import { api } from '../api/client'
 import type { GeologicalModelResponse, ProjectResponse } from '../api/client'
 import type { BulkAnchorGhost } from './useGeologicalModel'
+import { isApiStatus } from '../api/clients/shared'
 import { log } from '../utils/log'
+import { deleteBlockedMessageKey } from '../utils/modelDependents'
 import { t } from '../i18n/translate'
 
 /** Inputs for {@link useLithoModelOps}. */
@@ -245,9 +247,14 @@ export function useLithoModelOps({
     [project, refreshModels, toast],
   )
 
-  // #55 — delete a lithostratigraphic model. A litho model has no
-  // children (it is itself a leaf that refines a geological parent),
-  // so the backend delete never 409s here. refreshModels re-derives
+  // #55: delete a lithostratigraphic model. A geotechnical model can
+  // refine a litho model; the backend then refuses the delete with a 409.
+  // The picker disables the action when the local model list shows such a
+  // child, so the 409 here is only the safety net for a stale list: it is
+  // an expected refusal, logged as a warning (the walker counts console
+  // errors) and toasted as a warning with the same sentence the disabled
+  // button shows, and the model list is refreshed so the picker learns the
+  // child and switches to the explanation. refreshModels re-derives
   // activeLithoModel from the fresh list; when the deleted model was
   // active it becomes null and the activeLithoModel-watching effect
   // clears the parallel litho formation/contact state — no manual
@@ -274,6 +281,14 @@ export function useLithoModelOps({
         markMutated()
         log.success('geology', `deleted litho model ${modelId}`)
       } catch (err) {
+        if (isApiStatus(err, 409)) {
+          log.warn('geology', `handleDeleteLithoModel refused model=${modelId}: another model refines it`)
+          toast('warning', t(deleteBlockedMessageKey('geotechnical')))
+          refreshModels().catch(refreshErr =>
+            log.warn('geology', 'refreshModels after a refused litho delete failed', refreshErr),
+          )
+          throw err
+        }
         log.error('geology', `handleDeleteLithoModel failed ${modelId}`, err)
         // Surface the server's reason (del() now carries `detail`).
         toast(
