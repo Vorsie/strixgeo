@@ -163,6 +163,32 @@ the blocking wiring lives in `App.tsx` above the workspace early-returns.
   lifecycle: available → Download / Later, downloading → progress, downloaded →
   Restart & install; informational phases (up to date / disabled / error) show a
   dismissable line.
+- **The check runs ONLY at start, and only when the user wants it** (owner
+  ruling 2026-10-11, option a). Settings > Appearance carries "Check for updates
+  at start" / "Bij het starten controleren op updates", default ON. Main owns the
+  value (`<userData>/updater-preferences.json`, `updaterPreferenceStore.ts`;
+  every damaged-file case reads as ON) because the check runs before any
+  renderer exists; the dialog mirrors it through `updater:get-check-at-start` /
+  `updater:set-check-at-start` and writes at once (no Save). The single gate is
+  `shouldAutoCheckOnLaunch(isPackaged, checkAtStartEnabled)`. Off = no automatic
+  check at all, so no card; Help > Check for updates still works. There is no
+  periodic check anywhere (pinned by source test IQ3).
+- **A downloaded update installs at the NEXT START, never on quit.**
+  `autoInstallOnAppQuit = false` always (signed or not); the user's explicit
+  "Restart & install" (`updater:quit-and-install`) is the only install.
+  electron-updater 6.8.9 has no "install at next launch" mode: on quit it either
+  runs the installer (`BaseUpdater.addQuitHandler`, off here) or does nothing.
+  What it does keep is the download, in `<LOCALAPPDATA>/<updaterCacheDirName>/pending`
+  with `update-info.json`; a later `downloadUpdate()` for the same release finds
+  it (`DownloadedUpdateHelper.validateDownloadedPath`, sha512 against the feed)
+  and emits `update-downloaded` with no network download. So the service
+  remembers each finished download (`<userData>/updater-pending-download.json`:
+  version + file) and, when the start check offers that same version and the
+  file is still there (`shouldResumePendingDownload`), skips the "Download?" card
+  and calls `downloadUpdate()` itself: the card opens on "Restart & install". A
+  newer version or a missing file gets the normal offer. Edge: if the same
+  version number was republished with a different installer, the sha512 check
+  fails and electron-updater downloads it again (progress shows).
 - Launch check runs from `app.whenReady` after the window exists (no-op in dev).
   Its answer usually lands before the document has loaded, so the service
   latches the last event and replays it on `did-finish-load` — only
@@ -207,7 +233,7 @@ the blocking wiring lives in `App.tsx` above the workspace early-returns.
 
 | Real | Mocked / placeholder |
 |---|---|
-| The event plumbing, the isPackaged gate, autoDownload=false, progress relay, quit-and-install call, the renderer UX, **the GitHub Releases feed config** | Nothing is left mocked here — until a draft release is **published**, a packaged check simply resolves to `not-available` / `error` |
+| The event plumbing, the isPackaged gate, the check-at-start setting, autoDownload=false, autoInstallOnAppQuit=false, progress relay, quit-and-install call, the renderer UX, **the GitHub Releases feed config** | Nothing is left mocked here — until a draft release is **published**, a packaged check simply resolves to `not-available` / `error` |
 
 **Remaining production gap:** code-signing (#6) so a downloaded update is trusted
 (the closed beta ships UNSIGNED; see debt #6). A first PUBLISHED release on
