@@ -51,6 +51,7 @@ import {
   checkRefusedRequests,
   checkResponsiveness,
   checkSurvivors,
+  isIgnoredConsoleError,
   type Finding,
 } from './walkerInvariants'
 import {
@@ -182,7 +183,12 @@ test.describe('walker scenario pass', () => {
     let appCrashed = false
 
     page.on('console', msg => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text())
+      if (msg.type() !== 'error') return
+      // An external host's network failure (a basemap tile reset) is not the
+      // app; see isIgnoredConsoleError for the exact shape that is dropped.
+      const captured = { source: 'console', text: msg.text(), locationUrl: msg.location().url } as const
+      if (isIgnoredConsoleError(captured)) return
+      consoleErrors.push(msg.text())
     })
     page.on('pageerror', err => consoleErrors.push(`pageerror: ${err.message}`))
     page.on('crash', () => {
