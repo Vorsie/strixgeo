@@ -261,3 +261,26 @@ export async function resolveProjectIdFallback(page: Page, syntheticId: string):
     [API_BASE, syntheticId] as const,
   )
 }
+
+/**
+ * The geological model ids of a project (every kind: stratigraphy, litho,
+ * geotech), for the cross-project ledger. Empty on any failure: the ledger
+ * then still learns ownership from traffic.
+ */
+export async function fetchModelIds(page: Page, projectId: string): Promise<string[]> {
+  return page
+    .evaluate(
+      async ([base, pid]) => {
+        try {
+          const r = await fetch(`${base}/projects/${pid}/geology/models`)
+          if (!r.ok) return []
+          const list = (await r.json()) as Array<{ id?: string }>
+          return Array.isArray(list) ? list.map(m => m.id).filter((id): id is string => typeof id === 'string') : []
+        } catch {
+          return []
+        }
+      },
+      [API_BASE, projectId] as const,
+    )
+    .catch(() => [] as string[])
+}
