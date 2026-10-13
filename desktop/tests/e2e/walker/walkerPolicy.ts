@@ -19,7 +19,7 @@
  */
 
 import { pickIndex, pickWeighted, stepRng } from './walkerRng'
-import type { ActionPlan, Candidate, FollowUp, SpineLabel, WalkerContext } from './walkerTypes'
+import type { ActionPlan, Candidate, CloseChoice, FollowUp, SpineLabel, WalkerContext } from './walkerTypes'
 
 /** The seven spine stages, label plus stage-tab testid (StageSpine.tsx). */
 export const SPINE_STAGES: readonly { label: SpineLabel; testid: string }[] = [
@@ -91,6 +91,51 @@ const RESIZE_SIZES: readonly { width: number; height: number }[] = [
 
 /** Never reopen the project more than this many times in one walk. */
 export const REOPEN_CAP = 2
+
+/** Never switch project more than this many times in one walk (owner 2026-10-13). */
+export const SWITCH_PROJECT_CAP = 4
+
+/**
+ * Steps the walk spends in a project before it may switch again. Spreads the
+ * capped switches across a 900-step walk instead of spending them all in the
+ * first hundred steps, and gives each project time to load models, open
+ * sections and start builds: the state a switch must leave behind cleanly.
+ */
+export const MIN_STEPS_BETWEEN_PROJECT_SWITCHES = 120
+
+/**
+ * Share of steps that take a project-level verb (switch project, undo/redo
+ * burst, save, settings, an import dialog). Drawn AFTER the stage-switch band
+ * and BEFORE the chaos band.
+ */
+export const WORKFLOW_P = 0.1
+
+/** Relative weights of the project-level verbs inside the workflow band. */
+export const WORKFLOW_ACTION_WEIGHTS = {
+  switchProject: 3,
+  undoRedoBurst: 4,
+  saveProject: 3,
+  openSettings: 2,
+  openImportDialog: 3,
+} as const
+
+/**
+ * Every import route of the Data toolbar's Import menu, as the click chain
+ * from the menu button to the verb (dataImportActions.ts testids). Each is
+ * opened once per walk and cancelled: the e2e harness answers every native
+ * file dialog "cancelled" (main/e2eDialogs.ts), the DOV routes start a map
+ * draw that Escape ends, and the in-app dialogs close on Escape. A link the
+ * build does not show (a flag-gated pdf route) is skipped by the executor.
+ */
+export const IMPORT_ROUTES: readonly { id: string; chain: readonly string[] }[] = [
+  { id: 'cpt-gef', chain: ['import-menu-button', 'import-group-cpt', 'import-verb-cpt-gef'] },
+  { id: 'cpt-dov', chain: ['import-menu-button', 'import-group-cpt', 'import-verb-cpt-dov'] },
+  { id: 'cpt-pdf', chain: ['import-menu-button', 'import-group-cpt', 'import-verb-cpt-pdf'] },
+  { id: 'borehole-xml', chain: ['import-menu-button', 'import-group-borehole', 'import-verb-borehole-xml'] },
+  { id: 'borehole-dov', chain: ['import-menu-button', 'import-group-borehole', 'import-verb-borehole-dov'] },
+  { id: 'borehole-pdf', chain: ['import-menu-button', 'import-group-borehole', 'import-verb-borehole-pdf'] },
+  { id: 'lab', chain: ['import-menu-button', 'import-verb-lab'] },
+]
 
 /** Stable comparator so an identical world sorts identically across runs. */
 function candidateSortKey(c: Candidate): string {
@@ -227,6 +272,52 @@ function planChaos(rng: () => number, ctx: WalkerContext): ActionPlan {
   return { kind: 'pressKey', pressKey: pickFrom(rng, CHAOS_KEYS), note: 'press a random key (chaos fallback)' }
 }
 
+/**
+ * A project-level verb: what an engineer does between and around the stage
+ * work. Null when none is eligible (all capped / done), so the caller falls
+ * through to chaos.
+ */
+function planWorkflow(rng: () => number, ctx: WalkerContext): ActionPlan | null {
+  const remainingImports = IMPORT_ROUTES.filter(r => !ctx.importRoutesDone.includes(r.id))
+  const canSwitch =
+    ctx.canSwitchProject &&
+    ctx.projectSwitchCount < SWITCH_PROJECT_CAP &&
+    ctx.stepsSinceProjectSwitch >= MIN_STEPS_BETWEEN_PROJECT_SWITCHES
+  const W = WORKFLOW_ACTION_WEIGHTS
+  const kinds: { name: keyof typeof WORKFLOW_ACTION_WEIGHTS; weight: number }[] = [
+    { name: 'switchProject', weight: canSwitch ? W.switchProject : 0 },
+    { name: 'undoRedoBurst', weight: W.undoRedoBurst },
+    { name: 'saveProject', weight: W.saveProject },
+    { name: 'openSettings', weight: W.openSettings },
+    { name: 'openImportDialog', weight: remainingImports.length > 0 ? W.openImportDialog : 0 },
+  ]
+  const chosen = kinds[pickWeighted(rng, kinds.map(k => k.weight))]
+  if (!chosen || chosen.weight === 0) return null
+  switch (chosen.name) {
+    case 'switchProject': {
+      const closeChoice: CloseChoice = rng() < 0.5 ? 'discard' : 'save'
+      return {
+        kind: 'switchProject',
+        closeChoice,
+        note: `close this project and open the other one (unsaved prompt -> ${closeChoice})`,
+      }
+    }
+    case 'undoRedoBurst': {
+      const repeat = 1 + pickIndex(rng, 5)
+      return { kind: 'undoRedoBurst', repeat, note: `Ctrl+Z x${repeat} then Ctrl+Y x${repeat}` }
+    }
+    case 'saveProject':
+      return { kind: 'saveProject', note: 'save the project (File > Save, Ctrl+S)' }
+    case 'openSettings':
+      return { kind: 'openSettings', pick: rng(), note: 'open Settings, flip one switch twice, close it' }
+    case 'openImportDialog': {
+      const route = pickFrom(rng, remainingImports)
+      return { kind: 'openImportDialog', importRoute: route.id, note: `open the ${route.id} import and cancel it` }
+    }
+  }
+  return null
+}
+
 /** The "meaningful verb" path: weighted pick of a live control, acted on
  *  in the way its kind invites, sometimes with a novice tail. */
 function planNormal(rng: () => number, ctx: WalkerContext): ActionPlan {
@@ -298,10 +389,14 @@ export function decideAction(ctx: WalkerContext, seed: number): ActionPlan {
   const r = rng()
   if (r < switchBias) return planStageSwitch(rng, local)
 
-  // Band 2: deliberate chaos (unforeseen interactions).
-  const CHAOS_P = 0.38
-  if (r < switchBias + CHAOS_P) return planChaos(rng, local)
+  // Band 2: a project-level verb (switch project, undo/redo burst, save,
+  // settings, an import dialog). Falls through to chaos when none is eligible.
+  if (r < switchBias + WORKFLOW_P) return planWorkflow(rng, local) ?? planChaos(rng, local)
 
-  // Band 3: a meaningful verb, done badly.
+  // Band 3: deliberate chaos (unforeseen interactions).
+  const CHAOS_P = 0.38
+  if (r < switchBias + WORKFLOW_P + CHAOS_P) return planChaos(rng, local)
+
+  // Band 4: a meaningful verb, done badly.
   return planNormal(rng, local)
 }
