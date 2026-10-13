@@ -32,6 +32,10 @@ export interface RunMeta {
   readonly projectId: string
   readonly startedAt: string
   readonly appCrashed: boolean
+  /** Which of the invocation's runs this is (``WALKER_RUNS``); absent = a single run. */
+  readonly run?: { readonly index: number; readonly total: number }
+  /** Project switches made, with their outcomes (owner 2026-10-13). */
+  readonly projectSwitches?: readonly string[]
 }
 
 /**
@@ -42,6 +46,19 @@ export interface RunMeta {
  */
 export function summaryLine(findings: readonly Finding[]): string {
   return `WALKER: ${findings.length} findings`
+}
+
+/**
+ * The grep line over several runs (``WALKER_RUNS``): the same prefix as
+ * :func:`summaryLine`, with the total over every run that reported.
+ *
+ * @param perRun - The finding count of each run that reported.
+ * @param planned - How many runs the invocation planned.
+ * @returns ``WALKER: <total> findings over <reported> of <planned> runs``.
+ */
+export function totalSummaryLine(perRun: readonly number[], planned: number): string {
+  const total = perRun.reduce((a, b) => a + b, 0)
+  return `WALKER: ${total} findings over ${perRun.length} of ${planned} runs`
 }
 
 /** Count findings per invariant name, sorted by descending count then name. */
@@ -82,6 +99,10 @@ export function formatReport(
   lines.push(`- stages visited: ${meta.stagesVisited.join(', ') || 'none'}`)
   lines.push(`- started: ${meta.startedAt}`)
   lines.push(`- app crashed: ${meta.appCrashed ? 'YES' : 'no'}`)
+  if (meta.run) lines.push(`- run: ${meta.run.index} of ${meta.run.total}`)
+  if (meta.projectSwitches) {
+    lines.push(`- project switches: ${meta.projectSwitches.length === 0 ? 'none' : meta.projectSwitches.join('; ')}`)
+  }
   lines.push('')
 
   lines.push('## Findings by invariant')
