@@ -77,6 +77,16 @@ export type ActionKind =
   | 'resizeWindow'
   | 'toggleTwice'
   | 'reopenProject'
+  // Project-level verbs (owner 2026-10-13: the walker never opened a second
+  // project, so it could not find a bug the owner hit in one session).
+  | 'switchProject'
+  | 'undoRedoBurst'
+  | 'saveProject'
+  | 'openSettings'
+  | 'openImportDialog'
+
+/** How ``switchProject`` answers an unsaved-changes prompt on the close. */
+export type CloseChoice = 'discard' | 'save'
 
 /** A small tail a novice tacks onto an action (repeat it, undo, escape...). */
 export type FollowUp = 'undo' | 'redo' | 'escape' | 'enter' | null
@@ -108,6 +118,16 @@ export interface ActionPlan {
   readonly repeat?: number
   /** Optional novice tail run after the main action. */
   readonly followUp?: FollowUp
+  /** ``switchProject``: the button to press if the close asks about unsaved work. */
+  readonly closeChoice?: CloseChoice
+  /** ``openImportDialog``: the import route id (``IMPORT_ROUTES``). */
+  readonly importRoute?: string
+  /**
+   * A draw in [0, 1) the executor uses to pick among things only the live app
+   * knows (which Settings section, which switch in it, save or cancel), so the
+   * choice stays a pure function of (seed, step) and replays.
+   */
+  readonly pick?: number
   /** One-line human description, verbatim in the report's repro trail. */
   readonly note: string
 }
@@ -132,6 +152,14 @@ export interface WalkerContext {
   readonly openMenu: boolean
   /** How many ``reopenProject`` actions have already run (the policy self-caps). */
   readonly reopenCount: number
+  /** How many ``switchProject`` actions have already run (the policy self-caps). */
+  readonly projectSwitchCount: number
+  /** Steps since the walk last switched project (or since it began). */
+  readonly stepsSinceProjectSwitch: number
+  /** False when the walk has no second project to open (no seeded fixture id). */
+  readonly canSwitchProject: boolean
+  /** Import route ids already opened this walk (each is opened once). */
+  readonly importRoutesDone: readonly string[]
 }
 
 /** A refused request the response hook captured. */
