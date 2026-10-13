@@ -12,6 +12,7 @@
 import type { ElectronApplication, Page } from '@playwright/test'
 
 import { SPINE_STAGES } from './walkerPolicy'
+import { openImportDialog, openSettings, sendMenu, undoRedoBurst } from './walkerProjectActions'
 import { mulberry32, mixSeed } from './walkerRng'
 import type { ActionPlan, Candidate, SpineLabel } from './walkerTypes'
 
@@ -61,7 +62,9 @@ function rethrowIfFatal(err: unknown): void {
  * @param keyMap - Discovered candidates by key (box fallback for gestures).
  * @param seed - Run seed (for deterministic canvas offsets).
  * @param step - Step index (for deterministic canvas offsets).
- * @param tmpPath - The temp ``.strix`` path (for reopen).
+ * @param tmpPath - The temp ``.strix`` path of the OPEN project (for reopen).
+ * @returns An outcome note for the trail when the action has one (the import
+ *   route's ``opened`` / ``missing <testid>``), else undefined.
  */
 export async function executeAction(
   app: ElectronApplication,
@@ -71,7 +74,8 @@ export async function executeAction(
   seed: number,
   step: number,
   tmpPath: string,
-): Promise<void> {
+): Promise<string | undefined> {
+  let outcome: string | undefined
   const opts = { force: true, timeout: ACTION_TIMEOUT_MS } as const
   const target = plan.targetKey ? locFor(page, plan.targetKey) : null
 
@@ -135,8 +139,29 @@ export async function executeAction(
     case 'reopenProject':
       await reopenProject(page, tmpPath).catch(rethrowIfFatal)
       break
+    // ``switchProject`` needs the walk's project slots and changes which
+    // project is open, so the orchestrator runs it (walker.spec.ts via walkerProjectActions.switchProject).
+    case 'switchProject':
+      break
+    case 'undoRedoBurst':
+      await undoRedoBurst(page, plan.repeat ?? 1).catch(rethrowIfFatal)
+      break
+    case 'saveProject':
+      await sendMenu(app, 'menu:project-save').catch(rethrowIfFatal)
+      await page.waitForTimeout(1000)
+      break
+    case 'openSettings':
+      await openSettings(app, page, plan.pick ?? 0).catch(rethrowIfFatal)
+      break
+    case 'openImportDialog':
+      outcome = await openImportDialog(page, plan.importRoute ?? '').catch(err => {
+        rethrowIfFatal(err)
+        return 'failed'
+      })
+      break
   }
   await runFollowUp(page, plan)
+  return outcome
 }
 
 async function typeJunk(page: Page, target: ReturnType<typeof locFor> | null, text: string): Promise<void> {
