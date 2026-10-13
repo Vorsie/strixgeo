@@ -118,10 +118,52 @@ export async function openFixtureProject(
   page: Page,
   fixtureProjectId: string,
 ): Promise<string> {
-  const tmpPath = path.join(os.tmpdir(), `strix-e2e-open-${process.pid}-${Math.round(performance.now())}.strix`)
-
   await page.waitForLoadState('domcontentloaded')
   await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
+
+  const tmpPath = await writeFixtureProjectFile(page, fixtureProjectId, 'E2E Fixture')
+
+  // Fresh mount so WelcomeScreen re-reads the recent list and renders the entry.
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
+
+  const entry = page.getByTestId(`welcome-recent-entry-${tmpPath}`)
+  await expect(entry).toBeVisible({ timeout: 10_000 })
+  await entry.click()
+
+  // Shell mounts: Welcome unmounts, the workflow spine appears.
+  await expect(page.getByTestId('welcome-screen')).toBeHidden({ timeout: 20_000 })
+  await expect(page.getByRole('navigation', { name: 'Workflow stages' })).toBeVisible({ timeout: 20_000 })
+
+  return tmpPath
+}
+
+/**
+ * Write the seeded fixture project's ``.strix`` and register it as a recent
+ * project, WITHOUT opening it.
+ *
+ * The first half of ``openFixtureProject``, split out so the walker can put a
+ * SECOND project on the welcome screen's recent list next to the worked
+ * example and switch between the two the way an engineer does (owner
+ * 2026-10-13). The recent entry renders after the next welcome mount.
+ *
+ * Parameters
+ * ----------
+ * page
+ *     The renderer ``Page`` (any screen; the backend must be up).
+ * fixtureProjectId
+ *     The seeded project's UUID.
+ * name
+ *     The name shown on the recent entry.
+ *
+ * Returns
+ * -------
+ * Promise<string>
+ *     The temp ``.strix`` path (also the recent entry's test id suffix).
+ */
+export async function writeFixtureProjectFile(page: Page, fixtureProjectId: string, name: string): Promise<string> {
+  const tmpPath = path.join(os.tmpdir(), `strix-e2e-open-${process.pid}-${Math.round(performance.now())}.strix`)
 
   // Fetch the REAL project bundle from the app's backend and write it as the
   // .strix file. This is load-bearing: openProjectFile seeds the visibility
@@ -151,25 +193,12 @@ export async function openFixtureProject(
 
   // Register + authorise the path so readProjectFile can read it after reload.
   await page.evaluate(
-    async ([filePath, name]) => {
+    async ([filePath, entryName]) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (window as any).electron.addRecentProject(filePath, name)
+      return (window as any).electron.addRecentProject(filePath, entryName)
     },
-    [tmpPath, 'E2E Fixture'] as const,
+    [tmpPath, name] as const,
   )
-
-  // Fresh mount so WelcomeScreen re-reads the recent list and renders the entry.
-  await page.reload()
-  await page.waitForLoadState('domcontentloaded')
-  await expect(page.getByTestId('welcome-screen')).toBeVisible({ timeout: 15_000 })
-
-  const entry = page.getByTestId(`welcome-recent-entry-${tmpPath}`)
-  await expect(entry).toBeVisible({ timeout: 10_000 })
-  await entry.click()
-
-  // Shell mounts: Welcome unmounts, the workflow spine appears.
-  await expect(page.getByTestId('welcome-screen')).toBeHidden({ timeout: 20_000 })
-  await expect(page.getByRole('navigation', { name: 'Workflow stages' })).toBeVisible({ timeout: 20_000 })
 
   return tmpPath
 }
