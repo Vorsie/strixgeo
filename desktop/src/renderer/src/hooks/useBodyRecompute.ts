@@ -21,6 +21,10 @@
 //     KEY so a burst of failures updates one toast instead of stacking. A 422
 //     ``empty_recompute_payload`` is a BUG signal (the assembly gate must have
 //     returned null) — console error, never a toast.
+//   * A RECOMPUTE BELONGS TO ITS PROJECT (owner dogfeed 2026-10-13): a project
+//     switch drops every timer, pending re-fire and in-flight answer of the
+//     previous project. Fired under the new project id, the old model id 404'd
+//     on every section's correlations ("recompute skipped: 7 of 7 ...").
 
 import { useCallback, useEffect, useRef } from 'react'
 
@@ -140,6 +144,8 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
   const genRef = useRef(new Map<string, number>())
   const inFlightRef = useRef(new Set<string>())
   const pendingRefireRef = useRef(new Set<string>())
+  /** The project each model's recompute was scheduled in (fire-time guard). */
+  const scheduledProjectRef = useRef(new Map<string, string>())
   const mountedRef = useRef(true)
 
   const cancelTimers = useCallback((modelId: string): void => {
@@ -163,6 +169,11 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
       const current = optsRef.current
       if (!current.projectId || !current.dataLoaded) {
         log.debug('body-recompute', `skip fire for ${modelId} — inputs not loaded`)
+        return
+      }
+      if (scheduledProjectRef.current.get(modelId) !== current.projectId) {
+        // Scheduled in another project: its model id means nothing here.
+        log.debug('body-recompute', `skip fire for ${modelId} — scheduled in another project`)
         return
       }
       const projectId = current.projectId
@@ -246,6 +257,7 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
         return
       }
       genRef.current.set(modelId, (genRef.current.get(modelId) ?? 0) + 1)
+      scheduledProjectRef.current.set(modelId, current.projectId)
       // ``timers`` not ``t`` — ``t`` is the module-level translator here.
       let timers = timersRef.current.get(modelId)
       if (!timers) {
@@ -262,6 +274,28 @@ export function useBodyRecompute(opts: UseBodyRecomputeOptions): UseBodyRecomput
     },
     [fire],
   )
+
+  // A project switch (or close) drops everything the previous project queued:
+  // its timers, its one pending re-fire, and — by bumping every generation —
+  // the answer of a POST still in flight, toast included. Declared before the
+  // callers' trigger effects (this hook runs first), so the new project's
+  // open-recompute schedules land AFTER the purge on the switch commit.
+  const lastProjectIdRef = useRef(opts.projectId)
+  useEffect(() => {
+    if (lastProjectIdRef.current === opts.projectId) return
+    const previous = lastProjectIdRef.current
+    lastProjectIdRef.current = opts.projectId
+    const dropped = [...timersRef.current.keys()]
+    for (const modelId of dropped) cancelTimers(modelId)
+    pendingRefireRef.current.clear()
+    scheduledProjectRef.current.clear()
+    for (const [modelId, gen] of genRef.current) genRef.current.set(modelId, gen + 1)
+    log.debug(
+      'body-recompute',
+      `project ${previous ?? 'none'} -> ${opts.projectId ?? 'none'}: dropped ` +
+        `${dropped.length} scheduled recompute(s)`,
+    )
+  }, [opts.projectId, cancelTimers])
 
   // Cancel every pending timer on unmount; in-flight POSTs resolve harmlessly
   // (mountedRef gates their pending re-fire).
