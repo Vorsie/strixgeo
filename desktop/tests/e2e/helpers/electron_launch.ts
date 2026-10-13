@@ -81,6 +81,22 @@ const E2E_USER_DATA_DIR = path.join(
 )
 
 /**
+ * The userData directory every launch of this run uses (suffix included).
+ *
+ * Exported so the walker clears ITS recovery slots in the directory the app
+ * really writes: it used to rebuild the path without the ``-walker`` suffix
+ * and so cleared a directory its own launches never touch.
+ *
+ * Returns
+ * -------
+ * string
+ *     The absolute userData directory.
+ */
+export function e2eUserDataDir(): string {
+  return E2E_USER_DATA_DIR
+}
+
+/**
  * Discard the FIXTURE project's crash-recovery slots before a launch.
  *
  * Any spec whose app is torn down while the project is dirty leaves a recovery
