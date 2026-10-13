@@ -152,6 +152,72 @@ describe('UnsavedChangesDialog', () => {
   })
 })
 
+// The e2e teardown (``closeApp``) answers a dirty quit by test id, never by
+// label — the app may run in Dutch — and falls back to a plain DOM click when
+// Playwright's pointer click cannot land. These pins hold the DOM contract it
+// relies on: the discard BUTTON itself (not only the card) carries the id, it
+// sits inside the card in the main document (portal to body, no iframe), it is
+// clickable outside a save, and a bare ``element.click()`` discards.
+describe('UnsavedChangesDialog — the DOM the e2e teardown clicks', () => {
+  it('the discard button carries data-testid="unsaved-discard-and-close" inside the dialog card', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary()}
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const card = document.body.querySelector('[data-testid="unsaved-changes-dialog"]')
+    expect(card).not.toBeNull()
+    const discard = card!.querySelector('[data-testid="unsaved-discard-and-close"]')
+    expect(discard).not.toBeNull()
+    expect(discard!.tagName).toBe('BUTTON')
+    expect(discard).toBeEnabled()
+  })
+
+  it('a bare DOM click on the discard button discards (the harness fallback)', () => {
+    const onDiscard = vi.fn()
+    const onCancel = vi.fn()
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary()}
+        onSave={vi.fn()}
+        onDiscard={onDiscard}
+        onCancel={onCancel}
+      />,
+    )
+    const discard = document.body.querySelector<HTMLButtonElement>(
+      '[data-testid="unsaved-changes-dialog"] [data-testid="unsaved-discard-and-close"]',
+    )
+    discard!.click()
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+    // The click must not leak to the backdrop and cancel the quit instead.
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('while a save is in flight the discard button is disabled, so the harness must not count on it', () => {
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        summary={makeSummary()}
+        busy
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(
+      document.body.querySelector('[data-testid="unsaved-discard-and-close"]'),
+    ).toBeDisabled()
+  })
+})
+
 // The copy must match the behaviour. Discard runs a full replace-restore of
 // the project from the last-saved .gmproj, so an afternoon of correlating,
 // dragging boundaries and accepting suggestions is reverted — not just the
