@@ -98,12 +98,45 @@ elements, wheel with modifiers, junk into inputs, double / triple / hammer
 clicks, F1-cheatsheet shortcuts in the wrong stage, resize, Enter / Escape at
 random, close and reopen). The tutorial catalogue is only a weighting prior.
 
+It also does what an engineer does BETWEEN the stage work (owner 2026-10-13:
+"I test it once and find a bug, walker is thus not doing its job" -- opening a
+second project left the first one's models active, and the walker had never
+opened a second project). About 10 % of steps take a project-level verb,
+weighted switchProject 3 / undoRedoBurst 4 / saveProject 3 / openSettings 2 /
+openImportDialog 3:
+
+- `switchProject` -- File > Close Project (the menu IPC a Ctrl+W sends),
+  answer an unsaved-changes prompt with Discard or Save (and the force-revert
+  prompt if a discard is refused), then open the OTHER project from the welcome
+  screen's recent list, all in ONE renderer session (a page reload would throw
+  away the very state that leaks). The second project is the seeded synthetic
+  fixture (`E2E_FIXTURE_PROJECT_ID`, written as a `.strix` from its bundle and
+  registered as a recent entry beside the worked example); the bundled sample
+  card is not used because it goes through an OS save dialog the harness
+  cancels. At most 4 switches per walk, at least 120 steps apart, so the walk
+  goes there and comes back. Disabled when the runner seeded no fixture.
+- `undoRedoBurst` -- Ctrl+Z x n then Ctrl+Y x n (n 1..5) on the current stage.
+- `saveProject` -- File > Save (Ctrl+S), so later closes are sometimes clean,
+  sometimes dirty.
+- `openSettings` -- open Settings, pick a section, flip one switch twice, leave
+  with Save or Escape.
+- `openImportDialog` -- each Import menu route of the Data toolbar once per walk
+  (CPT .gef / DOV / pdf, borehole XML / DOV / pdf, lab), then Escape. The native
+  file dialog answers "cancelled" under the harness (see below); a route the
+  build does not show is skipped.
+
+Save and Settings go through the menu IPC, not a pressed key: Playwright's
+keyboard never reaches a native menu accelerator.
+
 After every action it checks the invariants and records a FINDING per violation
 (the walk never aborts): no renderer error toast / console error, no refused
 request the UI offered (a 409 answered by a dialog is fine), no phantom row (on
 screen but not on the server), no empty view over live data, the app stays
-responsive (5 s heartbeat), and after the final close no lingering Electron or
-`groundmodel` process.
+responsive (5 s heartbeat), no `cross-project-request` (a request under one
+project's path naming a model id first seen under the other project, or a
+request for the previous project while the other one is open; judged against
+the project open when the request was SENT, from the click on its recent entry
+on), and after the final close no lingering Electron or `groundmodel` process.
 
 Run it (it is opt-in, so the deterministic suite is unaffected):
 
@@ -115,17 +148,26 @@ The runner sets `WALKER=1` whenever `walker` is in its arguments; without it the
 spec skips. Env knobs:
 
 - `WALKER_SEED` -- the printed integer seed; set it to replay a finding exactly.
-- `WALKER_STEPS` -- action budget (default 300).
-- `WALKER_TIME_BUDGET_S` -- wall-clock budget in seconds (default 900).
-- `WALKER_TRACE=1` -- one `[walker] step N stage=... kind: note` line per step,
-  printed BEFORE the action, so a run that hangs names the control it was on.
+- `WALKER_STEPS` -- action budget per walk (default 900).
+- `WALKER_TIME_BUDGET_S` -- wall-clock budget per walk in seconds (default 1500).
+  The Playwright timeout follows it: budget + 300 s for the launch, the restore
+  and the close.
+- `WALKER_RUNS` -- independent walks in one invocation (default 1), each its own
+  launch, close and results directory, with seeds seed, seed+1, ... (the base
+  seed and every run's count live in `_results/walker/batch-<runner pid>.json`,
+  so they survive the worker restart that follows a crashed run).
+- `WALKER_TRACE=1` -- the step line also on the console. Every step is ALWAYS
+  appended to the run's `trail.log` BEFORE its action runs (the reporters hide
+  the test's console), so a run that hangs ends its file on the step it hung on.
+
+`run-e2e.ps1 walker` passes every knob through unchanged.
 
 **Native OS dialogs never open under the harness.** `STRIX_E2E` (unpackaged
 only) makes the main process answer `dialog.showSaveDialog` / `showOpenDialog`
 as cancelled and message boxes with their cancel (else default) button
 (`desktop/src/main/e2eDialogs.ts`), logging `[e2e] native ... suppressed`.
 Playwright cannot dismiss an OS dialog: before this, a walker click on Export
-Plaxis or Save project blocked the run until the 20-minute test timeout, or
+Plaxis or Save project blocked the run until the test timeout, or
 landed a Save window on the owner's screen when he was at the machine
 (2026-09-10). External links get the same treatment: `shell.openExternal` logs
 the URL and opens nothing, so a walker click on the map's attribution links
@@ -134,10 +176,13 @@ the URL and opens nothing, so a walker click on the map's attribution links
 Findings land in `desktop/tests/e2e/_results/walker/<timestamp>-seed<seed>/findings.md`,
 one section per finding (step number, the last steps as the reproduction, the
 invariant, the request / console line, and a screenshot). The file's first line
-is the grep-stable summary `WALKER: <n> findings`; the exit code is 0 unless the
-app actually crashed, because findings are data, not failures.
+is the grep-stable summary `WALKER: <n> findings`; next to it is `trail.log`.
+After the last run the console prints `[walker] WALKER: <total> findings over
+<k> of <N> runs`; the gate is 0 findings over all runs. The exit code is 0
+unless the app actually crashed, because findings are data, not failures.
 
-The pure logic (policy, invariants, report, process tree) lives in
+The pure logic (policy, budget, invariants, cross-project ledger, trail, batch,
+report, process tree) lives in
 `walker*.ts` beside the spec and is unit tested under Vitest
 (`walker*.test.ts`); Playwright runs only the `.spec.ts`.
 
