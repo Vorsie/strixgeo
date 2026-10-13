@@ -226,3 +226,47 @@ describe('useBodyRecompute — debounce + cap + single-flight', () => {
     expect(opts.toast).not.toHaveBeenCalled()
   })
 })
+
+// A recompute belongs to the project it was scheduled in (owner dogfeed
+// 2026-10-13): after a project switch it must never fire under the new id.
+describe('useBodyRecompute — project switch', () => {
+  it('a recompute scheduled in project A never fires once project B is open', async () => {
+    const buildPayload = vi.fn().mockResolvedValue(PAYLOAD)
+    const { result, rerender } = renderHook(
+      (o: UseBodyRecomputeOptions) => useBodyRecompute(o),
+      { initialProps: makeOpts({ projectId: 'p1', buildPayload }) },
+    )
+    act(() => result.current.scheduleRecompute('m-of-p1'))
+    rerender(makeOpts({ projectId: 'p2', buildPayload }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_MAX_LATENCY_MS)
+    })
+    expect(buildPayload).not.toHaveBeenCalled()
+    expect(recomputeBodies).not.toHaveBeenCalled()
+  })
+
+  it('an answer for project A that lands after the switch is discarded, toast included', async () => {
+    let release: (v: typeof OK_RESULT) => void = () => {}
+    recomputeBodies.mockImplementation(
+      () => new Promise(resolve => (release = resolve as typeof release)),
+    )
+    const toast = vi.fn()
+    const onRecomputed = vi.fn()
+    const { result, rerender } = renderHook(
+      (o: UseBodyRecomputeOptions) => useBodyRecompute(o),
+      { initialProps: makeOpts({ projectId: 'p1', toast, onRecomputed }) },
+    )
+    act(() => result.current.scheduleRecompute('m-of-p1'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BODY_RECOMPUTE_DEBOUNCE_MS)
+    })
+    expect(recomputeBodies).toHaveBeenCalledTimes(1)
+    rerender(makeOpts({ projectId: 'p2', toast, onRecomputed }))
+    await act(async () => {
+      release({ ...OK_RESULT, bodies_merged: 2 })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(toast).not.toHaveBeenCalled()
+    expect(onRecomputed).not.toHaveBeenCalled()
+  })
+})
