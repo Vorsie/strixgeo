@@ -27,6 +27,9 @@ export default defineConfig({
       // them (its testMatch is **/*.spec.ts). Only .test.ts here -- the
       // walker.spec.ts orchestrator is Playwright's, never vitest's.
       'tests/e2e/walker/**/*.test.{ts,tsx}',
+      // The launch helper's pure half (closeApp's window probe + hang report)
+      // follows the same rule: explicit vitest imports, never a .spec.ts.
+      'tests/e2e/helpers/**/*.test.{ts,tsx}',
       // Build-tooling helpers (the release guard's published-version resolution)
       // are pure ESM modules under scripts/; their tests live beside them so the
       // guard logic is verifiable without a network or a real release.
