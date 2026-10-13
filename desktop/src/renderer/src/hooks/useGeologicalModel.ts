@@ -61,6 +61,7 @@ import { divideBoreholesToastMessage } from '../utils/divideBoreholesToast'
 import { lostTieMessage } from '../utils/lostTieMessage'
 import { subdivideCptsToast } from '../utils/subdivideCptsToast'
 import { log } from '../utils/log'
+import { modelOfProject, modelsOfProject } from '../utils/modelOfProject'
 import { t } from '../i18n/translate'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
@@ -1230,15 +1231,27 @@ export function useGeologicalModel({
    */
   bodiesRecomputedNonceByModel?: Readonly<Record<string, number>>
 }): UseGeologicalModelResult {
-  const [activeGeologicalModel, setActiveGeologicalModel] =
+  // A model is only active for the project it belongs to (owner dogfeed
+  // 2026-10-13). The stored pointers below survive a project switch until the
+  // new list arrives, so every reader goes through ``modelOfProject``: a switch
+  // yields NO active model (and an empty list) until the new project's models
+  // are in, and no effect can pair the new project id with an old model id.
+  const currentProjectId = project?.id ?? null
+  const [storedGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
+  const activeGeologicalModel = modelOfProject(storedGeologicalModel, currentProjectId)
   // #55 model-kind picker: the full project model list (all kinds) +
   // the active lithostratigraphic sibling. Kept separate from the
   // race-guarded geological bootstrap so that delicate path is
   // untouched — these are refreshed additively via refreshModels.
-  const [models, setModels] = useState<GeologicalModelResponse[]>([])
-  const [activeLithoModel, setActiveLithoModel] =
+  const [storedModels, setModels] = useState<GeologicalModelResponse[]>([])
+  const models = useMemo(
+    () => modelsOfProject(storedModels, currentProjectId),
+    [storedModels, currentProjectId],
+  )
+  const [storedLithoModel, setActiveLithoModel] =
     useState<GeologicalModelResponse | null>(null)
+  const activeLithoModel = modelOfProject(storedLithoModel, currentProjectId)
   // Auto-lens (2026-06-02): pinch-out lens candidates returned by the last
   // auto-correlate run (crossings dropped from persistence). Rendered as amber
   // lens-candidate markers on the section; cleared on model switch + on a
@@ -1300,8 +1313,9 @@ export function useGeologicalModel({
   // derive from geotechLayers / formations respectively (same useMemo
   // pattern as lithoContacts / lithoFormations so bug class #88 cannot
   // recur here either).
-  const [activeGeotechModel, setActiveGeotechModel] =
+  const [storedGeotechModel, setActiveGeotechModel] =
     useState<GeologicalModelResponse | null>(null)
+  const activeGeotechModel = modelOfProject(storedGeotechModel, currentProjectId)
   const [geotechLayers, setGeotechLayers] = useState<LithoLayerResponse[]>([])
   // Whether the array above reflects the server, and a counter that ticks once
   // per successful load. Both exist because the load effect clears the array to
@@ -1432,7 +1446,14 @@ export function useGeologicalModel({
   // is the "no fetch in flight" sentinel, NOT the promise's resolve
   // type — that was the bug behind the two TS18047 'active' possibly
   // null errors the gate flagged.
-  const ensureModelPromiseRef = useRef<Promise<GeologicalModelResponse> | null>(null)
+  //
+  // The in-flight promise is tagged with its PROJECT: a resolve started for
+  // the previous project must never be adopted after a switch (it would hand
+  // back that project's geological model).
+  const ensureModelPromiseRef = useRef<{
+    projectId: string
+    promise: Promise<GeologicalModelResponse>
+  } | null>(null)
 
   // Core list→adopt→create-Default logic shared by the bootstrap
   // effect and ensureActiveGeologicalModel. Extracted here so both
@@ -1485,6 +1506,25 @@ export function useGeologicalModel({
     return active
   }
 
+  // Reuse the in-flight list→adopt→create promise for THIS project, or start
+  // one. Shared by the bootstrap and ensureActiveGeologicalModel (the at-most-
+  // once guard for createModel("Default")); a promise of another project is
+  // never reused.
+  const sharedResolveActiveModel = (projectId: string): Promise<GeologicalModelResponse> => {
+    const inFlight = ensureModelPromiseRef.current
+    if (inFlight !== null && inFlight.projectId === projectId) return inFlight.promise
+    const promise = resolveActiveModel(projectId).finally(() => {
+      if (ensureModelPromiseRef.current?.promise === promise) ensureModelPromiseRef.current = null
+    })
+    ensureModelPromiseRef.current = { projectId, promise }
+    return promise
+  }
+
+  // Which project the model pointers were last bootstrapped for — a REAL
+  // project switch (id change) clears them synchronously; a same-project
+  // re-run (the project object churns on every view-state autosave) does not.
+  const bootstrappedProjectIdRef = useRef<string | null>(null)
+
   // Geological-model bootstrap + load.
   //
   // Every project carries exactly one active geological model in v1.
@@ -1503,14 +1543,30 @@ export function useGeologicalModel({
   // "Default" models cannot be created simultaneously.
   useEffect(() => {
     if (!project) {
+      bootstrappedProjectIdRef.current = null
       setActiveGeologicalModel(null)
       setModels([])
       setActiveLithoModel(null)
+      setActiveGeotechModel(null)
       setFormations([])
       setContacts([])
       setSurfacesByFormationId(new Map())
       setBackdropSurfacesByFormationId(new Map())
       return
+    }
+    if (bootstrappedProjectIdRef.current !== project.id) {
+      // Project switch: the previous project's model pointers go NOW, in the
+      // effect that starts the new fetch. The guarded readers already treat
+      // them as absent; clearing the store keeps it honest too.
+      log.debug(
+        'geology',
+        `project ${bootstrappedProjectIdRef.current ?? 'none'} -> ${project.id}: model pointers cleared`,
+      )
+      bootstrappedProjectIdRef.current = project.id
+      setActiveGeologicalModel(null)
+      setModels([])
+      setActiveLithoModel(null)
+      setActiveGeotechModel(null)
     }
     let cancelled = false
     ;(async () => {
@@ -1520,12 +1576,7 @@ export function useGeologicalModel({
         // Reuse or create the shared in-flight promise so a
         // concurrent ensureActiveGeologicalModel call doesn't race
         // us into a second createModel.
-        if (!ensureModelPromiseRef.current) {
-          ensureModelPromiseRef.current = resolveActiveModel(projectId).finally(() => {
-            ensureModelPromiseRef.current = null
-          })
-        }
-        const active = await ensureModelPromiseRef.current
+        const active = await sharedResolveActiveModel(projectId)
         if (cancelled) return
         setActiveGeologicalModel(active)
 
@@ -1884,12 +1935,7 @@ export function useGeologicalModel({
         const projectId = project.id
         // Reuse a bootstrap-initiated promise if one is in flight —
         // the at-most-once guard for createModel("Default").
-        if (!ensureModelPromiseRef.current) {
-          ensureModelPromiseRef.current = resolveActiveModel(projectId).finally(() => {
-            ensureModelPromiseRef.current = null
-          })
-        }
-        const active = await ensureModelPromiseRef.current
+        const active = await sharedResolveActiveModel(projectId)
         setActiveGeologicalModel(active)
         return active
       } catch (err) {
