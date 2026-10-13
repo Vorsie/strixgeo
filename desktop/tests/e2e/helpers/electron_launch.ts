@@ -271,9 +271,13 @@ export async function closeApp(app: ElectronApplication): Promise<void> {
   if (win) {
     await Promise.race([
       closing,
+      // By test id, never by label: the app runs in the SYSTEM language, so on
+      // this Dutch box the button reads "Niet opslaan" and a name match of
+      // 'Discard' waited the full 10 s while the quit stayed blocked (walker
+      // 2026-10-13: a dirty project after a voxel build hung the teardown).
       win
         .getByTestId('unsaved-changes-dialog')
-        .getByRole('button', { name: 'Discard' })
+        .getByTestId('unsaved-discard-and-close')
         .click({ timeout: 10_000 })
         .catch(() => {
           // No unsaved prompt appeared (clean project) — close proceeds alone.
