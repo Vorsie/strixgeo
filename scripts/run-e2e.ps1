@@ -39,7 +39,7 @@
 # per attempt on a day of one-spec diagnosis before it was noticed.
 $PlaywrightArgs = $args
 
-# The scenario-pass "walker" (tests/e2e/walker) is opt-in: it is a long (~15 min)
+# The scenario-pass "walker" (tests/e2e/walker) is opt-in: it is a long (~25 min per run)
 # novice-user fuzz pass, not part of the deterministic suite, so its spec skips
 # unless WALKER is set. Passing "walker" as the filter selects AND enables it, so
 # `.\scripts\run-e2e.ps1 walker` runs it; the default full suite leaves it off.
@@ -58,6 +58,9 @@ if ($PlaywrightArgs -match 'walker') {
   # The walker's chaos must not leak persisted UI chrome (a collapsed inspector
   # rail broke four deterministic specs on 2026-09-07): it gets its own store.
   $env:E2E_USER_DATA_SUFFIX = '-walker'
+  # WALKER_SEED / WALKER_STEPS / WALKER_TIME_BUDGET_S / WALKER_RUNS / WALKER_TRACE
+  # reach the spec unchanged through the inherited environment (defaults:
+  # 900 steps, 1500 s, 1 run; tests/e2e/walker/walkerBudget.ts).
 }
 
 $env:DATABASE_URL = "postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration"
