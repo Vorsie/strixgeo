@@ -284,7 +284,11 @@ export async function closeApp(app: ElectronApplication): Promise<void> {
         }),
     ])
   }
-  await closing
+  // Never wait on the quit forever: a prompt the click above did not reach
+  // (walker 2026-10-13: the project was dirty, the quit stayed blocked, the
+  // test ran into its 20-minute timeout and never wrote its report) falls
+  // through to the alive check below, which kills this launch's tree.
+  await Promise.race([closing, new Promise<void>(r => setTimeout(r, 15_000))])
   // A spec that failed mid-flow, or a renderer that never answered the quit,
   // can leave the Electron tree alive after app.close() resolves (2026-09-07:
   // one survived for an hour holding the suite's localStorage lock). Give it
