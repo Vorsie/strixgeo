@@ -363,3 +363,47 @@ describe('SR — a recompute that changed bodies tells the shell to re-read the 
     expect(onBodiesRecomputed.mock.calls.map(c => c[0]).sort()).toEqual(['G1', 'L1'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// PSW — project switch (owner dogfeed 2026-10-13). Opening another project while
+// the previous project's recompute was still waiting out its debounce ran that
+// recompute under the NEW project id with the OLD model id: seven
+// contact-correlation reads 404'd ("recompute skipped: 7 of 7 section(s) failed
+// to load their correlations"). Rule: a recompute scheduled for a model of the
+// previous project never fires after the switch — no assembly, no POST.
+// ---------------------------------------------------------------------------
+
+describe('PSW — a project switch drops the previous project\'s scheduled recomputes', () => {
+  it('PSW1 a recompute still waiting when the project switches never runs for the new project', async () => {
+    const { rerender } = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: args() },
+    )
+    // The open trigger scheduled L1 + G1; the debounce has NOT elapsed yet.
+    // Project B opens: its models are not loaded, so no model is active.
+    rerender(
+      args({
+        projectId: 'p2',
+        lithoModelId: null,
+        lithoLayers: [],
+        geotechModelId: null,
+        geotechLayers: [],
+        geotechLayersLoaded: false,
+      }),
+    )
+    await drainDebounce()
+    expect(assemble).not.toHaveBeenCalled()
+    expect(recomputeBodies).not.toHaveBeenCalled()
+  })
+
+  it('PSW2 the new project still gets its own open recompute after the switch', async () => {
+    const { rerender } = renderHook(
+      (p: UseProjectBodyRecomputeArgs) => useProjectBodyRecompute(p),
+      { initialProps: args() },
+    )
+    rerender(args({ projectId: 'p2', lithoModelId: 'L2', geotechModelId: 'G2' }))
+    await drainDebounce()
+    expect(postedModels().sort()).toEqual(['G2', 'L2'])
+    expect(recomputeBodies.mock.calls.every(c => c[0] === 'p2')).toBe(true)
+  })
+})
