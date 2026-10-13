@@ -26,6 +26,14 @@ import fs from 'fs'
 import os from 'os'
 import { spawnSync } from 'child_process'
 
+import {
+  UNSAVED_DIALOG_TESTID,
+  UNSAVED_DISCARD_TESTID,
+  formatWindowReport,
+  pickDialogWindow,
+  type WindowProbe,
+} from './closeAppProbe'
+
 // The electron package ships its own path.txt pointing at the local
 // electron.exe (Windows) / electron (Linux/macOS). We resolve it the
 // same way the package's index.js does, avoiding a hard-coded path.
@@ -242,11 +250,162 @@ ${err.stack ?? ''}
   return { app, page }
 }
 
+/** How long ``closeApp`` looks for the unsaved-changes prompt before giving up on it. */
+const DIRTY_PROMPT_WAIT_MS = 25_000
+/** How long a quit may take after the discard click (the discard replace-restores the bundle). */
+const QUIT_AFTER_DISCARD_MS = 30_000
+/** How long a quit may take when no prompt was clicked. */
+const QUIT_WITHOUT_DISCARD_MS = 5_000
+/** How long one window may take to answer a DOM probe before it counts as unreachable. */
+const WINDOW_PROBE_MS = 3_000
+
+/** Resolve ``work``, or ``fallback`` when it has not settled within ``ms``. */
+async function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(fallback), ms)
+  })
+  try {
+    return await Promise.race([work.catch(() => fallback), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/**
+ * Probe every window of the app for the unsaved-changes prompt.
+ *
+ * Every window, not ``windows()[0]``: a walk can leave the hidden PDF print
+ * window (``sheet.html``) or a reloaded document in the list, and the order is
+ * Playwright's insertion order, not "the main window first". Each probe is a
+ * bounded ``evaluate`` so a hung renderer is reported as UNREACHABLE rather
+ * than stalling the teardown.
+ *
+ * Parameters
+ * ----------
+ * app : ElectronApplication
+ *     The application handle returned by ``launchApp``.
+ * withBody : boolean
+ *     Also read ``document.body.innerText`` (for the hang report only).
+ *
+ * Returns
+ * -------
+ * { pages: Page[]; probes: WindowProbe[] }
+ *     The pages and one probe row per page, index-aligned.
+ */
+async function probeWindows(
+  app: ElectronApplication,
+  withBody: boolean,
+): Promise<{ pages: Page[]; probes: WindowProbe[] }> {
+  const pages = app.windows()
+  const probes = await Promise.all(
+    pages.map(async (page, index): Promise<WindowProbe> => {
+      const base: WindowProbe = {
+        index,
+        url: page.url(),
+        closed: page.isClosed(),
+        reachable: false,
+        title: null,
+        dialog: false,
+        discard: 'absent',
+        bodyText: null,
+      }
+      if (base.closed) return base
+      const seen = await within(
+        page.evaluate(
+          ({ dialogId, discardId, body }) => {
+            const dialog = document.querySelector(`[data-testid="${dialogId}"]`)
+            const button = dialog?.querySelector<HTMLButtonElement>(`[data-testid="${discardId}"]`)
+            const discard: 'absent' | 'enabled' | 'disabled' = button
+              ? button.disabled
+                ? 'disabled'
+                : 'enabled'
+              : 'absent'
+            return {
+              title: document.title,
+              dialog: dialog !== null,
+              discard,
+              bodyText: body ? (document.body?.innerText ?? '') : null,
+            }
+          },
+          { dialogId: UNSAVED_DIALOG_TESTID, discardId: UNSAVED_DISCARD_TESTID, body: withBody },
+        ),
+        WINDOW_PROBE_MS,
+        null,
+      )
+      return seen === null ? base : { ...base, reachable: true, ...seen }
+    }),
+  )
+  return { pages, probes }
+}
+
+/**
+ * Click the prompt's discard button in ``page``; true when a click landed.
+ *
+ * A real pointer click first (the path an engineer takes). Playwright's click
+ * waits for the button to be visible, STABLE (two animation frames with the
+ * same box) and the topmost element at its centre; a renderer busy with a 3-D
+ * scene or an overlay can fail that while the button is perfectly clickable.
+ * The fallback is a DOM ``element.click()`` inside the page, which React
+ * handles the same way (pinned in ``UnsavedChangesDialog.test.tsx``).
+ *
+ * Parameters
+ * ----------
+ * page : Page
+ *     The window whose probe saw the prompt with an enabled discard button.
+ *
+ * Returns
+ * -------
+ * boolean
+ *     True when either click landed on an enabled discard button.
+ */
+async function clickDiscard(page: Page): Promise<boolean> {
+  const viaPointer = await page
+    .getByTestId(UNSAVED_DIALOG_TESTID)
+    .getByTestId(UNSAVED_DISCARD_TESTID)
+    .click({ timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (viaPointer) {
+    console.warn('[e2e] closeApp: discarded the unsaved-changes prompt (pointer click)')
+    return true
+  }
+  const viaDom = await within(
+    page.evaluate(
+      ({ dialogId, discardId }) => {
+        const button = document.querySelector<HTMLButtonElement>(
+          `[data-testid="${dialogId}"] [data-testid="${discardId}"]`,
+        )
+        if (!button || button.disabled) return false
+        button.click()
+        return true
+      },
+      { dialogId: UNSAVED_DIALOG_TESTID, discardId: UNSAVED_DISCARD_TESTID },
+    ),
+    WINDOW_PROBE_MS,
+    false,
+  )
+  console.warn(
+    `[e2e] closeApp: pointer click on the discard button failed; DOM click ${viaDom ? 'landed' : 'did NOT land'}`,
+  )
+  return viaDom
+}
+
 /**
  * Gracefully close the Electron application after a test.
  *
- * Calls ``app.close()`` which sends the standard OS quit signal. Errors
- * during close are suppressed — a crashed renderer should not fail the
+ * Calls ``app.close()`` (Playwright: stop tracing, screenshot every page, then
+ * ``app.quit()`` in the main process). On a DIRTY project the renderer answers
+ * that quit with the unsaved-changes prompt and the quit BLOCKS until a button
+ * is clicked, so this helper looks for the prompt in every window and
+ * discards it; a clean project quits on its own and the search ends when the
+ * close resolves. Discarding (rather than killing) lets the app quit through
+ * its own shutdown, so the spawned engine is stopped instead of orphaned.
+ *
+ * Every wait is bounded. When the app is still alive at the end, the helper
+ * logs what each window was showing (URL, title, prompt state, the first 300
+ * characters of its body text) and then kills this launch's process tree.
+ * Errors during close are suppressed — a crashed renderer should not fail the
  * teardown and mask the real assertion failure.
  *
  * Parameters
@@ -256,39 +415,48 @@ ${err.stack ?? ''}
  */
 export async function closeApp(app: ElectronApplication): Promise<void> {
   const mainPid = app.process().pid ?? -1
-  // ``app.close()`` requests an app quit. On a DIRTY project (a test that
-  // committed contacts / left unsaved session-imports) the renderer intercepts
-  // the quit with the unsaved-changes prompt and BLOCKS until a button is
-  // clicked — hanging teardown indefinitely. Race the close against discarding
-  // that prompt: on a clean project the close resolves first and the discard
-  // click no-ops; on a dirty one, clicking Discard lets the app quit
-  // gracefully so the spawned uvicorn is killed via ``stopApi`` rather than
-  // orphaned on :8765 (which a hard process kill would do).
-  const win = app.windows()[0] ?? null
-  const closing = app.close().catch(() => {
-    // Swallow — a crashed renderer is an already-caught test failure.
-  })
-  if (win) {
-    await Promise.race([
-      closing,
-      // By test id, never by label: the app runs in the SYSTEM language, so on
-      // this Dutch box the button reads "Niet opslaan" and a name match of
-      // 'Discard' waited the full 10 s while the quit stayed blocked (walker
-      // 2026-10-13: a dirty project after a voxel build hung the teardown).
-      win
-        .getByTestId('unsaved-changes-dialog')
-        .getByTestId('unsaved-discard-and-close')
-        .click({ timeout: 10_000 })
-        .catch(() => {
-          // No unsaved prompt appeared (clean project) — close proceeds alone.
-        }),
-    ])
+  let closed = false
+  const closing = app
+    .close()
+    .catch(() => {
+      // Swallow — a crashed renderer is an already-caught test failure.
+    })
+    .then(() => {
+      closed = true
+    })
+  // Why a poll over all windows and not one 10 s click on ``windows()[0]``
+  // (walker 2026-10-13, twice: "dialog opened (mode=quit-app)", then silence):
+  // ``app.close()`` screenshots every page (5 s cap each — the ``screenshot:
+  // only-on-failure`` artefact capture runs on EVERY close) BEFORE it sends the
+  // quit, so on a heavy 3-D window the prompt appears late and a click clock
+  // started at the same moment as the close could run out first. The search
+  // starts its clock with the close, looks in every window, and re-reads the
+  // window list each round. By test id, never by label: the app may run in
+  // Dutch.
+  let discarded = false
+  const deadline = Date.now() + DIRTY_PROMPT_WAIT_MS
+  while (!closed && Date.now() < deadline) {
+    const { pages, probes } = await probeWindows(app, false)
+    if (closed) break
+    const hit = pickDialogWindow(probes)
+    if (hit !== null) {
+      discarded = await clickDiscard(pages[hit])
+      if (discarded) break
+    }
+    await within(closing, 500, undefined)
   }
-  // Never wait on the quit forever: a prompt the click above did not reach
-  // (walker 2026-10-13: the project was dirty, the quit stayed blocked, the
-  // test ran into its 20-minute timeout and never wrote its report) falls
-  // through to the alive check below, which kills this launch's tree.
-  await Promise.race([closing, new Promise<void>(r => setTimeout(r, 15_000))])
+  // Never wait on the quit forever. A discard replace-restores the project, so
+  // it gets the longer bound; anything else falls through to the kill below.
+  await within(closing, discarded ? QUIT_AFTER_DISCARD_MS : QUIT_WITHOUT_DISCARD_MS, undefined)
+  if (!closed) {
+    // The next hang must be diagnosable from the log alone: what did each
+    // window show when the teardown gave up on it?
+    const { probes } = await probeWindows(app, true)
+    console.warn(
+      `[e2e] closeApp: the app did not quit (prompt discarded=${discarded}); windows:\n  ` +
+        formatWindowReport(probes).join('\n  '),
+    )
+  }
   // A spec that failed mid-flow, or a renderer that never answered the quit,
   // can leave the Electron tree alive after app.close() resolves (2026-09-07:
   // one survived for an hour holding the suite's localStorage lock). Give it
