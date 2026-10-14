@@ -214,9 +214,40 @@ class CptPdfDigitiser(GroundModelLogger):
             draft calibration and no curves when the user must calibrate.
         """
         image = render_page(page, RASTER_DPI) if image is None else image
+        return self.digitise_raster_image(image, page.get_text(), page_number, ground_level_m)
+
+    def digitise_raster_image(
+        self,
+        image: np.ndarray,
+        text: str,
+        page_number: int,
+        ground_level_m: float | None = None,
+    ) -> DigitisedSounding:
+        """Digitise a rendered raster page without touching the PDF document.
+
+        The PyMuPDF part of a raster read (render + text layer) is short; the
+        rest (deskew, grid, OCR, curve tracing) is numpy and can take seconds
+        per sheet. Split out so a caller can hold the PyMuPDF lock for the
+        render only (the background graph-sheet read, owner 2026-10-14).
+
+        Parameters
+        ----------
+        image : numpy.ndarray
+            RGB image of the page at ``RASTER_DPI``.
+        text : str
+            The page's text layer (picks the layout profile).
+        page_number : int
+            1-based page number.
+        ground_level_m : float or None
+            Ground level when known from elsewhere.
+
+        Returns
+        -------
+        DigitisedSounding
+            As :meth:`digitise_raster`.
+        """
         straight, skew = RasterDeskewer().deskew(image)
         grid = RasterGridDetector().detect(straight)
-        text = page.get_text()
         profile = self._registry.match(text)
         panels = framed_or_grid_panels(
             grid, RasterFrameDetector().detect(straight, grid), straight.shape[0]
