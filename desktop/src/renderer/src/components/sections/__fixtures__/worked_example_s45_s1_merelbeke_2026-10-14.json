@@ -1,0 +1,137 @@
+{
+ "source": "desktop/resources/sample/worked-example.strix, geological model Default, Cross-section 2 (columns with stratigraphy contacts S23, S45, S1, S2), extracted 2026-10-14",
+ "formations": [
+  {
+   "id": "01a09c36-7cdf-75f6-a826-a0fbb407ff5c",
+   "name": "Aangevuld, geroerd",
+   "color": "#fb7185",
+   "display_order": 3
+  },
+  {
+   "id": "01a09c36-7cd9-79c6-ac6f-4d6b31f8df31",
+   "name": "Quartair",
+   "color": "#22d3ee",
+   "display_order": 2
+  },
+  {
+   "id": "01a09c36-7cdb-70b9-b2fc-4419eec4ecc3",
+   "name": "Formatie van Gent - Lid van Merelbeke",
+   "color": "#22d3ee",
+   "display_order": 1
+  },
+  {
+   "id": "01a09c36-7cdd-7475-81bf-3df3646214d6",
+   "name": "Formatie van Tielt - Lid van Egem",
+   "color": "#84cc16",
+   "display_order": 0
+  }
+ ],
+ "columns": [
+  {
+   "id": "01a09c2f-8749-75de-a983-6a4ef6d521c2",
+   "name": "GEO-25/021-S23",
+   "along_m": 99.14,
+   "elevation_m": 7.34,
+   "max_depth_m": 19.98,
+   "contacts": [
+    {
+     "id": "01a09c3a-e4d8-739a-94da-b3579f86ed9f",
+     "formation_id": "01a09c36-7cdf-75f6-a826-a0fbb407ff5c",
+     "depth_top_m": 0.02
+    },
+    {
+     "id": "01a09c3a-64eb-7847-9625-07367e9a0edd",
+     "formation_id": "01a09c36-7cd9-79c6-ac6f-4d6b31f8df31",
+     "depth_top_m": 1.726
+    },
+    {
+     "id": "01a09c3a-6503-7980-8fd5-5c78e10e6b87",
+     "formation_id": "01a09c36-7cdb-70b9-b2fc-4419eec4ecc3",
+     "depth_top_m": 5.64
+    },
+    {
+     "id": "01a09c3a-651b-73bc-b8b0-5d2b23308339",
+     "formation_id": "01a09c36-7cdd-7475-81bf-3df3646214d6",
+     "depth_top_m": 9.859866827579284
+    }
+   ]
+  },
+  {
+   "id": "01a09c2f-874a-733b-bf47-64567d9ce916",
+   "name": "GEO-25/021-S45",
+   "along_m": 185.64,
+   "elevation_m": 9.43,
+   "max_depth_m": 20.11,
+   "contacts": [
+    {
+     "id": "01a09c3a-fb46-7435-8930-8bfbed318bd4",
+     "formation_id": "01a09c36-7cdf-75f6-a826-a0fbb407ff5c",
+     "depth_top_m": 0.02
+    },
+    {
+     "id": "01a09c3a-652c-750e-a5fc-22c6659ddb91",
+     "formation_id": "01a09c36-7cd9-79c6-ac6f-4d6b31f8df31",
+     "depth_top_m": 1.8
+    },
+    {
+     "id": "01a09c3a-653c-70af-841f-280839bcad7b",
+     "formation_id": "01a09c36-7cdb-70b9-b2fc-4419eec4ecc3",
+     "depth_top_m": 5.1
+    },
+    {
+     "id": "01a09c3a-654e-76cc-ab5d-8c505de5af90",
+     "formation_id": "01a09c36-7cdd-7475-81bf-3df3646214d6",
+     "depth_top_m": 11.949507358104563
+    }
+   ]
+  },
+  {
+   "id": "01a09c2f-872e-7cee-9b0f-cc227c23dd95",
+   "name": "GEO-07/181-S1",
+   "along_m": 442.99,
+   "elevation_m": 7.68,
+   "max_depth_m": 20.76,
+   "contacts": [
+    {
+     "id": "01a09c3b-0da8-7ba0-9b65-ae1d70429b88",
+     "formation_id": "01a09c36-7cdf-75f6-a826-a0fbb407ff5c",
+     "depth_top_m": 0
+    },
+    {
+     "id": "01a09c3a-6565-7ef7-98d4-fddc16788cfb",
+     "formation_id": "01a09c36-7cd9-79c6-ac6f-4d6b31f8df31",
+     "depth_top_m": 1.55
+    },
+    {
+     "id": "01a09c3a-658e-7293-b36a-95694f928f3b",
+     "formation_id": "01a09c36-7cdd-7475-81bf-3df3646214d6",
+     "depth_top_m": 12.243928106105056
+    }
+   ]
+  },
+  {
+   "id": "01a09c2f-8733-7135-a530-bfbdd397142b",
+   "name": "GEO-07/181-S2",
+   "along_m": 492.05,
+   "elevation_m": 7.53,
+   "max_depth_m": 19.36,
+   "contacts": [
+    {
+     "id": "01a09c3b-1a95-7f5c-aacb-4c9257a2fb2a",
+     "formation_id": "01a09c36-7cdf-75f6-a826-a0fbb407ff5c",
+     "depth_top_m": 0
+    },
+    {
+     "id": "01a09c3a-659f-7c85-85bf-15e5e3790128",
+     "formation_id": "01a09c36-7cd9-79c6-ac6f-4d6b31f8df31",
+     "depth_top_m": 1.55
+    },
+    {
+     "id": "01a09c3a-65c6-7287-ac2e-3eb879055282",
+     "formation_id": "01a09c36-7cdd-7475-81bf-3df3646214d6",
+     "depth_top_m": 11.7
+    }
+   ]
+  }
+ ]
+}
