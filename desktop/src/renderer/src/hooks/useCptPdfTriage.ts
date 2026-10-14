@@ -31,6 +31,8 @@ const cptTriage = createPdfTriage<CptPdfDigest>({
   streamUrl: jobId => cptPdfClient.streamUrl(jobId),
   describe: digest =>
     `${digest.campaign.length} campaign soundings, ${digest.dropped.length} set aside`,
+  // The graph sheets of the printed-table soundings, read after the triage.
+  followUpJobId: digest => digest.graph_job_id,
 })
 
 /**
