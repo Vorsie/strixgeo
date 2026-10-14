@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,8 +28,10 @@ class CachedPdfReport:
     graph_twins : dict
         Sounding key -> the graph sheet of a printed-table sounding as read
         automatically when the overlay first opened it (the triage never
-        reads it: that costs OCR per sheet). Filled on demand, kept for the
-        report's lifetime so reopening the overlay does not read it again.
+        reads it: that costs OCR per sheet). Filled by the background read
+        that follows the triage (owner 2026-10-14) or, as the fallback, when
+        the overlay opens it; kept for the report's lifetime so reopening the
+        overlay does not read it again.
     """
 
     path: Path
@@ -36,6 +39,29 @@ class CachedPdfReport:
     digest: PdfReportDigest
     soundings: dict[str, DigitisedSounding]
     graph_twins: dict[str, DigitisedSounding] = field(default_factory=dict)
+    # One lock per sounding key: the background read and an overlay opened
+    # mid-read wait for each other instead of reading the same sheet twice.
+    _twin_locks: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    _twin_guard: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def twin_lock(self, key: str) -> threading.Lock:
+        """Return the lock that guards reading one sounding's graph sheets.
+
+        Parameters
+        ----------
+        key : str
+            The listed sounding's key.
+
+        Returns
+        -------
+        threading.Lock
+            The same lock for every caller of that key.
+        """
+        with self._twin_guard:
+            lock = self._twin_locks.get(key)
+            if lock is None:
+                lock = self._twin_locks[key] = threading.Lock()
+            return lock
 
     @property
     def report_sha(self) -> str:
