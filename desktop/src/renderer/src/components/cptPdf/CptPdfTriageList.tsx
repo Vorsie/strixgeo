@@ -18,6 +18,7 @@ import { usePdfPageThumbnail } from '../../hooks/usePdfPageThumbnail'
 import { useT } from '../../i18n/translate'
 import { cptPdfNoteTexts } from '../../utils/cptPdfNoteText'
 import { FIELD_CLASS } from '../ui/fieldClasses'
+import { pageSpan } from './cptPdfPages'
 import { rowLabel } from './cptPdfProjectNumber'
 
 interface Props {
@@ -34,14 +35,6 @@ interface Props {
   onProjectNumberChange: (value: string) => void
   onToggle: (key: string, on: boolean) => void
   onCalibrate: (key: string) => void
-}
-
-/** "231" or "231–232" for a sounding's pages. */
-function pageSpan(pages: number[]): string {
-  if (pages.length === 0) return ''
-  const first = pages[0]
-  const last = pages[pages.length - 1]
-  return first === last ? `${first}` : `${first}–${last}`
 }
 
 const THUMBNAIL_BOX = 'h-16 w-12 flex-none border border-border-subtle'
