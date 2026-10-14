@@ -113,6 +113,7 @@ def pdf_triage_job(
     file_sha: str,
     cancel: threading.Event,
     unknown_code: str,
+    after: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> Callable[[Any], Any]:
     """Return the job factory: triage in a worker thread, progress onto the queue.
 
@@ -131,6 +132,10 @@ def pdf_triage_job(
         The job's stop flag.
     unknown_code : str
         The error-event code when the store no longer holds the report.
+    after : callable or None
+        Runs on the event loop with the finished result, before the ``done``
+        event, and returns the result to send (the CPT triage spawns its
+        background graph-sheet read here and names it in the result).
 
     Returns
     -------
@@ -142,16 +147,21 @@ def pdf_triage_job(
         async def job() -> None:
             loop = asyncio.get_running_loop()
 
-            def progress(phase: str, done: int, total: int, ocr: bool = False) -> None:
+            def progress(
+                phase: str, done: int, total: int, ocr: bool = False, key: str | None = None
+            ) -> None:
                 # Called on the worker thread: hand the tick to the event loop.
-                # ``ocr`` is additive: older clients read phase / done / total.
-                loop.call_soon_threadsafe(
-                    queue.put_nowait,
-                    {"phase": phase, "done": done, "total": total, "ocr": ocr},
-                )
+                # ``ocr`` and ``key`` are additive: older clients read phase /
+                # done / total. ``key`` names the sounding a tick finished.
+                event: dict[str, Any] = {"phase": phase, "done": done, "total": total, "ocr": ocr}
+                if key is not None:
+                    event["key"] = key
+                loop.call_soon_threadsafe(queue.put_nowait, event)
 
             try:
                 result = await asyncio.to_thread(run, progress, cancel.is_set)
+                if after is not None:
+                    result = after(result)
                 await queue.put({"type": "done", "result": result})
             except asyncio.CancelledError:
                 # The awaiting task is gone; stop the thread too.
