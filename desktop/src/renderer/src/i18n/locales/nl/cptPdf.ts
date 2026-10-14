@@ -14,6 +14,7 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.phase.classify': "Pagina's lezen ({done}/{total})…",
   'cptPdf.phase.digitise': 'Bladen digitaliseren ({done}/{total})…',
   'cptPdf.phase.ocr': 'Titels lezen met OCR ({done}/{total})…',
+  'cptPdf.phase.graph': 'Grafiekbladen lezen ({done}/{total})…',
   'cptPdf.failed': 'Het rapport kon niet gelezen worden: {message}',
   'cptPdf.summary': '{n} sonderingen van de campagne in {report}',
   'cptPdf.summaryNoCode': '{n} sonderingen van de campagne',
@@ -62,6 +63,8 @@ export const CPT_PDF_NL: Partial<Messages> = {
   'cptPdf.overlay.intro':
     'Sleep de hoeken van het kader op de gedrukte assen en typ de waarde bij twee maatstrepen per as, lees dan opnieuw af.',
   'cptPdf.overlay.loading': 'Sondering wordt gelezen…',
+  'cptPdf.overlay.graphLoading': 'Grafiekblad wordt gelezen…',
+  'cptPdf.overlay.tableSheets': 'Tabelbladen {pages}',
   'cptPdf.overlay.page': 'Pagina {page}',
   'cptPdf.overlay.panel': 'Paneel',
   'cptPdf.overlay.kind': 'Grootheid',
