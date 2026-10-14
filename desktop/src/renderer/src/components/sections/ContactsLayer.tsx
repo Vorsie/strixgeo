@@ -74,7 +74,8 @@ import { useMenuDismissOnZoomOrEsc } from './useMenuDismiss'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import ContactContextMenu from './ContactContextMenu'
-import { buildFillBand, columnsBetween, depthAxisAtSurface, type PlacedColumn } from './utils'
+import { buildFormationFillBands } from './formationFillBands'
+import { columnsBetween, depthAxisAtSurface, type PlacedColumn } from './utils'
 import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 import { nadCompactFromName } from '../../utils/nadClasses'
 import { isTypingTarget } from '../../utils/keyboard'
@@ -1341,6 +1342,11 @@ export default function ContactsLayer({
   // eastern edge and leave a visual gap where Quartair geologically
   // continues onto KoRo.
   //
+  // A formation ABSENT on the next interpreted test (an older unit is
+  // picked there) pinches out AT that test under the overlying unit's
+  // base instead of taking the flat pad — owner ruling (b) 2026-10-14,
+  // "the wedge is Merelbeke"; see ``formationFillBands.ts``.
+  //
   // The oldest formation's fill stops at ``dataExtentFloor`` — the
   // deepest CPT or borehole bottom — not at the visible plot floor.
   // Above the youngest top there's no fill (nothing geological to
@@ -1680,114 +1686,18 @@ export default function ContactsLayer({
     }
   }
 
-  const formationFillBands = useMemo(() => {
-    if (polylines.length === 0) {
-      return [] as {
-        formationId: string
-        color: string
-        d: string
-        isStale: boolean
-      }[]
-    }
-    // Project each per-formation polyline into the (x, y) screen
-    // tuples buildFillBand expects, sorted ascending by X so the
-    // helper can index into them safely. Pad ±fillBufferPx on the
-    // outer endpoints so the fill extends past the last contact
-    // (flat horizontal extrapolation — same Y as the endpoint).
-    const projected = polylines
-      .map(line => {
-        const points = line.vertices
-          .map(v => ({ x: v.screenX, y: v.screenY }))
-          .sort((a, b) => a.x - b.x)
-        if (points.length >= 2) {
-          // Halfspace extrapolation — extend the band laterally to the
-          // section's plot bounds when those are available (gINT /
-          // LeapFrog convention: formations are geologically
-          // continuous, so the unit is presumed to extend past the
-          // last anchor that has a contact). When plot bounds are not
-          // wired we fall back to ±fillBufferPx (the legacy "breathe
-          // past the last test" pad).
-          const left = points[0]
-          const right = points[points.length - 1]
-          const leftTargetX =
-            plotLeft !== undefined && plotLeft < left.x
-              ? plotLeft
-              : fillBufferPx > 0
-                ? left.x - fillBufferPx
-                : left.x
-          const rightTargetX =
-            plotRight !== undefined && plotRight > right.x
-              ? plotRight
-              : fillBufferPx > 0
-                ? right.x + fillBufferPx
-                : right.x
-          if (leftTargetX < left.x) points.unshift({ x: leftTargetX, y: left.y })
-          if (rightTargetX > right.x) points.push({ x: rightTargetX, y: right.y })
-        }
-        // 3-state fill contract (§10 on-click build):
-        //   fresh surface (exists + !is_stale + triangles > 0) → solid 0.18
-        //   stale surface (exists + is_stale)                   → faded 0.08
-        //   no surface row (Fill ran but Build never fired)     → NO fill
-        // hasSurface gates the outer render; isStale controls the opacity.
-        const surface = surfacesByFormationId?.get(line.formationId)
-        const hasSurface = surface !== undefined
-        const isStale = surface?.is_stale === true
-        const hasTriangles = (surface?.triangles.length ?? 0) > 0
-        return {
-          formationId: line.formationId,
-          color: line.color,
-          points,
-          hasSurface,
-          isStale,
-          hasTriangles,
-        }
-      })
-      .filter(p => p.points.length >= 2)
-    // Sort youngest-first by mean screen-Y. Screen-Y is inverted
-    // (smaller Y = higher elevation = younger), so ascending Y
-    // gives youngest first.
-    const annotated = projected
-      .map(p => ({
-        line: p,
-        meanY: p.points.reduce((acc, pt) => acc + pt.y, 0) / p.points.length,
-      }))
-      .sort((a, b) => a.meanY - b.meanY)
-    const out: {
-      formationId: string
-      color: string
-      d: string
-      isStale: boolean
-    }[] = []
-    for (let i = 0; i < annotated.length; i++) {
-      const younger = annotated[i].line
-      // Gate: no surface row → no fill. Fresh surface with empty triangles
-      // (0-contact or all-NaN-elevation edge case) → no fill. Stale surface
-      // → faded hint fill regardless of triangle count (prior build geometry
-      // exists and the engineer should see "refresh needed").
-      if (!younger.hasSurface) continue
-      if (!younger.isStale && !younger.hasTriangles) continue
-      // All formations older than this one, in age order
-      // (immediate-next-older first) — fed to buildFillBand as the
-      // pinch-out fallback chain.
-      const olders = annotated.slice(i + 1).map(a => a.line.points)
-      const d = buildFillBand(younger.points, olders, dataExtentFloor)
-      if (d === '') continue
-      out.push({
-        formationId: younger.formationId,
-        color: younger.color,
-        d,
-        isStale: younger.isStale,
-      })
-    }
-    return out
-  }, [
-    polylines,
-    surfacesByFormationId,
-    dataExtentFloor,
-    fillBufferPx,
-    plotLeft,
-    plotRight,
-  ])
+  const formationFillBands = useMemo(
+    () =>
+      buildFormationFillBands({
+        lines: polylines,
+        surfacesByFormationId,
+        floor: dataExtentFloor,
+        fillBufferPx,
+        plotLeft,
+        plotRight,
+      }),
+    [polylines, surfacesByFormationId, dataExtentFloor, fillBufferPx, plotLeft, plotRight],
+  )
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
