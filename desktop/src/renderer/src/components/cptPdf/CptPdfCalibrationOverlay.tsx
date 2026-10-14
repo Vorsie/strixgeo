@@ -32,6 +32,12 @@
 // graph sheet for it shows the sheet header to correct instead of an empty
 // panel.
 //
+// Only the GRAPH sheets of a printed-table sounding are offered in the sheet
+// strip (owner dogfeed 2026-10-14: "the table pages are also selectable but
+// that is useless"); its table pages are named in a note. Its graph sheet is
+// read in the background after the triage: opened before that reading is
+// ready, the overlay says "Reading the graph sheet…" with a spinner.
+//
 // One component with a small canvas (the eyedropper's pixel read); the page
 // drawing lives in CptPdfOverlaySurface.tsx, the pure dict edits in
 // cptPdfCalibrationEdits.ts.
@@ -65,6 +71,7 @@ import {
   type FrameCorner,
   type PanelAxis,
 } from './cptPdfCalibrationEdits'
+import { pageSpan, tableSheetPages } from './cptPdfPages'
 import CptPdfOverlaySurface from './CptPdfOverlaySurface'
 
 /** What the user settled on for one sounding. */
@@ -125,6 +132,9 @@ interface Props {
   onBack: () => void
   /** Injectable for tests (jsdom has no canvas). */
   samplePixel?: PixelSampler
+  /** A printed-table sounding: whether the background read of its graph
+   *  sheet is done (false = still being read); undefined = not known. */
+  graphSheetReady?: boolean
 }
 
 interface Drag {
@@ -150,6 +160,7 @@ export default function CptPdfCalibrationOverlay({
   onDone,
   onBack,
   samplePixel = canvasPixel,
+  graphSheetReady,
 }: Props): JSX.Element {
   const t = useT()
   const [data, setData] = useState<CptPdfDigitised | null>(null)
@@ -174,6 +185,11 @@ export default function CptPdfCalibrationOverlay({
   // "Read graph" holds only while the picture has a qc reading.
   const source: CptPdfSeriesSource = graphRows > 0 ? seriesSource : 'table'
   const noGraphSheet = printedTable && data !== null && data.overlays.length === 0
+  // The sheets that can be calibrated: one per overlay (for a printed-table
+  // sounding its graph sheets only, never a table page).
+  const sheetPages = useMemo(() => (data ? data.overlays.map(o => o.page_number) : []), [data])
+  const tablePages = printedTable && data ? tableSheetPages(data.page_numbers, sheetPages) : []
+  const waitingForGraph = printedTable && graphSheetReady === false
 
   // ``adoptAsDetected``: the answer's calibration is the digitiser's own (a
   // read that posted none, or a reopen that kept no ``detected``).
@@ -449,7 +465,16 @@ export default function CptPdfCalibrationOverlay({
       <p data-testid="cpt-pdf-overlay-intro" className="text-text-secondary">
         {t('cptPdf.overlay.intro')}
       </p>
-      {!data && !error && <p>{t('cptPdf.overlay.loading')}</p>}
+      {!data && !error && waitingForGraph && (
+        <p data-testid="cpt-pdf-graph-loading" className="flex items-center gap-2" role="status">
+          <span
+            aria-hidden="true"
+            className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"
+          />
+          {t('cptPdf.overlay.graphLoading')}
+        </p>
+      )}
+      {!data && !error && !waitingForGraph && <p>{t('cptPdf.overlay.loading')}</p>}
       {error && <p className="text-red-600">{t('cptPdf.overlay.readFailed', { message: error })}</p>}
       {data && noGraphSheet && (
         <div className="flex flex-col gap-2">
@@ -485,14 +510,19 @@ export default function CptPdfCalibrationOverlay({
             />
           </div>
           <div className="flex w-64 flex-none flex-col gap-2">
-            {data.page_numbers.length > 1 && (
+            {sheetPages.length > 1 && (
               <div className="flex gap-1">
-                {data.page_numbers.map((page, i) => (
+                {sheetPages.map((page, i) => (
                   <Button key={page} size="sm" variant={i === pageIdx ? 'primary' : 'secondary'} onClick={() => setPageIdx(i)}>
                     {t('cptPdf.overlay.page', { page })}
                   </Button>
                 ))}
               </div>
+            )}
+            {tablePages.length > 0 && (
+              <p data-testid="cpt-pdf-table-sheets" className="text-text-secondary">
+                {t('cptPdf.overlay.tableSheets', { pages: pageSpan(tablePages) })}
+              </p>
             )}
             <div className="flex flex-wrap gap-1" role="group" aria-label={t('cptPdf.overlay.panel')}>
               {cal.panels.map((p, i) => (
