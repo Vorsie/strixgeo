@@ -142,6 +142,10 @@ export interface CptPdfDigest {
   ocr_available: boolean
   raster_pages_unread: number
   profiles: string[]
+  /** The background job that reads the graph sheets of the printed-table
+   *  soundings after the triage (owner 2026-10-14); absent when there is
+   *  nothing to read, or from an older backend. Its stream is a triage stream. */
+  graph_job_id?: string
 }
 
 // ---------------------------------------------------------------------------
