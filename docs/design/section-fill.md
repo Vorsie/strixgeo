@@ -362,6 +362,27 @@ still disqualifies; the floor still anchors band classification. The adopted-sta
 (2026-08-19, "a band the far test read in one piece stays one piece") now reads its SF on both sides
 of the floor, which is the stronger form of that ruling. Pinned in `ownerCs1SubTd.test.ts` (the peat).
 
+## Stratigraphy stage: a unit absent on the next test pinches out there (owner ruling (b), 2026-10-14)
+
+The Stratigraphy stage (geological axis) does NOT use the partition engine: it paints one band per
+formation from its own top polyline down to the first older formation picked at that X
+(`components/sections/formationFillBands.ts` -> `utils.buildFillBand`), padded 20 m flat past the
+outermost pick. Worked example, GEO-25/021-S45 -> GEO-07/181-S1: Merelbeke on S45, Quartair directly
+on Tielt on S1. The flat pad stopped Merelbeke 20 m past S45 while the Quartair base ran straight to
+S1's Tielt top, so the triangle between them was empty. Owner: *"the wedge is Merelbeke"*.
+
+* When the next interpreted test beyond a formation's outermost pick carries a pick of an OLDER
+  formation, the formation is absent there: its top runs to that test on the first older top picked
+  there, so the band closes to zero thickness AT the test under the overlying unit's base, and the
+  overlying unit keeps its own base. Symmetric: a unit that appears on the next test grows from zero
+  at the previous one.
+* No older pick on the next test (it stopped above the unit), or no test beyond: the flat pad stays.
+* A formation missing on a test BETWEEN two of its picks is still interpolated straight across it
+  (unchanged).
+
+Pinned on the real geometry in `components/sections/formationFillBands.test.ts` (fixture
+`__fixtures__/worked_example_s45_s1_merelbeke_2026-10-14.json`).
+
 ## The arbiter — the CS1 real-data gate
 
 `partitionFill.cs1void.test.ts`, run with `CS1_GATE=1`; regenerate the input
