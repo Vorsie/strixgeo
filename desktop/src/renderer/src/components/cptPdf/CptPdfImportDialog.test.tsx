@@ -318,3 +318,45 @@ describe('CptPdfImportDialog', () => {
     })
   })
 })
+
+// Owner dogfeed 2026-10-14 (report Z2255777): the graph sheets of the
+// printed-table soundings are read in the background after the triage; the
+// dialog shows how far that read is, under the list, and the list stays usable.
+describe('CptPdfImportDialog: graph sheets read in the background', () => {
+  it('shows "Reading graph sheets (3/15)…" while they are read, with the list usable', () => {
+    triageState.current = {
+      status: 'done',
+      digest: DIGEST,
+      followUp: { status: 'running', done: 3, total: 15, ready: [] },
+    }
+    renderDialog()
+    expect(screen.getByTestId('cpt-pdf-graph-progress').textContent).toBe('Reading graph sheets (3/15)…')
+    expect((screen.getByTestId('cpt-pdf-import') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('in Dutch it reads "Grafiekbladen lezen (3/15)…"', async () => {
+    const { setLanguage } = await import('../../i18n/languageSelect')
+    setLanguage('nl')
+    try {
+      triageState.current = {
+        status: 'done',
+        digest: DIGEST,
+        followUp: { status: 'running', done: 3, total: 15, ready: [] },
+      }
+      renderDialog()
+      expect(screen.getByTestId('cpt-pdf-graph-progress').textContent).toBe('Grafiekbladen lezen (3/15)…')
+    } finally {
+      setLanguage('en')
+    }
+  })
+
+  it('the line goes once every graph sheet is read', () => {
+    triageState.current = {
+      status: 'done',
+      digest: DIGEST,
+      followUp: { status: 'done', done: 15, total: 15, ready: [] },
+    }
+    renderDialog()
+    expect(screen.queryByTestId('cpt-pdf-graph-progress')).toBeNull()
+  })
+})
