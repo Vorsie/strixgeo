@@ -141,13 +141,22 @@ and the raster fallback. Package files `printed_table_*.py`,
   picture qc minus printed qc at the printed depths).
 * **The graph sheet is a CPT sheet** (owner ruling 2026-10-12, report
   Z2255777: "i see the thumbnail, i should be able to set the axes, that is a
-  cpt"). The triage never reads it (OCR per sheet); `DigitiseCptPdfSounding`
-  reads it on demand when the overlay opens: `digitise_raster` on each graph
-  page (one-frame axes by OCR when installed), else a qc draft on the page's
-  picture (`graph_twin_helpers.picture_draft`) so there is always a frame to
-  drag. The automatic reading is cached on `CachedPdfReport.graph_twins`. A
-  posted calibration on a graph page re-reads it through the raster path; one
-  on a table page is refused (422). The digitise answer keeps `series` = the
+  cpt"). The triage itself never reads it (OCR per sheet, ~20 s); the triage
+  JOB, once its digest is done, spawns a background job that reads the graph
+  sheets of every printed-table sounding (owner 2026-10-14, "sondering wordt
+  gelezen is traag"; `ReadCptPdfGraphTwins`, progress phase `graph`, see the
+  import flow below). Both that job and the overlay's on-demand fallback go
+  through `CptPdfGraphTwinReader`: `digitise_raster_image` on each graph page
+  (one-frame axes by OCR when installed), else a qc draft on the page's picture
+  (`graph_twin_helpers.picture_draft`) so there is always a frame to drag. The
+  reading is cached on `CachedPdfReport.graph_twins`; a per-sounding lock
+  (`CachedPdfReport.twin_lock`) makes an overlay opened mid-read wait for that
+  reading instead of reading the sheet twice. Lock order: the sounding lock,
+  then the PyMuPDF lock for the page RENDER only; OCR and tracing run outside
+  it, so thumbnails keep answering. The import never waits for it (the table
+  is the source; a graph calibration posted with the import does need the
+  reading). A posted calibration on a graph page re-reads it through the
+  raster path; one on a table page is refused (422). The digitise answer keeps `series` = the
   printed table and adds `graph_series`, `graph_comparison`,
   `series_source_default = "table"`; `calibrations` / `overlays` are the graph
   sheet's. The table stays the default stored series; the import body's
@@ -157,7 +166,12 @@ and the raster fallback. Package files `printed_table_*.py`,
   "Assen controleren" works as for a raster sheet, with the switch "Bron:
   gedrukte tabel (standaard) / afgelezen grafiek", "afgelezen grafiek" enabled
   once a qc is read; a report that prints no graph sheet shows the header to
-  correct instead of an empty panel.
+  correct instead of an empty panel. The overlay's sheet strip offers only the
+  graph sheets (one button per overlay; owner 2026-10-14: "the table pages are
+  also selectable but that is useless") and names the table pages in a note
+  ("Tabelbladen 44–47"); the triage list row keeps the sounding's whole page
+  range. Opened before its graph sheet is read, the overlay shows "Grafiekblad
+  wordt gelezen…" with a spinner until the digitise answer arrives.
 * **Owner rulings 2026-10-09 (report Z1234567)**: a contradicting printed Rf
   is dropped ("laat die maar vallen die rf"); a closed-point stretch between
   two rows breaks the line row above to row below ("a, break the line"); Qt
@@ -241,7 +255,15 @@ vector path in a subprocess where `cv2` / `rapidocr_onnxruntime` cannot import.
 (`<CPT_PDF_STORE_DIR>/<project>/<sha256>.pdf`, oldest pruned beyond 5 per
 project) and runs `TriageCptPdfReport` as a job (progress `classify` /
 `digitise`, the DOV SSE pattern); the digest + digitised soundings are kept in
-memory (last 4 reports). `POST /cpt/pdf/digitise` re-reads one sounding through
+memory (last 4 reports). When the report has printed-table graph sheets not
+read yet, the job's `done` result carries `graph_job_id` (additive): a second
+job (`ReadCptPdfGraphTwins`, key `cpt-pdf-graph:<project>:<sha>`, cooperative
+cancel) whose stream on the same `GET /cpt/pdf/triage/{job_id}` ticks
+`{"phase": "graph", "done", "total", "ocr", "key"}` per sounding and ends
+`{"type": "done", "result": {"read": [...], "total": n}}`. The desktop triage
+registry follows it under the triage's abort controller (closing the dialog
+stops it) and shows "Grafiekbladen lezen ({done}/{total})…" under the title;
+the list and the import stay usable meanwhile. `POST /cpt/pdf/digitise` re-reads one sounding through
 the posted calibration dicts and returns the series + one overlay PNG per page.
 `POST /cpt/pdf/import` runs `ImportCptPdf`: per sounding, the GEF import's own
 consent flow. All PyMuPDF work runs under one lock (`PdfReportStore.opened`):
