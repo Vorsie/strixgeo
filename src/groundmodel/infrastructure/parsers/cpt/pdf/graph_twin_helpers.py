@@ -12,11 +12,13 @@ the picture reading with the table.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pymupdf
 
+from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import join_sheets
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.frame_rect import FrameRect
@@ -106,3 +108,64 @@ def qc_comparison(table: DigitisedSounding, graph: DigitisedSounding) -> dict[st
         "median_abs_qc_mpa": round(float(np.median(np.abs(diff))), GRAPH_COMPARISON_DECIMALS),
         "rms_qc_mpa": round(float(np.sqrt(np.mean(diff**2))), GRAPH_COMPARISON_DECIMALS),
     }
+
+
+def graph_pages(sounding: DigitisedSounding) -> list[int]:
+    """Return the graph-sheet pages of a printed-table sounding (empty for any other).
+
+    Parameters
+    ----------
+    sounding : DigitisedSounding
+        The sounding as the triage read it.
+
+    Returns
+    -------
+    list of int
+        1-based page numbers of its graph sheets, in print order.
+    """
+    return [int(p) for p in (sounding.table_provenance or {}).get("graph_pages") or []]
+
+
+def is_printed_table(sounding: DigitisedSounding) -> bool:
+    """Return whether the sounding was read from its printed table (no calibration).
+
+    Parameters
+    ----------
+    sounding : DigitisedSounding
+        The sounding as the triage read it.
+
+    Returns
+    -------
+    bool
+        True for a printed-table sounding.
+    """
+    return sounding.table_provenance is not None and not sounding.calibrations
+
+
+def joined_graph_sheets(
+    sheets: list[DigitisedSounding], sounding_id: str | None
+) -> DigitisedSounding:
+    """Fold graph sheets into one sounding; a sheet awaiting axes adds its calibration only.
+
+    Parameters
+    ----------
+    sheets : list of DigitisedSounding
+        One reading per graph page, in page order.
+    sounding_id : str or None
+        The printed sounding id the result carries.
+
+    Returns
+    -------
+    DigitisedSounding
+        The joined curves of the sheets that were read, with every sheet's
+        page and calibration (so the overlay can draw each one).
+    """
+    read = [s for s in sheets if s.curves]
+    calibrations = tuple(c for s in sheets for c in s.calibrations)
+    pages = tuple(p for s in sheets for p in s.page_numbers)
+    if not read:
+        return DigitisedSounding(
+            sounding_id=sounding_id, page_numbers=pages, calibrations=calibrations, curves={}
+        )
+    joined = join_sheets(read) if len(read) > 1 else read[0]
+    return replace(joined, sounding_id=sounding_id, page_numbers=pages, calibrations=calibrations)
