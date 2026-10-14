@@ -13,6 +13,7 @@ export const CPT_PDF = {
   'cptPdf.phase.classify': 'Reading pages ({done}/{total})…',
   'cptPdf.phase.digitise': 'Digitising sheets ({done}/{total})…',
   'cptPdf.phase.ocr': 'Reading titles with OCR ({done}/{total})…',
+  'cptPdf.phase.graph': 'Reading graph sheets ({done}/{total})…',
   'cptPdf.failed': 'The report could not be read: {message}',
   'cptPdf.summary': '{n} campaign soundings in {report}',
   'cptPdf.summaryNoCode': '{n} campaign soundings',
@@ -72,6 +73,8 @@ export const CPT_PDF = {
   'cptPdf.overlay.intro':
     'Drag the frame corners onto the printed axes and type the value at two tick marks per axis, then Read again.',
   'cptPdf.overlay.loading': 'Reading the sounding…',
+  'cptPdf.overlay.graphLoading': 'Reading the graph sheet…',
+  'cptPdf.overlay.tableSheets': 'Table sheets {pages}',
   'cptPdf.overlay.page': 'Page {page}',
   'cptPdf.overlay.panel': 'Panel',
   'cptPdf.overlay.kind': 'Quantity',
