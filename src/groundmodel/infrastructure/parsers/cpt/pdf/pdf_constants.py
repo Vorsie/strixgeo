@@ -535,3 +535,7 @@ OVERLAY_DPI = 110
 # Bounds on a requested render resolution (a thumbnail to a zoomed overlay).
 MIN_RENDER_DPI = 24
 MAX_RENDER_DPI = 200
+# Progress phase of the background job that reads the graph sheets of a
+# printed-table report after its triage (owner 2026-10-14); the triage's own
+# phases are "classify" and "digitise". The desktop names it in the dialog.
+GRAPH_TWIN_PHASE = "graph"
