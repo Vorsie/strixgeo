@@ -10,6 +10,10 @@ from uuid import UUID
 import polars as pl
 import pymupdf
 
+from groundmodel.application.cpt_pdf_graph_twin_reader import (
+    CptPdfGraphTwinReader,
+    graph_sheet_detector,
+)
 from groundmodel.application.pdf_sounding_view import PdfSoundingView
 from groundmodel.infrastructure.parsers.cpt.pdf.cached_pdf_report import CachedPdfReport
 from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import (
@@ -19,7 +23,9 @@ from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import (
 from groundmodel.infrastructure.parsers.cpt.pdf.depth_reference import DepthReference
 from groundmodel.infrastructure.parsers.cpt.pdf.digitised_sounding import DigitisedSounding
 from groundmodel.infrastructure.parsers.cpt.pdf.graph_twin_helpers import (
-    picture_draft,
+    graph_pages,
+    is_printed_table,
+    joined_graph_sheets,
     qc_comparison,
 )
 from groundmodel.infrastructure.parsers.cpt.pdf.page_calibration import PageCalibration
@@ -39,11 +45,6 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 def _no_ocr_digitiser() -> CptPdfDigitiser:
     """Return a digitiser without OCR: re-reading through a calibration reads no axes."""
     return CptPdfDigitiser(ocr=False)
-
-
-def _ocr_digitiser() -> CptPdfDigitiser:
-    """Return a digitiser that reads axis labels by OCR when the extra is installed."""
-    return CptPdfDigitiser(ocr=True)
 
 
 class DigitiseCptPdfSounding(GroundModelLogger):
@@ -81,13 +82,15 @@ class DigitiseCptPdfSounding(GroundModelLogger):
         store: PdfReportStore[CachedPdfReport],
         digitiser_factory: Callable[[], CptPdfDigitiser] = _no_ocr_digitiser,
         renderer: PdfPageRenderer | None = None,
-        detector_factory: Callable[[], CptPdfDigitiser] = _ocr_digitiser,
+        detector_factory: Callable[[], CptPdfDigitiser] = graph_sheet_detector,
     ) -> None:
         super().__init__(__name__)
         self._store = store
         self._digitiser_factory = digitiser_factory
         self._renderer = renderer or PdfPageRenderer()
-        self._detector_factory = detector_factory
+        # Shared with the background read that follows the triage: a sheet it
+        # read (or is reading) is never read again here.
+        self._twins = CptPdfGraphTwinReader(store, detector_factory)
 
     def run(
         self,
@@ -138,11 +141,15 @@ class DigitiseCptPdfSounding(GroundModelLogger):
             raise KeyError(key)
         base = report.soundings[key]
         graph: DigitisedSounding | None = None
+        printed_table = is_printed_table(base)
+        # Read (or wait for) the automatic graph reading BEFORE the PyMuPDF
+        # lock: the reader takes that lock per page itself (lock order).
+        detected = self._detected_twin(project_id, file_sha, report, key) if printed_table else None
         with self._store.opened(project_id, file_sha) as doc:
-            if _is_printed_table(base):
+            if printed_table:
                 # The table is the series; the overlay draws the graph sheet.
                 sounding = base
-                graph = self._graph_twin(doc, report, key, calibrations)
+                graph = self._graph_twin(doc, report, key, calibrations, detected)
                 drawn = graph
             else:
                 sounding = self._resolve(doc, report, key, calibrations, ground_level_m)
@@ -226,7 +233,7 @@ class DigitiseCptPdfSounding(GroundModelLogger):
         if series_source is not None and series_source not in SERIES_SOURCES:
             raise ValueError(f"sounding {key}: unknown series source {series_source!r}")
         base = report.soundings[key]
-        if _is_printed_table(base):
+        if is_printed_table(base):
             return self._printed_table_sounding(
                 project_id, file_sha, report, key, calibrations, series_source
             )
@@ -270,8 +277,9 @@ class DigitiseCptPdfSounding(GroundModelLogger):
         _graph_overrides(base, key, calibrations)  # refuse a foreign page before opening
         graph = None
         if calibrations or source == SERIES_SOURCE_GRAPH:
+            detected = self._detected_twin(project_id, file_sha, report, key)
             with self._store.opened(project_id, file_sha) as doc:
-                graph = self._graph_twin(doc, report, key, calibrations)
+                graph = self._graph_twin(doc, report, key, calibrations, detected)
         comparison = qc_comparison(base, graph) if graph is not None else None
         provenance = {
             **(base.table_provenance or {}),
@@ -308,14 +316,15 @@ class DigitiseCptPdfSounding(GroundModelLogger):
         report: CachedPdfReport,
         key: str,
         calibrations: list[dict[str, Any]] | None,
+        detected: DigitisedSounding | None,
     ) -> DigitisedSounding:
         """Read a printed-table sounding's graph sheet(s) as raster CPT sheets.
 
         A posted calibration re-reads its page through exactly that
-        calibration; every other graph page is read automatically once (OCR
-        when installed) and kept on the cached report. When the automatic
-        reading finds no axes, the page gets a qc draft on its picture, so
-        the overlay always has a frame to drag.
+        calibration; every other graph page keeps the automatic reading
+        (``detected``, read once by ``CptPdfGraphTwinReader`` and kept on the
+        cached report; a page whose axes were not found has a qc draft on its
+        picture there). Called inside ``PdfReportStore.opened``.
 
         Raises
         ------
@@ -330,7 +339,9 @@ class DigitiseCptPdfSounding(GroundModelLogger):
             return DigitisedSounding(
                 sounding_id=base.sounding_id, page_numbers=(), calibrations=(), curves={}
             )
-        detected = self._detected_twin(doc, report, key, pages)
+        if detected is None:
+            # _detected_twin answers None only for a sounding without graph pages.
+            raise ValueError(f"sounding {key}: graph sheet reading missing")
         if not overrides:
             return detected
         digitiser = self._digitiser_factory()
@@ -345,57 +356,20 @@ class DigitiseCptPdfSounding(GroundModelLogger):
                         sounding_id=None, page_numbers=(page,), calibrations=own, curves={}
                     )
                 )
-        return _joined(sheets, base.sounding_id)
+        return joined_graph_sheets(sheets, base.sounding_id)
 
     def _detected_twin(
-        self, doc: pymupdf.Document, report: CachedPdfReport, key: str, pages: list[int]
-    ) -> DigitisedSounding:
-        """Return the automatic reading of the graph sheets (cached on the report)."""
-        cached = report.graph_twins.get(key)
-        if cached is not None:
-            self.debug("sounding %s: graph sheet reading from the cache", key)
-            return cached
-        base = report.soundings[key]
-        ground = (base.table_provenance or {}).get("ground_level_m")
-        detector = self._detector_factory()
-        sheets: list[DigitisedSounding] = []
-        for i, page in enumerate(pages, start=1):
-            try:
-                sheet = detector.digitise_raster(doc[page - 1], page, ground_level_m=ground)
-            except ValueError as exc:
-                self.warning(
-                    "[%d/%d] sounding %s graph page %d: axes not found (%s); "
-                    "a frame on the picture for the user",
-                    i,
-                    len(pages),
-                    key,
-                    page,
-                    exc,
-                )
-                sheet = DigitisedSounding(
-                    sounding_id=None,
-                    page_numbers=(page,),
-                    calibrations=(picture_draft(doc[page - 1], page, ground),),
-                    curves={},
-                )
-            self.debug(
-                "[%d/%d] sounding %s graph page %d read: curves %s",
-                i,
-                len(pages),
-                key,
-                page,
-                ",".join(k.value for k in sheet.curves) or "-",
-            )
-            sheets.append(sheet)
-        twin = _joined(sheets, base.sounding_id)
-        report.graph_twins[key] = twin
-        self.info(
-            "sounding %s: graph sheet(s) %s read automatically: curves %s",
-            key,
-            pages,
-            ",".join(k.value for k in twin.curves) or "none (axes for the user)",
-        )
-        return twin
+        self, project_id: UUID, file_sha: str, report: CachedPdfReport, key: str
+    ) -> DigitisedSounding | None:
+        """Return the automatic reading of the graph sheets, or None without one.
+
+        From the cache when the background read (or an earlier open) did it;
+        waits for a reading in flight; reads it here as the fallback. Must
+        not run under ``PdfReportStore.opened``.
+        """
+        if not graph_pages(report.soundings[key]):
+            return None
+        return self._twins.read(project_id, file_sha, report, key)
 
     def _resolve(
         self,
@@ -426,11 +400,6 @@ class DigitiseCptPdfSounding(GroundModelLogger):
         return replace(joined, sounding_id=base.sounding_id)
 
 
-def _is_printed_table(sounding: DigitisedSounding) -> bool:
-    """Return whether the sounding was read from its printed table (no calibration)."""
-    return sounding.table_provenance is not None and not sounding.calibrations
-
-
 def _graph_overrides(
     base: DigitisedSounding, key: str, calibrations: list[dict[str, Any]] | None
 ) -> tuple[list[int], dict[int, PageCalibration]]:
@@ -442,7 +411,7 @@ def _graph_overrides(
         When a calibration names a page that is not one of its graph sheets
         (a table page has no axes to set).
     """
-    pages = [int(p) for p in (base.table_provenance or {}).get("graph_pages") or []]
+    pages = graph_pages(base)
     overrides = {
         c.page_number: c for c in (PageCalibration.from_dict(d) for d in calibrations or [])
     }
@@ -453,16 +422,3 @@ def _graph_overrides(
             f"table (graph sheets: {pages or 'none'})"
         )
     return pages, overrides
-
-
-def _joined(sheets: list[DigitisedSounding], sounding_id: str | None) -> DigitisedSounding:
-    """Fold graph sheets into one sounding; a sheet awaiting axes adds its calibration only."""
-    read = [s for s in sheets if s.curves]
-    calibrations = tuple(c for s in sheets for c in s.calibrations)
-    pages = tuple(p for s in sheets for p in s.page_numbers)
-    if not read:
-        return DigitisedSounding(
-            sounding_id=sounding_id, page_numbers=pages, calibrations=calibrations, curves={}
-        )
-    joined = join_sheets(read) if len(read) > 1 else read[0]
-    return replace(joined, sounding_id=sounding_id, page_numbers=pages, calibrations=calibrations)
