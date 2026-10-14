@@ -23,6 +23,14 @@
  * unsubscribes; the triage aborts one tick after its last subscriber leaves,
  * so a StrictMode remount joins the running triage instead of uploading the
  * report again.
+ *
+ * Follow-up job (owner 2026-10-14, "sondering wordt gelezen is traag"): a
+ * digest may name a background job that goes on after the triage (the CPT
+ * digitiser reads the graph sheets of its printed-table soundings). The
+ * entry then follows that job's stream too, under the same abort controller,
+ * and republishes the ``done`` state with the SAME digest object plus
+ * ``followUp`` (how far it is, which keys are ready). Closing the dialog
+ * aborts it like the triage, which stops the job on the backend.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -34,6 +42,15 @@ import { readSseEvents } from '../utils/sseEvents'
 
 /** The triage's two phases, in order. */
 export type PdfTriagePhase = 'classify' | 'digitise'
+
+/** Where the background job that follows a triage stands. */
+export interface PdfFollowUpState {
+  status: 'running' | 'done' | 'cancelled' | 'error'
+  done: number
+  total: number
+  /** The keys the job finished (a tick's ``key``), in order. */
+  ready: string[]
+}
 
 /** Where a triage stands; ``D`` is the digest the dialog lists. */
 export type PdfTriageState<D> =
@@ -47,7 +64,12 @@ export type PdfTriageState<D> =
       /** True while OCR is what the triage is doing (absent on older backends). */
       ocr?: boolean
     }
-  | { status: 'done'; digest: D }
+  | {
+      status: 'done'
+      digest: D
+      /** The background job the digest named, while and after it runs. */
+      followUp?: PdfFollowUpState
+    }
   | { status: 'error'; message: string }
 
 /** What a triage hook returns. */
@@ -69,6 +91,8 @@ export interface PdfTriageConfig<D> {
   streamUrl: (jobId: string) => string
   /** One log line for a finished digest. */
   describe: (digest: D) => string
+  /** The background job a digest names to follow after the triage, if any. */
+  followUpJobId?: (digest: D) => string | null | undefined
 }
 
 /** One (project, report) triage that one or more hooks follow. */
@@ -157,6 +181,60 @@ export function createPdfTriage<D>(config: PdfTriageConfig<D>): {
     }
   }
 
+  // Follow the background job a digest named: republish ``done`` with the
+  // same digest and the job's progress. Never turns the triage into an error.
+  async function drainFollowUp(
+    jobId: string,
+    digest: D,
+    signal: AbortSignal,
+    publish: (state: PdfTriageState<D>) => void,
+  ): Promise<void> {
+    let followUp: PdfFollowUpState = { status: 'running', done: 0, total: 0, ready: [] }
+    const emit = (next: PdfFollowUpState): void => {
+      followUp = next
+      publish({ status: 'done', digest, followUp })
+    }
+    emit(followUp)
+    try {
+      const res = await fetch(config.streamUrl(jobId), { signal })
+      if (!res.ok || !res.body) {
+        log.warn(tag, `follow-up job ${jobId} stream failed: HTTP ${res.status}`)
+        emit({ ...followUp, status: 'error' })
+        return
+      }
+      for await (const event of readSseEvents(res.body, raw => log.warn(tag, `unparseable SSE frame: ${raw}`))) {
+        if (event.type === 'done') {
+          log.success(tag, `follow-up job ${jobId} done: ${followUp.ready.length} ready`)
+          emit({ ...followUp, status: 'done' })
+          return
+        }
+        if (event.type === 'cancelled' || event.type === 'error') {
+          log.info(tag, `follow-up job ${jobId} ended ${event.type}: ${String(event.message ?? '')}`)
+          emit({ ...followUp, status: event.type === 'cancelled' ? 'cancelled' : 'error' })
+          return
+        }
+        if (typeof event.phase === 'string') {
+          const key = typeof event.key === 'string' ? event.key : null
+          emit({
+            status: 'running',
+            done: (event.done as number) ?? 0,
+            total: (event.total as number) ?? 0,
+            ready: key !== null && !followUp.ready.includes(key) ? [...followUp.ready, key] : followUp.ready,
+          })
+        }
+      }
+      log.warn(tag, `follow-up job ${jobId} stream closed without a terminal event`)
+      emit({ ...followUp, status: 'error' })
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        log.info(tag, `follow-up job ${jobId} stream aborted by client`)
+        return
+      }
+      log.warn(tag, `follow-up job ${jobId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      emit({ ...followUp, status: 'error' })
+    }
+  }
+
   function abortEntry(entry: TriageEntry<D>): void {
     if (entry.abortTimer !== null) clearTimeout(entry.abortTimer)
     entry.abortTimer = null
@@ -209,7 +287,13 @@ export function createPdfTriage<D>(config: PdfTriageConfig<D>): {
           log.debug(tag, `triage job ${jobId} superseded before its stream opened`)
           return
         }
-        publish(await drainStream(jobId, controller.signal, publish))
+        const final = await drainStream(jobId, controller.signal, publish)
+        publish(final)
+        const followUpId = final.status === 'done' ? config.followUpJobId?.(final.digest) : null
+        if (final.status === 'done' && followUpId && !controller.signal.aborted) {
+          log.info(tag, `following job ${followUpId} after the triage`)
+          await drainFollowUp(followUpId, final.digest, controller.signal, publish)
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           log.info(tag, 'triage stream aborted by client')
