@@ -329,3 +329,57 @@ describe('useCptPdfTriage', () => {
     await waitFor(() => expect(result.current.state.status).toBe('idle'))
   })
 })
+
+// Owner dogfeed 2026-10-14 (report Z2255777): "sondering wordt gelezen is
+// traag". After the triage the graph sheets of the printed-table soundings are
+// read in the background; the digest names that job (``graph_job_id``).
+//   PT11 the hook follows the graph-sheet job: the state stays ``done`` with
+//        the SAME digest, and ``followUp`` says how far the read is and which
+//        soundings are ready.
+//   PT12 reset() while the graph sheets are read aborts that stream too.
+describe('useCptPdfTriage: graph sheets read after the triage', () => {
+  const WITH_GRAPHS = { ...DIGEST, graph_job_id: 'G1' }
+
+  it('PT11: follows the graph-sheet read, keeping the digest, naming the ready soundings', async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      if (url === cptPdfClient.streamUrl('G1'))
+        return sseResponse([
+          frame({ phase: 'graph', done: 0, total: 2, ocr: false }),
+          frame({ phase: 'graph', done: 1, total: 2, ocr: false, key: 'A' }),
+          frame({ phase: 'graph', done: 2, total: 2, ocr: false, key: 'B' }),
+          frame({ type: 'done', result: { read: ['A', 'B'], total: 2 } }),
+        ])
+      return sseResponse([frame({ type: 'done', result: WITH_GRAPHS })])
+    })
+    const { result } = renderHook(() => useCptPdfTriage())
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
+
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        status: 'done',
+        followUp: { status: 'done', done: 2, total: 2, ready: ['A', 'B'] },
+      }),
+    )
+    if (result.current.state.status === 'done') expect(result.current.state.digest.file_sha).toBe('abc')
+  })
+
+  it('PT12: reset() while the graph sheets are read aborts that stream', async () => {
+    let graphSignal: AbortSignal | undefined
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(202, { job_id: 'J1', file_sha: 'abc' })
+      if (url === cptPdfClient.streamUrl('G1')) {
+        graphSignal = init?.signal ?? undefined
+        return openSseResponse([frame({ phase: 'graph', done: 0, total: 3, ocr: false })], init)
+      }
+      return sseResponse([frame({ type: 'done', result: WITH_GRAPHS })])
+    })
+    const { result } = renderHook(() => useCptPdfTriage())
+    act(() => result.current.start('C:/r/report.pdf', 'P1'))
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({ status: 'done', followUp: { status: 'running', total: 3 } }),
+    )
+    act(() => result.current.reset())
+    expect(graphSignal?.aborted).toBe(true)
+  })
+})
