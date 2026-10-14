@@ -8,6 +8,11 @@
 // Cancel focused, "Replace data"), one at a time, and only the agreed ones are
 // re-posted with ``confirm_refresh``. The report then lists every sounding with
 // what happened and the digitiser's remarks.
+//
+// After the triage the backend reads the graph sheets of the printed-table
+// soundings in the background (owner 2026-10-14, "sondering wordt gelezen is
+// traag"); the line under the title says how far that is, the list stays
+// usable, and the overlay of a sounding whose sheet is not read yet says so.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -108,6 +113,7 @@ export default function CptPdfImportDialog({
   }, [open, filePath])
 
   const digest = state.status === 'done' ? state.digest : null
+  const followUp = state.status === 'done' ? state.followUp : undefined
   useEffect(() => {
     if (!digest) return
     setSelected(initialSelection(digest))
@@ -238,6 +244,11 @@ export default function CptPdfImportDialog({
                   : t('cptPdf.starting')}
               </p>
             )}
+            {followUp?.status === 'running' && (
+              <p data-testid="cpt-pdf-graph-progress" className="text-text-secondary">
+                {t('cptPdf.phase.graph', { done: followUp.done, total: followUp.total })}
+              </p>
+            )}
             {state.status === 'error' && (
               <p className="text-red-600">{t('cptPdf.failed', { message: state.message })}</p>
             )}
@@ -260,6 +271,9 @@ export default function CptPdfImportDialog({
                 fileSha={digest.file_sha}
                 sounding={calibrating}
                 initial={edits[calibrating.key] ?? {}}
+                // Known only while the background read is followed: undefined
+                // (older backend, nothing to read) keeps the plain loading line.
+                graphSheetReady={followUp ? followUp.status !== 'running' || followUp.ready.includes(calibrating.key) : undefined}
                 onBack={() => setStage({ kind: 'list' })}
                 onDone={edit => {
                   setEdits(prev => ({ ...prev, [calibrating.key]: edit }))
