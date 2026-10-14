@@ -72,6 +72,7 @@ from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 if TYPE_CHECKING:
     from groundmodel.application.pdf_sounding_view import PdfSoundingView
+    from groundmodel.infrastructure.parsers.cpt.pdf.cpt_pdf_digitiser import CptPdfDigitiser
     from groundmodel.infrastructure.parsers.cpt.pdf.pdf_report_triager import PdfReportTriager
 
 # Module-level logger: routers are functions, not classes (documented fallback).
@@ -95,6 +96,81 @@ def get_pdf_triager_factory() -> Callable[[], PdfReportTriager]:
     return PdfReportTriager
 
 
+def get_pdf_graph_detector_factory() -> Callable[[], CptPdfDigitiser]:
+    """Return the factory of the digitiser that reads graph sheets (FastAPI dependency).
+
+    Returns
+    -------
+    callable
+        Builds a ``CptPdfDigitiser`` with OCR (used when the ``pdf-ocr``
+        extra is installed); tests pass a no-OCR one.
+    """
+    from groundmodel.application.cpt_pdf_graph_twin_reader import graph_sheet_detector
+
+    return graph_sheet_detector
+
+
+def _graph_twin_job(
+    store: PdfReportStore[CachedPdfReport],
+    project_id: UUID,
+    file_sha: str,
+    detector_factory: Callable[[], CptPdfDigitiser],
+    cancel: threading.Event,
+) -> Callable[[Any], Any]:
+    """Return the job factory: the background graph-sheet read in a worker thread."""
+
+    def run(progress: Callable[..., None], should_stop: Callable[[], bool]) -> dict[str, Any]:
+        from groundmodel.application.read_cpt_pdf_graph_twins import ReadCptPdfGraphTwins
+
+        return ReadCptPdfGraphTwins(store, detector_factory).run(
+            project_id, file_sha, progress, should_stop
+        )
+
+    return pdf_triage_job(run, file_sha, cancel, "cpt_pdf_report_unknown")
+
+
+def _spawn_graph_twin_read(
+    registry: JobRegistry,
+    store: PdfReportStore[CachedPdfReport],
+    project_id: UUID,
+    file_sha: str,
+    detector_factory: Callable[[], CptPdfDigitiser],
+) -> str | None:
+    """Start the background read of a triaged report's graph sheets, if it has any.
+
+    Owner 2026-10-14 ("sondering wordt gelezen is traag"): the graph sheets
+    of the printed-table soundings are read right after the triage, so the
+    calibration overlay opens at once. Runs on the event loop. A read of the
+    same report still running is reused (its id is answered).
+
+    Returns
+    -------
+    str or None
+        The job id, or None when nothing is left to read (no printed-table
+        graph sheet, or all read already).
+    """
+    from groundmodel.application.read_cpt_pdf_graph_twins import ReadCptPdfGraphTwins
+
+    pending = ReadCptPdfGraphTwins(store, detector_factory).pending(project_id, file_sha)
+    if not pending:
+        logger.debug(f"PDF report {file_sha[:12]}: no graph sheet left to read")
+        return None
+    cancel = threading.Event()
+    factory = _graph_twin_job(store, project_id, file_sha, detector_factory, cancel)
+    try:
+        job_id = registry.start(
+            factory, key=f"cpt-pdf-graph:{project_id}:{file_sha}", cancel_event=cancel
+        )
+    except DuplicateImportJobError as exc:
+        logger.info(f"PDF report {file_sha[:12]}: graph sheet read already running as {exc.job_id}")
+        return str(exc.job_id)
+    logger.info(
+        f"PDF graph sheet job {job_id} spawned for report {file_sha[:12]}: "
+        f"{len(pending)} sounding(s)"
+    )
+    return str(job_id)
+
+
 def _triage_job(
     store: PdfReportStore[CachedPdfReport],
     project_id: UUID,
@@ -102,8 +178,15 @@ def _triage_job(
     file_name: str,
     triager_factory: Callable[[], PdfReportTriager],
     cancel: threading.Event,
+    registry: JobRegistry,
+    detector_factory: Callable[[], CptPdfDigitiser],
 ) -> Callable[[Any], Any]:
-    """Return the job factory: the CPT triage in a worker thread (shared plumbing)."""
+    """Return the job factory: the CPT triage in a worker thread (shared plumbing).
+
+    When the triage is done, the background read of the graph sheets is
+    spawned and its job id added to the result (``graph_job_id``, additive:
+    present only when there is something to read).
+    """
 
     def run(progress: Callable[..., None], should_stop: Callable[[], bool]) -> dict[str, Any]:
         from groundmodel.application.triage_cpt_pdf_report import TriageCptPdfReport
@@ -113,7 +196,18 @@ def _triage_job(
         )
         return digest.to_dict()
 
-    return pdf_triage_job(run, file_sha, cancel, "cpt_pdf_report_unknown")
+    def after(result: dict[str, Any]) -> dict[str, Any]:
+        try:
+            job_id = _spawn_graph_twin_read(registry, store, project_id, file_sha, detector_factory)
+        except Exception as exc:  # noqa: BLE001 -- the triage succeeded; the overlay reads on demand
+            logger.warning(
+                f"PDF report {file_sha[:12]}: background graph sheet read not started "
+                f"({type(exc).__name__}: {exc}); the overlay reads them on demand"
+            )
+            return result
+        return result if job_id is None else {**result, "graph_job_id": job_id}
+
+    return pdf_triage_job(run, file_sha, cancel, "cpt_pdf_report_unknown", after=after)
 
 
 @router.post("/triage", status_code=status.HTTP_202_ACCEPTED)
@@ -123,6 +217,7 @@ async def triage_cpt_pdf(
     store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
     registry: JobRegistry = Depends(get_job_registry),
     triager_factory: Callable[[], PdfReportTriager] = Depends(get_pdf_triager_factory),
+    detector_factory: Callable[[], CptPdfDigitiser] = Depends(get_pdf_graph_detector_factory),
 ) -> dict[str, str]:
     """Spool a PDF report and triage it as a background job.
 
@@ -132,8 +227,9 @@ async def triage_cpt_pdf(
     and repeated sheets aside, and digitises the campaign's soundings; the
     client attaches to ``GET /cpt/pdf/triage/{job_id}`` for the progress
     stream, whose terminal ``{"type": "done", "result": <digest>}`` event
-    carries what the dialog lists. Vector reports take ~30 s; with OCR up to
-    3 min.
+    carries what the dialog lists (plus ``graph_job_id`` when a background
+    read of printed-table graph sheets follows; attach to it the same way).
+    Vector reports take ~30 s; with OCR up to 3 min.
 
     Parameters
     ----------
@@ -147,6 +243,8 @@ async def triage_cpt_pdf(
         The job registry, injected.
     triager_factory : callable
         Builds the triager, injected.
+    detector_factory : callable
+        Builds the digitiser of the background graph-sheet read, injected.
 
     Returns
     -------
@@ -170,7 +268,9 @@ async def triage_cpt_pdf(
     )
     store.put_file(project_id, file_sha, tmp_path)
     cancel = threading.Event()
-    factory = _triage_job(store, project_id, file_sha, file_name, triager_factory, cancel)
+    factory = _triage_job(
+        store, project_id, file_sha, file_name, triager_factory, cancel, registry, detector_factory
+    )
     try:
         job_id = registry.start(
             factory, key=f"cpt-pdf:{project_id}:{file_sha}", cancel_event=cancel
@@ -186,13 +286,16 @@ async def get_cpt_pdf_triage_stream(
     job_id: UUID,
     registry: JobRegistry = Depends(get_job_registry),
 ) -> StreamingResponse:
-    """Drain the SSE progress stream of a triage job.
+    """Drain the SSE progress stream of a triage job (or of its graph-sheet read).
 
     Events: ``{"phase": "classify"|"digitise", "done": n, "total": m,
     "ocr": bool}`` ticks (``ocr`` True while OCR is what the triage is doing),
     then ``{"type": "done", "result": <digest>}``, ``{"type": "error",
     "message": ...}`` or ``{"type": "cancelled"}`` (the triage was stopped;
-    closing the stream stops it).
+    closing the stream stops it). The background graph-sheet read named by
+    the digest's ``graph_job_id`` streams ``{"phase": "graph", "done": n,
+    "total": m, "ocr": false, "key": <sounding>}`` (no ``key`` on the first
+    tick), then ``{"type": "done", "result": {"read": [...], "total": m}}``.
 
     Parameters
     ----------
@@ -331,6 +434,7 @@ def _digitise_response(view: PdfSoundingView, key: str) -> CptPdfDigitiseRespons
 async def digitise_cpt_pdf_sounding(
     request: CptPdfDigitiseRequest,
     store: PdfReportStore[CachedPdfReport] = Depends(get_pdf_report_store),
+    detector_factory: Callable[[], CptPdfDigitiser] = Depends(get_pdf_graph_detector_factory),
 ) -> CptPdfDigitiseResponse:
     """Read one sounding through the calibration the user settled on.
 
@@ -345,6 +449,8 @@ async def digitise_cpt_pdf_sounding(
         Report, sounding, optional edited calibrations and ground level.
     store : PdfReportStore
         The report store, injected.
+    detector_factory : callable
+        Builds the digitiser of a graph sheet not read yet, injected.
 
     Returns
     -------
@@ -366,7 +472,7 @@ async def digitise_cpt_pdf_sounding(
     )
     try:
         view = await asyncio.to_thread(
-            DigitiseCptPdfSounding(store).run,
+            DigitiseCptPdfSounding(store, detector_factory=detector_factory).run,
             request.project_id,
             request.file_sha,
             request.sounding_id,
