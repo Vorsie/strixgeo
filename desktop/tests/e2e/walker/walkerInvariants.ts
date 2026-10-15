@@ -50,6 +50,9 @@ const APP_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]
 /** Chromium's line for a resource the NETWORK failed (no HTTP answer at all). */
 const NETWORK_LOAD_FAILURE = /^Failed to load resource: net::ERR_/
 
+/** Chromium's line for a resource the SERVER answered with an HTTP error status. */
+const HTTP_STATUS_LOAD_FAILURE = /^Failed to load resource: the server responded with a status of \d{3}\b/
+
 /**
  * Whether a location URL is the app itself: the ``file://`` renderer bundle or
  * a request to 127.0.0.1 / localhost (backend port, dev renderer). An empty or
@@ -70,20 +73,29 @@ function isAppLocation(locationUrl: string): boolean {
 /**
  * Whether a captured error is NOT an app finding.
  *
- * Only one shape is ignored: a resource-load failure with a ``net::`` code
- * (the network gave no answer) whose location is an EXTERNAL host -- a basemap
- * tile from Esri / Geopunt / OSM that the network reset (walker replay
- * 2026-10-12, a click on the Leaflet "+" zoom control). Every error from the
- * app's own origin or the backend port is kept (a backend 409 still logs
- * "Failed to load resource: the server responded with a status of 409" and is
- * still a finding), and every pageerror is kept.
+ * Two shapes are ignored, both only when the location is an EXTERNAL host (a
+ * basemap tile from Esri / Geopunt / OSM, which the app has no control over):
+ *
+ * - a resource-load failure with a ``net::`` code (the network gave no answer):
+ *   walker replay 2026-10-12, a tile reset at a click on the Leaflet "+" zoom
+ *   control;
+ * - "Failed to load resource: the server responded with a status of NNN"
+ *   (the external server answered with an HTTP error, any status): walker deep
+ *   run 2026-10-15, seed 2319386379, the Flemish ortho WMS answered 502.
+ *
+ * Every error from the app's own origin or the backend port is kept (a backend
+ * 409 still logs "Failed to load resource: the server responded with a status
+ * of 409" and is still a finding), an empty or unparsable location is kept
+ * (never dropped by doubt), and every pageerror is kept.
  *
  * @param error - The captured error with its source and location.
  * @returns ``true`` when the error must not become a finding.
  */
 export function isIgnoredConsoleError(error: CapturedConsoleError): boolean {
   if (error.source !== 'console') return false
-  if (!NETWORK_LOAD_FAILURE.test(error.text)) return false
+  const isLoadFailure =
+    NETWORK_LOAD_FAILURE.test(error.text) || HTTP_STATUS_LOAD_FAILURE.test(error.text)
+  if (!isLoadFailure) return false
   return !isAppLocation(error.locationUrl)
 }
 
@@ -105,12 +117,19 @@ export function checkConsoleErrors(newErrors: readonly string[], step: number): 
  * Every refused request (4xx/5xx) for an action the UI offered is a finding,
  * except the consented-conflict statuses in {@link IGNORED_REFUSAL_STATUSES}.
  *
+ * A refusal from a host that is not the app (an external basemap tile server)
+ * is never a finding, whatever its status: the app has no control over it
+ * (walker deep run 2026-10-15, seed 2319386379, the Flemish ortho WMS answered
+ * 502). The app's own hosts (``file:``, 127.0.0.1, localhost, [::1]) and an
+ * unparsable URL keep the rule above.
+ *
  * @param newBad - Responses with status >= 400 captured since the last step.
  * @param step - The step index to stamp on each finding.
  */
 export function checkRefusedRequests(newBad: readonly BadResponse[], step: number): Finding[] {
   const out: Finding[] = []
   for (const r of newBad) {
+    if (!isAppLocation(r.url)) continue
     if (IGNORED_REFUSAL_STATUSES.has(r.status)) continue
     out.push({
       step,
