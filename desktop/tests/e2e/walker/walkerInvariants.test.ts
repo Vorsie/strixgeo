@@ -86,6 +86,58 @@ describe('walker invariant -- an external resource-load failure is not an app fi
   })
 })
 
+// Walker deep run 2026-10-15 (seed 2319386379, steps 634-638): the Flemish
+// ortho basemap server answered HTTP 502 to tile GetMap requests on the
+// Parameters stage. The app has no control over an external tile server, so an
+// external host's HTTP status is not an app finding either. The rule: the
+// Chromium line "Failed to load resource: the server responded with a status
+// of NNN" is ignored when its location is an EXTERNAL host; the same line from
+// the app's own origin, or from an unknown location, is kept.
+describe('walker invariant -- an external server HTTP error is not an app finding', () => {
+  const ORTHO_TILE =
+    'https://geo.api.vlaanderen.be/omwrgbmrvl/wms?service=WMS&request=GetMap&version=1.1.1&layers=Ortho'
+
+  it('an external tile host answering 502 is ignored', () => {
+    expect(
+      isIgnoredConsoleError({
+        source: 'console',
+        text: 'Failed to load resource: the server responded with a status of 502 ()',
+        locationUrl: ORTHO_TILE,
+      }),
+    ).toBe(true)
+  })
+
+  it('the same status line with an empty location is kept (never dropped by doubt)', () => {
+    expect(
+      isIgnoredConsoleError({
+        source: 'console',
+        text: 'Failed to load resource: the server responded with a status of 502 ()',
+        locationUrl: '',
+      }),
+    ).toBe(false)
+  })
+
+  it('the same status line from the backend port is kept', () => {
+    expect(
+      isIgnoredConsoleError({
+        source: 'console',
+        text: 'Failed to load resource: the server responded with a status of 500 (Internal Server Error)',
+        locationUrl: 'http://127.0.0.1:8765/projects/p1/sections',
+      }),
+    ).toBe(false)
+  })
+
+  it('a pageerror naming an external host is kept', () => {
+    expect(
+      isIgnoredConsoleError({
+        source: 'pageerror',
+        text: 'Failed to load resource: the server responded with a status of 502 ()',
+        locationUrl: ORTHO_TILE,
+      }),
+    ).toBe(false)
+  })
+})
+
 describe('walker invariant -- no row on screen the server does not have', () => {
   it('a phantom row is a finding, not an abort', () => {
     // A "ghost" contact is drawn on the canvas but no model has it. The checker
@@ -136,6 +188,51 @@ describe('walker invariant -- no refused request for an action the UI offered', 
     expect(
       checkRefusedRequests([{ method: 'POST', url: '/cpt/import', status: 409 }], 7),
     ).toEqual([])
+  })
+
+  // Walker deep run 2026-10-15 (seed 2319386379): the Flemish ortho basemap
+  // answered 502. A refusal from a host that is not the app is never an app
+  // finding, whatever its status; the app's own hosts keep the 409-only rule.
+  it('an external basemap host answering 502 is not a finding', () => {
+    expect(
+      checkRefusedRequests(
+        [
+          {
+            method: 'GET',
+            url: 'https://geo.api.vlaanderen.be/omwrgbmrvl/wms?service=WMS&request=GetMap&layers=Ortho',
+            status: 502,
+          },
+        ],
+        634,
+      ),
+    ).toEqual([])
+  })
+
+  it('a backend 500 on 127.0.0.1 is still a finding', () => {
+    const out = checkRefusedRequests(
+      [{ method: 'POST', url: 'http://127.0.0.1:8765/projects/p1/sections', status: 500 }],
+      7,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].detail).toBe('500 POST http://127.0.0.1:8765/projects/p1/sections')
+  })
+
+  it('a backend 409 on localhost is still fine', () => {
+    expect(
+      checkRefusedRequests(
+        [{ method: 'DELETE', url: 'http://localhost:8765/projects/p1/geology/models/m1', status: 409 }],
+        7,
+      ),
+    ).toEqual([])
+  })
+
+  it('a 404 from the file:// renderer bundle is still a finding', () => {
+    expect(
+      checkRefusedRequests(
+        [{ method: 'GET', url: 'file:///C:/app/out/renderer/assets/missing.js', status: 404 }],
+        7,
+      ),
+    ).toHaveLength(1)
   })
 })
 
