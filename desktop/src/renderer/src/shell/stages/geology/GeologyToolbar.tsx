@@ -174,8 +174,9 @@ export default function GeologyToolbar(): JSX.Element {
         // No stratigraphy data — opening an empty dialog would be a silent
         // dead end on the stage's primary entry action (§10.4 / debt #33).
         // Surface the reason AND the alternative path so the user isn't
-        // stuck. ('error' is the only non-success toast type.)
-        toast('error', t('geology.noInterpretationData'))
+        // stuck. An expected, explained state, so a warning, never a sticky
+        // error (walker 2026-10-15). Only the scan knows this; Fill stays on.
+        toast('warning', t('geology.noInterpretationData'))
         return
       }
       setCandidates(found)
