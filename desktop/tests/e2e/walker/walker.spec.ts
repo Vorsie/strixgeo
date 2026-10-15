@@ -196,8 +196,8 @@ async function walkOnce(seed: number, runIndex: number, runs: number): Promise<W
 
   page.on('console', msg => {
     if (msg.type() !== 'error') return
-    // An external host's network failure (a basemap tile reset) is not the
-    // app; see isIgnoredConsoleError for the exact shape that is dropped.
+    // An external host's load failure (a basemap tile reset or an HTTP error
+    // status) is not the app; see isIgnoredConsoleError for the exact shapes.
     const captured = { source: 'console', text: msg.text(), locationUrl: msg.location().url } as const
     if (isIgnoredConsoleError(captured)) return
     consoleErrors.push(msg.text())
