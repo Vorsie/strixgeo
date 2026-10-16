@@ -1924,8 +1924,8 @@ process.on('unhandledRejection', (reason: unknown): void => {
 // process is connected when renderer/utility processes spawn. Without
 // this, Electron's renderer prints the cosmetic
 // ``crashpad_client_win.cc:867] not connected`` error on every dev-build
-// boot. We collect crashes locally (no upload) — telemetry is a Tier B
-// debt item (#16) gated on the commercial release window.
+// boot. We collect crashes locally (no upload). Telemetry is debt #16
+// (Tier E), consent-based, endpoint ``STRIXGEO_DIAGNOSTICS_URL``.
 crashReporter.start({
   productName: 'StrixGeo',
   companyName: 'StrixGeo',
