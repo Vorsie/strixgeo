@@ -6,15 +6,15 @@
  * with no I/O — sit in one small, exhaustively-testable place. The uploader
  * imports what it needs from here.
  *
- * The payload matches the contract in ``docs/design/activation-api-contract.md``:
- * build facts, the redacted NDJSON tail, a ``truncated`` flag, and OPTIONAL
- * identity fields that are attached only under the flag in
- * ``diagnosticsUploaderConstants.ts``.
+ * The payload is the ``POST /v1/diagnostics`` body (see
+ * ``docs/design/diagnostics-capture.md``): build facts, the redacted NDJSON
+ * tail, a ``truncated`` flag, and an OPTIONAL device id that is attached only
+ * under the flag in ``diagnosticsUploaderConstants.ts``.
  */
 
 import { randomUUID } from 'node:crypto'
 
-import { ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS, DIAGNOSTICS_MAX_PAYLOAD_BYTES } from './diagnosticsUploaderConstants'
+import { ATTACH_DEVICE_ID_TO_DIAGNOSTICS, DIAGNOSTICS_MAX_PAYLOAD_BYTES } from './diagnosticsUploaderConstants'
 
 /** Build facts stamped on every bundle (same shape as ``diagnosticsBuildFacts``). */
 export interface DiagnosticsBuildFacts {
@@ -22,20 +22,17 @@ export interface DiagnosticsBuildFacts {
   appVersion: string
   /** ``process.platform`` — the OS the report came from. */
   platform: string
-  /** Beta build stamp, when this build carries one. */
+  /** Build id (the git SHA of a build that carries provenance), when present. */
   buildId?: string
 }
 
 /**
  * Optional per-device identity a bundle MAY carry.
  *
- * Attached only when {@link ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS} is on AND
- * an activation licence exists — see the flag's note. Both fields are opaque
- * strings; the licence key is a credential, so it never reaches a log line.
+ * Attached only when {@link ATTACH_DEVICE_ID_TO_DIAGNOSTICS} is on (see the
+ * flag's note). The device id is an opaque string.
  */
 export interface DiagnosticsIdentity {
-  /** The activation licence key, when identity is attached. */
-  licenceKey?: string
   /** The stable device id, when identity is attached. */
   deviceId?: string
 }
@@ -49,13 +46,13 @@ export interface DiagnosticsIdentity {
 export interface DiagnosticsPayload {
   /** Opaque id so a support thread (and server-side dedup) can name the bundle. */
   bundleId: string
-  /** When the bundle was assembled, epoch ms (the activation contract's convention). */
+  /** When the bundle was assembled, epoch ms. */
   createdAt: number
   /** App version the events came from. */
   appVersion: string
   /** ``process.platform``. */
   platform: string
-  /** Beta build stamp, when present. */
+  /** Build id (the git SHA), when present. */
   buildId?: string
   /** Number of NDJSON records in this bundle. */
   events: number
@@ -63,8 +60,6 @@ export interface DiagnosticsPayload {
   truncated: boolean
   /** The redacted NDJSON records, one JSON object per line. */
   ndjson: string
-  /** Activation licence key — present only when identity is attached (see the flag). */
-  licenceKey?: string
   /** Stable device id — present only when identity is attached (see the flag). */
   deviceId?: string
 }
@@ -77,16 +72,17 @@ export function byteLength(text: string): number {
 /**
  * The identity to attach to a diagnostics bundle for this launch.
  *
- * Returns identity ONLY when {@link ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS}
- * is on and a licence key is present. Kept as its own pure function so the "does
- * a bundle carry a device id?" decision lives in exactly one testable place —
- * the capture design's shipped invariant is "no device id", so this gate is the
+ * Returns identity ONLY when {@link ATTACH_DEVICE_ID_TO_DIAGNOSTICS} is on and
+ * a device id is present. Kept as its own pure function so the "does a bundle
+ * carry a device id?" decision lives in exactly one testable place: the
+ * capture design's shipped invariant is "no device id", so this gate is the
  * seam the owner's ruling flips.
  *
  * Parameters
  * ----------
- * licence : { key: string, deviceId: string } | null
- *     The stored activation licence + device id, or ``null`` when unactivated.
+ * readDeviceId : () => string | null
+ *     Reads this machine's stable device id (``null`` when none is known).
+ *     Called only when the gate is on, so a gated-off launch never reads it.
  *
  * Returns
  * -------
@@ -94,11 +90,12 @@ export function byteLength(text: string): number {
  *     The identity to attach, or ``undefined`` to attach none.
  */
 export function diagnosticsIdentityFor(
-  licence: { key: string; deviceId: string } | null,
+  readDeviceId: () => string | null,
 ): DiagnosticsIdentity | undefined {
-  if (!ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS) return undefined
-  if (!licence || !licence.key) return undefined
-  return { licenceKey: licence.key, deviceId: licence.deviceId }
+  if (!ATTACH_DEVICE_ID_TO_DIAGNOSTICS) return undefined
+  const deviceId = readDeviceId()
+  if (!deviceId) return undefined
+  return { deviceId }
 }
 
 /**
@@ -148,7 +145,6 @@ export function buildDiagnosticsPayload(input: {
       events: lineCount,
       truncated,
       ndjson,
-      ...(input.identity?.licenceKey ? { licenceKey: input.identity.licenceKey } : {}),
       ...(input.identity?.deviceId ? { deviceId: input.identity.deviceId } : {}),
     }
   }
