@@ -1,6 +1,6 @@
-// Behavioural pins for the device identity (debt #3).
+// Behavioural pins for the device identity.
 //
-// The id the issuer binds a licence to has to be stable per machine: the SAME on
+// The device id has to be stable per machine: the SAME on
 // every launch and across a reinstall, DIFFERENT on another machine. These cases
 // pin exactly that contract in the module's own terms:
 //
