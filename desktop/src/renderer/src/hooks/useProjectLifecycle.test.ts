@@ -12,6 +12,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProjectLifecycle } from './useProjectLifecycle'
+import { reportOpenProject, resetOpenProjectGuard } from '../utils/openProjectGuard'
 
 const noopUnsub = (): void => {}
 
@@ -853,5 +854,86 @@ describe('HW4 — Save hides too, and comes back when it fails', () => {
 
     expect(setWindowVisible).toHaveBeenNthCalledWith(1, false)
     expect(setWindowVisible).toHaveBeenLastCalledWith(true)
+  })
+})
+
+describe('useProjectLifecycle: a save of a closed project leaves the next project alone', () => {
+  // "Once a project is closed, nothing of it runs any more" (owner, PR #90;
+  // deep walker 2026-10-16). A save of project A that finishes after A was
+  // closed and B opened is ABANDONED, not failed: no failure toast on B's
+  // screen, and B's session-import sets, mutations flag and recovery file are
+  // not cleared on the strength of A's save.
+  afterEach(() => {
+    resetOpenProjectGuard()
+  })
+
+  it('an abandoned save of A raises no error toast and clears nothing of B', async () => {
+    reportOpenProject('p1')
+    let finishSave!: (ok: boolean) => void
+    const saveMetadata = vi.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          finishSave = resolve
+        }),
+    )
+    const toast = vi.fn()
+    const setHasUnsavedMutations = vi.fn()
+    const setSessionImportCptIds = vi.fn()
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({
+      saveMetadata,
+      toast,
+      setHasUnsavedMutations,
+      setSessionImportCptIds,
+      clearRecoveryNow,
+    })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    let pending!: Promise<boolean>
+    act(() => {
+      pending = result.current.saveProject()
+    })
+    // A is closed and B opened while A's save is still awaiting.
+    reportOpenProject('p2')
+    let ok: boolean | undefined
+    await act(async () => {
+      finishSave(false)
+      ok = await pending
+    })
+
+    expect(ok).toBe(false)
+    expect(toast).not.toHaveBeenCalled()
+    expect(result.current.unsavedError).toBeNull()
+    expect(setHasUnsavedMutations).not.toHaveBeenCalled()
+    expect(setSessionImportCptIds).not.toHaveBeenCalled()
+    expect(clearRecoveryNow).not.toHaveBeenCalled()
+  })
+
+  it('a save that SUCCEEDS after the switch still clears nothing of B', async () => {
+    reportOpenProject('p1')
+    let finishSave!: (ok: boolean) => void
+    const saveMetadata = vi.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          finishSave = resolve
+        }),
+    )
+    const setHasUnsavedMutations = vi.fn()
+    const clearRecoveryNow = vi.fn().mockResolvedValue(undefined)
+    const args = makeArgs({ saveMetadata, setHasUnsavedMutations, clearRecoveryNow })
+    const { result } = renderHook(() => useProjectLifecycle(args))
+
+    let pending!: Promise<boolean>
+    act(() => {
+      pending = result.current.saveProject()
+    })
+    reportOpenProject('p2')
+    await act(async () => {
+      finishSave(true)
+      await pending
+    })
+
+    expect(setHasUnsavedMutations).not.toHaveBeenCalled()
+    expect(clearRecoveryNow).not.toHaveBeenCalled()
   })
 })
