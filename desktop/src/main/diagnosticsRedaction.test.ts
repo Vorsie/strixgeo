@@ -25,7 +25,7 @@ describe('the engineer’s identity comes out', () => {
   })
 
   it('R3 — an email address never survives', () => {
-    const out = redactText('activation failed for robin.vorsselmans@example.com')
+    const out = redactText('import failed for robin.vorsselmans@example.com')
 
     expect(out).not.toContain('@example.com')
     expect(out).toContain('<email>')
