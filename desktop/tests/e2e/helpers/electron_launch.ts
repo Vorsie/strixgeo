@@ -220,8 +220,8 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
       // userData dir persists across the run and nothing seeds the onboarding
       // "seen" flag, so without this ~130 specs would open under the onboarding
       // modal. The main process reads STRIX_E2E and exposes it as
-      // window.electron.launchFlags.e2e; the renderer's onboarding auto-open and
-      // the packaged activation gate both no-op when it is set. A spec that WANTS
+      // window.electron.launchFlags.e2e; the renderer's onboarding auto-open
+      // no-ops when it is set. A spec that WANTS
       // the first-launch overlay (flow_onboarding_first_launch) clears it via the
       // env override below, which is spread last.
       STRIX_E2E: '1',
