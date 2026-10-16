@@ -64,6 +64,7 @@ import {
   checkRefusedRequests,
   checkResponsiveness,
   checkSurvivors,
+  describeSurvivors,
   isIgnoredConsoleError,
   type Finding,
 } from './walkerInvariants'
@@ -83,7 +84,14 @@ import { openWorkedExample, switchProject, type ProjectSlot } from './walkerProj
 import { formatReport, summaryLine, totalSummaryLine, type ReportFinding, type RunMeta } from './walkerReport'
 import { parseSeed } from './walkerRng'
 import { TrailWriter } from './walkerTrail'
-import { descendantsOf, processSnapshot, survivorsOf } from './processTree'
+import {
+  LINGER_OBSERVE_MS,
+  LINGER_POLL_MS,
+  LINGER_THRESHOLD_MS,
+  descendantsOf,
+  observeSurvivors,
+  processSnapshot,
+} from './processTree'
 import type { BadResponse, SpineLabel, WalkerContext } from './walkerTypes'
 
 const SETTLE_MS = 200
@@ -398,14 +406,27 @@ async function walkOnce(seed: number, runIndex: number, runs: number): Promise<W
     await closeApp(app).catch(() => {})
 
     if (watched.length > 0) {
-      const deadline = Date.now() + 5000
-      let survivors = watched
-      while (Date.now() < deadline) {
-        survivors = survivorsOf(watched)
-        if (survivors.length === 0) break
-        await new Promise(r => setTimeout(r, 250))
+      // The finding threshold stays 5 s; the watch runs on to 20 s only to
+      // record when each survivor exited. Survivors are named from the
+      // pre-close snapshot: the deep run of 2026-10-16 reported one bare pid
+      // that was gone before anyone looked.
+      const { atThreshold, exitedAfterMs } = await observeSurvivors(watched, {
+        thresholdMs: LINGER_THRESHOLD_MS,
+        windowMs: LINGER_OBSERVE_MS,
+        pollMs: LINGER_POLL_MS,
+        onThreshold: s => {
+          if (s.length > 0) {
+            trailFile.note(`survivors 5 s after close: ${describeSurvivors(s, { snapshot: preCloseSnap })}`)
+          }
+        },
+      })
+      const ctx = { snapshot: preCloseSnap, exitedAfterMs, observedForMs: LINGER_OBSERVE_MS }
+      if (atThreshold.length > 0) {
+        trailFile.note(
+          `survivors at the end of the ${LINGER_OBSERVE_MS / 1000} s watch: ${describeSurvivors(atThreshold, ctx)}`,
+        )
       }
-      for (const f of checkSurvivors(survivors, stepsRun)) findings.push({ ...f, trail: [...trail] })
+      for (const f of checkSurvivors(atThreshold, stepsRun, ctx)) findings.push({ ...f, trail: [...trail] })
     }
 
     for (const p of [tmpPath, fixturePath]) {
