@@ -1,9 +1,3 @@
-// Rule (installer #7, 2026-09-03 21:03): a packaged beta blocks at the licence
-// page with the engine DEFERRED. The boot hook must not ask the main process
-// for API readiness while the activation gate is closed — that answer is "not
-// running", and treating it as a crash paints "Kon de StrixGeo API niet
-// starten" over the key page. Once the gate opens the engine is spawned and
-// the wait begins.
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
@@ -38,27 +32,17 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
-describe('useAppBoot — the activation gate comes first', () => {
-  it('does not ask for API readiness while the gate is closed, and reports no error', async () => {
-    waitForApi.mockResolvedValue(false)
-    const { result } = renderHook(({ open }) => useAppBoot(open), { initialProps: { open: false } })
-    await new Promise(r => setTimeout(r, 30))
-    expect(waitForApi).not.toHaveBeenCalled()
-    expect(result.current.apiError).toBe(false)
-    expect(result.current.ready).toBe(false)
-  })
-
-  it('waits for the API once the gate opens and reports ready', async () => {
+describe('useAppBoot', () => {
+  it('waits for the API at mount and reports ready', async () => {
     waitForApi.mockResolvedValue(true)
-    const { result, rerender } = renderHook(({ open }) => useAppBoot(open), { initialProps: { open: false } })
-    rerender({ open: true })
+    const { result } = renderHook(() => useAppBoot())
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(waitForApi).toHaveBeenCalledTimes(1)
   })
 
-  it('an open gate from the start behaves as before: a false answer is the boot error', async () => {
+  it('a false readiness answer is the boot error', async () => {
     waitForApi.mockResolvedValue(false)
-    const { result } = renderHook(() => useAppBoot(true))
+    const { result } = renderHook(() => useAppBoot())
     await waitFor(() => expect(result.current.apiError).toBe(true))
   })
 
@@ -68,7 +52,7 @@ describe('useAppBoot — the activation gate comes first', () => {
       .mockResolvedValueOnce('still-starting')
       .mockImplementationOnce(() => new Promise(resolve => { finishNextWait = resolve }))
 
-    const { result } = renderHook(() => useAppBoot(true))
+    const { result } = renderHook(() => useAppBoot())
 
     await waitFor(() => expect(result.current.takingLong).toBe(true))
     expect(result.current.apiError).toBe(false)
@@ -84,7 +68,7 @@ describe('useAppBoot — the activation gate comes first', () => {
   // support hunts a crash traceback that does not exist for the foreign-port case.
   it('logs the failure cause-neutrally, naming the foreign-port case too', async () => {
     waitForApi.mockResolvedValue(false)
-    const { result } = renderHook(() => useAppBoot(true))
+    const { result } = renderHook(() => useAppBoot())
     await waitFor(() => expect(result.current.apiError).toBe(true))
     const logged = vi
       .mocked(log.error)
@@ -99,7 +83,7 @@ describe('useAppBoot — the activation gate comes first', () => {
   it('a readiness check that rejects still reaches the boot error screen', async () => {
     waitForApi.mockRejectedValueOnce(new Error('ipc channel closed'))
 
-    const { result } = renderHook(() => useAppBoot(true))
+    const { result } = renderHook(() => useAppBoot())
 
     await waitFor(() => expect(result.current.apiError).toBe(true))
     expect(result.current.ready).toBe(false)
