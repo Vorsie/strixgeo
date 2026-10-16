@@ -1,8 +1,8 @@
-// Dutch (BE) for the launch-prototype chrome — onboarding (#93), licensing (#3)
-// and the updater notification (#6). Mirrors ``locales/en/launch.ts``.
+// Dutch (BE) for the launch chrome: onboarding (#93) and the updater
+// notification (#6). Mirrors ``locales/en/launch.ts``.
 //
-// Product + tier names (StrixGeo, Solo, Pro, Studio) and the demo licence keys
-// are NOT here — they are product identifiers rendered as raw tokens.
+// The product name (StrixGeo) is NOT here: it is a product identifier rendered
+// as a raw token.
 
 import type { LAUNCH } from '../en/launch'
 
@@ -45,46 +45,6 @@ export const LAUNCH_NL: Partial<Record<keyof typeof LAUNCH, string>> = {
     'Teken en bewerk doorsneden: het vlak waarop alle drie de modelniveaus worden opgebouwd.',
   'onboarding.stageExport': 'Exporteren',
   'onboarding.stageExportBody': 'Stuur het model naar Plaxis, D-Stability, DXF en PDF-rapportdelen.',
-
-  // licensing ---------------------------------------------------------------
-  'licensing.title': 'Licentie & activatie',
-  'licensing.statusHeading': 'Toestand',
-  'licensing.deviceHeading': 'Dit toestel',
-  'licensing.tierLabel': 'Niveau',
-  'licensing.expiresLabel': 'Verlengt / eindigt',
-  'licensing.stateUnactivated': 'Niet geactiveerd',
-  'licensing.stateTrial': 'Proefperiode',
-  'licensing.stateActive': 'Actief',
-  'licensing.stateGrace': 'Offline-respijt',
-  'licensing.stateExpired': 'Verlopen',
-  'licensing.stateClockRollback': 'Klokprobleem',
-  'licensing.stateDeviceMismatch': 'Verkeerd apparaat',
-  'licensing.daysRemaining': 'nog {days} dag(en)',
-  'licensing.graceRemaining': 'nog {days} dag(en) offline-respijt',
-  'licensing.enterKey': 'Voer een licentiesleutel in',
-  'licensing.activate': 'Activeren',
-  'licensing.startTrial': 'Gratis proefperiode starten',
-  'licensing.deactivate': 'Dit toestel deactiveren / overdragen',
-  'licensing.deactivateHint': 'Maakt deze zetel vrij zodat je op een ander toestel kunt activeren.',
-  // Bevestigingsvenster voor het onomkeerbare deactiveren / overdragen (docs/ux.md).
-  'licensing.deactivateConfirmTitle': 'Dit toestel deactiveren?',
-  'licensing.deactivateConfirmBody':
-    'Dit maakt de zetel vrij zodat je op een ander toestel kunt activeren. De app keert terug naar het activatiescherm.',
-  'licensing.deactivateConfirmAction': 'Deactiveren',
-  'licensing.demoKeysHint': 'Demosleutels voor het prototype: STRIX-SOLO-DEMO, STRIX-PRO-DEMO, STRIX-STUDIO-DEMO.',
-  'licensing.previewHeading': 'Een toestand bekijken (enkel prototype)',
-  'licensing.errorUnknownKey': 'Die licentiesleutel is niet herkend.',
-  'licensing.errorDeviceLimit':
-    'Deze sleutel is al actief op een ander toestel. Deactiveer hem daar of draag de zetel over.',
-  'licensing.errorAlreadyTrialled': 'Dit toestel heeft zijn gratis proefperiode al gebruikt.',
-  'licensing.errorUnreachable': 'De activatieserver was niet bereikbaar.',
-  'licensing.toastActivated': 'Licentie geactiveerd.',
-  'licensing.toastTrialStarted': 'Gratis proefperiode gestart.',
-  'licensing.toastDeactivated': 'Dit toestel is gedeactiveerd.',
-  // Buildgegevens (bevinding f): de vervaldatum van de beta + de git-SHA.
-  'licensing.buildHeading': 'Deze build',
-  'licensing.betaBuild': 'Betaversie {sha}, verloopt {date}',
-  'licensing.buildUnstamped': 'Ontwikkelbuild (geen vervaldatum)',
 
   // updater -----------------------------------------------------------------
   'updater.checking': 'Controleren op updates…',
