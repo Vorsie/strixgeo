@@ -88,7 +88,7 @@ subdivision is built on top of it. Priority order:
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7 *(#47 RESOLVED 2026-09-02 — column pins; #213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6)*
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #4, #6, #7 *(#3 + #5 RESOLVED 2026-10-17, removed for the open-source release)* *(#47 RESOLVED 2026-09-02 — column pins; #213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6 (installer))*
 * **D. Phase-4 export step + post-launch / Phase 5:** #105 *(#104 VERIFIED RESOLVED 2026-09-02 — six exporters × three levels)*, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
@@ -238,136 +238,13 @@ user profile, and an antivirus that has never seen these binaries. The
 port-conflict and read-only-install failure modes are covered by unit
 tests; the AV and locale ones can only be settled on real hardware.
 
-## 3. Subscription activation system (medium → blocking before paid release) — re-scoped 2026-06-25 from "license keys" (Tier B) — STATUS: OPEN
-
-**Re-scope 2026-06-25.** The commercial model pivoted from perpetual
-license to annual subscription + 30-day trial (owner directive; see
-CLAUDE.local.md → Commercial planning). When this item is picked up,
-build a **subscription/activation check** (activation tied to Stripe
-subscription state, offline grace window for on-site use) rather than
-the perpetual license-token shape sketched below — the token
-machinery below stays useful as the offline-verification layer, but
-expiry follows the subscription, not a perpetual grant.
-`docs/commercial-direction.md` framing updated in lockstep.
-
-**Status 2026-08-27 — stage 1 (beta expiry) SHIPPED.** Build-stamped
-expiry date, monotonic clock anchor (clock-rollback defeat), hard stop
-with renewal dialog — see [design/beta-expiry.md](design/beta-expiry.md).
-That is the "waterproof beta builds expire" half of the owner's MVP
-ballot. The activation ARCHITECTURE (offline signed file vs server vs
-hybrid) is an owner decision waiting in
-[design/activation-decision-memo.md](design/activation-decision-memo.md)
-— recommendation is Option C (server issues, signed 30-day file
-authorises offline), with four questions listed at its end.
-
-**Reviewable PROTOTYPE landed 2026-09-01, senior-review remediation
-2026-09-02 (branch `onboarding-proto`, NOT merged).** REAL: the pure
-state machine (trial/active/grace/expired/clock-rollback, 30-day
-offline grace, clock-rollback guard reusing the beta anchor), the
-`ActivationRepository` seam + in-memory mock issuer, 1-device binding
-+ deactivate/transfer, trial-on-the-same-path, the local
-`activation.json` store with a typed shape-check (a hand-edited
-`tier:"gold"` is rejected), and the **packaged start-screen gate**
-(owner ruling A — a blocked verdict shows the licence screen instead of
-the workspace; dev/e2e never block). MOCKED: the strixgeo.com server,
-Stripe, the **Ed25519 signature** (the local file is plain JSON — the
-biggest remaining TODO), and the device fingerprint. Design note:
-[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
-
-**Client half + contract + dev stub landed 2026-09-02** (branch
-`activation-http-client`, NOT merged). The HTTP client
-(`httpActivationRepository.ts`) implements the `ActivationRepository` seam over
-`fetch` behind a single config point (`activationConfig.ts` — env
-`STRIXGEO_ACTIVATION_URL` in dev, a packaged constant, `null` = the mock, which
-stays the default so the dogfeed is unchanged); a hardware-derived stable device
-id (`deviceIdentity.ts`) survives a reinstall; the written HTTP contract
-([design/activation-api-contract.md](design/activation-api-contract.md)) is what
-the strixgeo.com server implements; a dev-only in-memory FastAPI stub
-(`scripts/dev/activation_stub_server.py`, `--mint` CLI) runs the contract
-locally. Server implementation on the strixgeo.com hosting (MySQL) + the key
-FORMAT / Ed25519 signing (§8) remain pending.
-
-**Self-service deactivate/transfer landed 2026-09-02** (branch `wt-deact`, NOT
-merged) — ruling 15's required flow: the LicensingDialog Deactivate button routes
-through an irreversible-action confirmation dialog (Cancel default-focused, action
-"Deactivate"); the client throws a typed `DeactivateFailedError` and the service
-clears the local licence on a clean release **or a 404** (already released
-server-side) but KEEPS it on 401/network, so a transfer never strands the seat
-(contract §4/§6). EN+NL keys + main/dialog vitest added.
-
-**Packaged-gate hardening landed 2026-09-02** (branch `wt-activation`, NOT merged)
-— the production-readiness audit's C3 a–d + H5 + the HTTPS-only rule, so the
-packaged licence gate is real enough for a closed beta:
-* **C3(a) — no demo-key backdoor.** A PACKAGED build with no issuer URL no longer
-  falls back to the mock (whose `STRIX-*-DEMO` keys are public); it gets an
-  `UnreachableActivationRepository` that can activate nothing. The explicit rule
-  encoded: **a beta build runs on its STAMP, not on a licence** (the beta-expiry
-  gate is its authority); **a non-beta packaged build with no issuer cannot
-  activate.** The activation start-screen gate (renderer) + a new pure main-side
-  `activationBlocksLaunch` both carve out a beta build so the unsigned closed beta
-  is not stranded at a licence screen it can never satisfy.
-* **C3(b) — `STRIX_E2E` gated on `!isPackaged`** (`e2eLaunchFlag`), so a packaged
-  exe cannot be told to skip the gate by setting the harness env var.
-* **C3(c) — device binding enforced.** `evaluateActivation` now compares the
-  licence's `deviceId` against this installation's store id → a new
-  `device-mismatch` blocked state, so a copied `activation.json` does not run on
-  another machine; and the Windows `MachineGuid` is fed into the device id so two
-  identical office laptops differ (ruling 15).
-* **C3(d) — main-side launch block specified.** `activationBlocksLaunch` is the
-  pure decision; the ONE-line call site before `startApi()` is left for the
-  session main to wire (a beta/dev/e2e build never blocks).
-* **H5 — launch-time refresh.** `ActivationService.refreshOnLaunch()` re-checks a
-  stored licence once at launch against the issuer (contract `/refresh` on the
-  HTTP repo), persisting the renewed `expiresAt`; DORMANT while no server URL is
-  configured (only the network-backed repo carries `refresh`), and it swallows
-  `unreachable`.
-* **HTTPS-only issuer URL** (`sanitizeIssuerUrl`) — a configured issuer must be
-  `https://`; the sole exception is the dev stub on `http://127.0.0.1` /
-  `localhost`, and only when unpackaged.
-* **Fail closed** — a packaged non-beta build whose activation status read FAILS
-  is treated as "no licence" (the licence screen), never fallen open.
-
-Still MOCKED/pending: the strixgeo.com server, Stripe, the Ed25519 signature
-(the local file is still plain JSON), and `PACKAGED_ACTIVATION_URL` (still `null`).
-
-**Server implementation ready to deploy 2026-09-03** (branch `wt-actserver`, NOT
-merged) — the strixgeo.com MySQL + PHP service under `server/activation/` (schema,
-a PDO front controller for all five contract endpoints + an admin read-out, the
-mint/revoke/who CLIs, a Python conformance suite, and the runbook
-[design/activation-server-deploy.md](design/activation-server-deploy.md));
-awaiting the Combell DB + `PACKAGED_ACTIVATION_URL`. Ships UNSIGNED licence
-objects (contract §3 shape) with a random `STRIX-XXXX-XXXX-XXXX-XXXX` key and the
-tier stored in the DB — the §8 owner decisions (Ed25519, tier-in-key) are NOT
-pre-empted.
-
-**What.** No licensing today; anyone with the binary can run it.
-For a paid release we need a license token system. Suggested shape:
-
-* Signed offline tokens (Ed25519). Token carries: license_id, user
-  email, tier, issued_at, expires_at (or "perpetual"), optional
-  machine fingerprint.
-* App verifies the signature at launch against an embedded public
-  key. No phone-home required for daily use — important for the
-  offline-on-site use case.
-* Online activation only once per machine (claim the token to the
-  user's email), to prevent infinite resharing.
-* A small backend (single endpoint, single signing key) issues
-  tokens after Stripe webhook.
-
-**Why deferred.** Pre-revenue. Building this before paying customers
-exist is the wrong order of operations.
-
-**When.** Before opening any paid checkout. Plan ~1 week of solo
-work: token format + signing CLI + verifier in the Electron main
-process + a thin "Activate license" UI.
-
-## 4. Project-by-id endpoints rely on "only caller is local user" (medium → day-1 of #3, Tier B) — STATUS: OPEN
+## 4. Project-by-id endpoints rely on "only caller is local user" (medium, Tier B) — STATUS: OPEN
 
 **What.** ``POST /projects/{id}/duplicate`` (project.py) and
 ``PATCH /projects/{id}/view-state`` operate on the resolved row
 without an identity check. Today that's correct (single user, no
-auth). When debt #3 lands, these endpoints will need a
-``user_owns(project_id)`` predicate threaded through.
+auth). When an auth layer lands (a hosted or multi-user mode), these
+endpoints will need a ``user_owns(project_id)`` predicate threaded through.
 
 **Resolved (2026-05-19) — IDOR scope-guard half**: All CPT and
 borehole by-id endpoints (``GET /cpt/{id}``,
@@ -384,106 +261,15 @@ cases ``CreateFormationContact``, ``AcceptLithoSuggestions``,
 C11 pinned 2026-09-02: 8 by-id routes, 0 guards added (all already guarded).
 
 **What remains.** The auth-threading step (``user_owns`` predicate
-on project-level endpoints) still waits on debt #3.
+on project-level endpoints) still waits on an auth layer.
 
 **Why deferred.** No auth shipped.
 
-**When to revisit.** Day-1 of debt #3 license-token work — auth
-scaffolding must thread ``current_user`` through these routes
-before any token-gated call ships.
+**When to revisit.** Before any hosted or multi-user mode ships: auth
+scaffolding must thread ``current_user`` through these routes before
+any authenticated call ships.
 
-## 5. Tamper / reverse-engineering hardening (low — pragmatic posture, residual, Tier B) — STATUS: OPEN
-
-**Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
-check, not perpetual license keys — see #3's re-scope note.
-
-**Deactivate/transfer counterpart landed 2026-09-02** (with #3): the strict
-1-device Solo binding this hardening enforces is exactly what makes a self-service
-deactivate/transfer *required* (ruling 15) — without it a reinstall is a support
-email. That flow (confirmation dialog + 404/401/network handling) now exists; see
-#3's "Self-service deactivate/transfer" note.
-
-**Gate-hardening landed 2026-09-02** (with #3, branch `wt-activation`): the
-device-binding half of the tamper posture is now enforced client-side — a copied
-`activation.json` reads as `device-mismatch` and is blocked on any other machine
-(the Windows `MachineGuid` feeds the device id so two identical laptops differ),
-`STRIX_E2E` can no longer open the gate in a packaged exe, and a packaged build
-with no issuer no longer runs on the public demo keys. This is the deterrent
-posture debt #5 targets (not a cryptographic proof — the local licence file is
-still unsigned; the Ed25519 signature stays #3's pending TODO). See #3's
-"Packaged-gate hardening" note.
-
-**Owner ruling 2026-08-31 (SUPERSEDES the "readable source is acceptable"
-posture for the engine + parsers).** *"the underlying codebase should also be
-protected and not leak at all times ... otherwise someone else could just
-duplicate."* Native compilation of the Python engine + parsers is now a **gate
-before ANY binary leaves this machine** — beta testers and the coworker handoff
-included (rulings 5-7; this re-sequences `memory/project_coworker_distribution.md`,
-which had assumed an internal handoff *before* hardening). **Implemented** (this
-slice, working tree): `scripts/compile-backend-natives.ps1` +
-`scripts/native_compile_manifest.py` compile 132 modules (the voxel-litho builder
-+ whole `domain/services` modelling engine, all GEF/DOV parsers, and the
-application-layer geotech/body engine) to native `.pyd` in the staged tree,
-driven from `build-embedded-python.ps1`; two gates (smoke +
-`verify-staged-natives.ps1`) EXECUTE the artifacts before the dist build
-proceeds. Carve-outs: `greedy_mesh.py` (Numba), every `__init__.py`,
-`geotech_column_sampler` (Nuitka lens-drop) + the five source `domain/services`
-modules; C3 (`geotech_band_reclassification`) landed and ships compiled. Full
-design: [docs/distribution-build.md](distribution-build.md) "The compiled subset".
-
-**Q1 landed 2026-09-02 (owner ruling Q1, 2026-09-01 — compile the engine-class
-`application/` modules too).** 12 modules added to the manifest: `divide_boreholes`,
-`subdivide_all_bodies`, `geotech_edge_derivation`, `build_voxel_litho_model`, the
-in-module geotech band-edit planning + tie/pair reanchor (`geotech_band_edit_helpers`,
-`geotech_tie_reanchor`, `pair_ruling_reanchor`), and the section/wedge/companion/
-stratigraphy/export geometry with no compiled-domain home (`build_section_polygons`,
-`create_perpendicular_companion`, `materialize_wedge_tips_for_formation`,
-`stratigraphy_bridge`, `thin_export_units`). **No Nuitka carve-out** — all 12
-compile + import clean. The band-reclassification hand-edit verbs (merge/split/
-move/preview) and the body resolver/recompute use cases stay source because they
-**delegate** to a compiled `domain/services` service (that delegation boundary is
-the algorithm/orchestration line). Set pinned by
-`tests/unit/scripts/test_native_compile_manifest.py`; proven against the staged
-`.pyd` by the geotech/voxel/body integration suites (impure async-ORM layer, so
-the integration gate — not the unit gate — is authoritative).
-
-**Residual — the TypeScript engine is NOT protected (open owner decision).** A
-large share of the interpretation engine lives in the renderer as TypeScript
-(partition/fill, body resolver, section geometry under
-`desktop/src/renderer/`), and Electron ships it as JavaScript in `app.asar`,
-which `npx asar extract` unpacks trivially. The Python-side native compilation
-does nothing for that surface, so the "cannot duplicate" goal is only
-half-met. Options (bytenode/V8-snapshot, JS obfuscation, or accept-and-rely-on
-activation) are an **owner call — not yet ruled**; do not pick one unprompted.
-When it is ruled, it pairs with the activation work (#3) the same way this did.
-
-**What's still open.** The malformed-input audit pass landed: every
-DOV XML parser uses ``defusedxml`` (billion-laughs + external DTD
-guards); ``project:read-file`` and ``fs:read-file`` apply size caps
-before allocating Buffers; the API has its own body-size + GEF-upload
-caps. What's left is the licensing-side hardening tied to debt #3:
-
-* Defeat casual bypass (renamed exe, deleted license file).
-* Token store + verification on each launch (already in #3's scope).
-* No anti-debug, no obfuscation, no DRM theatre.
-* **The flag-based debugger surface** (noted 2026-08-03, from the autosave
-  review): #200 closed the *menu* and *programmatic* routes to DevTools in
-  packaged builds, but `--remote-debugging-port` / `--inspect` on the command
-  line still attach a debugger to a shipped binary. That is a tamper surface,
-  not a DevTools one — the same class as a renamed exe — so it belongs here
-  and is deliberately NOT fixed in code today: blocking it means filtering
-  `process.argv` at startup, which is anti-debug of exactly the kind this item
-  says no to unless the activation check makes it worth it. Revisit with the
-  activation work.
-
-**Why low priority.** Geotech engineers don't pirate software at
-scale. The .strix format is also not inherently sensitive — losing
-the geometry of someone's site investigation isn't catastrophic the
-way leaking a movie pre-release is.
-
-**When.** Folds into debt #3's license-key work before paid release.
-
-## 6. Installer + code signing + auto-update (medium → blocking before paid release, Tier B) — STATUS: OPEN
+## 6. Installer code signing (low, nice-to-have: removes the SmartScreen warning, Tier B) — STATUS: OPEN
 
 **What.** electron-builder produces .exe / .dmg / .deb / .AppImage,
 electron-updater handles deltas. Windows requires EV code signing
@@ -493,7 +279,8 @@ macOS notarization is similar (~€100/year Apple Developer
 membership + signing + Apple notary upload). Linux can ship
 unsigned today.
 
-**Why deferred.** Same as #3 — pre-revenue, premature.
+**Why deferred.** A signing certificate needs an organisation identity
+(see the code-signing status below); the build works unsigned.
 
 **INSTALLER HALF DONE 2026-08-27.** `npm run dist` in `desktop/`
 produces an unsigned NSIS `StrixGeo-Setup-<version>.exe` carrying the
@@ -503,14 +290,13 @@ withholds admin, and `deleteAppDataOnUninstall: false` so an uninstall
 never destroys a `pgdata` holding projects that were never saved to a
 `.strix`. Details in [distribution-build.md](distribution-build.md).
 
-**What remains under this number:** code signing and auto-update only.
+**What remains under this number:** code signing only.
 SmartScreen still warns ("Windows protected your PC" → More info → Run
 anyway), which `memory/project_coworker_distribution` accepts for
 trusted internal testers.
 
-**AUTO-UPDATE SCAFFOLD landed as a reviewable PROTOTYPE 2026-09-01,
-senior-review remediation 2026-09-02 (branch `onboarding-proto`, NOT
-merged).** REAL: `electron-updater` wired (`updaterService.ts` +
+**AUTO-UPDATE SCAFFOLD landed 2026-09-01, senior-review remediation
+2026-09-02.** REAL: `electron-updater` wired (`updaterService.ts` +
 `updaterPolicy.ts`), every auto path gated on `app.isPackaged`
 (dev never checks), `autoDownload=false` (the renderer owns the
 Download choice), the renderer notification UX, AND the real feed —
@@ -521,9 +307,8 @@ bundled** (a `GH_TOKEN` is a publish-time env var only). A local build
 cannot publish by accident: `npm run package`/`dist` end in
 `--publish=never`; releasing is a deliberate `npm run release`
 (`--publish=always`) that creates a DRAFT a human must click Publish on.
-Design note:
-[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
-PENDING: a first PUBLISHED release, and code-signing (below).
+Releases have been published on that feed since 0.1.x; code-signing is the
+open part (below).
 
 **RELEASE INTEGRITY HARDENED 2026-09-02 (audit C4).** `release` now chains the
 full `dist` and both are gated by `require-clean-release.mjs` (refuses a dirty
@@ -531,7 +316,7 @@ tree, unpushed commits, or on `release` a version not newer than the last
 published); the reused `embedded/python` tree is SHA-256-manifest-verified on
 reuse and `uv export` runs `--frozen`; every build stamps its git SHA + build
 time via `compiledBuildProvenance()`, checked present in the bundle by
-`require-beta-stamp.mjs post`. See [distribution-build.md](distribution-build.md)
+`require-build-sha.mjs`. See [distribution-build.md](distribution-build.md)
 "Release integrity and provenance".
 
 **Code-signing status (owner ruling 2026-09-02): the closed beta ships
@@ -543,25 +328,18 @@ registered: Organization validation → Public Trust certificate profile →
 electron-builder Azure signing. Until then testers see the SmartScreen
 "unknown publisher" prompt.
 
-**One OWNER DECISION is pending** before the first real install, written up
+**One OWNER DECISION is pending**, written up
 in [distribution-build.md](distribution-build.md) → "Open decision": the
 packaged app's `userData` resolves from `package.json`'s `name`, not from
 `build.productName`, so an install shares `%APPDATA%\ground-model-desktop\`
-with the dev session. Harmless today (dev never starts the embedded stack)
-but worth settling while no install exists to strand — the packaged-only
-`app.setPath` option costs nothing and touches no existing profile.
+with the dev session. Harmless today (dev never starts the embedded stack);
+the packaged-only `app.setPath` option is the candidate fix.
 
-**Not yet done:** the install → boot → uninstall pass on a real machine.
-The installer builds and the boot path is verified headlessly against the
-real bundled binaries (`STRIX_EMBEDDED_INTEGRATION=1`), but no GUI launch
-has been performed — see the same doc's "Verifying a change without
-launching the app" for why, and for the two rules any such launch must
-follow.
+**Install → boot → uninstall pass on a real machine:** done for 0.1.0 to 0.1.6
+(installed by the owner and the testers).
 
-**When.** In parallel with #3, before the first paid release.
-Auto-update is especially important because future .gmproj format
-upgrades depend on every user reaching the build that introduced
-the upgrade path.
+**When.** Once an organisation identity exists for Organization
+validation (then Trusted Signing, as above).
 
 ## 7. Marketing site + market-facing name (medium → blocking before paid release, Tier B) — STATUS: OPEN
 
@@ -675,25 +453,22 @@ Capture: local NDJSON store, field-whitelist + redaction, consent
 default-OFF, crash-bundle ``.zip`` a tester can send by hand, renderer
 capture on 5xx/network failures. Transmit: ``diagnosticsUploader.ts`` —
 a consent-gated, disk-queued uploader that POSTs the redacted log to the
-activation origin (``POST /v1/diagnostics``, owner ruling 2026-08-31
-"same server as activation"), oldest-first, 512 KiB cap,
+endpoint named by the ``STRIXGEO_DIAGNOSTICS_URL`` setting
+(``POST /v1/diagnostics``), oldest-first, 512 KiB cap,
 retry-with-backoff on 5xx/network, drop on 4xx. Inert unless consent is
-on AND an activation base URL is configured (the mock/dogfeed default
-sends nothing) — see
-[design/diagnostics-capture.md](design/diagnostics-capture.md) +
-[design/activation-api-contract.md](design/activation-api-contract.md).
+on AND ``STRIXGEO_DIAGNOSTICS_URL`` is set (there is no default endpoint);
+see [design/diagnostics-capture.md](design/diagnostics-capture.md).
 
 **Remaining.** (1) the consent Settings toggle UI — until it ships a
 user cannot opt in through the app, so the uploader stays inert in
-practice; (2) the strixgeo.com ``/v1/diagnostics`` endpoint (same MySQL
-host as activation, not built); (3) an owner ruling on whether the
-upload carries the licence/device id — the plumbing is built and gated
-OFF behind ``ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS`` because
+practice; (2) a server that answers ``/v1/diagnostics`` (not built;
+whoever sets ``STRIXGEO_DIAGNOSTICS_URL`` provides it); (3) an owner
+ruling on whether the upload carries the device id: the plumbing is
+built and gated OFF behind ``ATTACH_DEVICE_ID_TO_DIAGNOSTICS`` because
 attaching it reverses the "no device id" capture invariant.
 
-**When.** The consent UI + endpoint before any non-solo user; the
-owner's activation ruling decides where reports go and whether identity
-travels.
+**When.** The consent UI + an endpoint before any non-solo user; the
+owner's ruling decides whether the device id travels.
 
 ## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low, Tier E) — STATUS: OPEN
 
@@ -1270,6 +1045,228 @@ so they don't get re-filed as new items):
 
 ---
 
+## 3. Subscription activation system — RESOLVED 2026-10-17 (removed: StrixGeo is free and open source; the activation client, server and licence screen were deleted on feat/open-source)
+
+**Resolved 2026-10-17.** StrixGeo is free and open source (AGPL-3.0-or-later).
+The design notes this entry links to were deleted with the subsystem; git history
+keeps them. The body below is the record of what was built.
+
+**Re-scope 2026-06-25.** The commercial model pivoted from perpetual
+license to annual subscription + 30-day trial (owner directive; see
+CLAUDE.local.md → Commercial planning). When this item is picked up,
+build a **subscription/activation check** (activation tied to Stripe
+subscription state, offline grace window for on-site use) rather than
+the perpetual license-token shape sketched below — the token
+machinery below stays useful as the offline-verification layer, but
+expiry follows the subscription, not a perpetual grant.
+`docs/commercial-direction.md` framing updated in lockstep.
+
+**Status 2026-08-27 — stage 1 (beta expiry) SHIPPED.** Build-stamped
+expiry date, monotonic clock anchor (clock-rollback defeat), hard stop
+with renewal dialog — see [design/beta-expiry.md](design/beta-expiry.md).
+That is the "waterproof beta builds expire" half of the owner's MVP
+ballot. The activation ARCHITECTURE (offline signed file vs server vs
+hybrid) is an owner decision waiting in
+[design/activation-decision-memo.md](design/activation-decision-memo.md)
+— recommendation is Option C (server issues, signed 30-day file
+authorises offline), with four questions listed at its end.
+
+**Reviewable PROTOTYPE landed 2026-09-01, senior-review remediation
+2026-09-02 (branch `onboarding-proto`, NOT merged).** REAL: the pure
+state machine (trial/active/grace/expired/clock-rollback, 30-day
+offline grace, clock-rollback guard reusing the beta anchor), the
+`ActivationRepository` seam + in-memory mock issuer, 1-device binding
++ deactivate/transfer, trial-on-the-same-path, the local
+`activation.json` store with a typed shape-check (a hand-edited
+`tier:"gold"` is rejected), and the **packaged start-screen gate**
+(owner ruling A — a blocked verdict shows the licence screen instead of
+the workspace; dev/e2e never block). MOCKED: the strixgeo.com server,
+Stripe, the **Ed25519 signature** (the local file is plain JSON — the
+biggest remaining TODO), and the device fingerprint. Design note:
+[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
+
+**Client half + contract + dev stub landed 2026-09-02** (branch
+`activation-http-client`, NOT merged). The HTTP client
+(`httpActivationRepository.ts`) implements the `ActivationRepository` seam over
+`fetch` behind a single config point (`activationConfig.ts` — env
+`STRIXGEO_ACTIVATION_URL` in dev, a packaged constant, `null` = the mock, which
+stays the default so the dogfeed is unchanged); a hardware-derived stable device
+id (`deviceIdentity.ts`) survives a reinstall; the written HTTP contract
+([design/activation-api-contract.md](design/activation-api-contract.md)) is what
+the strixgeo.com server implements; a dev-only in-memory FastAPI stub
+(`scripts/dev/activation_stub_server.py`, `--mint` CLI; deleted 2026-10-17 with
+the server) runs the contract locally. Server implementation on the strixgeo.com hosting (MySQL) + the key
+FORMAT / Ed25519 signing (§8) remain pending.
+
+**Self-service deactivate/transfer landed 2026-09-02** (branch `wt-deact`, NOT
+merged) — ruling 15's required flow: the LicensingDialog Deactivate button routes
+through an irreversible-action confirmation dialog (Cancel default-focused, action
+"Deactivate"); the client throws a typed `DeactivateFailedError` and the service
+clears the local licence on a clean release **or a 404** (already released
+server-side) but KEEPS it on 401/network, so a transfer never strands the seat
+(contract §4/§6). EN+NL keys + main/dialog vitest added.
+
+**Packaged-gate hardening landed 2026-09-02** (branch `wt-activation`, NOT merged)
+— the production-readiness audit's C3 a–d + H5 + the HTTPS-only rule, so the
+packaged licence gate is real enough for a closed beta:
+* **C3(a) — no demo-key backdoor.** A PACKAGED build with no issuer URL no longer
+  falls back to the mock (whose `STRIX-*-DEMO` keys are public); it gets an
+  `UnreachableActivationRepository` that can activate nothing. The explicit rule
+  encoded: **a beta build runs on its STAMP, not on a licence** (the beta-expiry
+  gate is its authority); **a non-beta packaged build with no issuer cannot
+  activate.** The activation start-screen gate (renderer) + a new pure main-side
+  `activationBlocksLaunch` both carve out a beta build so the unsigned closed beta
+  is not stranded at a licence screen it can never satisfy.
+* **C3(b) — `STRIX_E2E` gated on `!isPackaged`** (`e2eLaunchFlag`), so a packaged
+  exe cannot be told to skip the gate by setting the harness env var.
+* **C3(c) — device binding enforced.** `evaluateActivation` now compares the
+  licence's `deviceId` against this installation's store id → a new
+  `device-mismatch` blocked state, so a copied `activation.json` does not run on
+  another machine; and the Windows `MachineGuid` is fed into the device id so two
+  identical office laptops differ (ruling 15).
+* **C3(d) — main-side launch block specified.** `activationBlocksLaunch` is the
+  pure decision; the ONE-line call site before `startApi()` is left for the
+  session main to wire (a beta/dev/e2e build never blocks).
+* **H5 — launch-time refresh.** `ActivationService.refreshOnLaunch()` re-checks a
+  stored licence once at launch against the issuer (contract `/refresh` on the
+  HTTP repo), persisting the renewed `expiresAt`; DORMANT while no server URL is
+  configured (only the network-backed repo carries `refresh`), and it swallows
+  `unreachable`.
+* **HTTPS-only issuer URL** (`sanitizeIssuerUrl`) — a configured issuer must be
+  `https://`; the sole exception is the dev stub on `http://127.0.0.1` /
+  `localhost`, and only when unpackaged.
+* **Fail closed** — a packaged non-beta build whose activation status read FAILS
+  is treated as "no licence" (the licence screen), never fallen open.
+
+Still MOCKED/pending: the strixgeo.com server, Stripe, the Ed25519 signature
+(the local file is still plain JSON), and `PACKAGED_ACTIVATION_URL` (still `null`).
+
+**Server implementation ready to deploy 2026-09-03** (branch `wt-actserver`, NOT
+merged) — the strixgeo.com MySQL + PHP service under `server/activation/` (schema,
+a PDO front controller for all five contract endpoints + an admin read-out, the
+mint/revoke/who CLIs, a Python conformance suite, and the runbook
+[design/activation-server-deploy.md](design/activation-server-deploy.md));
+awaiting the Combell DB + `PACKAGED_ACTIVATION_URL`. Ships UNSIGNED licence
+objects (contract §3 shape) with a random `STRIX-XXXX-XXXX-XXXX-XXXX` key and the
+tier stored in the DB — the §8 owner decisions (Ed25519, tier-in-key) are NOT
+pre-empted.
+
+**What.** No licensing today; anyone with the binary can run it.
+For a paid release we need a license token system. Suggested shape:
+
+* Signed offline tokens (Ed25519). Token carries: license_id, user
+  email, tier, issued_at, expires_at (or "perpetual"), optional
+  machine fingerprint.
+* App verifies the signature at launch against an embedded public
+  key. No phone-home required for daily use — important for the
+  offline-on-site use case.
+* Online activation only once per machine (claim the token to the
+  user's email), to prevent infinite resharing.
+* A small backend (single endpoint, single signing key) issues
+  tokens after Stripe webhook.
+
+**Why deferred.** Pre-revenue. Building this before paying customers
+exist is the wrong order of operations.
+
+**When.** Before opening any paid checkout. Plan ~1 week of solo
+work: token format + signing CLI + verifier in the Electron main
+process + a thin "Activate license" UI.
+
+## 5. Tamper / reverse-engineering hardening — RESOLVED 2026-10-17 (removed with the Nuitka compile; an AGPL project has no tamper posture)
+
+**Resolved 2026-10-17.** StrixGeo is free and open source (AGPL-3.0-or-later).
+The design notes this entry links to were deleted with the subsystem; git history
+keeps them. The body below is the record of what was built.
+
+**Re-scope 2026-06-25 (with #3).** Targets the subscription-activation
+check, not perpetual license keys — see #3's re-scope note.
+
+**Deactivate/transfer counterpart landed 2026-09-02** (with #3): the strict
+1-device Solo binding this hardening enforces is exactly what makes a self-service
+deactivate/transfer *required* (ruling 15) — without it a reinstall is a support
+email. That flow (confirmation dialog + 404/401/network handling) now exists; see
+#3's "Self-service deactivate/transfer" note.
+
+**Gate-hardening landed 2026-09-02** (with #3, branch `wt-activation`): the
+device-binding half of the tamper posture is now enforced client-side — a copied
+`activation.json` reads as `device-mismatch` and is blocked on any other machine
+(the Windows `MachineGuid` feeds the device id so two identical laptops differ),
+`STRIX_E2E` can no longer open the gate in a packaged exe, and a packaged build
+with no issuer no longer runs on the public demo keys. This is the deterrent
+posture debt #5 targets (not a cryptographic proof — the local licence file is
+still unsigned; the Ed25519 signature stays #3's pending TODO). See #3's
+"Packaged-gate hardening" note.
+
+**Owner ruling 2026-08-31 (SUPERSEDES the "readable source is acceptable"
+posture for the engine + parsers).** *"the underlying codebase should also be
+protected and not leak at all times ... otherwise someone else could just
+duplicate."* Native compilation of the Python engine + parsers is now a **gate
+before ANY binary leaves this machine** — beta testers and the coworker handoff
+included (rulings 5-7; this re-sequences `memory/project_coworker_distribution.md`,
+which had assumed an internal handoff *before* hardening). **Implemented** (this
+slice, working tree): `scripts/compile-backend-natives.ps1` +
+`scripts/native_compile_manifest.py` compile 132 modules (the voxel-litho builder
++ whole `domain/services` modelling engine, all GEF/DOV parsers, and the
+application-layer geotech/body engine) to native `.pyd` in the staged tree,
+driven from `build-embedded-python.ps1`; two gates (smoke +
+`verify-staged-natives.ps1`) EXECUTE the artifacts before the dist build
+proceeds. Carve-outs: `greedy_mesh.py` (Numba), every `__init__.py`,
+`geotech_column_sampler` (Nuitka lens-drop) + the five source `domain/services`
+modules; C3 (`geotech_band_reclassification`) landed and ships compiled. Full
+design: [docs/distribution-build.md](distribution-build.md) "The compiled subset".
+
+**Q1 landed 2026-09-02 (owner ruling Q1, 2026-09-01 — compile the engine-class
+`application/` modules too).** 12 modules added to the manifest: `divide_boreholes`,
+`subdivide_all_bodies`, `geotech_edge_derivation`, `build_voxel_litho_model`, the
+in-module geotech band-edit planning + tie/pair reanchor (`geotech_band_edit_helpers`,
+`geotech_tie_reanchor`, `pair_ruling_reanchor`), and the section/wedge/companion/
+stratigraphy/export geometry with no compiled-domain home (`build_section_polygons`,
+`create_perpendicular_companion`, `materialize_wedge_tips_for_formation`,
+`stratigraphy_bridge`, `thin_export_units`). **No Nuitka carve-out** — all 12
+compile + import clean. The band-reclassification hand-edit verbs (merge/split/
+move/preview) and the body resolver/recompute use cases stay source because they
+**delegate** to a compiled `domain/services` service (that delegation boundary is
+the algorithm/orchestration line). Set pinned by
+`tests/unit/scripts/test_native_compile_manifest.py`; proven against the staged
+`.pyd` by the geotech/voxel/body integration suites (impure async-ORM layer, so
+the integration gate — not the unit gate — is authoritative).
+
+**Residual — the TypeScript engine is NOT protected (open owner decision).** A
+large share of the interpretation engine lives in the renderer as TypeScript
+(partition/fill, body resolver, section geometry under
+`desktop/src/renderer/`), and Electron ships it as JavaScript in `app.asar`,
+which `npx asar extract` unpacks trivially. The Python-side native compilation
+does nothing for that surface, so the "cannot duplicate" goal is only
+half-met. Options (bytenode/V8-snapshot, JS obfuscation, or accept-and-rely-on
+activation) are an **owner call — not yet ruled**; do not pick one unprompted.
+When it is ruled, it pairs with the activation work (#3) the same way this did.
+
+**What's still open.** The malformed-input audit pass landed: every
+DOV XML parser uses ``defusedxml`` (billion-laughs + external DTD
+guards); ``project:read-file`` and ``fs:read-file`` apply size caps
+before allocating Buffers; the API has its own body-size + GEF-upload
+caps. What's left is the licensing-side hardening tied to debt #3:
+
+* Defeat casual bypass (renamed exe, deleted license file).
+* Token store + verification on each launch (already in #3's scope).
+* No anti-debug, no obfuscation, no DRM theatre.
+* **The flag-based debugger surface** (noted 2026-08-03, from the autosave
+  review): #200 closed the *menu* and *programmatic* routes to DevTools in
+  packaged builds, but `--remote-debugging-port` / `--inspect` on the command
+  line still attach a debugger to a shipped binary. That is a tamper surface,
+  not a DevTools one — the same class as a renamed exe — so it belongs here
+  and is deliberately NOT fixed in code today: blocking it means filtering
+  `process.argv` at startup, which is anti-debug of exactly the kind this item
+  says no to unless the activation check makes it worth it. Revisit with the
+  activation work.
+
+**Why low priority.** Geotech engineers don't pirate software at
+scale. The .strix format is also not inherently sensitive — losing
+the geometry of someone's site investigation isn't catastrophic the
+way leaking a movie pre-release is.
+
+**When.** Folds into debt #3's license-key work before paid release.
+
 ## 64. 3-D split viewport — RESOLVED 2026-06-01
 
 Two different things are called "split" in the 3-D viewer, and the
@@ -1477,8 +1474,8 @@ user decision in the app (litho suggestion accept, suggestion reject,
 formation contact create / move / delete, formation rename / reorder /
 pin, build trigger, sync geology, manual composition pick, cross-
 section seed, geotech NAD assignment, …). Schema sketch: `id UUID PK`,
-`project_id UUID FK`, `user_id UUID NULL` (filled once auth lands —
-debt #3 / #4), `decision_type VARCHAR` (discriminator: `litho_accept`,
+`project_id UUID FK`, `user_id UUID NULL` (filled once auth lands:
+debt #4), `decision_type VARCHAR` (discriminator: `litho_accept`,
 `litho_reject`, `contact_create`, `contact_move`, …),
 `decision_at TIMESTAMP`, `before_state JSONB NULL` (the suggested /
 prior state), `after_state JSONB NULL` (the committed state),
@@ -1855,8 +1852,9 @@ OWNER: the worked-example `.strix` DATA itself — he builds it later and drops 
 at `desktop/resources/sample/worked-example.strix` (tracking that file in git is
 his call). NOT built:
 deliverable 2 (per-stage "next step" hinting) and the coach-mark
-walkthrough of deliverable 1. Design note:
-[design/onboarding-activation-updater-proto.md](design/onboarding-activation-updater-proto.md).
+walkthrough of deliverable 1. Current state: the in-app guided tutorial is the
+onboarding; the prototype design note was deleted with the activation work on
+2026-10-17 (git history keeps it).
 
 **What.** No onboarding exists today. A new engineer opening Strix
 for the first time sees an empty welcome screen, then a stage with
@@ -2882,7 +2880,7 @@ SEPARATE sibling migration (`sample.geotech_body_id` FK, ON DELETE SET NULL,
   migration would fail if any legacy non-NULL `app_project_id` points at a
   vanished `project` row, and this slice has no DB to prove orphan-freeness; and
   (2) the owner folded it into the backwards-compat re-arm with a one-time
-  orphan/NULL backfill (#3 / #47), which should add the FK + NOT NULL atomically.
+  orphan/NULL backfill (#47), which should add the FK + NOT NULL atomically.
   Ready-to-land sketch for the re-arm: `op.create_foreign_key(..., "cpt",
   "project", ["app_project_id"], ["id"], ondelete="RESTRICT")` (RESTRICT matches
   soft-delete-only; revisit if a hard project-delete ever ships), same for
@@ -2898,7 +2896,7 @@ one-time orphan/NULL backfill.
 **When to revisit.** Co-nullation CHECK: only if the A2 geo-decoupling is ever
 reversed, OR land the inverse (parentless-litho) CHECK after a real-DB audit of
 legacy litho `parent_formation_id`. FK + NOT NULL: the backwards-compat re-arm
-(#3 / #47), once project-less import is retired or the backfill lands.
+(#47), once project-less import is retired or the backfill lands.
 
 ## 108. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4. — RESOLVED 2026-06-01
 Surgical pass on all four debt-entry targets:
@@ -3728,7 +3726,7 @@ have already happened OR are statistically most likely:
 * **Per-slice from then on**: every Phase 4 / Phase 5 slice adds
   1-2 flows.
 * **Pre-coworker-binary**: a final backfill sweep closes any
-  remaining Tier-1 gaps before debt #3 license-keys ships.
+  remaining Tier-1 gaps before the first external distribution.
 
 ### Anti-patterns to avoid
 
@@ -5767,7 +5765,7 @@ everyday path. The pre-feature behaviour was also lossy here (stale body kept it
 old key and silently attached to the wrong instance), so this is a sharpening of
 an existing edge, not a brand-new class of bug.
 
-**When to revisit.** Before the first external/paid distribution (ties to debt #3).
+**When to revisit.** Before the first external distribution.
 Fix shape: in `_run_resolver`'s orphan-delete loop, before deleting an unnamed
 body, check `is_user_claimed_extent_kind(extent_left_kind / extent_right_kind)`;
 if claimed, either (a) carry the extent columns forward to the new same-formation
@@ -5845,7 +5843,8 @@ exists to protect (ghost workspace, lumping map, metadata draft — none of it i
 Postgres). Dev behaviour unchanged. `desktop/src/main/index.ts`.
 *Not* closed by that change: `--remote-debugging-port` / `--inspect` still
 attach a debugger to a packaged build. That is a tamper surface rather than a
-DevTools one and is tracked under **Tier B #5**, deliberately unfixed for now.
+DevTools one and stays deliberately unfixed; #5 was resolved by removal, an
+open-source engine has no tamper posture.
 
 **Folded in 2026-08-03 — opening a `.strix` handed over by a second instance.**
 The single-instance lock (autosave design Q4) makes the first instance the only
@@ -5862,8 +5861,7 @@ it replace or refuse?), so it waits for the same pre-distribution pass as F6.
 **Why deferred.** Requires a renderer compromise — does not exist on the
 single-machine dogfeed. Pre-distribution concern.
 
-**When to revisit.** Day-1 of the first external/paid distribution (ties to Tier
-B #5 tamper hardening). Fix F6: narrow the `file://` check to the renderer's
+**When to revisit.** Day-1 of the first external distribution. Fix F6: narrow the `file://` check to the renderer's
 actual base URL (`win.webContents.getURL()` after `loadFile`).
 
 ## 201. God-component file-size split (Tier E — readability, L) — STATUS: OPEN
@@ -6386,8 +6384,8 @@ key wins on collision), pinned by unit tests in
 deprecated build-toolchain transitives (`glob@7`, `rimraf@2`, `inflight@1` via
 electron-builder — `overrides` or a builder bump); the `postgis/postgis:16-3.4`
 docker image pinned to a floating tag, not a digest; GitHub Actions pinned to
-floating major tags (`@v4`) — SHA-pin before signing keys / license secrets land in
-CI (#3/#6); Python runtime deps lower-bound-only (add wide upper bounds on
+floating major tags (`@v4`) — SHA-pin before signing keys land in
+CI (#6); Python runtime deps lower-bound-only (add wide upper bounds on
 polars/scipy/sqlalchemy so a careless `uv lock --upgrade` can't pull a breaking
 major); ensure the future installer (#6) runs `uv sync --no-group dev` so openpyxl's
 XML surface doesn't ship. Two verify-items: `python-multipart` lower bound and the
