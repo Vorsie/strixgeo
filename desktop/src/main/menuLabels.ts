@@ -66,7 +66,6 @@ export type MenuLabelId =
   | 'tutorial'
   | 'restartTutorial'
   | 'gestureCheatsheet'
-  | 'licenceActivation'
   | 'checkUpdates'
   | 'openLogFolder'
   | 'saveLogsForSupport'
@@ -122,7 +121,6 @@ export const MENU_LABELS: Record<MenuLabelId, Record<MenuLanguage, string>> = {
   tutorial: { en: 'Tutorial', nl: 'Tutorial' },
   restartTutorial: { en: 'Restart tutorial', nl: 'Tutorial opnieuw starten' },
   gestureCheatsheet: { en: 'Gesture cheatsheet…', nl: 'Bediening en sneltoetsen…' },
-  licenceActivation: { en: 'Licence & activation…', nl: 'Licentie en activatie…' },
   checkUpdates: { en: 'Check for updates…', nl: 'Controleren op updates…' },
   openLogFolder: { en: 'Open log folder', nl: 'Logmap openen' },
   saveLogsForSupport: { en: 'Save logs for support…', nl: 'Logs opslaan voor support…' },
