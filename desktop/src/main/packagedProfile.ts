@@ -15,7 +15,7 @@
 // nothing and is permanent in the good direction.
 //
 // MUST run before anything reads userData — the single-instance lock, the
-// recovery store, the beta anchor, the diagnostics store and the embedded
+// recovery store, the diagnostics store and the embedded
 // stack all resolve paths off it. `packagedProfile.test.ts` PP3 pins the
 // call-site order in `index.ts`.
 
