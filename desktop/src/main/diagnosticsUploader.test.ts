@@ -29,7 +29,7 @@ import {
   DIAGNOSTICS_RETRY_BASE_MS,
 } from './diagnosticsUploaderConstants'
 
-const BASE_URL = 'https://example.test/api/activation'
+const BASE_URL = 'https://example.test/api'
 const FACTS = { appVersion: '0.1.0', platform: 'win32' }
 
 let dir: string
