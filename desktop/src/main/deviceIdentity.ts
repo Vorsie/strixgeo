@@ -1,9 +1,9 @@
 /**
- * Stable per-machine device identity (Electron main process). Debt #3.
+ * Stable per-machine device identity (Electron main process).
  *
- * The activation issuer binds a licence to a *device* (owner ruling 15: one
- * device per Solo seat). For that binding to be usable the client has to send
- * the server an id that is the SAME on every launch of the same machine — and,
+ * Its one consumer is the optional ``deviceId`` of a diagnostics bundle (gated
+ * off, see ``ATTACH_DEVICE_ID_TO_DIAGNOSTICS``). For that id to be useful the
+ * client has to send an id that is the SAME on every launch of the same machine, and,
  * ideally, the same after the user reinstalls the app — yet DIFFERENT on a
  * genuinely different machine. This module derives that id.
  *
@@ -25,7 +25,7 @@
  * machine** because a different box has different hardware.
  *
  * Deliberately EXCLUDED from the stable id (both are volatile enough to cause a
- * false "new device", which for a 1-device Solo seat means a support ticket):
+ * false "new device", which would split one machine's reports in two):
  *
  * * **MAC address** — docking stations, VPN adapters and USB NICs add and remove
  *   interfaces, changing the "primary" MAC under the user's feet;
@@ -34,12 +34,11 @@
  *
  * ## Known weakness, and why it is acceptable here
  *
- * Two identical machines (same CPU model + RAM) hash to the SAME id. For a
- * single-seat product that under-counts rather than over-counts seats, and the
- * real seat authority is the SERVER-side binding, not this fingerprint — the
- * fingerprint only has to let a machine recognise *itself* across launches and
- * reinstalls. A production build that needs true uniqueness should feed the OS
- * machine GUID (Windows ``MachineGuid`` / Linux ``/etc/machine-id`` / macOS
+ * Two identical machines (same CPU model + RAM) hash to the SAME id. That
+ * under-counts rather than over-counts machines, and the fingerprint only has
+ * to let a machine recognise *itself* across launches and reinstalls. A
+ * production build that needs true uniqueness should feed the OS machine GUID
+ * (Windows ``MachineGuid`` / Linux ``/etc/machine-id`` / macOS
  * ``IOPlatformUUID``) in as {@link DeviceIdentityInputs.machineId}; when present
  * it dominates the hash. Reading it is platform-specific (registry / file /
  * ``ioreg``) and is left out of the default collector to avoid shelling out and
@@ -54,7 +53,13 @@ import { execFileSync } from 'child_process'
 import { createHash } from 'crypto'
 import { arch, cpus, hostname, platform, totalmem } from 'os'
 
-import type { DeviceIdentity } from './activationRepository'
+/** A machine's stable id plus a human-readable name for it. */
+export interface DeviceIdentity {
+  /** Opaque, stable per-machine id (a truncated SHA-256 hex digest). */
+  deviceId: string
+  /** Human-readable name (the hostname); never part of the id. */
+  deviceLabel: string
+}
 
 /** The machine facts the device id is derived from. */
 export interface DeviceIdentityInputs {
@@ -115,8 +120,7 @@ function hashHex(parts: readonly string[]): string {
  * Returns
  * -------
  * DeviceIdentity
- *     ``deviceId`` — the opaque, stable id sent to the issuer; ``deviceLabel`` —
- *     the hostname, shown on the deactivate/transfer screen.
+ *     ``deviceId``: the opaque, stable id; ``deviceLabel``: the hostname.
  */
 export function computeDeviceIdentity(inputs: DeviceIdentityInputs): DeviceIdentity {
   const deviceLabel = inputs.hostname.trim() || 'this device'
@@ -170,11 +174,11 @@ export function parseMachineGuidFromRegQuery(stdout: string): string | null {
  * The GUID is written once at OS install and is stable for the life of the
  * installation — the strongest per-machine discriminator available without a
  * native dependency, and the value that breaks the identical-hardware collision
- * two office laptops of the same model would otherwise hit (owner ruling 15: one
- * device per Solo seat). Reading it shells out to ``reg`` (a dependency-free path
- * on every Windows since XP); any failure — a non-Windows OS, a policy-locked
- * registry, a timeout — returns ``null`` and the id falls back to the hardware
- * hash, exactly the previous behaviour.
+ * two office laptops of the same model would otherwise hit. Reading it shells
+ * out to ``reg`` (a dependency-free path on every Windows since XP); any
+ * failure (a non-Windows OS, a policy-locked registry, a timeout) returns
+ * ``null`` and the id falls back to the hardware hash, exactly the previous
+ * behaviour.
  *
  * Returns
  * -------
