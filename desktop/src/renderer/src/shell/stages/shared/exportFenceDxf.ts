@@ -18,6 +18,7 @@ import type { GeologicalFormationResponse } from '../../../api/client'
 import type { FencePanel } from '../../../utils/fencePanels'
 import { buildFenceExportRequest } from '../../../utils/fenceExportRequest'
 import { log } from '../../../utils/log'
+import { abandonIfProjectClosed } from '../../../utils/openProjectGuard'
 import { t } from '../../../i18n/translate'
 
 /** Everything one fence export needs. */
@@ -84,8 +85,12 @@ export async function exportFenceDxf(options: FenceExportOptions): Promise<void>
       log.debug('geology', 'exportFenceDxf cancelled at save dialog')
       return
     }
+    // Bound to the project it was started on: closed while the dialog was up,
+    // or while the bytes were on their way, it stops (utils/openProjectGuard).
+    if (abandonIfProjectClosed(projectId, 'geology', 'exportFenceDxf')) return
 
     const bytes = await api.geology.exportFenceDxf(projectId, modelId, request)
+    if (abandonIfProjectClosed(projectId, 'geology', 'exportFenceDxf')) return
     await window.electron.writeExportFile(dialogPath, bytes)
     log.success(
       'geology',
