@@ -3,15 +3,15 @@
  *
  * The capture half (``diagnosticsStore.ts`` + ``diagnosticsRedaction.ts`` +
  * ``diagnosticsEvent.ts``) writes a redacted NDJSON log the user owns. This
- * module is the OTHER half the owner ruled in on 2026-08-31 ("diagnostics go to
- * the same server" as activation): it sends that log to the strixgeo.com
- * endpoint — but only under two conditions that never move:
+ * module is the OTHER half the owner ruled in on 2026-08-31: it sends that log
+ * to the configured endpoint, but only under two conditions that never move:
  *
  * 1. **Consent is on.** Every public entry checks {@link DiagnosticsUploaderConfig.consent}
  *    first; with consent off the uploader makes no request and never grows the
  *    queue. The default is off (``diagnosticsConsent.ts``).
- * 2. **An endpoint exists.** The base URL comes from the activation config; with
- *    none configured (the mock/dogfeed default) the uploader is inert.
+ * 2. **An endpoint exists.** The base URL is the ``STRIXGEO_DIAGNOSTICS_URL``
+ *    setting (``diagnosticsEndpoint.ts``); with none configured (the default in
+ *    every build) the uploader is inert.
  *
  * ## How it works
  *
@@ -20,10 +20,9 @@
  * evicted). {@link DiagnosticsUploader.enqueueRecentDiagnostics} builds a bundle
  * from the events captured since the last upload (a high-water file bounds
  * re-sends) and enqueues it; {@link DiagnosticsUploader.drainOnce} uploads
- * oldest-first over the shared {@link ./httpPostJson} transport — the same
- * fetch/timeout plumbing the activation client uses. A 2xx removes the bundle, a
- * 4xx drops it (a malformed bundle must not wedge the queue), and a 5xx or
- * network failure keeps it and stops the drain to retry later.
+ * oldest-first over the {@link ./httpPostJson} transport. A 2xx removes the
+ * bundle, a 4xx drops it (a malformed bundle must not wedge the queue), and a
+ * 5xx or network failure keeps it and stops the drain to retry later.
  * {@link DiagnosticsUploader.start} runs a drain at launch and, only while the
  * queue is non-empty, on an interval that backs off on failure.
  *
@@ -75,8 +74,8 @@ export interface DiagnosticsUploaderConfig {
   /** Absolute path to the outbox directory (created on demand). */
   queueDir: string
   /**
-   * Activation base URL (no trailing slash), or ``null`` for "no endpoint".
-   * ``null`` makes every method inert — the mock/dogfeed default.
+   * Diagnostics base URL (no trailing slash), or ``null`` for "no endpoint".
+   * ``null`` makes every method inert: the default (see ``diagnosticsEndpoint.ts``).
    */
   baseUrl: string | null
   /** Reads the recorded transmission consent — checked before anything else. */
