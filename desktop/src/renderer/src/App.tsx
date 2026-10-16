@@ -24,6 +24,7 @@ import { useTheme } from './hooks/useTheme'
 import { addAllToSet, removeAllFromSet } from './utils/sets'
 import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
+import { abandonIfProjectClosed } from './utils/openProjectGuard'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import WelcomeScreen from './components/WelcomeScreen'
 import RecoveryPromptDialog from './components/RecoveryPromptDialog'
@@ -1223,6 +1224,9 @@ export default function App() {
       modelId: string,
       onSaved?: (path: string) => void,
     ): Promise<void> => {
+      // Bound to the project it was started on: once that project is closed
+      // nothing of the export runs any more (utils/openProjectGuard).
+      if (abandonIfProjectClosed(projectId, 'section', 'exportDxf')) return
       log.info('section', `exportDxf start section=${sectionId} model=${modelId}`)
       try {
         // Suggest a filename based on the section name. Sanitise the
@@ -1241,9 +1245,11 @@ export default function App() {
           log.debug('section', 'exportDxf cancelled at save dialog')
           return
         }
+        if (abandonIfProjectClosed(projectId, 'section', 'exportDxf')) return
         // No fill on this path: the Export hub posts the drawn partition itself
         // (useExportHub.runSectionDxf); this handler draws lines + curves.
         const bytes = await api.section.exportDxf(projectId, sectionId, modelId, null)
+        if (abandonIfProjectClosed(projectId, 'section', 'exportDxf')) return
         await window.electron.writeExportFile(dialogPath, bytes)
         log.success(
           'section',
@@ -1280,6 +1286,7 @@ export default function App() {
       modelId: string,
       onSaved?: (path: string) => void,
     ): Promise<void> => {
+      if (abandonIfProjectClosed(projectId, 'section', 'exportPlaxis2d')) return
       log.info('section', `exportPlaxis2d start section=${sectionId} model=${modelId}`)
       try {
         const safeName =
@@ -1295,7 +1302,9 @@ export default function App() {
           log.debug('section', 'exportPlaxis2d cancelled at save dialog')
           return
         }
+        if (abandonIfProjectClosed(projectId, 'section', 'exportPlaxis2d')) return
         const bytes = await api.section.exportPlaxis2d(projectId, sectionId, modelId)
+        if (abandonIfProjectClosed(projectId, 'section', 'exportPlaxis2d')) return
         await window.electron.writeExportFile(dialogPath, bytes)
         log.success(
           'section',
