@@ -15,6 +15,7 @@ import { log } from '../utils/log'
 // a toast built inside a useCallback without threading a translator into deps.
 import { t } from '../i18n/translate'
 import { noteCloseFlow } from '../utils/closeFlowNote'
+import { isProjectClosed } from '../utils/openProjectGuard'
 import { isProjectOpenUnreadable } from './useProject'
 import type {
   PickAndOpenResult,
@@ -406,7 +407,18 @@ export function useProjectLifecycle({
 
   const saveProject = useCallback(async (): Promise<boolean> => {
     setUnsavedError(null)
+    const requestedFor = project?.id ?? null
     const ok = await saveMetadata()
+    // The project this save was requested for closed while it ran (the save
+    // itself logged "save of <name> abandoned: project closed"). Everything
+    // below acts on the OPEN project's session sets, mutations flag, recovery
+    // file and error banner, which now belong to the next project: none of it
+    // may run on the strength of the closed project's save, and an abandon is
+    // not a failure to show.
+    if (requestedFor !== null && isProjectClosed(requestedFor)) {
+      log.debug('project', `save tail skipped for closed project ${requestedFor}`)
+      return false
+    }
     if (!ok) {
       // A FAILED SAVE MUST REACH THE ENGINEER. ``saveMetadata`` already
       // returns false for a failed bundle fetch or a failed .strix write,
@@ -450,6 +462,7 @@ export function useProjectLifecycle({
     lastSaveWroteFile,
     clearRecoveryNow,
     projectFilePath,
+    project?.id,
   ])
 
   // Discard rollback — drops the session-imported IDs from the
