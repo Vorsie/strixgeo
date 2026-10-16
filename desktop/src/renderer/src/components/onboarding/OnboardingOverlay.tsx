@@ -12,8 +12,8 @@
 // "seen" flag (utils/onboardingSeen.ts), and is re-openable from Help.
 //
 // What is REAL vs MOCKED: the flow, the persistence gate and the copy are real;
-// the "Load sample" DATA is a placeholder — see the onLoadSample prop and the
-// design note (docs/design/onboarding-activation-updater-proto.md).
+// the "Load sample" DATA is a placeholder; see the onLoadSample prop and
+// onboarding (#93) in docs/debt.md.
 
 import { useEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, FilePlus2, FolderOpen, PlayCircle, Rocket } from 'lucide-react'
