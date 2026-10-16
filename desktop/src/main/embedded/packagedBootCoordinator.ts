@@ -7,10 +7,10 @@
  * engine's own cold import. The engine import and the database boot are
  * independent, so this coordinator overlaps them: it prepares the stack (the
  * fast part — resolve paths, secrets, pick a port), kicks off the cluster boot
- * WITHOUT awaiting it, and — the moment the licence gate allows — spawns the
- * engine, whose cold import then runs while Postgres is still coming up. The
- * engine waits for + migrates the database itself (see ``api/boot_migration.py``),
- * so there is no separate migrate step here.
+ * WITHOUT awaiting it, and spawns the engine at once, whose cold import then
+ * runs while Postgres is still coming up. The engine waits for + migrates the
+ * database itself (see ``api/boot_migration.py``), so there is no separate
+ * migrate step here.
  *
  * Deliberately pure and injectable: no Electron, no fs, no child processes. The
  * caller wires the real ``prepareEmbeddedStack`` / ``startEmbeddedCluster`` /
@@ -34,8 +34,7 @@ export interface PackagedBootDeps<Prep> {
   prepare: () => Promise<PreparedResult<Prep>>
   /**
    * Called once ``prepare`` succeeds and BEFORE the engine is spawned, so the
-   * caller can publish the prepared stack (the engine reads it, and a deferred
-   * activation start needs it later).
+   * caller can publish the prepared stack (the engine reads it).
    */
   onPrepared: (prep: Prep) => void
   /**
@@ -44,8 +43,6 @@ export interface PackagedBootDeps<Prep> {
    * attaches its own success/failure handler.
    */
   startCluster: (prep: Prep) => Promise<void>
-  /** Whether the licence gate permits the engine to start now (dev never blocks). */
-  gateAllowsEngine: () => boolean
   /** Spawn the engine process (``startApi``). */
   spawnEngine: () => void
 }
@@ -62,8 +59,6 @@ export interface CoordinatedBoot<Prep> {
    * already spawned before this resolves.
    */
   clusterReady?: Promise<void>
-  /** Whether the engine was spawned (false when the licence gate deferred it). */
-  engineSpawned: boolean
 }
 
 /**
@@ -79,23 +74,17 @@ export async function coordinatePackagedBoot<Prep>(
 ): Promise<CoordinatedBoot<Prep>> {
   const prepared = await deps.prepare()
   if (!prepared.ok) {
-    return { ok: false, failure: prepared.failure, engineSpawned: false }
+    return { ok: false, failure: prepared.failure }
   }
   const { prep } = prepared
   // Publish the prepared stack before anything downstream runs — the engine
-  // reads it, and a licence-deferred build needs it when activation later starts
-  // the engine.
+  // reads it.
   deps.onPrepared(prep)
   // Kick off the DB boot but do NOT await it: the engine's cold import must
   // overlap the cluster coming up. The caller owns the failure handler.
   const clusterReady = deps.startCluster(prep)
-  let engineSpawned = false
-  if (deps.gateAllowsEngine()) {
-    // No engine before the gate passes ("require Beta-key before API"); once it
-    // has, spawn it BEFORE await-postgres-ready resolves. The engine waits for
-    // and migrates the database itself.
-    deps.spawnEngine()
-    engineSpawned = true
-  }
-  return { ok: true, prep, clusterReady, engineSpawned }
+  // Spawn the engine BEFORE await-postgres-ready resolves. The engine waits for
+  // and migrates the database itself.
+  deps.spawnEngine()
+  return { ok: true, prep, clusterReady }
 }
