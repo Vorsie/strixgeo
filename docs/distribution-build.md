@@ -68,11 +68,12 @@ included, and now asserts the dropped files are gone rather than trusting the
 removal.)
 
 **Build provenance.** Every build stamps its git SHA + build time into the main
-bundle through the same electron-vite `MAIN_VITE_*` channel as the beta expiry:
+bundle through the electron-vite `MAIN_VITE_*` channel:
 `electron.vite.config.ts` sets them from `scripts/buildProvenance.mjs`, and
-`buildStamp.ts` reads them back via `compiledBuildProvenance()`. `require-beta-stamp.mjs
-post` greps `out/main/index.js` for the SHA, so a silent injection failure fails
-the package instead of shipping a build with no provenance. `compiledBuildProvenance()`
+`buildStamp.ts` reads them back via `compiledBuildProvenance()`.
+`require-build-sha.mjs` greps `out/main/index.js` for the SHA, so a silent
+injection failure fails the package instead of shipping a build with no
+provenance. `compiledBuildProvenance()`
 feeds the About dialog and a one-line boot log (the `index.ts` wiring is a
 companion change).
 
@@ -244,7 +245,7 @@ report, installer #13 — a cold first launch ran ~60 s of DB boot, then a whole
 second ~17 s Python interpreter just to answer "already at head", then the
 engine's own ~48 s cold import, all in series). Preparation (`prepareEmbeddedStack`)
 resolves paths, reads secrets and picks a port, then the launcher spawns the
-engine against that DSN as soon as the licence gate passes, and the cluster
+engine against that DSN at once, and the cluster
 phase (`startEmbeddedCluster`) brings PostgreSQL up CONCURRENTLY with the
 engine's import. The schema migration is **no longer run by the launcher** —
 the engine brings the database to head in its own process (see the maintenance
@@ -304,8 +305,8 @@ send back was **zero bytes** — every line was still in the stream's buffer
 when the process died. A startup log that survives only a graceful exit is
 worthless exactly when it is needed.
 
-`startApi()` spawns the backend against the resolved `DATABASE_URL` as soon as
-the licence gate passes — concurrently with stages 5–7 — and the renderer's
+`startApi()` spawns the backend against the resolved `DATABASE_URL` at once,
+concurrently with the cluster boot (stages 5–7), and the renderer's
 `api:ready` poll (three-minute packaged deadline) takes over unchanged.
 
 A failure in the awaited preparation stages shows a native dialog naming **what
@@ -474,7 +475,7 @@ time; an install would put a Postgres cluster next to the developer's live
 that becomes unrenameable after the first real install (it holds the
 customer's `pgdata`), so the brand name has to be right from install #1.
 
-Order is the feature: the lock, the recovery store, the beta anchor, the
+Order is the feature: the lock, the recovery store, the
 diagnostics store and the embedded stack all resolve paths off userData —
 `packagedProfile.test.ts` PP3 pins that the call precedes every one of them.
 
@@ -520,9 +521,7 @@ Before every release:
    branch and push develop; the guard also demands a clean tree level with
    `origin/develop`. The version bump is required for every release because the
    updater only offers a strictly greater semver.
-2. Set the two environment variables the chain reads, in the shell that runs it:
-   `MAIN_VITE_STRIX_BETA_EXPIRES_AT` (the beta expiry stamp, ISO date — the
-   package step refuses without it, see `docs/design/beta-expiry.md`) and
+2. Set the environment variable the chain reads, in the shell that runs it:
    `GH_TOKEN` (electron-builder's GitHub publisher reads the token from that
    variable only; `gh auth token` of the account that owns the releases repo,
    never echoed). Without the token the installer builds and the upload fails at
