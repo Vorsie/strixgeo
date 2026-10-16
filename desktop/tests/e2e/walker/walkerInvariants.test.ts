@@ -16,6 +16,7 @@ import {
   checkSurvivors,
   isIgnoredConsoleError,
 } from './walkerInvariants'
+import type { ProcRow } from './processTree'
 
 // Walker replay 2026-10-12: a basemap tile request to an external host (Esri /
 // Geopunt / OSM) that the network reset logged "Failed to load resource:
@@ -265,13 +266,44 @@ describe('walker invariant -- the app stays responsive', () => {
 })
 
 describe('walker invariant -- no lingering process after close', () => {
+  const SNAP: ProcRow[] = [
+    { pid: 111, ppid: 100, cmd: '"C:\\Program Files\\x\\electron.exe" --type=gpu-process' },
+    { pid: 222, ppid: 100, cmd: 'C:\\Windows\\system32\\conhost.exe 0x4' },
+  ]
+
   it('surviving pids are a finding naming them', () => {
-    const out = checkSurvivors([111, 222], 300)
+    const out = checkSurvivors([111, 222], 300, { snapshot: SNAP })
     expect(out).toHaveLength(1)
     expect(out[0].detail).toContain('111')
   })
 
+  // Walker deep run 2026-10-16: a bare pid is undiagnosable once the process
+  // is gone. Each survivor is named from the pre-close snapshot.
+  it('names each survivor by parent pid and executable from the pre-close snapshot', () => {
+    const [f] = checkSurvivors([111, 222], 300, { snapshot: SNAP })
+    expect(f.detail).toBe(
+      'pids still alive 5 s after close: ' +
+        '111 (ppid 100, electron.exe, ""C:\\Program Files\\x\\electron.exe" --type=gpu-process"), ' +
+        '222 (ppid 100, conhost.exe, "C:\\Windows\\system32\\conhost.exe 0x4")',
+    )
+  })
+
+  it('a survivor missing from the pre-close snapshot says so', () => {
+    const [f] = checkSurvivors([333], 300, { snapshot: SNAP })
+    expect(f.detail).toBe('pids still alive 5 s after close: 333 (not in the pre-close snapshot)')
+  })
+
+  it('carries how long each survivor lived after the close when it was observed', () => {
+    const [f] = checkSurvivors([111, 222], 300, {
+      snapshot: SNAP,
+      exitedAfterMs: new Map([[111, 7300]]),
+      observedForMs: 20_000,
+    })
+    expect(f.detail).toContain('--type=gpu-process"; exited after 7.3 s)')
+    expect(f.detail).toContain('0x4"; still alive at 20 s)')
+  })
+
   it('no survivors yields no finding', () => {
-    expect(checkSurvivors([], 300)).toEqual([])
+    expect(checkSurvivors([], 300, { snapshot: SNAP })).toEqual([])
   })
 })
