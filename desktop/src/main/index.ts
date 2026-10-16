@@ -19,15 +19,7 @@ import {
   toStrixReadFailure,
   type ProjectReadResult,
 } from './strixCodec'
-import { evaluateBetaExpiry, type BetaVerdict } from './betaExpiry'
-import { configureBetaExpiryStore, recordLaunch } from './betaExpiryStore'
-import {
-  buildDisplayInfo,
-  compiledBuildProvenance,
-  compiledBuildStamp,
-  readBuildStamp,
-  type BuildDisplayInfo,
-} from './buildStamp'
+import { compiledBuildProvenance } from './buildStamp'
 import { buildCrashBundle } from './crashBundle'
 import { readTransmissionConsent } from './diagnosticsConsent'
 import {
@@ -37,6 +29,7 @@ import {
   diagnosticsDirPath,
   readDiagnosticEvents,
 } from './diagnosticsStore'
+import { diagnosticsBaseUrl } from './diagnosticsEndpoint'
 import { DiagnosticsUploader } from './diagnosticsUploader'
 import { diagnosticsIdentityFor } from './diagnosticsPayload'
 import { DIAGNOSTICS_QUEUE_DIR_NAME } from './diagnosticsUploaderConstants'
@@ -115,14 +108,9 @@ import {
   decideExitBeforeReady,
 } from './backendRespawnPolicy'
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
-// Prototype slices (debt #3 / #6) — see docs/design/onboarding-activation-updater-proto.md.
-import { configureActivationStore, readActivationState } from './activationStore'
-import { ActivationService } from './activationService'
-import { activationBlocksLaunch } from './activation'
-import { activationBaseUrl, createActivationRepository } from './activationConfig'
 import { chromiumFetch } from './chromiumFetch'
 import { resolveDeviceIdentity } from './deviceIdentity'
-import { e2eLaunchFlag, previewControlAllowed } from './prototypeFlags'
+import { e2eLaunchFlag } from './prototypeFlags'
 import { installE2eDialogStubs, installE2eShellStubs } from './e2eDialogs'
 import { registerPrototypeIpc } from './prototypeIpc'
 import {
@@ -745,15 +733,10 @@ function showBootFailureAndQuit(failure: BootFailure): void {
  * engine waits for + migrates the database itself (api/boot_migration.py); no
  * migrate.py child runs here.
  *
- * No engine before the licence gate passes: ``gateAllowsEngine`` gates only the
- * spawn — the DB boots regardless, so a licence-deferred build still has a
- * database ready for the engine that activation starts later.
- *
- * @param gateAllowsEngine - Whether the licence gate permits the engine now.
  * @returns True when preparation succeeded (the app continues to a window);
  *   false when preparation failed and the app is quitting.
  */
-async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<boolean> {
+async function bootEmbeddedDatabase(): Promise<boolean> {
   if (mainLog.path === null) openMainLog()
   const outcome = await coordinatePackagedBoot<EmbeddedStackPrep>({
     prepare: () =>
@@ -787,7 +770,6 @@ async function bootEmbeddedDatabase(gateAllowsEngine: () => boolean): Promise<bo
         // the window may already exist — show the native dialog and quit.
         showBootFailureAndQuit(result.failure)
       }),
-    gateAllowsEngine,
     spawnEngine: startApi,
   })
   if (!outcome.ok && outcome.failure) {
@@ -1115,27 +1097,18 @@ function createWindow(): void {
 // ---------------------------------------------------------------------------
 
 // Native About dialog. Kept in the main process (native ``dialog.showMessageBox``)
-// and deliberately English-only: the renderer LicensingDialog is the localised
-// build-info surface, this is the OS "About" affordance. The "StrixGeo — …" title
+// and deliberately English-only: this is the OS "About" affordance. The message
 // keeps its em-dash by convention.
 function showAboutDialog(win: BrowserWindow): void {
   const provenance = compiledBuildProvenance()
   const buildLine = provenance?.sha
     ? `\nBuild ${provenance.sha.slice(0, 12)}${provenance.builtAt ? ` · ${provenance.builtAt}` : ''}`
     : ''
-  // Owner finding (f): the About line carries the beta expiry too, so a
-  // tester can read which build they hold and when it stops. Long date form
-  // ("1 November 2026") via en-GB.
-  const info = currentBuildInfo()
-  const betaLine =
-    info.expiresAtMs !== null
-      ? `\nBeta build ${info.sha ?? '—'}, expires ${new Date(info.expiresAtMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
-      : ''
   dialog.showMessageBox(win, {
     type: 'info',
     title: 'StrixGeo',
     message: 'StrixGeo — ground model platform',
-    detail: `Version ${app.getVersion()}${buildLine}${betaLine}\nGround model platform for geotechnical engineers.`,
+    detail: `Version ${app.getVersion()}${buildLine}\nGround model platform for geotechnical engineers.`,
   })
 }
 
@@ -1234,17 +1207,16 @@ function bootstrapAuthorisedPaths(): void {
 ipcMain.handle('api:base-url', () => currentApiBase())
 
 // Boot flags surfaced SYNCHRONOUSLY to the renderer through the preload, so the
-// renderer can gate boot-time UI (the onboarding auto-open, the packaged
-// activation start screen — see docs/design/onboarding-activation-updater-proto.md)
-// with no async round-trip. STRIX_E2E is set by the e2e harness
+// renderer can gate boot-time UI (the onboarding auto-open) with no async
+// round-trip. STRIX_E2E is set by the e2e harness
 // (tests/e2e/helpers/electron_launch.ts); isPackaged separates a dev dogfeed from
 // a distributed build. Registered at module load, before any window's preload
 // issues its sendSync.
 ipcMain.on('launch:flags', (event) => {
   event.returnValue = {
-    // STRIX_E2E is honoured ONLY in an unpackaged build — the harness never runs
-    // a package, and a packaged exe must not let STRIX_E2E=1 walk past the licence
-    // gate (audit C3(b)). The rule is pinned in prototypeFlags.test.ts.
+    // STRIX_E2E is honoured ONLY in an unpackaged build: the harness never runs
+    // a package, and a packaged exe must not let STRIX_E2E=1 stub its native
+    // dialogs (audit C3(b)). The rule is pinned in prototypeFlags.test.ts.
     e2e: e2eLaunchFlag(process.env, app.isPackaged),
     packaged: app.isPackaged,
   }
@@ -1746,16 +1718,6 @@ ipcMain.handle('diagnostics:capture', (_event, diagnostic: unknown): void => {
   captureDiagnostic(diagnostic, 'renderer')
 })
 
-// Beta-expiry status for an in-app notice. Display only — the blocking
-// decision is made before the window exists (see enforceBetaExpiry).
-ipcMain.handle('app:beta-status', (): BetaVerdict | null => currentBetaVerdict())
-
-// Build facts for Help → Licence and the About dialog (owner finding (f)):
-// the beta expiry stamp + the git SHA, so a tester can verify which build they
-// hold. Assembled from the SAME two sources the beta gate reads — the compiled
-// provenance (SHA) and the parsed beta stamp (expiry). Display only.
-ipcMain.handle('app:build-info', (): BuildDisplayInfo => currentBuildInfo())
-
 /**
  * Assemble a diagnostics bundle and let the user choose where to put it.
  *
@@ -1806,12 +1768,12 @@ let diagnosticsUploader: DiagnosticsUploader | null = null
 /**
  * Wire the consent-gated diagnostics transmitter (#16, transmit half).
  *
- * Called once at startup AFTER the activation setup: the endpoint is the SAME
- * origin as the activation service (owner ruling 2026-08-31), so it comes from
- * the activation config. When no base URL is configured (the mock/dogfeed
- * default) or consent is off, every call below is inert — nothing is queued and
- * nothing leaves the machine. It enqueues whatever was captured since the last
- * upload, then drains on an interval while the queue is non-empty.
+ * Called once at startup, after the window exists. The endpoint is the
+ * ``STRIXGEO_DIAGNOSTICS_URL`` setting (./diagnosticsEndpoint), with no
+ * default. When no base URL is configured or consent is off, every call below
+ * is inert: nothing is queued and nothing leaves the machine. It enqueues
+ * whatever was captured since the last upload, then drains on an interval
+ * while the queue is non-empty.
  *
  * Best-effort: any failure here is swallowed with a log line. Transmission must
  * never keep the app from starting, and the local capture log is untouched.
@@ -1820,21 +1782,19 @@ function startDiagnosticsUpload(): void {
   try {
     const uploader = new DiagnosticsUploader({
       queueDir: join(diagnosticsDirPath(), DIAGNOSTICS_QUEUE_DIR_NAME),
-      baseUrl: activationBaseUrl({ env: process.env, packaged: app.isPackaged }),
+      baseUrl: diagnosticsBaseUrl(process.env),
       consent: readTransmissionConsent,
       // Through Chromium, so the company proxy and certificate store apply
-      // (see chromiumFetch) — the same path the activation issuer takes.
+      // (see chromiumFetch).
       fetchImpl: chromiumFetch(net),
     })
     diagnosticsUploader = uploader
 
-    // Identity (licence key + device id) is attached only when the capture
-    // design's "no device id" invariant is deliberately lifted — the gate lives
-    // in diagnosticsIdentityFor and is OFF today (see the constant's note).
-    const activation = readActivationState()
-    const identity = diagnosticsIdentityFor(
-      activation.licence ? { key: activation.licence.key, deviceId: activation.deviceId } : null,
-    )
+    // The device id is attached only when the capture design's "no device id"
+    // invariant is deliberately lifted: the gate lives in diagnosticsIdentityFor
+    // and is OFF today (see the constant's note). The id is read lazily, so the
+    // Windows registry is not touched while the gate is off.
+    const identity = diagnosticsIdentityFor(() => resolveDeviceIdentity().deviceId)
     uploader.enqueueRecentDiagnostics(readDiagnosticEvents(), {
       facts: diagnosticsBuildFacts(),
       identity,
@@ -1973,157 +1933,12 @@ crashReporter.start({
   uploadToServer: false,
 })
 
-// ---------------------------------------------------------------------------
-// Beta expiry (debt #3/#5 slice — owner ballot 2026-08-26: "beta builds must
-// expire; a beta licence must not be usable for years")
-//
-// The rules live in ./betaExpiry, the anchor file in ./betaExpiryStore and the
-// stamp in ./buildStamp. What is here is only the wiring: read the stamp once,
-// decide before the window exists, re-decide periodically, and stop the app
-// when the answer is no.
-// ---------------------------------------------------------------------------
-
-/**
- * Where an expired build sends the user.
- *
- * The exact path is an owner decision (checkout lives on the landing page
- * today); the host is what matters for the dialog to be useful.
- */
-const BETA_RENEW_URL = 'https://strixgeo.com'
-
-/**
- * How often a running app re-checks its own expiry.
- *
- * Six hours rather than a flat day: a workstation that is never restarted
- * would otherwise keep an expired beta open until the next launch, and six
- * hours bounds that to a single working session.
- */
-const BETA_RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
-
-// Read once, at module load: the stamp is compiled into the binary and cannot
-// change while the process runs.
 // Dev opens the main log here and prints its path once; a packaged build opens
 // it in its boot stages (./mainLog bootMainLog).
 bootMainLog({ packaged: app.isPackaged, logsDir: app.getPath('logs'), log: mainLog })
 {
   const provenance = compiledBuildProvenance()
   writeMainLog(`[boot] StrixGeo ${app.getVersion()} build ${provenance?.sha?.slice(0, 12) ?? 'dev'} (${provenance?.builtAt ?? 'unstamped'})`)
-}
-const betaBuildStamp = readBuildStamp({
-  isPackaged: app.isPackaged,
-  env: process.env,
-  compiled: compiledBuildStamp(),
-})
-
-let betaVerdict: BetaVerdict | null = null
-
-/** The last verdict, for the renderer's display-only status call. */
-function currentBetaVerdict(): BetaVerdict | null {
-  return betaVerdict
-}
-
-/**
- * Renderer-safe build facts (git SHA + beta expiry) for Help → Licence and the
- * About dialog. Reads the compiled provenance and the resolved beta stamp — the
- * same two sources the beta gate uses (owner finding (f)).
- */
-function currentBuildInfo(): BuildDisplayInfo {
-  return buildDisplayInfo({ provenance: compiledBuildProvenance(), stamp: betaBuildStamp })
-}
-
-/**
- * Timestamps the app itself wrote while genuinely running.
- *
- * Feeds the same high-water mark as the anchor file, so deleting the anchor is
- * not on its own enough to make a wound-back clock believable.
- */
-function betaCorroboratingTimestamps(): number[] {
-  return readRecentProjects()
-    .map(entry => Date.parse(entry.lastOpened))
-    .filter(ms => Number.isFinite(ms))
-}
-
-/** Re-read the anchor, advance it, and decide. Caches the verdict. */
-function refreshBetaVerdict(): BetaVerdict {
-  const now = Date.now()
-  const anchor = betaBuildStamp ? recordLaunch(now) : null
-  betaVerdict = evaluateBetaExpiry(betaBuildStamp, anchor, now, betaCorroboratingTimestamps())
-  return betaVerdict
-}
-
-/** Tell the user the beta is over, offer the renewal page, and quit. */
-function stopForExpiredBeta(verdict: BetaVerdict): void {
-  mainLog.write(`[main] beta build blocked — ${verdict.reason}`, 'warn')
-  const expiredOn = verdict.expiresAtMs ? new Date(verdict.expiresAtMs).toLocaleDateString() : ''
-  const detail =
-    verdict.state === 'clock-rollback'
-      ? 'This build cannot verify the date. Set your system clock to the ' +
-        'correct time and start StrixGeo again — if it is already correct, ' +
-        'the beta period has ended.'
-      : `This beta build stopped working on ${expiredOn}. Your projects are ` +
-        'untouched: they live in your own database and .strix files, and a ' +
-        'current build opens them exactly as you left them.'
-
-  const choice = dialog.showMessageBoxSync({
-    type: 'info',
-    title: 'StrixGeo — this beta build has ended',
-    message: 'Thanks for testing StrixGeo.',
-    detail,
-    buttons: ['Get the current version', 'Quit'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  })
-  if (choice === 0) {
-    void shell.openExternal(BETA_RENEW_URL)
-  }
-  app.quit()
-}
-
-/**
- * Decide whether this launch may proceed.
- *
- * Called before the window is created, so a blocked build never renders — the
- * renderer is not part of the decision and cannot be patched around it.
- *
- * @returns True when the app must stop.
- */
-function enforceBetaExpiry(): boolean {
-  // A packaged build with no stamp never expires, and looks exactly like one
-  // whose stamp failed to inject — so say so, loudly and in the local log.
-  // The failure mode this catches: cutting a release without
-  // MAIN_VITE_STRIX_BETA_EXPIRES_AT set (see ./buildStamp.ts).
-  if (app.isPackaged && !betaBuildStamp) {
-    const warning = 'packaged build carries no beta expiry stamp — it will never expire'
-    mainLog.write(`[main] ${warning}`, 'warn')
-    captureDiagnostic({ kind: 'unknown', severity: 'warning', scope: 'beta', message: warning }, 'main')
-  }
-
-  const verdict = refreshBetaVerdict()
-  if (!verdict.blocked) {
-    if (verdict.state !== 'unstamped') {
-      // eslint-disable-next-line no-console
-      console.info(`[main] ${verdict.reason}`)
-    }
-    return false
-  }
-  stopForExpiredBeta(verdict)
-  return true
-}
-
-/** Re-decide periodically so a long-running session cannot outlive the date. */
-function startBetaExpiryWatch(): void {
-  if (!betaBuildStamp) return
-  const timer = setInterval(() => {
-    const verdict = refreshBetaVerdict()
-    if (verdict.blocked) {
-      clearInterval(timer)
-      stopForExpiredBeta(verdict)
-    }
-  }, BETA_RECHECK_INTERVAL_MS)
-  // Never hold the event loop open for this alone — quitting must not wait for
-  // a six-hour timer.
-  timer.unref?.()
 }
 
 // ---------------------------------------------------------------------------
@@ -2202,10 +2017,10 @@ if (!gotSingleInstanceLock) {
     menuLanguage = narrowMenuLanguage(app.getLocale())
     // Packaged builds move the live cluster off the Roaming profile and point
     // the embedded layout at Local BEFORE the database starts (M1). The DB boot
-    // itself is deferred to just below, after the licence gate is known, so the
-    // engine can be spawned CONCURRENTLY with the cluster coming up (installer
-    // #13: the two ran in series). A dev session has no embedded stack and keeps
-    // talking to Docker on :5433 (debt #2, Fork A).
+    // itself runs just below, where the engine is spawned CONCURRENTLY with the
+    // cluster coming up (installer #13: the two ran in series). A dev session
+    // has no embedded stack and keeps talking to Docker on :5433 (debt #2,
+    // Fork A).
     if (app.isPackaged) {
       relocateMachineLocalStores()
     }
@@ -2217,84 +2032,32 @@ if (!gotSingleInstanceLock) {
       appVersion: app.getVersion(),
     })
     // #16 — local diagnostics. Configured before anything can crash into it,
-    // and before the beta gate below, so a gate failure is itself captured.
+    // and before the database boot below, so a boot failure is itself captured.
     configureDiagnosticsStore({
       userDataDir: app.getPath('userData'),
       appVersion: app.getVersion(),
       platform: process.platform,
-      buildId: betaBuildStamp?.buildId,
+      buildId: compiledBuildProvenance()?.sha,
     })
-    configureBetaExpiryStore({ userDataDir: app.getPath('userData') })
     // "Check for updates at start" + the pending-download record (owner ruling
     // 2026-10-11). Read by the start check below and by the updater IPC.
     configureUpdaterPreferenceStore({ userDataDir: app.getPath('userData') })
+    // Updater IPC (#6). Registered before any renderer can issue an
+    // ``updater:*`` call.
+    registerPrototypeIpc()
 
-    // Activation (#3). The store learns userData + the stable hardware-derived
-    // device id (so a reinstall re-binds the same seat); the issuer is the mock
-    // when no base URL is configured, the real HTTP client when one is
-    // (activationConfig) — the default (mock) keeps the dogfeed unchanged.
-    // Registered before any renderer can issue an ``activation:*`` call.
-    const deviceIdentity = resolveDeviceIdentity()
-    configureActivationStore({
-      userDataDir: app.getPath('userData'),
-      deviceIdSeed: deviceIdentity.deviceId,
-    })
-    const activationService = new ActivationService({
-      repository: createActivationRepository({
-        env: process.env,
-        packaged: app.isPackaged,
-        appVersion: app.getVersion(),
-        // Electron's net.fetch: the Windows proxy settings and the OS
-        // certificate store apply, like the browser that DID reach the server
-        // from the owner's work PC (2026-09-23). Node's global fetch honours
-        // neither, which is what made the activation server "unreachable".
-        fetchImpl: chromiumFetch(net),
-      }),
-      deviceLabel: deviceIdentity.deviceLabel,
-    })
-    // A deferred backend (launch blocked on the licence gate below) starts the
-    // moment activation succeeds; a running backend is left alone.
-    registerPrototypeIpc(activationService, {
-      previewControl: previewControlAllowed(app.isPackaged),
-      onActivated: () => {
-        if (apiProcess === null) startApi()
-      },
-    })
-
-    if (enforceBetaExpiry()) return
-    startBetaExpiryWatch()
-
-    // Licence gate (audit C3d): a packaged, non-beta build with a blocked
-    // verdict shows the window (the licensing dialog talks to main over IPC,
-    // not to the backend) but does NOT start the engine until activation
-    // succeeds. Dev, e2e and stamped beta builds never block.
-    const launchBlocked = activationBlocksLaunch({
-      packaged: app.isPackaged,
-      e2e: e2eLaunchFlag(process.env, app.isPackaged),
-      verdict: activationService.getStatus().verdict,
-    })
-    // Packaged: boot the embedded DB and — if the gate allows — spawn the engine
-    // CONCURRENTLY with the cluster coming up (no engine before the gate passes;
-    // the DB boots regardless so a deferred build has a database ready for the
-    // engine that activation starts later). Dev: no embedded DB, so start the
-    // backend directly unless the gate blocks (it never does in dev).
+    // Open source: no licence gate. Packaged: boot the embedded
+    // database and spawn the engine concurrently with the cluster boot. Dev:
+    // start the backend directly.
     if (app.isPackaged) {
-      if (!(await bootEmbeddedDatabase(() => !launchBlocked))) return
-      if (launchBlocked) {
-        writeMainLog(
-          '[activation] launch blocked by the licence gate — backend deferred until activation',
-        )
-      }
-    } else if (!launchBlocked) {
+      if (!(await bootEmbeddedDatabase())) return
+    } else {
       startApi()
     }
     createWindow()
-    // Renewals reach the client on the next launch (audit H5); dormant without an issuer.
-    void activationService.refreshOnLaunch()
 
-    // #16 transmit half — flush any consented, captured diagnostics to the
-    // activation origin. Inert unless consent is on AND an activation URL is
-    // configured, so the mock/dogfeed default sends nothing.
+    // #16 transmit half: flush consented diagnostics when an endpoint is
+    // configured (STRIXGEO_DIAGNOSTICS_URL). Inert otherwise.
     startDiagnosticsUpload()
 
     // Auto-update check (#6): the ONE automatic check, at start only. A no-op
@@ -2330,8 +2093,8 @@ registerBackendLifecycle(app, {
     if (process.platform !== 'darwin') app.exit(0)
   },
   onWillQuit: () => {
-    // Any ``app.quit()`` with no window to close (beta expiry, the lost
-    // single-instance lock) reaches here - exit once the teardown has run.
+    // Any ``app.quit()`` with no window to close (the lost single-instance
+    // lock) reaches here - exit once the teardown has run.
     app.exit(0)
   },
 })
