@@ -1,8 +1,7 @@
-// The activation client and the diagnostics uploader must reach strixgeo.com
-// through Chromium's network stack, not Node's: a company proxy and TLS
-// inspection let the browser reach https://strixgeo.com/api/activation while
-// the app reported it unreachable (owner's work PC and a coworker's,
-// 2026-09-23). Chromium applies the Windows proxy settings and trusts the OS
+// The diagnostics uploader must reach its server through Chromium's network
+// stack, not Node's: a company proxy and TLS inspection let the browser reach
+// a strixgeo.com endpoint while the app reported it unreachable (owner's work
+// PC and a coworker's, 2026-09-23). Chromium applies the Windows proxy settings and trusts the OS
 // certificate store; Node's global fetch does neither.
 //
 // No Electron import: the adapter takes the ``net`` module as a parameter so it
@@ -17,10 +16,10 @@ describe('chromiumFetch — main-process HTTP goes through Electron net', () => 
     const netFetch = vi.fn().mockResolvedValue(response)
     const fetchImpl = chromiumFetch({ fetch: netFetch })
     const init = { method: 'POST', body: '{}', headers: { accept: 'application/json' } }
-    const got = await fetchImpl('https://strixgeo.com/api/activation/activate', init)
+    const got = await fetchImpl('https://example.org/api/v1/diagnostics', init)
     expect(got).toBe(response)
     expect(netFetch).toHaveBeenCalledTimes(1)
-    expect(netFetch).toHaveBeenCalledWith('https://strixgeo.com/api/activation/activate', init)
+    expect(netFetch).toHaveBeenCalledWith('https://example.org/api/v1/diagnostics', init)
   })
 
   it('N2 — never touches the global fetch', async () => {
@@ -29,7 +28,7 @@ describe('chromiumFetch — main-process HTTP goes through Electron net', () => 
     globalThis.fetch = globalSpy as unknown as typeof fetch
     try {
       const netFetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
-      await chromiumFetch({ fetch: netFetch })('https://strixgeo.com/api/activation/refresh')
+      await chromiumFetch({ fetch: netFetch })('https://example.org/api/v1/diagnostics')
       expect(globalSpy).not.toHaveBeenCalled()
       expect(netFetch).toHaveBeenCalledTimes(1)
     } finally {
@@ -43,7 +42,7 @@ describe('chromiumFetch — main-process HTTP goes through Electron net', () => 
     }
     const fetchImpl = chromiumFetch(net)
     net.fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
-    const got = await fetchImpl('https://strixgeo.com/api/activation/trial')
+    const got = await fetchImpl('https://example.org/api/v1/diagnostics')
     expect(got.status).toBe(200)
   })
 })
