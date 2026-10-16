@@ -44,9 +44,9 @@ function onMenuEvent(channel: string, cb: (...args: unknown[]) => void): () => v
 }
 
 // Boot flags, fetched ONCE and SYNCHRONOUSLY so the renderer can gate boot-time
-// UI (the onboarding auto-open, the packaged activation start screen) with no
-// async round-trip. The main-process handler (index.ts, ``launch:flags``) is
-// registered at module load, before this preload runs. Degrades to "not e2e, not
+// UI (the onboarding auto-open) with no async round-trip. The main-process
+// handler (index.ts, ``launch:flags``) is registered at module load, before this
+// preload runs. Degrades to "not e2e, not
 // packaged" if the channel is ever missing, so an older main can never crash the
 // renderer's boot path.
 const launchFlags: { e2e: boolean; packaged: boolean } = (() => {
@@ -292,16 +292,6 @@ contextBridge.exposeInMainWorld('electron', {
     httpStatus?: number
   }): Promise<void> => ipcRenderer.invoke('diagnostics:capture', diagnostic),
 
-  // Beta-expiry status, for an in-app "expires in N days" notice. Display
-  // only — the main process blocks a run on its own, before the window is
-  // ever created, so a renderer that ignores this cannot extend a beta.
-  getBetaStatus: (): Promise<unknown> => ipcRenderer.invoke('app:beta-status'),
-
-  // Build facts (git SHA + beta expiry) for Help → Licence and the About
-  // dialog. Display only — the beta gate makes the blocking decision in main,
-  // before any window exists (owner finding (f)).
-  getBuildInfo: (): Promise<unknown> => ipcRenderer.invoke('app:build-info'),
-
   // --- Onboarding prototype (#93) -----------------------------------------
   // Help → Getting started…. One-way fire; the renderer owns the overlay's
   // open state and its persisted "seen" flag.
@@ -319,19 +309,6 @@ contextBridge.exposeInMainWorld('electron', {
   // renderer owns the overlay's active flag and its persisted progress.
   onMenuTutorial: (cb: () => void) => onMenuEvent('menu:tutorial', cb),
   onMenuRestartTutorial: (cb: () => void) => onMenuEvent('menu:tutorial-restart', cb),
-
-  // --- Licensing / activation prototype (#3) ------------------------------
-  // Help → Licence & activation…. One-way fire; the renderer owns the dialog.
-  onMenuOpenLicensing: (cb: () => void) => onMenuEvent('menu:open-licensing', cb),
-  // All activation calls go through the main-process ActivationService, which
-  // runs the mock issuer behind the ActivationRepository seam (no network).
-  getActivationStatus: (): Promise<unknown> => ipcRenderer.invoke('activation:status'),
-  activateLicence: (key: string): Promise<unknown> => ipcRenderer.invoke('activation:activate', key),
-  startTrial: (): Promise<unknown> => ipcRenderer.invoke('activation:start-trial'),
-  deactivateLicence: (): Promise<unknown> => ipcRenderer.invoke('activation:deactivate'),
-  // Prototype-only — force a state so each licensing screen can be seen.
-  previewActivationState: (state: string): Promise<unknown> =>
-    ipcRenderer.invoke('activation:preview-state', state),
 
   // --- Updater prototype (#6) ---------------------------------------------
   // Help → Check for updates…. One-way fire; results arrive on the event
