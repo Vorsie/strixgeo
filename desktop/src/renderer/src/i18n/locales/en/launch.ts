@@ -1,10 +1,9 @@
-// Launch-prototype chrome — onboarding (#93), licensing/activation (#3) and the
-// updater notification (#6). See docs/design/onboarding-activation-updater-proto.md.
+// Launch chrome: onboarding (#93) and the updater notification (#6).
 //
-// Part of the English message catalogue — see 'locales/en/index.ts' for the
-// key-naming rules. Product + tier names (StrixGeo, Solo, Pro, Studio) and the
-// demo licence keys are NOT translated: they are product identifiers, rendered
-// as raw tokens, never routed through a second vocabulary.
+// Part of the English message catalogue; see 'locales/en/index.ts' for the
+// key-naming rules. The product name (StrixGeo) is NOT translated: it is a
+// product identifier, rendered as a raw token, never routed through a second
+// vocabulary.
 
 export const LAUNCH = {
   // -------------------------------------------------------------------------
@@ -47,50 +46,6 @@ export const LAUNCH = {
   'onboarding.stageSectionsBody': 'Draw and edit cross-sections: the surface where all three model levels are built.',
   'onboarding.stageExport': 'Export',
   'onboarding.stageExportBody': 'Send the model to Plaxis, D-Stability, DXF and PDF report slices.',
-
-  // -------------------------------------------------------------------------
-  // licensing — activation screen (#3). Tier names stay raw tokens.
-  // -------------------------------------------------------------------------
-  'licensing.title': 'Licence & activation',
-  'licensing.statusHeading': 'Status',
-  'licensing.deviceHeading': 'This device',
-  'licensing.tierLabel': 'Tier',
-  'licensing.expiresLabel': 'Renews / ends',
-  'licensing.stateUnactivated': 'Not activated',
-  'licensing.stateTrial': 'Trial',
-  'licensing.stateActive': 'Active',
-  'licensing.stateGrace': 'Offline grace',
-  'licensing.stateExpired': 'Expired',
-  'licensing.stateClockRollback': 'Clock problem',
-  'licensing.stateDeviceMismatch': 'Wrong device',
-  'licensing.daysRemaining': '{days} day(s) remaining',
-  'licensing.graceRemaining': '{days} day(s) of offline grace left',
-  'licensing.enterKey': 'Enter a licence key',
-  'licensing.activate': 'Activate',
-  'licensing.startTrial': 'Start free trial',
-  'licensing.deactivate': 'Deactivate / transfer this device',
-  'licensing.deactivateHint': 'Frees this seat so you can activate on another machine.',
-  // Confirmation dialog for the irreversible deactivate / transfer (docs/ux.md).
-  'licensing.deactivateConfirmTitle': 'Deactivate this device?',
-  'licensing.deactivateConfirmBody':
-    'This frees the seat so you can activate on another machine. The app returns to the activation screen.',
-  'licensing.deactivateConfirmAction': 'Deactivate',
-  'licensing.demoKeysHint': 'Prototype demo keys: STRIX-SOLO-DEMO, STRIX-PRO-DEMO, STRIX-STUDIO-DEMO.',
-  'licensing.previewHeading': 'Preview a state (prototype only)',
-  'licensing.errorUnknownKey': 'That licence key was not recognised.',
-  'licensing.errorDeviceLimit':
-    'This key is already active on another device. Deactivate it there, or transfer the seat.',
-  'licensing.errorAlreadyTrialled': 'This device has already used its free trial.',
-  'licensing.errorUnreachable': 'Could not reach the activation server.',
-  'licensing.toastActivated': 'Licence activated.',
-  'licensing.toastTrialStarted': 'Free trial started.',
-  'licensing.toastDeactivated': 'This device was deactivated.',
-  // Build facts (finding f): the beta expiry stamp + git SHA, shown next to the
-  // licence expiry so a tester can verify which build they hold. Date is
-  // formatted by the caller ("1 November 2026").
-  'licensing.buildHeading': 'This build',
-  'licensing.betaBuild': 'Beta build {sha}, expires {date}',
-  'licensing.buildUnstamped': 'Development build (no expiry stamp)',
 
   // -------------------------------------------------------------------------
   // updater — the update-available notification (#6).
