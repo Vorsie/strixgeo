@@ -7,8 +7,8 @@
  * inside the window's ``close`` handler; a Save issued there must reach a LIVE
  * API.
  *
- * Electron's quit order is the trap. ``app.quit()`` (File → Quit, Ctrl+Q, the
- * beta watchdog) fires ``before-quit`` FIRST, then the window ``close`` events,
+ * Electron's quit order is the trap. ``app.quit()`` (File → Quit, Ctrl+Q) fires
+ * ``before-quit`` FIRST, then the window ``close`` events,
  * then — only if the quit was not vetoed — ``window-all-closed`` and
  * ``will-quit``. Stopping the backend on ``before-quit`` therefore kills it
  * BEFORE the save prompt has even been shown, and if the user then cancels the
