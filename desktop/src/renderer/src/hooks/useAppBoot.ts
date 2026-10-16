@@ -2,13 +2,11 @@
 // reachable before signalling the rest of the app that it is ready to
 // render.
 //
-// The wait starts once per renderer lifetime, but only after the activation
-// gate is OPEN (``gateOpen``): a packaged build blocked at the licence page has
-// its engine deliberately deferred, and asking the main process for readiness
-// then answers "not running" — which is not a crash (installer #7, 2026-09-03).  ``getApiBaseUrl`` injects the dynamic
-// port that the Python subprocess reports back to the main process;
-// ``waitForApi`` polls until the FastAPI health-check responds or
-// times out.
+// The wait starts once per renderer lifetime, at mount, in every build (open
+// source 2026-10-17: there is no licence gate in front of it).
+// ``getApiBaseUrl`` injects the dynamic port that the Python subprocess reports
+// back to the main process; ``waitForApi`` polls until the FastAPI health-check
+// responds or times out.
 
 import { useEffect, useRef, useState } from 'react'
 
@@ -33,13 +31,6 @@ export interface UseAppBootResult {
 /**
  * React hook that drives the application boot sequence.
  *
- * Parameters
- * ----------
- * gateOpen : boolean
- *     True once the activation gate lets the app proceed (dev / e2e: always;
- *     packaged: after a licence verdict that is not blocked). The API wait
- *     does not start before that.
- *
  * Calls ``window.electron.getApiBaseUrl`` to learn the dynamic port, then
  * ``window.electron.waitForApi`` to poll until the backend is ready.  Both
  * calls are injected by the Electron preload so the renderer never constructs
@@ -56,16 +47,16 @@ export interface UseAppBootResult {
  *     continues); the App renders an error screen only once it is set and does
  *     not proceed to the welcome flow.
  */
-export function useAppBoot(gateOpen: boolean): UseAppBootResult {
+export function useAppBoot(): UseAppBootResult {
   const [ready, setReady] = useState(false)
   const [apiError, setApiError] = useState(false)
   const [takingLong, setTakingLong] = useState(false)
   const startedRef = useRef(false)
 
   useEffect(() => {
-    // Only once, and only after the activation gate is open: a blocked
-    // packaged build has its engine deferred, and 'not running' is not a crash.
-    if (!gateOpen || startedRef.current) return
+    // Only once per renderer lifetime: StrictMode runs this effect twice in dev,
+    // and the ref survives the simulated remount.
+    if (startedRef.current) return
     startedRef.current = true
     async function boot(): Promise<void> {
       // The engine port is chosen by main in a packaged build (not always
@@ -107,7 +98,7 @@ export function useAppBoot(gateOpen: boolean): UseAppBootResult {
       log.error('boot', `API readiness check failed: ${String(err)}`)
       setApiError(true)
     })
-  }, [gateOpen])
+  }, [])
 
   return { ready, apiError, takingLong }
 }
