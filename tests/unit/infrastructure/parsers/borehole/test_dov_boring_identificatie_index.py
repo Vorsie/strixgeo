@@ -18,7 +18,6 @@ rule these tests pin:
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
@@ -205,8 +204,8 @@ def test_a_boornummer_that_is_only_a_prefix_of_another_does_not_match(tmp_path: 
     assert _source(tmp_path).boring_xml("kb7d15w-B25") is None
 
 
-def test_5000_cached_borings_answer_a_known_boornummer_in_well_under_a_tenth_of_a_second(
-    tmp_path: Path,
+def test_5000_cached_borings_answer_a_known_boornummer_from_the_index_without_a_scan(
+    tmp_path: Path, head_reads: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The scale the cache cap allows: a known boornummer is an index hit, not a scan.
 
@@ -215,6 +214,12 @@ def test_5000_cached_borings_answer_a_known_boornummer_in_well_under_a_tenth_of_
     answer but costs a minute here: each first open of a freshly written file
     pays the on-access scan (~13 ms on this machine) - the very cost the index
     exists to avoid.
+
+    The property is asserted by counting, not by the clock: of the 5 000
+    cached files only the one the index names is opened (one head read), and
+    the directory is never listed (the listing is the first step of every
+    scan). A wall-clock bound here lost by 4 % on a loaded build box
+    (0.1037 s against 0.1 s) while the lookup was an index hit all along.
     """
     boring_dir = tmp_path / "boring"
     _fill(boring_dir, 5000)
@@ -225,9 +230,20 @@ def test_5000_cached_borings_answer_a_known_boornummer_in_well_under_a_tenth_of_
         index.record(permkey, _boring(f"B{i}", permkey))
     assert index.size() == 5000
 
-    start = time.perf_counter()
+    listings: list[Path] = []
+    original_entries = DovXmlCache.entries
+
+    def entries_spy(self: DovXmlCache) -> list[tuple[str, int, int]]:
+        listings.append(self.directory)
+        return original_entries(self)
+
+    monkeypatch.setattr(DovXmlCache, "entries", entries_spy)
+    head_reads.clear()
+
     xml = _source(tmp_path).boring_xml("B4321")
-    elapsed = time.perf_counter() - start
 
     assert xml is not None
-    assert elapsed < 0.1
+    assert b"<permkey>2001-004321</permkey>" in xml
+    # Index hit: exactly the named file is opened, and no scan starts.
+    assert head_reads == ["2001-004321"]
+    assert listings == []
