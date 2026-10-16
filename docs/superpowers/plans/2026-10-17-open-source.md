@@ -91,7 +91,7 @@ git commit -m "feat(desktop): the app starts without a licence step; LicensingDi
 - Modify: `desktop/src/main/buildStamp.ts` (keep `BuildProvenance`, `compiledBuildProvenance`; delete `RawBuildStamp`, `BuildStampSource`, `parseBuildStamp`, `compiledBuildStamp`, `readBuildStamp`, `BuildDisplayInfo`, `buildDisplayInfo`, the three `BETA_*_ENV_VAR` constants), `buildStamp.test.ts` (keep the provenance cases), `buildStampGlobals.d.ts` (drop the expiry env vars)
 - Modify: `desktop/src/main/index.ts:22-30`, `:119-127`, `:1823`, `:2012-2060`, `:2088-2125`, `:2227`, `:2258-2282`
 - Modify: `desktop/src/main/prototypeIpc.ts` (drop the five `activation:*` handlers and the `previewControl` option; keep the updater handlers), `prototypeFlags.ts` (drop `previewControlAllowed`), `prototypeFlags.test.ts`
-- Modify: `desktop/src/preload/index.ts:323-335` (drop the licensing block), `desktop/src/main/menuTemplate.ts:225-230` (drop the licence item and its separator), `desktop/src/main/menuLabels.ts:125` (drop `licenceActivation`), `menuTemplate.test.ts` if it lists the item
+- Modify: `desktop/src/preload/index.ts:323-335` (drop the licensing block) and `:298` (drop `getBetaStatus`; its `app:beta-status` handler in index.ts goes too), `desktop/src/main/menuTemplate.ts:225-230` (drop the licence item and its separator), `desktop/src/main/menuLabels.ts:125` (drop `licenceActivation`), `menuTemplate.test.ts` if it lists the item
 - Modify: `desktop/src/main/deviceIdentity.ts:57` (define `DeviceIdentity` locally: `{ readonly deviceId: string }` with the same shape the file already produces), `diagnosticsPayload.ts` (identity = device id only; drop the licence-key field), `diagnosticsUploader.ts` (unchanged API, `baseUrl` now comes from the new setting), `diagnosticsUploaderConstants.ts:17-25` (doc: the endpoint is `STRIXGEO_DIAGNOSTICS_URL` + `v1/diagnostics`), `diagnosticsUploader.test.ts`, `diagnosticsRedaction.test.ts` (drop licence-key redaction cases)
 - Create: `desktop/src/main/diagnosticsEndpoint.ts`
 - Create: `desktop/src/main/bootSequence.test.ts`
@@ -246,6 +246,7 @@ git commit -m "feat(desktop): main process starts the engine without activation 
 - Modify: `CLAUDE.md:481-483` (the three design-note bullets: delete the beta-expiry and onboarding-activation bullets, reword the diagnostics bullet), `CLAUDE.md:69` (the backwards-compat line: drop "activation store format 1"), `CLAUDE.md:504` (the Tier B index line is generated; regenerate with `uv run python scripts/gen_debt_index.py` after the debt edit)
 - Modify: `docs/debt.md:241` (#3), `:395` (#5), `:486` (#6), `:364` (#4 title mentions #3), `:668` (#16 endpoint sentence)
 - Modify: `docs/design/diagnostics-capture.md` (the transmit paragraph: endpoint = `STRIXGEO_DIAGNOSTICS_URL`, no activation origin)
+- Modify: `desktop/src/renderer/src/components/onboarding/OnboardingOverlay.tsx:16` (the pointer to the deleted onboarding-activation-updater-proto.md: replace with "onboarding (#93)")
 - Modify: `docs/distribution-build.md:26-78` ("Release integrity and provenance": drop the expiry stamp paragraphs, keep the SHA provenance), `:347-361` ("Per-install generated secrets": unchanged, those are the local DB secrets)
 
 - [ ] **Step 1: Write the failing doc-consistency test** (new `tests/unit/docs/test_no_activation_references.py`)
@@ -267,7 +268,8 @@ ROOT = Path(__file__).resolve().parents[3]
 SCAN_DIRS = ("src", "desktop/src", "docs", "scripts", "CLAUDE.md")
 FORBIDDEN = re.compile(
     r"activationService|activationStore|betaExpiry|enforceBetaExpiry|"
-    r"STRIX_BETA_EXPIRES_AT|licenceActivation|server/activation|LicensingDialog",
+    r"STRIX_BETA_EXPIRES_AT|licenceActivation|server/activation|LicensingDialog|"
+    r"getBetaStatus|beta-status|beta-expiry\.md|onboarding-activation-updater-proto",
 )
 ALLOWED = {"docs/superpowers", "docs/debt.md", "docs/lessons-learned.md", "docs/benchmarks-journal.md"}
 
