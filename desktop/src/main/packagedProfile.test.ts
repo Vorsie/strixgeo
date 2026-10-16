@@ -5,7 +5,7 @@
 // the SAME folder the dev app uses — because `build.productName` does not move
 // `app.getPath('userData')`. A packaged build must therefore claim
 // %APPDATA%\StrixGeo itself, and must do it before ANYTHING reads userData:
-// the single-instance lock, the recovery store, the beta anchor, the
+// the single-instance lock, the recovery store, the
 // diagnostics store and the embedded stack all resolve paths off it.
 //
 // PP1 — a packaged app moves userData (and sessionData) to <appData>\StrixGeo.
@@ -92,7 +92,7 @@ describe('the packaged app claims its own profile', () => {
 })
 
 describe('the profile is applied before anything reads userData', () => {
-  // Line endings normalised for the same CRLF/LF reason betaGateWiring gives.
+  // Line endings normalised for the same CRLF/LF reason bootSequence.test.ts gives.
   const MAIN_SOURCE = readFileSync(join(__dirname, 'index.ts'), 'utf-8').replace(/\r\n/g, '\n')
 
   function offsetOf(needle: string): number {
@@ -106,7 +106,6 @@ describe('the profile is applied before anything reads userData', () => {
 
     expect(profile).toBeLessThan(offsetOf('requestSingleInstanceLock()'))
     expect(profile).toBeLessThan(offsetOf('configureRecoveryStore('))
-    expect(profile).toBeLessThan(offsetOf('configureBetaExpiryStore('))
     expect(profile).toBeLessThan(offsetOf('configureDiagnosticsStore('))
     expect(profile).toBeLessThan(offsetOf('prepareEmbeddedStack('))
   })
