@@ -40,6 +40,20 @@ import {
   type SectionExportContext,
 } from './sectionExportPartitionArgs'
 import { recallExportPath, rememberExportPath } from './exportPathMemory'
+import { log } from '../../../utils/log'
+import { ProjectClosedError } from '../../../utils/openProjectGuard'
+
+/**
+ * Whether ``err`` is the silent stop of an export whose project was closed
+ * while it assembled ("once a project is closed, nothing of it runs any more",
+ * utils/openProjectGuard). Logs the one INFO line; the caller returns without a
+ * toast, because the engineer closed the project on purpose.
+ */
+function stoppedByClose(err: unknown, logLabel: string): boolean {
+  if (!(err instanceof ProjectClosedError)) return false
+  log.info('section', `${logLabel} abandoned: project closed`)
+  return true
+}
 
 /** One D-Series artefact's wire facts, so the two handlers are one function. */
 const DSERIES = {
@@ -205,6 +219,7 @@ export function useExportHub(): ExportHubResult {
           try {
             partition = await buildSectionExportPartition(args)
           } catch (err) {
+            if (stoppedByClose(err, 'exportDxf')) return
             toast('error', err instanceof Error ? err.message : t('sections.export.readFailed'))
             return
           }
@@ -216,6 +231,7 @@ export function useExportHub(): ExportHubResult {
         const modelId = axisModel.id
         const posted = partition
         await downloadSectionExport({
+          projectId,
           sectionName: section.name,
           extension: 'dxf',
           filterLabel: t('sections.export.dxfFilter'),
@@ -282,6 +298,7 @@ export function useExportHub(): ExportHubResult {
         try {
           partition = await buildSectionExportPartition(args)
         } catch (err) {
+          if (stoppedByClose(err, `export-${kind}`)) return
           toast('error', err instanceof Error ? err.message : t('sections.export.readFailed'))
           return
         }
@@ -294,6 +311,7 @@ export function useExportHub(): ExportHubResult {
           return
         }
         await downloadSectionExport({
+          projectId,
           sectionName: section.name,
           extension: spec.extension,
           filterLabel: t(
@@ -341,18 +359,24 @@ export function useExportHub(): ExportHubResult {
           bedOverrides?.overrides,
           visibleSections[0]?.epsg ?? null,
         )
-        const panels = await buildProjectFencePanels({
-          projectId,
-          modelId: model.id,
-          visibleSections,
-          investigations,
-          layers: isGeotech ? geotechLayers : lithoLayers,
-          logLabel: isGeotech ? 'geotech-fence' : 'litho-fence',
-          packingClassOf: isGeotech ? packingClassOf : undefined,
-          frameModelId: isGeotech ? (activeLithoModel?.id ?? null) : undefined,
-          frameLayers: isGeotech ? lithoLayers : undefined,
-          bedPolygons,
-        })
+        let panels: Awaited<ReturnType<typeof buildProjectFencePanels>>
+        try {
+          panels = await buildProjectFencePanels({
+            projectId,
+            modelId: model.id,
+            visibleSections,
+            investigations,
+            layers: isGeotech ? geotechLayers : lithoLayers,
+            logLabel: isGeotech ? 'geotech-fence' : 'litho-fence',
+            packingClassOf: isGeotech ? packingClassOf : undefined,
+            frameModelId: isGeotech ? (activeLithoModel?.id ?? null) : undefined,
+            frameLayers: isGeotech ? lithoLayers : undefined,
+            bedPolygons,
+          })
+        } catch (err) {
+          if (stoppedByClose(err, cardId)) return
+          throw err
+        }
         if (panels === null) {
           toast('warning', t('export.fenceNothingToExport'))
           return
