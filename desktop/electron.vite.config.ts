@@ -15,24 +15,15 @@ import { resolveBuildSha, resolveBuildTime } from './scripts/buildProvenance.mjs
 
 // Build provenance (production-readiness audit 2026-09-02, C4: the artifact
 // carried no git SHA). electron-vite inlines ``import.meta.env.MAIN_VITE_*`` into
-// the main bundle (its main-build envPrefix is ``MAIN_VITE_``), the SAME channel
-// the beta stamp rides. Set the two vars into the environment HERE, at config
-// load — before Vite resolves env for any build — rather than via Vite ``define``
+// the main bundle (its main-build envPrefix is ``MAIN_VITE_``). Set the two vars
+// into the environment HERE, at config load (before Vite resolves env for any
+// build), rather than via Vite ``define``
 // (which does not reach the SSR main bundle; see src/main/buildStampGlobals.d.ts).
 // The resolvers no-op when the vars are already set, so a CI-pinned SHA wins.
-// ``require-beta-stamp.mjs post`` greps out/main/index.js for the SHA, so if this
+// ``require-build-sha.mjs`` greps out/main/index.js for the SHA, so if this
 // injection ever silently fails the package fails instead of shipping blind.
 process.env.MAIN_VITE_STRIX_BUILD_SHA = resolveBuildSha()
 process.env.MAIN_VITE_STRIX_BUILD_TIME = resolveBuildTime()
-// The beta stamp needs THREE values (buildStamp.ts: a stamp without ``builtAt`` reads
-// as no stamp at all — the 07:03 installer shipped unstamped that way). The
-// packager only has to set the expiry; built-at and build id derive from the
-// build itself so the stamp can never be half-set again.
-if (process.env.MAIN_VITE_STRIX_BETA_EXPIRES_AT) {
-  process.env.MAIN_VITE_STRIX_BETA_BUILT_AT ??= process.env.MAIN_VITE_STRIX_BUILD_TIME
-  process.env.MAIN_VITE_STRIX_BETA_BUILD_ID ??=
-    `${(process.env.MAIN_VITE_STRIX_BUILD_TIME ?? '').slice(0, 10)}-beta-${(process.env.MAIN_VITE_STRIX_BUILD_SHA ?? 'nosha').slice(0, 12)}`
-}
 
 export default defineConfig({
   // main + preload: the defaults electron-vite applied when NO config was loaded.
