@@ -9,9 +9,15 @@
 // this without changing a single observable behaviour when that debt is paid.
 
 import { log } from '../../../utils/log'
+import { abandonIfProjectClosed } from '../../../utils/openProjectGuard'
 
 /** One section export's file-write leg, as the caller describes it. */
 export interface SectionExportDownload {
+  /**
+   * The project the export was started on. Once it is closed nothing of the
+   * export runs any more: no dialog, no byte fetch, no file write, no toast.
+   */
+  projectId: string
   /** Section name — sanitised into the proposed filename. */
   sectionName: string
   /** Artefact extension without the dot, e.g. ``'stix'``. */
@@ -60,7 +66,11 @@ export interface SectionExportDownload {
  *     has been reported.
  */
 export async function downloadSectionExport(spec: SectionExportDownload): Promise<void> {
-  const { sectionName, extension, filterLabel, logLabel, toast } = spec
+  const { projectId, sectionName, extension, filterLabel, logLabel, toast } = spec
+  // Checked before the dialog and after every await: an export bound to a
+  // project that is no longer open stops there (utils/openProjectGuard).
+  const abandoned = (): boolean => abandonIfProjectClosed(projectId, 'section', logLabel)
+  if (abandoned()) return
   log.info('section', `${logLabel} start section="${sectionName}"`)
   try {
     // Sanitise the same way the backend does, so the proposed default matches
@@ -74,7 +84,9 @@ export async function downloadSectionExport(spec: SectionExportDownload): Promis
       log.debug('section', `${logLabel} cancelled at save dialog`)
       return
     }
+    if (abandoned()) return
     const bytes = await spec.fetchBytes()
+    if (abandoned()) return
     await window.electron.writeExportFile(dialogPath, bytes)
     log.success(
       'section',
