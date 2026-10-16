@@ -6,12 +6,7 @@
  * preload (``src/preload/index.ts``) is the implementation; this file is the
  * type it must satisfy.
  */
-import type {
-  ActivationActionResultDto,
-  ActivationStatusDto,
-  BuildInfoDto,
-  UpdaterEventDto,
-} from './utils/launchPrototypeTypes'
+import type { UpdaterEventDto } from './utils/launchPrototypeTypes'
 import type { SheetPayload, SheetReadyMessage } from './sheet/sheetPayload'
 import type { BackendFailedPayloadDto } from './utils/backendFailureTypes'
 // The ``api:ready`` result shape, from its single source of truth. It is a
@@ -165,25 +160,11 @@ declare global {
         stack?: string
         httpStatus?: number
       }) => Promise<void>
-      // Beta-expiry status for an in-app notice; ``null`` for a build that
-      // carries no expiry stamp. The BLOCKING decision is the main process's
-      // alone — this is for display only (docs/design/beta-expiry.md).
-      getBetaStatus?: () => Promise<{
-        state: string
-        blocked: boolean
-        daysRemaining: number | null
-        expiresAtMs: number | null
-      } | null>
-      // Build facts (git SHA + beta expiry) for Help → Licence + About (finding
-      // (f)). Optional so a renderer against an older preload degrades to
-      // hiding the build block rather than throwing.
-      getBuildInfo?: () => Promise<BuildInfoDto>
       // Cross-section PDF sheet (docs/superpowers/specs/2026-09-02-section-pdf-sheet-design.md).
       // ``printSheetPdf`` hands the payload to the main process, which renders
       // sheet.html in a hidden window and prints it; ``onSheetPayload`` /
       // ``sheetReady`` are the hidden window's (and print/preview page's) side.
-      // Launch prototypes (debt #93 / #3 / #6) — see
-      // docs/design/onboarding-activation-updater-proto.md.
+      // Launch chrome: onboarding (#93) and the updater (#6).
       // Synchronous boot flags (preload sendSync): e2e = STRIX_E2E harness run,
       // packaged = app.isPackaged.
       launchFlags: { e2e: boolean; packaged: boolean }
@@ -193,13 +174,7 @@ declare global {
       // user-chosen location and returns that path (null = cancelled / none).
       sampleAvailable: () => Promise<boolean>
       sampleInstall: () => Promise<string | null>
-      onMenuOpenLicensing: (cb: () => void) => () => void
       onMenuCheckUpdates: (cb: () => void) => () => void
-      getActivationStatus: () => Promise<ActivationStatusDto>
-      activateLicence: (key: string) => Promise<ActivationActionResultDto>
-      startTrial: () => Promise<ActivationActionResultDto>
-      deactivateLicence: () => Promise<ActivationActionResultDto>
-      previewActivationState: (state: string) => Promise<ActivationStatusDto>
       checkForUpdates: () => Promise<void>
       downloadUpdate: () => Promise<void>
       quitAndInstallUpdate: () => Promise<void>
