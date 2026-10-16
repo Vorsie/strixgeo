@@ -24,6 +24,7 @@ import { applyVoxelBuildResult } from './applyVoxelBuildResult'
 // (useVoxelBuildStream) can share the grid-too-large formatter without an import
 // cycle (debt #282).
 import { buildFailureMessage } from './buildFailureMessage'
+import { ProjectClosedError, abandonIfProjectClosed } from '../utils/openProjectGuard'
 import { useVoxelBuildStream } from './useVoxelBuildStream'
 import type { VoxelBuildState } from './useVoxelBuildStream'
 
@@ -282,6 +283,9 @@ export function useLithoSolids(
       log.info('useLithoSolids', `building voxel body solids model=${lithoModelId}`)
       try {
         const request = await voxelRequestBuilder()
+        // Bound to the project it was started on (utils/openProjectGuard): a
+        // payload assembled for a project closed meanwhile is never POSTed.
+        if (abandonIfProjectClosed(projectId, 'useLithoSolids', 'voxel build')) return
         if (!request || request.sections.length === 0) {
           toast('warning', t('litho.nothingToBuild'))
           return
@@ -293,6 +297,11 @@ export function useLithoSolids(
         // event, so both paths land identically (debt #282).
         applyVoxelBuildResult(result, { setSolids, setGaplessReport, toast, onMutated })
       } catch (err) {
+        // The project closed while the payload assembled: a stop, not a failure.
+        if (err instanceof ProjectClosedError) {
+          log.info('useLithoSolids', 'voxel build abandoned: project closed')
+          return
+        }
         log.error('useLithoSolids', 'build voxel solids failed', err)
         toast('error', buildFailureMessage(err))
       } finally {
@@ -326,12 +335,17 @@ export function useLithoSolids(
       try {
         request = await voxelRequestBuilder()
       } catch (err) {
+        if (err instanceof ProjectClosedError) {
+          log.info('useLithoSolids', 'streaming build abandoned: project closed')
+          return
+        }
         // Input assembly failed (a section correlation / boundary fetch) —
         // surface it exactly as the synchronous path does, before any job runs.
         log.error('useLithoSolids', 'streaming build input assembly failed', err)
         toast('error', buildFailureMessage(err))
         return
       }
+      if (abandonIfProjectClosed(projectId, 'useLithoSolids', 'streaming build')) return
       if (!request || request.sections.length === 0) {
         toast('warning', t('litho.nothingToBuild'))
         return
