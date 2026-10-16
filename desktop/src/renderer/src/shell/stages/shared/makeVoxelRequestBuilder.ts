@@ -24,6 +24,7 @@ import { excludeInvestigationsFromBuild } from '../../../utils/excludeInvestigat
 import { FREEDRAW_EDIT_ENABLED } from '../../../utils/freedrawEditFlag'
 import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import { log } from '../../../utils/log'
+import { ProjectClosedError, throwIfProjectClosed } from '../../../utils/openProjectGuard'
 import { VoxelBuildInputsError } from '../../../utils/voxelBuildInputsError'
 import { fetchApprovedEdgesBySection } from './fetchApprovedEdgesBySection'
 
@@ -124,6 +125,12 @@ export function makeVoxelRequestBuilder(
     excludedInvestigationIds: ReadonlySet<string> = new Set<string>(),
   ): Promise<VoxelBuildRequest | null> => {
     if (!projectId || !modelId || visibleSections.length === 0) return null
+    // The assembly is bound to the project it was started on: every request
+    // below is preceded by this checkpoint, so a project closed mid-assembly
+    // (an export or a build still awaiting a correlation fetch) sends nothing
+    // more for it. ``ProjectClosedError`` is a silent stop for the caller.
+    const what = `${logLabel} payload`
+    throwIfProjectClosed(projectId, what)
     if (excludedInvestigationIds.size > 0) {
       log.info(
         logLabel,
@@ -140,6 +147,7 @@ export function makeVoxelRequestBuilder(
     // behind a green "Built N bodies" toast (audit Class 1).
     const { edgesBySectionId, failedSectionIds, totalApprovedEdges } =
       await fetchApprovedEdgesBySection(projectId, modelId, visibleSections)
+    throwIfProjectClosed(projectId, what)
     log.debug(
       logLabel,
       `assembled ${edgesBySectionId.size} sections, ${totalApprovedEdges} approved edges`,
@@ -194,8 +202,10 @@ export function makeVoxelRequestBuilder(
         'freedraw disabled — building without stored body boundary shapes (matches the 2-D render)',
       )
     } else {
+      throwIfProjectClosed(projectId, what)
       try {
         const bodies = await api.geology.listLenses(projectId, modelId)
+        throwIfProjectClosed(projectId, what)
         boundariesByBodyId = new Map(
           await Promise.all(
             bodies.map(
@@ -206,6 +216,8 @@ export function makeVoxelRequestBuilder(
         )
         log.debug(logLabel, `loaded ${boundariesByBodyId.size} body boundary shape(s) for the build`)
       } catch (err) {
+        // A closed project is a stop, not a failed input.
+        if (err instanceof ProjectClosedError) throw err
         log.error(
           logLabel,
           'build cancelled: body boundary shapes failed to load — building without them ' +
@@ -226,8 +238,10 @@ export function makeVoxelRequestBuilder(
     // build for the same reason a failed packing-correlation fetch does: a model
     // built from a partial frame is indistinguishable from a correct one.
     let frameSectionInputs: ReturnType<typeof assembleLithoSectionInputs> | undefined
+    throwIfProjectClosed(projectId, what)
     if (frameModelId && frameLayers !== undefined) {
       const frameEdges = await fetchApprovedEdgesBySection(projectId, frameModelId, visibleSections)
+      throwIfProjectClosed(projectId, what)
       if (frameEdges.failedSectionIds.length > 0) {
         const named = frameEdges.failedSectionIds.map(id => sectionLabel(visibleSections, id))
         log.error(
