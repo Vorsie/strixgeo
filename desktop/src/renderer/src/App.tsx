@@ -49,12 +49,10 @@ import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
 import SettingsDialog from './components/SettingsDialog'
 import CheatsheetDialog from './components/ui/CheatsheetDialog'
-// Launch prototypes (debt #93 / #3 / #6) — see
-// docs/design/onboarding-activation-updater-proto.md.
+// Launch chrome: onboarding (#93) and the updater (#6).
 import OnboardingOverlay from './components/onboarding/OnboardingOverlay'
 import TutorialOverlay from './tutorial/TutorialOverlay'
 import { clearTutorialProgress } from './tutorial/tutorialProgress'
-import LicensingDialog from './components/licensing/LicensingDialog'
 import UpdateNotification from './components/updater/UpdateNotification'
 import {
   backendFailurePortOf,
@@ -62,16 +60,11 @@ import {
   type BackendFailureReasonDto,
 } from './utils/backendFailureTypes'
 import { hasSeenOnboarding, markOnboardingSeen, shouldAutoOpenOnboarding } from './utils/onboardingSeen'
-import { activationGateDecision, type GateDecision } from './utils/activationGate'
 import { t as tMsg } from './i18n/translate'
 import { emptyBundleOverwriteBody } from './utils/saveBundleGuardMessages'
 import type { EmptyCollectionFinding } from './utils/saveBundleGuard'
 import { useLanguage } from './i18n/languageSelect'
-import type {
-  ActivationActionResultDto,
-  ActivationStatusDto,
-  UpdaterEventDto,
-} from './utils/launchPrototypeTypes'
+import type { UpdaterEventDto } from './utils/launchPrototypeTypes'
 import {
   buildGeotechSubdivisionPatch,
   readGeotechSubdivisionPrefs,
@@ -147,13 +140,9 @@ export default function App() {
     stageLumping,
   } = useProject({ toast, confirmEmptyBundleOverwrite })
 
-  // API boot sequence — extracted to useAppBoot.
-  // The activation START-SCREEN gate state lives above the boot hook: the API
-  // wait must not start while a packaged build is blocked at the licence page.
-  const [activationGate, setActivationGate] = useState<GateDecision | 'unknown'>(() =>
-    window.electron.launchFlags.packaged && !window.electron.launchFlags.e2e ? 'unknown' : 'pass',
-  )
-  const { ready, apiError, takingLong } = useAppBoot(activationGate === 'pass')
+  // API boot sequence, extracted to useAppBoot. No licence gate (open source
+  // 2026-10-17): the API wait starts at mount in every build.
+  const { ready, apiError, takingLong } = useAppBoot()
 
   // Initialise the theme system. The hook itself owns the class on
   // <html>. ``choice`` + ``setChoice`` feed the Settings dialog's
@@ -261,7 +250,7 @@ export default function App() {
     return off
   }, [])
 
-  // --- Launch prototypes (#93 / #3 / #6) ------------------------------------
+  // --- Launch prototypes (#93 / #6) -----------------------------------------
   // Onboarding (#93): auto-opens once on first launch (gated on the persisted
   // "seen" flag) and is re-openable from Help → Getting started…. Reachable from
   // both the welcome screen and a loaded project.
@@ -339,75 +328,6 @@ export default function App() {
     return () => {
       offStart()
       offRestart()
-    }
-  }, [])
-
-  // Licensing / activation (#3): Help → Licence & activation….
-  const [licensingOpen, setLicensingOpen] = useState(false)
-  useEffect(() => {
-    const off = window.electron.onMenuOpenLicensing(() => setLicensingOpen(true))
-    return off
-  }, [])
-
-  // Activation START-SCREEN gate (owner ruling A: "a startscreen with beta key
-  // input before the actual app opens"). In a PACKAGED build only, a blocked
-  // verdict (unactivated / expired / clock-rollback) stops at the licence screen
-  // instead of the workspace. Dev and the e2e harness NEVER block — the gate
-  // seeds to 'pass' for them and the status is never even fetched, so the owner's
-  // dogfeed and the smoke suite are untouched. Once activation succeeds the
-  // LicensingDialog reports the new status and the gate opens.
-  useEffect(() => {
-    const flags = window.electron.launchFlags
-    if (!(flags.packaged && !flags.e2e)) return // dev / e2e never block
-    let cancelled = false
-    void (async () => {
-      // A beta build is NOT exempt (owner 2026-09-03): the key comes before the
-      // workspace; the beta-expiry gate in the main process ran before this window.
-      try {
-        const status = await window.electron.getActivationStatus()
-        if (cancelled) return
-        setActivationGate(
-          activationGateDecision({
-            packaged: flags.packaged,
-            e2e: flags.e2e,
-            statusReadFailed: false,
-            blocked: status.verdict.blocked,
-          }),
-        )
-      } catch (err) {
-        // FAIL CLOSED: a packaged non-beta build whose status read fails is
-        // treated as "no licence" — the licence screen, never an open workspace.
-        log.warn('activation', 'status read failed; failing closed to the licence screen', err)
-        if (!cancelled) {
-          setActivationGate(
-            activationGateDecision({
-              packaged: flags.packaged,
-              e2e: flags.e2e,
-                statusReadFailed: true,
-              blocked: false,
-            }),
-          )
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  // Re-evaluate when the start screen reports a new status; unlock once the
-  // verdict is no longer blocked (a valid key, or the trial started). The screen
-  // only shows for a packaged build that is still blocked.
-  const handleActivationStatusChange = useCallback((status: ActivationStatusDto) => {
-    const flags = window.electron.launchFlags
-    if (
-      activationGateDecision({
-        packaged: flags.packaged,
-        e2e: flags.e2e,
-        statusReadFailed: false,
-        blocked: status.verdict.blocked,
-      }) === 'pass'
-    ) {
-      setActivationGate('pass')
     }
   }, [])
 
@@ -1571,7 +1491,7 @@ export default function App() {
   )
 
   // The update card, in the branches that do not mount it themselves (the
-  // activation gate, the boot error, the loading splash). Owner finding
+  // boot error, the loading splash). Owner finding
   // 2026-10-08: a backend that never became ready never reached the welcome
   // branch, so the published update that would cure it was never shown. It
   // portals to document.body above every dialog and pulls the latched event
@@ -1589,28 +1509,6 @@ export default function App() {
   // backend can die at any moment and the branch in view must not decide whether
   // the engineer sees the reconnect. Renders null unless a respawn is in flight.
   const backendRestartingBanner = <BackendRestartingBanner />
-
-  // Activation start-screen gate (owner ruling A) — a packaged build with a
-  // blocked verdict shows the licence screen INSTEAD of the workspace. It comes
-  // BEFORE the boot returns: while blocked the engine is deferred, so the
-  // 'Starting StrixGeo API…' splash would wait forever (installer #8). Never
-  // reached in dev / e2e (the gate stays 'pass'). Reuses LicensingDialog as a
-  // full-window, non-dismissable start screen; entering a valid key or starting
-  // the trial reports through onStatusChange and opens the gate.
-  if (activationGate === 'block') {
-    return (
-      <>
-        {backendFailedModal}
-        <LicensingDialog
-          open
-          dismissable={false}
-          onClose={() => {}}
-          onStatusChange={handleActivationStatusChange}
-        />
-        {updateNotification}
-      </>
-    )
-  }
 
   if (apiError) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppBootError />{updateNotification}</>
   if (!ready) return <>{backendFailedModal}{backendUnreachableBanner}{backendRestartingBanner}<AppLoading takingLong={takingLong} />{updateNotification}</>
@@ -1671,7 +1569,7 @@ export default function App() {
         />
         {/* Help → Gesture cheatsheet — also reachable from the welcome screen. */}
         <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
-        {/* Launch prototypes (#93 / #3 / #6) — reachable before a project exists. */}
+        {/* Launch prototypes (#93 / #6): reachable before a project exists. */}
         <OnboardingOverlay
           open={onboardingOpen}
           onClose={handleCloseOnboarding}
@@ -1684,7 +1582,6 @@ export default function App() {
         <ShellContext.Provider value={shellContextValue}>
           <TutorialOverlay active={tutorialActive} onExit={() => setTutorialActive(false)} />
         </ShellContext.Provider>
-        <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
         <UpdateNotification />
         {/* Backend-failed modal — portal to body, safe in every branch. */}
         {backendFailedModal}
@@ -1867,7 +1764,7 @@ export default function App() {
       />
       {/* Help → Gesture cheatsheet (F1). App-level overlay above the shell. */}
       <CheatsheetDialog open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
-      {/* Launch prototypes (#93 / #3 / #6) — also reachable with a project open. */}
+      {/* Launch prototypes (#93 / #6): also reachable with a project open. */}
       <OnboardingOverlay
         open={onboardingOpen}
         onClose={handleCloseOnboarding}
@@ -1880,7 +1777,6 @@ export default function App() {
       <ShellContext.Provider value={shellContextValue}>
         <TutorialOverlay active={tutorialActive} onExit={() => setTutorialActive(false)} />
       </ShellContext.Provider>
-      <LicensingDialog open={licensingOpen} onClose={() => setLicensingOpen(false)} />
       <UpdateNotification />
       {/* Backend-failed modal — portal to body, safe in every branch. */}
       {backendFailedModal}
