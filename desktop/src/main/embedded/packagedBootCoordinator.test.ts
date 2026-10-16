@@ -2,10 +2,10 @@
  * Ordering pins for the packaged boot coordinator.
  *
  * The rule, in its own words (owner report, installer #13 cold start): the
- * engine is spawned as soon as the licence gate has passed and CONCURRENTLY
- * with the embedded Postgres boot — the engine's ~48 s cold import must overlap
- * the DB coming up, not run serially after it — and the boot does NOT wait for
- * a separate migrate step (the engine migrates itself, in-process).
+ * engine is spawned CONCURRENTLY with the embedded Postgres boot; the engine's
+ * ~48 s cold import must overlap the DB coming up, not run serially after it,
+ * and the boot does NOT wait for a separate migrate step (the engine migrates
+ * itself, in-process).
  */
 
 import { describe, it, expect } from 'vitest'
@@ -34,13 +34,11 @@ describe('coordinatePackagedBoot', () => {
       prepare: async () => ({ ok: true, prep: { port: 55123 } }),
       onPrepared: () => order.push('prepared'),
       startCluster: () => clusterReady,
-      gateAllowsEngine: () => true,
       spawnEngine: () => order.push('engine-spawn'),
     })
 
     // The engine is already spawned while the database is still coming up.
     expect(outcome.ok).toBe(true)
-    expect(outcome.engineSpawned).toBe(true)
     expect(order).toEqual(['prepared', 'engine-spawn'])
     expect(order).not.toContain('postgres-ready')
 
@@ -60,32 +58,10 @@ describe('coordinatePackagedBoot', () => {
         order.push('cluster-begin')
         return new Promise<void>(() => {}) // never resolves — proves it is not awaited
       },
-      gateAllowsEngine: () => true,
       spawnEngine: () => order.push('engine-spawn'),
     })
 
     expect(order).toEqual(['prepared', 'cluster-begin', 'engine-spawn'])
-  })
-
-  it('defers the engine while the licence gate blocks, but the DB still boots', async () => {
-    // Owner rule: no engine process before the gate passes ("require Beta-key
-    // before API"); the DB may boot before/while the gate shows.
-    const order: string[] = []
-    const outcome = await coordinatePackagedBoot<FakePrep>({
-      prepare: async () => ({ ok: true, prep: { port: 1 } }),
-      onPrepared: () => order.push('prepared'),
-      startCluster: () => {
-        order.push('cluster-begin')
-        return Promise.resolve()
-      },
-      gateAllowsEngine: () => false,
-      spawnEngine: () => order.push('engine-spawn'),
-    })
-
-    expect(outcome.engineSpawned).toBe(false)
-    expect(order).not.toContain('engine-spawn')
-    // The DB boot was still kicked off while the gate holds the engine back.
-    expect(order).toEqual(['prepared', 'cluster-begin'])
   })
 
   it('reports a prepare failure without booting the cluster or the engine', async () => {
@@ -104,7 +80,6 @@ describe('coordinatePackagedBoot', () => {
         order.push('cluster-begin')
         return Promise.resolve()
       },
-      gateAllowsEngine: () => true,
       spawnEngine: () => order.push('engine-spawn'),
     })
 
