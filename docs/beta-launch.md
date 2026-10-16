@@ -4,14 +4,14 @@ Owner rulings behind this file: no video tutorials for the closed beta; the
 release build is the last installer the owner checked himself (#42 or its
 successor); everything goes to `main`; backwards compatibility is armed
 (`docs/backwards-compat.md`); the site carries the open-beta sign-up; every
-tester gets one mail with a download link, a personal key and the way to
-report a problem. Keys are never written anywhere but the gitignored key file
-on the activation server side; this playbook holds no key.
+tester gets one mail with a download link and the way to report a problem.
+Since 2026-10-17 StrixGeo is free and open source (AGPL-3.0-or-later): there is
+no key and no licence check, the installer opens the app directly.
 
 ## Sequence
 
 1. `develop` green and pushed (integration gate). The installer built from
-   that commit has its stamp and git SHA verified. The owner runs his last
+   that commit has its git SHA verified. The owner runs his last
    check on it.
 2. Fast-forward `develop` into `main`; tag `v0.1.0-beta.1`. From here the
    branch model in CLAUDE.md applies (features off `develop`, releases as
@@ -22,8 +22,8 @@ on the activation server side; this playbook holds no key.
    Unsigned: the mail says so.
 4. Site update live: download page, the manual under `/manual/`, the
    open-beta sign-up wired to the MailerLite form.
-5. Mail the cohort (template below), one mail per tester, key pasted by hand
-   from the key file. Keep a private sheet: tester, key issued, date, replies.
+5. Mail the cohort (template below), one mail per tester. Keep a private
+   sheet: tester, date, replies.
 6. LinkedIn post (below) the same day, or the day after the first testers
    confirm the installer runs.
 
@@ -36,16 +36,10 @@ on the activation server side; this playbook holds no key.
   few seconds.
 * Unsigned installer: SmartScreen shows "Windows protected your PC"; "More
   info", then "Run anyway".
-* Key: personal, one machine, valid 30 days from the day it is activated.
-  Activation needs an internet connection once (the app says "Could not reach
-  the activation server" when there is none; try again online). After that
-  the app works fully offline. When a key lapses while the machine is
-  offline, the app keeps working for 30 more days and renews itself the next
-  time it is online. A new key comes on request at the same address.
-* Build expiry: every beta build stops on 2026-11-01; the app warns a week
-  ahead and Help > Check for updates installs the next build.
-* Nothing is uploaded. The project file (.strix) stays on the tester's disk;
-  the activation server only ever sees the key and a device id.
+* No key and no activation: the installer opens the app directly, on any
+  number of machines, fully offline. Builds do not expire; Help > Check for
+  updates installs the next build.
+* Nothing is uploaded. The project file (.strix) stays on the tester's disk.
 * Feedback address: info@strixgeo.com. Three things per report: the .strix
   file (File > Save), the zip from Help > Save logs for support, and what the
   tester did, expected and saw, plus a screenshot when it is visual.
@@ -54,7 +48,7 @@ on the activation server side; this playbook holds no key.
 
 ## Mail to a closed-beta tester (English)
 
-Subject: StrixGeo closed beta: your download link and key
+Subject: StrixGeo closed beta: your download link
 
 Hi <first name>,
 
@@ -77,13 +71,9 @@ identifiers. Desktop, offline, your data stays on your disk.
 3. The first start takes one to two minutes (the bundled database
    initialises). Every later start takes a few seconds.
 
-**Your key.** <key>
-
-Keep it to yourself; it activates one machine. Activation needs an internet
-connection once; after that the app works fully offline. The key runs for
-30 days from the day you activate it. If it lapses while you are offline the
-app keeps working for another 30 days and renews itself when you reconnect.
-Need a new key or a second machine: mail me.
+No key and no activation: StrixGeo is free and open source, so the
+installer opens the app directly, on as many machines as you like, and it
+works fully offline.
 
 **What I ask of you.** Use it on a real project, start to end: import, a
 cross-section, the lithological model, the packing classes, and if you get
@@ -102,11 +92,9 @@ Questions of any kind go to the same address. You get me, not a ticket
 system, usually the same day. The user manual is at
 https://strixgeo.com/manual/.
 
-**Timeline.** The beta runs until 1 November 2026. Every beta build has that
-expiry date built in; the app warns a week ahead and Help > Check for
-updates installs the next one. Expect a new build about once a week while
-your feedback comes in. After the beta, testers keep a rate below the launch
-price.
+**Timeline.** The feedback round runs until 1 November 2026. Help > Check for updates
+installs each new build. Expect a new build about once a week while
+your feedback comes in.
 
 **What it is not yet.** This is a minimum viable product. The modelling
 workflow is complete. Design parameters (friction angle, undrained shear
@@ -122,7 +110,7 @@ Robin
 
 ## Mail to a closed-beta tester (Dutch)
 
-Onderwerp: StrixGeo gesloten beta: je downloadlink en sleutel
+Onderwerp: StrixGeo gesloten beta: je downloadlink
 
 Dag <voornaam>,
 
@@ -146,13 +134,9 @@ op je schijf.
 3. De eerste start duurt een tot twee minuten (de meegeleverde databank
    wordt aangemaakt). Elke latere start duurt enkele seconden.
 
-**Je sleutel.** <key>
-
-Hou hem voor jezelf; hij activeert een machine. Activeren vraagt een keer
-een internetverbinding; daarna werkt de app volledig offline. De sleutel
-loopt 30 dagen vanaf de dag dat je activeert. Vervalt hij terwijl je offline
-bent, dan blijft de app nog 30 dagen werken en vernieuwt hij zichzelf zodra
-je weer online bent. Een nieuwe sleutel of een tweede machine: mail me.
+Geen sleutel en geen activatie: StrixGeo is gratis en open source, dus de
+installer opent de app meteen, op zoveel machines als je wil, en hij werkt
+volledig offline.
 
 **Wat ik vraag.** Gebruik het op een echt project, van begin tot eind:
 import, een dwarsprofiel, het lithologisch model, de pakkingsklassen, en als
@@ -172,11 +156,9 @@ Vragen van elke soort mogen naar hetzelfde adres. Je krijgt mij, geen
 ticketsysteem, meestal dezelfde dag. De handleiding staat op
 https://strixgeo.com/manual/.
 
-**Timing.** De beta loopt tot 1 november 2026. Elke betabuild heeft die
-vervaldatum ingebouwd; de app waarschuwt een week op voorhand en Help >
-Check for updates installeert de volgende. Reken op een nieuwe build
-ongeveer elke week zolang jullie feedback binnenkomt. Na de beta houden
-testers een tarief onder de lanceerprijs.
+**Timing.** De feedbackronde loopt tot 1 november 2026. *Help > Controleren op
+updates* installeert elke nieuwe build. Reken op een nieuwe build
+ongeveer elke week zolang jullie feedback binnenkomt.
 
 **Wat het nog niet is.** Dit is een minimum viable product. De modelleerflow
 is compleet. Ontwerpparameters (wrijvingshoek, ongedraineerde schuifsterkte
@@ -212,8 +194,8 @@ Robin
 > project willen loslaten en me zeggen waar het wringt.
 >
 > De gesloten beta draait al met een kleine groep. Wil je mee in de open
-> beta: schrijf je in op strixgeo.com/download. Gratis tijdens de beta, je
-> krijgt een persoonlijke sleutel en een rechtstreekse lijn naar mij.
+> beta: schrijf je in op strixgeo.com/download. Gratis en open source, en je
+> krijgt een rechtstreekse lijn naar mij.
 >
 > #geotechniek #grondmodel #sondering #CPT #geotechnical
 
@@ -234,8 +216,8 @@ Robin
 > engineers who model ground for a living in Belgium and the Netherlands.
 >
 > The closed beta is running with a small group. If you want in on the open
-> beta, sign up at strixgeo.com/download. It is free during the beta; you get
-> a personal key and a direct line to me.
+> beta, sign up at strixgeo.com/download. It is free and open source, and you
+> get a direct line to me.
 >
 > #geotechnical #groundmodel #CPT #geotechniek
 
