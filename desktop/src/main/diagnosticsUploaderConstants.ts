@@ -7,21 +7,20 @@
  * They live here rather than inline so the values are a single source of truth
  * and a reviewer can read the whole transmit policy without opening the logic.
  *
- * The uploader speaks the ``POST /v1/diagnostics`` contract documented in
- * ``docs/design/activation-api-contract.md`` and sends to the SAME origin as the
- * activation client (owner ruling 2026-08-31: "diagnostics go to the same
- * server"), so the base URL comes from ``activationConfig.ts`` — this file adds
- * only the path suffix and the transmit-side tunables.
+ * The uploader speaks the ``POST /v1/diagnostics`` contract (see
+ * ``docs/design/diagnostics-capture.md``). The base URL is the
+ * ``STRIXGEO_DIAGNOSTICS_URL`` setting read by ``diagnosticsEndpoint.ts`` (no
+ * default: unset means nothing is sent); this file adds only the path suffix
+ * and the transmit-side tunables.
  */
 
 /**
- * Path appended to the activation base URL to reach the diagnostics endpoint.
+ * Path appended to the diagnostics base URL to reach the endpoint.
  *
- * Versioned (``v1/``) on purpose: the diagnostics payload is a richer, newer
- * shape than the sibling activation endpoints and is the field most likely to
- * grow, so it carries its own version segment. Joined as
- * ``<activationBaseUrl>/v1/diagnostics`` — e.g.
- * ``https://strixgeo.com/api/activation/v1/diagnostics``.
+ * Versioned (``v1/``) on purpose: the diagnostics payload is the shape most
+ * likely to grow, so it carries its own version segment. Joined as
+ * ``<STRIXGEO_DIAGNOSTICS_URL>/v1/diagnostics``, e.g.
+ * ``https://example.org/api/v1/diagnostics``.
  */
 export const DIAGNOSTICS_UPLOAD_PATH = 'v1/diagnostics'
 
@@ -51,7 +50,7 @@ export const DIAGNOSTICS_QUEUE_DIR_NAME = 'outbox'
 /** Name of the high-water file that records which events have already been queued. */
 export const DIAGNOSTICS_HIGHWATER_FILENAME = 'highwater.json'
 
-/** Per-request timeout, ms. Matches the activation client's ceiling. */
+/** Per-request timeout, ms: bounds a dead link without starving a slow one. */
 export const DIAGNOSTICS_UPLOAD_TIMEOUT_MS = 10_000
 
 /**
@@ -77,8 +76,7 @@ export const DIAGNOSTICS_RETRY_MAX_MS = 60 * 60_000
 export const DIAGNOSTICS_DRAIN_INTERVAL_MS = 15 * 60_000
 
 /**
- * Whether an uploaded bundle carries the device's licence key + device id when
- * an activation exists.
+ * Whether an uploaded bundle carries this machine's stable device id.
  *
  * ``false`` today, deliberately. The capture design
  * (``docs/design/diagnostics-capture.md``) states, and its tests pin, that a
@@ -87,7 +85,7 @@ export const DIAGNOSTICS_DRAIN_INTERVAL_MS = 15 * 60_000
  * tested invariant — a real privacy-posture decision the owner has not ruled on
  * (the ``POST /v1/diagnostics`` contract lists the fields as optional for
  * exactly this reason). The plumbing is built and gated behind this one flag:
- * flip it to ``true`` in the same change that records the ruling, and identity
- * is attached whenever a licence is present.
+ * flip it to ``true`` in the same change that records the ruling, and the device
+ * id is attached to every bundle.
  */
-export const ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS = false
+export const ATTACH_DEVICE_ID_TO_DIAGNOSTICS = false
