@@ -4,15 +4,15 @@
  * Why not the global ``fetch``: in the Electron main process the global is
  * Node's (undici). It ignores the Windows proxy settings (PAC, WPAD, a fixed
  * proxy) and trusts only Node's bundled certificate bundle, so behind a company
- * proxy or TLS inspection the activation server is "unreachable" while the same
- * address answers in the browser (owner's work PC and a coworker's,
+ * proxy or TLS inspection a server is "unreachable" while the same address
+ * answers in the browser (owner's work PC and a coworker's,
  * 2026-09-23). Electron's ``net.fetch`` goes through Chromium: the system proxy
  * configuration and the OS certificate store apply, like a browser.
  *
  * The adapter takes the ``net`` module as a parameter and reads ``net.fetch``
  * at call time, so this file imports no Electron (a pure ``src/main`` helper,
  * unit-testable) and the caller can build it before ``app`` is ready: the
- * first request happens when the licence gate asks, after ready.
+ * first request happens after ready.
  */
 
 /** The one member of Electron's ``net`` module this adapter needs. */
