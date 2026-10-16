@@ -5,10 +5,10 @@
 //
 //   * electron.vite.config.ts sets process.env.MAIN_VITE_STRIX_BUILD_{SHA,TIME}
 //     at config-load, and electron-vite inlines import.meta.env.MAIN_VITE_* into
-//     the main bundle — the SAME channel the beta stamp rides (see
-//     src/main/buildStamp.ts). Vite's `define` is deliberately NOT used: it does
-//     not reach the SSR main bundle (buildStampGlobals.d.ts).
-//   * require-beta-stamp.mjs post greps out/main/index.js for the resolved SHA,
+//     the main bundle (see src/main/buildStamp.ts). Vite's `define` is
+//     deliberately NOT used: it does not reach the SSR main bundle
+//     (buildStampGlobals.d.ts).
+//   * require-build-sha.mjs greps out/main/index.js for the resolved SHA,
 //     so a silent failure to inline fails the package instead of shipping a
 //     build that carries no provenance.
 //
