@@ -250,12 +250,10 @@ function installElectronStub(): void {
     onMenuEditRedo: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenSettings: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuOpenCheatsheet: vi.fn().mockReturnValue(noopUnsubscribe),
-    // Launch prototypes (#93 / #3 / #6) — menu subscribers fire on mount, so
+    // Launch prototypes (#93 / #6): menu subscribers fire on mount, so
     // they must return an unsubscribe; the invoke stubs are here for completeness.
-    // launchFlags is read SYNCHRONOUSLY during the first render (the activation
-    // gate's useState initializer + the onboarding auto-open effect + the
-    // LicensingDialog preview row), so it must be a plain object: a dev, non-e2e
-    // launch, which keeps the gate 'pass' and never fetches status.
+    // launchFlags is read during the first render (the onboarding auto-open
+    // effect), so it must be a plain object: a dev, non-e2e launch.
     launchFlags: { e2e: false, packaged: false },
     onMenuOpenOnboarding: vi.fn().mockReturnValue(noopUnsubscribe),
     // "Load sample project" (#93) — invoke stubs; never called on mount (the
@@ -264,29 +262,8 @@ function installElectronStub(): void {
     sampleInstall: vi.fn().mockResolvedValue(null),
     onMenuTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuRestartTutorial: vi.fn().mockReturnValue(noopUnsubscribe),
-    onMenuOpenLicensing: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuCheckUpdates: vi.fn().mockReturnValue(noopUnsubscribe),
     onUpdaterEvent: vi.fn().mockReturnValue(noopUnsubscribe),
-    getActivationStatus: vi.fn().mockResolvedValue({
-      verdict: {
-        state: 'unactivated',
-        blocked: true,
-        tier: null,
-        isTrial: false,
-        daysRemaining: null,
-        graceDaysRemaining: null,
-        expiresAtMs: null,
-        graceEndsAtMs: null,
-        reason: 'no licence',
-      },
-      deviceLabel: 'smoke-host',
-      keyMasked: null,
-      isTrial: false,
-    }),
-    activateLicence: vi.fn().mockResolvedValue({ ok: false, code: 'unknown_key', message: '' }),
-    startTrial: vi.fn().mockResolvedValue({ ok: false, code: 'already_trialled', message: '' }),
-    deactivateLicence: vi.fn().mockResolvedValue({ ok: false, code: 'unreachable', message: '' }),
-    previewActivationState: vi.fn().mockResolvedValue(undefined),
     checkForUpdates: vi.fn().mockResolvedValue(undefined),
     downloadUpdate: vi.fn().mockResolvedValue(undefined),
     quitAndInstallUpdate: vi.fn().mockResolvedValue(undefined),
@@ -363,29 +340,21 @@ describe('App (smoke)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  // Owner 2026-09-03 ("shouldn't i get a beta key screen before that?"): a
-  // PACKAGED build with a blocked verdict shows the licence start screen while
-  // the engine is deferred — never the "Starting StrixGeo API…" splash, which
-  // would wait forever for an engine that only starts after activation.
-  it('a packaged build with a blocked verdict shows the licence screen, not the starting splash', async () => {
-    type Status = { verdict: Record<string, unknown> }
-    type MockFn = { mockResolvedValue: (v: unknown) => void; mockReturnValue: (v: unknown) => void }
+  // Open source 2026-10-17: there is no licence step. A packaged build goes
+  // from the starting splash straight to the welcome screen.
+  it('a packaged build reaches the welcome screen with no licence step', async () => {
     const electron = window.electron as unknown as {
       launchFlags: { e2e: boolean; packaged: boolean }
-      getActivationStatus: (() => Promise<Status>) & MockFn
-      waitForApi: (() => Promise<boolean>) & MockFn
     }
     electron.launchFlags = { e2e: false, packaged: true }
-    const base = await electron.getActivationStatus()
-    electron.getActivationStatus.mockResolvedValue({
-      ...base,
-      verdict: { ...base.verdict, blocked: true, state: 'unactivated' },
-    })
-    // A deferred engine: readiness is never answered.
-    electron.waitForApi.mockReturnValue(new Promise(() => {}))
     render(<App />)
-    await waitFor(() => expect(screen.getByTestId('licensing-key-input')).toBeInTheDocument())
-    expect(screen.queryByTestId('app-loading')).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('welcome-screen')).toBeInTheDocument())
+    // Red-phase witness: the start screen that owned this id is deleted.
+    expect(screen.queryByTestId('licensing-key-input')).toBeNull()
+    // Narrow on purpose: an open-source welcome screen may name its licence
+    // (AGPL-3.0-or-later); only key entry or activation wording is forbidden.
+    expect(document.body.textContent).not.toMatch(/licen[cs]e key|activat/i)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
   it('mounts the loaded-project AppShell subtree without throwing (R1, debt #12)', async () => {
