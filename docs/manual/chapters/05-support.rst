@@ -44,20 +44,18 @@ Explorer, type ``%LOCALAPPDATA%\StrixGeo\logs`` in the address bar and
 attach the files there (the exact path is also printed at the top of each
 log).
 
-Beta keys and expiry
---------------------
+Updates
+-------
 
-Your licence key is personal and time-limited. It is stamped at first
-activation and the mail that carried it says for how long it runs. One key
-activates one machine; to move to another computer, deactivate on the first
-one (*Help > Licence & activation...*, Dutch: *Help > Licentie en
-activatie...*) and activate on the second.
+StrixGeo is free and open source: it needs no key and it does not expire.
+*Help > Check for updates...* (Dutch: *Help > Controleren op updates...*)
+installs the next release, and your projects open as before. A ``.strix``
+file written by any beta build opens in every later build.
 
-Every beta build carries an expiry date. Seven days before that date the app
-starts warning you at launch; use *Help > Check for updates...* (Dutch:
-*Help > Controleren op updates...*) and install the update, and your projects
-open as before. A ``.strix`` file written by any beta build opens in every
-later build.
+The setting *Check for updates at start* (Dutch: *Bij het starten
+controleren op updates*) controls the automatic check. It is on by default;
+when it is off the app makes no check by itself and the Help menu item keeps
+working.
 
 What the beta does not send
 ---------------------------
