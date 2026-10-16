@@ -35,7 +35,7 @@
 // WHAT IT NEVER FLAGS (the documented exclusion list)
 // ---------------------------------------------------
 //   * Files under excluded directories:
-//       - components/onboarding, components/licensing, components/updater
+//       - components/onboarding, components/updater
 //         (prototypes with their own ``launch`` catalogue — out of this slice)
 //       - i18n/ itself (the catalogues ARE the translations)
 //       - any *.test.tsx / *.test.ts / *.spec.* / __mocks__ / e2e test dirs
@@ -86,7 +86,6 @@ const RENDERER_ROOT = path.resolve(__dirname, '..', 'src', 'renderer', 'src')
  *  files are skipped entirely. */
 const EXCLUDED_DIR_PREFIXES = [
   'components/onboarding/',
-  'components/licensing/',
   'components/updater/',
   'i18n/',
 ]
