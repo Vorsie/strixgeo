@@ -224,11 +224,6 @@ export function buildMenuTemplate(deps: MenuTemplateDeps): MenuItemConstructorOp
         },
         { type: 'separator' },
         {
-          // Prototype licensing (#3). Opens the renderer LicensingDialog.
-          label: menuLabel('licenceActivation', language),
-          click: () => send('menu:open-licensing'),
-        },
-        {
           // Prototype updater (#6). Triggers a manual check.
           label: menuLabel('checkUpdates', language),
           click: () => send('menu:check-updates'),
