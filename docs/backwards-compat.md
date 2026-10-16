@@ -11,8 +11,8 @@
 > no upgrade chain") is over. **Floor = what #17 emits:** backend bundle
 > `format_version = 4` (`SUPPORTED_BUNDLE_VERSIONS = {3, 4}` in
 > `shared/bundle_format.py`), `.strix` `PROJECT_FILE_FORMAT_VERSION = 3`
-> (`desktop/src/renderer/src/utils/projectFile.ts`), activation store
-> `ACTIVATION_FORMAT_VERSION = 1`, Alembic head as of `develop` at #17.
+> (`desktop/src/renderer/src/utils/projectFile.ts`), Alembic head as of
+> `develop` at #17.
 >
 > From this floor forward every rule below is non-negotiable: a `.strix`
 > written by any beta build opens in every later build; schema and API
