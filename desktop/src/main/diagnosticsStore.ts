@@ -60,7 +60,7 @@ export interface DiagnosticsStoreConfig {
   appVersion: string
   /** ``process.platform``, stamped on every event. */
   platform: string
-  /** Beta build id, when this build carries a stamp. */
+  /** Build id (the git SHA), when this build carries provenance. */
   buildId?: string
 }
 
