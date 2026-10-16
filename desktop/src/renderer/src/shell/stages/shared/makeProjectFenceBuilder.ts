@@ -30,6 +30,7 @@ import type { FencePanel } from '../../../utils/fencePanels'
 import type { BedPolygon } from '../../../utils/bedPolygonMembership'
 import { resolveRegionBodyId } from '../../../components/sections/regionBodyId'
 import { log } from '../../../utils/log'
+import { throwIfProjectClosed } from '../../../utils/openProjectGuard'
 import { fetchApprovedEdgesBySection } from './fetchApprovedEdgesBySection'
 
 /** Inputs the fence assembly reads at press time (a superset shared with the
@@ -98,6 +99,11 @@ export async function buildProjectFencePanels(
     bedPolygons,
   } = params
   if (!projectId || !modelId || visibleSections.length === 0) return null
+  // Bound to the project it was started on: a project closed between two
+  // fetches throws ``ProjectClosedError`` (a silent stop for the caller) and
+  // sends nothing more for it (utils/openProjectGuard).
+  const what = `${logLabel} panels`
+  throwIfProjectClosed(projectId, what)
 
   // PLAIN approved edges — the fence render keeps resolver-suspended ties (unlike
   // the recompute), so the exported fence matches the painted one. A section
@@ -108,6 +114,7 @@ export async function buildProjectFencePanels(
     modelId,
     visibleSections,
   )
+  throwIfProjectClosed(projectId, what)
   if (failedSectionIds.length > 0) {
     log.warn(
       logLabel,
@@ -128,6 +135,7 @@ export async function buildProjectFencePanels(
   let frameSectionInputs: ReturnType<typeof assembleLithoSectionInputs> | undefined
   if (frameModelId && frameLayers !== undefined) {
     const frameEdges = await fetchApprovedEdgesBySection(projectId, frameModelId, visibleSections)
+    throwIfProjectClosed(projectId, what)
     if (frameEdges.failedSectionIds.length > 0) {
       log.warn(
         logLabel,
