@@ -257,6 +257,11 @@ The app uses a **staged-screen shell** (`shell/AppShell.tsx`):
   and optional inspector component, registered in `StageRegistry`.
 - Cross-stage state (active project, active geological model, active litho model, active
   section, selection) lives in `ShellContext` — read by any stage without prop-drilling.
+- **Nothing of a closed project runs after the switch.** `utils/openProjectGuard.ts` holds
+  the open project id (written synchronously by `useProject` on adopt / close); every save
+  and export continuation checks `isProjectClosed(id)` after each await and abandons with one
+  INFO line (walker seed 631210857, 2026-10-16). Model-scoped effects use the `modelOfProject`
+  guard of PR #90. A close never waits for an in-flight save: a dirty project prompts first.
 - `useGeologicalModel` is the primary model-mutation hook; it is instantiated once in
   `useShellContextValue` and shared via context.
 - The stage canvas slot is wrapped in a **per-stage `StageErrorBoundary`** (audit M5): a
