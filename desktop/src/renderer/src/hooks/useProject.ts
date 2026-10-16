@@ -82,6 +82,12 @@ import type {
   BundleCollectionCounts,
   EmptyCollectionFinding,
 } from '../utils/saveBundleGuard'
+import {
+  abandonIfProjectClosed,
+  isProjectClosed,
+  reportOpenProject,
+  resetOpenProjectGuard,
+} from '../utils/openProjectGuard'
 
 /**
  * Outcome of ``revertToLastSaved`` — four states that want four behaviours.
@@ -547,6 +553,17 @@ export function useProject(
     clearProjectScopedCaches()
   }, [project?.id])
 
+  // The open-project record every user action checks after an await ("once a
+  // project is closed, nothing of it runs any more", utils/openProjectGuard).
+  // ``adopt`` / ``closeProject`` / ``archiveCurrent`` report SYNCHRONOUSLY so a
+  // continuation that resumes before the next render already sees the change;
+  // this effect is the backstop for any other id change, and the unmount
+  // cleanup hands the record back to "untracked".
+  useEffect(() => {
+    reportOpenProject(project?.id ?? null)
+  }, [project?.id])
+  useEffect(() => () => resetOpenProjectGuard(), [])
+
   // Manifest: in-memory only. Seeded from the .gmproj bundle on open
   // and from the duplicate's bundle on saveAs; cleared on close /
   // archive. NOT persisted — a hard kill (Ctrl+C, crash) loses any
@@ -643,7 +660,9 @@ export function useProject(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const stored = storedRevisionFromStaleError(message)
-        if (stored !== null) {
+        // A refusal for a project that closed meanwhile must not hand its
+        // revision to the counter, which now belongs to the next project.
+        if (stored !== null && !isProjectClosed(projectId)) {
           // A 409 means another writer got ahead of this session's counter.
           // Adopt the server's number so the NEXT stage clears the guard
           // instead of colliding forever.
@@ -685,6 +704,7 @@ export function useProject(
   // and by saveProject after a successful commit.
   const adopt = useCallback(
     async (next: ProjectResponse, path: string): Promise<void> => {
+      reportOpenProject(next.id)
       setProject(next)
       setSaved(next)
       setFilePath(path)
@@ -1097,6 +1117,9 @@ export function useProject(
     async (projectId: string, anchor: string): Promise<boolean> => {
       try {
         await api.project.patchViewState(projectId, { [SAVE_ANCHOR_KEY]: anchor })
+        // The ref and the two state slots now belong to whatever project is
+        // open; a stamp for a project that closed meanwhile must not land on it.
+        if (isProjectClosed(projectId)) return false
         dbAnchorRef.current = anchor
         // Truthiness, not ``=== null``: a project slot can also hold
         // ``undefined`` (an API wrapper that resolved nothing), and this
@@ -1241,6 +1264,18 @@ export function useProject(
   // from the engineer entirely.
   const saveProject = useCallback(async (): Promise<boolean> => {
     if (project === null || filePath === null) return false
+    // A save is bound to the project it was requested for. Once that project
+    // is closed (menu close, Save-As switch, archive) nothing of it runs any
+    // more: every await below is followed by this checkpoint, so a save still
+    // in flight at the close sends no further request and touches none of the
+    // state slots, which by then belong to the next project. The close does NOT
+    // wait for the save: a close never hangs on the network, and a clean close
+    // with a save in flight has nothing unsaved (a dirty project raises the
+    // prompt, whose own Save is awaited before the close).
+    const savedProjectId = project.id
+    const abandoned = (): boolean =>
+      abandonIfProjectClosed(savedProjectId, 'project', `save of ${project.name}`)
+    if (abandoned()) return false
     // Cleared up front so a failure BEFORE the file write (the metadata
     // PATCH) can never leave the previous save's ``true`` standing.
     fileWriteSucceededRef.current = false
@@ -1256,6 +1291,7 @@ export function useProject(
       if (dirty) {
         const patch = fullPatchFrom(project)
         const updated = await api.project.update(project.id, patch)
+        if (abandoned()) return false
         setProject(updated)
         setSaved(updated)
       }
@@ -1268,6 +1304,7 @@ export function useProject(
         // write never landed": in both of those the row's token has moved
         // on and the file's has not.
         await writeSaveAnchor(project.id, mintSaveAnchor())
+        if (abandoned()) return false
         // Fetch the full bundle (metadata + every CPT/series + every
         // borehole tree + every interpretation row) and write it to
         // disk. The file is the user's anchor — re-opening it after a
@@ -1276,6 +1313,7 @@ export function useProject(
         // encoding cost (potentially MB for big projects) is
         // acceptable, even when nothing has changed since last save.
         const fetched = await api.project.bundle(project.id)
+        if (abandoned()) return false
         // Pre-write data-loss guard (debt #225): a collection that came back
         // empty while the model holds rows is re-fetched once; if it heals we
         // write the healed bundle, otherwise we ASK before overwriting. ``null``
@@ -1284,6 +1322,7 @@ export function useProject(
         // recovery clear keeps the still-homeless delta (``fileWriteSucceeded``
         // is already ``false`` from the top of this function).
         const bundle = await guardEmptyBundle(fetched, project.id)
+        if (abandoned()) return false
         if (bundle === null) {
           return false
         }
@@ -1365,6 +1404,9 @@ export function useProject(
           // the caller must pass it explicitly (see buildProjectFile docstring).
           serialiseProjectFile(buildProjectFile(trimmedBundle, currentLumping)),
         )
+        // The file now holds this save; what follows (the in-memory slots, the
+        // lumping re-stage and promote) is bookkeeping for the OPEN project.
+        if (abandoned()) return false
         // Align savedLumping with the written snapshot so the dirty flag
         // clears.  Done INSIDE the inner try so a file-write failure leaves
         // savedLumping unchanged (the project stays dirty for retry).
@@ -1396,6 +1438,7 @@ export function useProject(
         const stagedSlotIsCurrent =
           repairRevision === null ||
           (await stageToDatabase(project.id, currentLumping, repairRevision))
+        if (abandoned()) return false
         // Mirror that alignment into the database. Gated on the file write
         // for the same reason savedLumping is — a save that never reached
         // disk is not a save.
@@ -1426,6 +1469,7 @@ export function useProject(
         )
         return false
       }
+      if (abandoned()) return false
       log.success('project', `saved ${project.name}`)
       return true
     } catch (err) {
@@ -1745,6 +1789,7 @@ export function useProject(
     } catch (err) {
       log.error('project', 'archive failed', err)
     }
+    reportOpenProject(null)
     setProject(null)
     setSaved(null)
     setFilePath(null)
@@ -1752,6 +1797,9 @@ export function useProject(
   }, [project])
 
   const closeProject = useCallback((): void => {
+    // First, so every action of this project still awaiting something stops
+    // at its next checkpoint (a save, an export, a build).
+    reportOpenProject(null)
     setProject(null)
     setSaved(null)
     setFilePath(null)
