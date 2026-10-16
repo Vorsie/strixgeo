@@ -10,6 +10,7 @@
  * names below -- traceable to the brief.
  */
 
+import { describeProcess, formatLifetime, type ProcRow } from './processTree'
 import type { BadResponse } from './walkerTypes'
 
 /** One invariant violation at a step -- a row in the findings report. */
@@ -229,19 +230,51 @@ export function checkResponsiveness(ms: number, step: number): Finding[] {
   return []
 }
 
+/** What the close observation knew about the survivors. */
+export interface SurvivorContext {
+  /** The process snapshot taken just BEFORE the close (names the survivors). */
+  readonly snapshot: readonly ProcRow[]
+  /** Per pid, ms from the close to the poll that first saw it gone. */
+  readonly exitedAfterMs?: ReadonlyMap<number, number>
+  /** The observation window; when set, every survivor carries its lifetime. */
+  readonly observedForMs?: number
+}
+
+/**
+ * Name each survivor for a finding or a trail note.
+ *
+ * @param survivorPids - The pids to name.
+ * @param ctx - The pre-close snapshot plus, optionally, the observed lifetimes.
+ * @returns One {@link describeProcess} string per pid, comma-joined.
+ */
+export function describeSurvivors(survivorPids: readonly number[], ctx: SurvivorContext): string {
+  return survivorPids
+    .map(pid => {
+      const lifetime =
+        ctx.observedForMs === undefined ? undefined : formatLifetime(ctx.exitedAfterMs?.get(pid), ctx.observedForMs)
+      return describeProcess(pid, ctx.snapshot, lifetime)
+    })
+    .join(', ')
+}
+
 /**
  * After the final close, no Electron helper or ``groundmodel`` engine survives.
  *
+ * The finding threshold stays 5 s; a longer observation only reports when each
+ * survivor exited. A bare pid is undiagnosable once the process is gone, so
+ * each survivor is named from the pre-close snapshot.
+ *
  * @param survivorPids - Watched pids still alive 5 s after the close.
  * @param step - The step index (the closing pseudo-step) to stamp.
+ * @param ctx - The pre-close snapshot and the observed lifetimes.
  */
-export function checkSurvivors(survivorPids: readonly number[], step: number): Finding[] {
+export function checkSurvivors(survivorPids: readonly number[], step: number, ctx: SurvivorContext): Finding[] {
   if (survivorPids.length === 0) return []
   return [
     {
       step,
       invariant: 'lingering-process',
-      detail: `pids still alive 5 s after close: ${survivorPids.join(', ')}`,
+      detail: `pids still alive 5 s after close: ${describeSurvivors(survivorPids, ctx)}`,
     },
   ]
 }
