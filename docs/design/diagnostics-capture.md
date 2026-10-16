@@ -7,9 +7,9 @@ Current state. Load before touching anything under `desktop/src/main/diagnostics
 file in the user's own app directory is not telemetry — it is what makes "it
 crashed on my machine" answerable. Sending it anywhere is a separate, deliberate
 act, gated on a consent flag that defaults to NO. When the user has opted in AND
-an activation endpoint is configured, the redacted log is uploaded to the
-strixgeo.com origin (owner ruling 2026-08-31: "diagnostics go to the same server"
-as activation); otherwise nothing leaves the machine.
+an endpoint is configured in the `STRIXGEO_DIAGNOSTICS_URL` setting, the redacted
+log is uploaded to that endpoint; otherwise nothing leaves the machine. There is
+no default endpoint.
 
 ---
 
@@ -25,7 +25,6 @@ Every capture site, and nothing else:
 | 4 | `webContents.on('unresponsive')` | `index.ts` | `renderer-unresponsive` | renderer stopped answering |
 | 5 | `ipcMain.handle('app:log-renderer-error')` | `index.ts` | `renderer-error` | covers **three** renderer paths that already routed here: `window.onerror`, `unhandledrejection`, and `ErrorBoundary.componentDidCatch` |
 | 6 | `request()` on `status >= 500` | `api/clients/shared.ts` | `api-error` | a backend 5xx — the one failure only the client witnesses |
-| 7 | packaged build with no expiry stamp | `index.ts` → `enforceBetaExpiry` | `unknown` (warning) | a release cut without the build-time stamp |
 
 **Not captured** (deliberate): 4xx responses (the app refusing something is the
 app working), `log.warn`/`log.info` lines, user actions, timings, feature usage,
@@ -110,15 +109,15 @@ anything.
 
 ## Transmission — the disk-queued uploader
 
-`diagnosticsUploader.ts` is the transmit half. It runs once at launch (after the
-activation setup, wired in `index.ts`) and then, only while its queue is
+`diagnosticsUploader.ts` is the transmit half. It runs once at launch (wired in
+`index.ts`) and then, only while its queue is
 non-empty, on a backing-off interval. Two gates, checked before anything else; a
 no-op unless BOTH open:
 
 1. **Consent** — `consent.json`, default NO, every damaged-file case reads as NO.
-2. **An endpoint** — the activation base URL (`activationConfig.ts`, the SAME
-   origin as activation per the owner ruling). The mock/dogfeed default has none,
-   so the uploader is inert there — nothing is queued and nothing is sent.
+2. **An endpoint**: the `STRIXGEO_DIAGNOSTICS_URL` setting, read by
+   `diagnosticsEndpoint.ts`. Unset or blank is the default, and then the uploader
+   is inert: nothing is queued and nothing is sent.
 
 ### What it does when both gates open
 
@@ -130,26 +129,25 @@ no-op unless BOTH open:
 * **Queue on disk, bounded.** One file per bundle, oldest-first, at most 20; a
   21st evicts the oldest. Durable across restarts.
 * **Drain oldest-first.** Each bundle is POSTed over the SAME fetch/timeout
-  transport the activation client uses (`httpPostJson.ts`, extracted from the
-  activation client so there is one copy). A 2xx removes the bundle; a 4xx (or an
+  transport (`httpPostJson.ts`). A 2xx removes the bundle; a 4xx (or an
   unreadable file) drops it — a bundle the server refuses can never be accepted,
   so keeping it would wedge the queue; a 5xx or a network failure keeps it and
   stops the pass, to retry after an exponential backoff.
 * **Logs every attempt** at INFO with the status + byte size, and at WARNING what
   was dropped and why.
 
-The contract the server must implement is
-[activation-api-contract.md](activation-api-contract.md) §`POST /v1/diagnostics`.
+The endpoint receives `POST <STRIXGEO_DIAGNOSTICS_URL>/v1/diagnostics` with the
+JSON payload built by `diagnosticsPayload.ts`; that module is the contract.
 
 ### Identity — an open owner decision
 
-The payload CAN carry the device's licence key + device id, but **the client
-omits them today.** The record whitelist above states, and its tests pin, that a
-diagnostics record carries no device id and no session id; attaching identity to
-the upload reverses that shipped invariant. It is gated behind one flag —
-`ATTACH_ACTIVATION_IDENTITY_TO_DIAGNOSTICS`, default off in
+The payload CAN carry the device id, but **the client omits it today.** The
+record whitelist above states, and its tests pin, that a diagnostics record
+carries no device id and no session id; attaching identity to the upload reverses
+that shipped invariant. It is gated behind one flag,
+`ATTACH_DEVICE_ID_TO_DIAGNOSTICS`, default off in
 `diagnosticsUploaderConstants.ts`. Flip it in the same change that records the
-owner's ruling, and identity is attached only when an activation licence exists.
+owner's ruling.
 
 ### Still not built (owner)
 
@@ -158,8 +156,8 @@ owner's ruling, and identity is attached only when an activation licence exists.
   the app, so the uploader stays inert in practice even where an endpoint is
   configured — the toggle is the remaining client piece before transmission is
   usable.
-* **The server.** `POST /v1/diagnostics` is specified; the strixgeo.com endpoint
-  that answers it is not built (same MySQL host as activation, owner ruling).
+* **The server.** No endpoint that answers `POST /v1/diagnostics` is built or
+  shipped; whoever sets `STRIXGEO_DIAGNOSTICS_URL` provides it.
 * **Cross-session dedup is best-effort.** The high-water marker stops the same
   events being queued twice; a bundle already queued but not yet uploaded, plus a
   `bundleId` collision, are the server's to dedup — the client does not hash
