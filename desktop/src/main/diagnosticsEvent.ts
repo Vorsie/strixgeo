@@ -89,7 +89,7 @@ export interface DiagnosticEvent {
   appVersion: string
   /** ``process.platform``, stamped by the main process. */
   platform: string
-  /** Beta build id, when this build carries a stamp. */
+  /** Build id (the git SHA), when this build carries provenance. */
   buildId?: string
 }
 
@@ -99,7 +99,7 @@ export interface DiagnosticContext {
   appVersion: string
   /** ``process.platform``. */
   platform: string
-  /** Beta build id, when stamped. */
+  /** Build id (the git SHA), when present. */
   buildId?: string
   /** Timestamp override — tests pin it; production leaves it unset. */
   nowIso?: string
