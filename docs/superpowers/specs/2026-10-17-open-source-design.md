@@ -18,6 +18,7 @@ StrixGeo becomes a free, open-source project. Nobody pays, nothing is gated, and
 | Repository | One public repo: Vorsie/Strix renamed to `strixgeo`, releases and updater feed inside it; strixgeo-releases bridges one release, then is archived. |
 | Sequence | Approach 1: 0.1.6 ships from the current draft first; then `feat/open-source` lands as PRs on develop; then the flip and 0.2.0 on one day. |
 | Site | strixgeo-site (Astro, Combell) updated on flip day (section 5). |
+| Funding | GitHub Sponsors on the owner's account (decision 2026-10-17). `.github/FUNDING.yml`, a "Support the project" block in the README and on the site, a "Thanks" list of sponsors by name. No logo tiers at the start (keeps the income on the gift side for Belgian tax; the owner asks an accountant before the first firm wants an invoice). |
 
 ## 1. Licence and legal
 
@@ -49,6 +50,7 @@ Stays:
 - `CODE_OF_CONDUCT.md`: Contributor Covenant 2.1, the owner's e-mail as contact.
 - `SECURITY.md`: private reports through GitHub security advisories.
 - `.github/ISSUE_TEMPLATE/bug_report.md`, `feature_request.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `CODEOWNERS` (the owner on everything). Templates as agreed on 2026-10-17: PR = summary, what the tests prove, checklist (conventional title, tests first and seen red, docs and both i18n catalogues, no design calculation, sign-off, local gates); bug report = description, steps, environment (version, Windows, data source), log, acceptance criteria; feature request = description, acceptance criteria, notes. Labels: type, layer, stage, `good first issue`.
+- `.github/FUNDING.yml` with `github: [Vorsie]` (shows the Sponsor button once the owner's Sponsors profile is approved). README gets a "Support the project" section: one paragraph, the Sponsor link, the "Thanks" list.
 - `CHANGELOG.md` in Keep a Changelog format, seeded from the 0.1.0 to 0.1.6 release notes in English.
 - `docs/` stays; CLAUDE.md stays tracked; `CLAUDE.local.md` stays gitignored.
 
@@ -69,7 +71,7 @@ Branch rules on `develop` and `main`: PR required (self-merge allowed), all five
 - 0.1.6 publishes from the current draft after the owner's test.
 - `feat/open-source` lands on develop as PRs, each gated by the CI it introduces.
 - Flip day: rename Vorsie/Strix to `strixgeo`, set public, enable branch rules, bump 0.2.0, release chain (walker 0 findings; no natives gate), publish 0.2.0 in the repo and once in strixgeo-releases (installed 0.1.x builds read that feed), updater config points at the main repo from 0.2.0 on, archive strixgeo-releases after 0.2.1. Dutch release notes: no licence key, the app opens directly, the source is public.
-- Site (`strixgeo-site`, Astro, SSH deploy to Combell), deployed on flip day: `download.astro` loses the key-by-mail form and gets the GitHub release button, the build-from-source link and the licence line; `index.astro` loses the paid-plan wording and gains "free and open source, AGPL-3.0, source on GitHub"; `beta-eula.astro` and `terms.astro` become the AGPL text plus short terms (no warranty); `privacy.astro` drops the activation-server processing and keeps the consent-based diagnostics paragraph; Nav and Footer get the GitHub link.
+- Site (`strixgeo-site`, Astro, SSH deploy to Combell), deployed on flip day: `download.astro` loses the key-by-mail form and gets the GitHub release button, the build-from-source link and the licence line; `index.astro` loses the paid-plan wording and gains "free and open source, AGPL-3.0, source on GitHub"; `beta-eula.astro` and `terms.astro` become the AGPL text plus short terms (no warranty); `privacy.astro` drops the activation-server processing and keeps the consent-based diagnostics paragraph; Nav and Footer get the GitHub link and a "Support the project" link to GitHub Sponsors.
 - CLAUDE.md "Commercial Direction", the pricing block in CLAUDE.local.md and the memory files on the paid model are rewritten to "free and open source, AGPL-3.0-or-later".
 
 ## Testing the change itself
