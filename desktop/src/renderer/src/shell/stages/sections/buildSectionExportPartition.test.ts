@@ -15,10 +15,15 @@
 // This module reuses ``makeVoxelRequestBuilder`` — the very assembly the 3-D
 // build posts — scoped to one section, so the two cannot disagree.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildSectionExportPartition } from './buildSectionExportPartition'
 import { makeLithoLayer } from './__fixtures__/lithoLayer'
+import {
+  ProjectClosedError,
+  reportOpenProject,
+  resetOpenProjectGuard,
+} from '../../../utils/openProjectGuard'
 
 const listContactCorrelations = vi.fn()
 
@@ -171,5 +176,45 @@ describe('buildSectionExportPartition — SEP4: the geotech axis exports the fra
       ['proj-1', 'geotech-model-1', 'sec-open'],
       ['proj-1', 'litho-model-1', 'sec-open'],
     ])
+  })
+})
+
+describe('buildSectionExportPartition: SEP5, nothing of a closed project runs', () => {
+  // "Once a project is closed, nothing of it runs any more" (owner, PR #90; deep
+  // walker 2026-10-16 seed 631210857: the geotech export's LITHO frame
+  // correlations were fetched for the closed worked example after the next
+  // project was open). The assembly checks its project before every request.
+  afterEach(() => {
+    resetOpenProjectGuard()
+  })
+
+  it("a partition build of A's section sends no further request once B is open", async () => {
+    reportOpenProject('proj-1')
+    let releaseOwn!: () => void
+    listContactCorrelations.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          releaseOwn = () => resolve([])
+        }),
+    )
+
+    const running = buildSectionExportPartition(
+      params({ modelId: 'geotech-model-1', frameModelId: 'litho-model-1', frameLayers: LAYERS }),
+    )
+    await vi.waitFor(() => expect(listContactCorrelations).toHaveBeenCalledTimes(1))
+    reportOpenProject('proj-2')
+    releaseOwn()
+
+    await expect(running).rejects.toBeInstanceOf(ProjectClosedError)
+    // The frame's correlations are never fetched for the closed project.
+    expect(listContactCorrelations.mock.calls).toEqual([
+      ['proj-1', 'geotech-model-1', 'sec-open'],
+    ])
+  })
+
+  it('sends nothing at all when the project is already closed', async () => {
+    reportOpenProject('proj-2')
+    await expect(buildSectionExportPartition(params())).rejects.toBeInstanceOf(ProjectClosedError)
+    expect(listContactCorrelations).not.toHaveBeenCalled()
   })
 })
