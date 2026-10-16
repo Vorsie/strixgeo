@@ -39,6 +39,7 @@ import { isApiStatus } from '../api/clients/shared'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import type { UndoCommand } from './useUndoStack'
 import { log } from '../utils/log'
+import { abandonIfProjectClosed } from '../utils/openProjectGuard'
 import { t } from '../i18n/translate'
 import { toggleBoreholeExclusion } from './boreholeExclusionToggle'
 
@@ -514,7 +515,11 @@ export function useGeologicalModelOps({
         log.debug('geology', 'exportPlaxis3d cancelled at save dialog')
         return
       }
+      // Bound to the project it was started on (utils/openProjectGuard): closed
+      // while the dialog was up or the bytes were on their way, it stops.
+      if (abandonIfProjectClosed(projectId, 'geology', 'exportPlaxis3d')) return
       const bytes = await api.geology.exportPlaxis3d(projectId, modelId)
+      if (abandonIfProjectClosed(projectId, 'geology', 'exportPlaxis3d')) return
       await window.electron.writeExportFile(dialogPath, bytes)
       log.success(
         'geology',
