@@ -12,7 +12,7 @@
  *   finished download, so the next start can offer "Install and restart" for it
  *   without a new download (see ``updaterPolicy.shouldResumePendingDownload``).
  *
- * Same injection pattern as ``betaExpiryStore.ts``: no ``import 'electron'``,
+ * Same injection pattern as ``recoveryStore.ts``: no ``import 'electron'``,
  * so vitest exercises it; ``index.ts`` calls
  * {@link configureUpdaterPreferenceStore} once at startup.
  */
