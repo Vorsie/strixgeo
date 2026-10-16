@@ -1,13 +1,12 @@
 /**
  * One-shot JSON POST with a timeout that never throws (Electron main process).
  *
- * Extracted from {@link ./httpActivationRepository}'s private ``send`` when the
- * diagnostics uploader (debt #16) became a second caller of the same
- * fetch + AbortController-timeout + parse-or-null plumbing. One copy, one set of
- * behaviours: a finished round-trip carries its status and parsed body; any
- * thrown error — a DNS/connection failure, or the ``AbortError`` the timeout
- * raises — collapses to a single ``network-failure`` sentinel the caller can
- * branch on without a try/catch of its own.
+ * The diagnostics uploader's (debt #16) fetch + AbortController-timeout +
+ * parse-or-null plumbing, kept in its own module. One set of behaviours: a
+ * finished round-trip carries its status and parsed body; any thrown error (a
+ * DNS/connection failure, or the ``AbortError`` the timeout raises) collapses
+ * to a single ``network-failure`` sentinel the caller can branch on without a
+ * try/catch of its own.
  *
  * It imports only the Electron-main global ``fetch`` (injectable for tests), so
  * it stays unit-testable under ``src/main/**`` with no Electron import.
