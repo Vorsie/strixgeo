@@ -63,7 +63,6 @@ def test_the_sampler_returns_the_bed_inside_and_the_dem_outside() -> None:
 
 def test_the_bed_fills_in_where_the_dem_has_no_data() -> None:
     """Inside the polygon the bed applies even over a DEM hole (water NoData)."""
-    sampler = ground_sampler_with_bed(_flat_dem(2.0), [_CANAL])
 
     def dem_hole(x: float, y: float) -> float | None:
         return None
