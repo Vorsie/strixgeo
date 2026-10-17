@@ -29,6 +29,7 @@ from uuid import UUID
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -105,7 +106,7 @@ class ConfirmCorrelationEdgeReview(GroundModelLogger):
             stmt = stmt.where(LithoContactCorrelationEdgeOrm.id == edge_id)
 
         result = await self._session.execute(stmt)
-        confirmed = int(result.rowcount or 0)
+        confirmed = int(dml_rowcount(result) or 0)
         await self._session.commit()
 
         self.success(
