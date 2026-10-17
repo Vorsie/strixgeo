@@ -279,10 +279,10 @@ class GeologyValidator(GroundModelLogger):
                 # Catches crossings where younger has no vertex over
                 # older's footprint but older has one over younger's.
                 for vx, vy, vz_o in older.surface.vertices:
-                    vz_y = evaluate_tin_at(younger.surface, vx, vy)
-                    if vz_y is None:
+                    vz_y_tin = evaluate_tin_at(younger.surface, vx, vy)
+                    if vz_y_tin is None:
                         continue
-                    delta = vz_o - vz_y
+                    delta = vz_o - vz_y_tin
                     if delta > self.CROSSING_TOLERANCE_M:
                         if delta > worst_delta:
                             worst_delta = delta
