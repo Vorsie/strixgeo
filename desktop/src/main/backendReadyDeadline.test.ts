@@ -1,6 +1,6 @@
 // Rule (owner, installer #5 on 2026-09-03): a packaged first launch may take
-// well over 30 s to bring the engine up (compiled modules loading from a fresh
-// install under Defender, the DOV parse pool, Postgres already running), and
+// well over 30 s to bring the engine up (the backend source and its native
+// dependencies load from a freshly installed tree under Defender, the DOV parse pool, Postgres already running), and
 // the app must keep waiting instead of declaring the engine dead at 30 s. Dev
 // restarts stay snappy.
 import { describe, expect, it } from 'vitest'
