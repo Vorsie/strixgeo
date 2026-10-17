@@ -38,6 +38,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Add ``elevation_source`` to cpt and borehole, backfill it, then make it NOT NULL."""
     # Add the column nullable first so we can backfill existing rows
     # before flipping to NOT NULL. New rows from this point on stamp
     # an explicit value via the ORM defaults.
@@ -75,5 +76,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop ``elevation_source`` from cpt and borehole."""
     for table in ("cpt", "borehole"):
         op.drop_column(table, "elevation_source")
