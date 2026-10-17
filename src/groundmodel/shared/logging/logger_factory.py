@@ -1,4 +1,5 @@
 """Logger factory — configures Python logging once and vends GroundModelLogger."""
+
 import logging
 
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -26,7 +27,9 @@ class LoggerFactory:
             level = TRACE  # fall back to TRACE if the value in .env is invalid
 
         logging.basicConfig(
-            format="%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s",
+            format=(
+                "%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
+            ),
             level=level,
         )
         cls._handlers_configured = True
