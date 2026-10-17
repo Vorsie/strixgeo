@@ -12,7 +12,7 @@
 //   3. (release only) Version is new — package.json `version` is strictly newer
 //      than the latest PUBLISHED version. "Published" means what an installed
 //      client can actually be offered: the GitHub releases feed of
-//      Vorsie/strixgeo-releases (read-only, via `gh`) when reachable, else the
+//      Vorsie/strixgeo (read-only, via `gh`) when reachable, else the
 //      `v<semver>` git tags on the source repo. A local `dist/latest.yml` is
 //      NEVER a source — every `npm run dist` rewrites it, and reading it as
 //      "published" refused the first real release while the feed was empty
