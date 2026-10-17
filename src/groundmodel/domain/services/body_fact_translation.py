@@ -83,8 +83,8 @@ def plan_geometry_facts(
         for group in groups:
             for other in group[1:]:
                 union(group[0], other)
-    for group in cross_section_layer_groups:
-        members = list(group)
+    for cross_group in cross_section_layer_groups:
+        members = list(cross_group)
         for other in members[1:]:
             union(members[0], other)
 
