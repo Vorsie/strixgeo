@@ -4,6 +4,7 @@ StrixGeo builds and manages the unified subsurface dataset of a project: CPT, bo
 
 ![CI](https://github.com/Vorsie/strixgeo/actions/workflows/ci.yml/badge.svg)
 ![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)
+![Latest release](https://img.shields.io/github/v/release/Vorsie/strixgeo)
 
 ## Download
 
@@ -51,7 +52,7 @@ The Python engine has four layers with dependencies in one direction: API (FastA
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). In short: write the failing test first, and sign off every commit (DCO, `git commit -s`).
+Read [CONTRIBUTING.md](CONTRIBUTING.md). In short: write the failing test first, and sign off every commit (DCO, `git commit -s`). For questions, see [SUPPORT.md](SUPPORT.md) and ask in [GitHub Discussions](https://github.com/Vorsie/strixgeo/discussions).
 
 ## Support the project
 
@@ -64,6 +65,8 @@ Sponsors are listed here by name.
 ## Licence
 
 StrixGeo is licensed under the GNU Affero General Public License, version 3 or any later version (AGPL-3.0-or-later). See [LICENSE](LICENSE) for the text and [NOTICE](NOTICE) for the bundled third-party components and their licences.
+
+Cite StrixGeo with the [CITATION.cff](CITATION.cff) file (GitHub shows a Cite this repository button).
 
 The StrixGeo name and logo are a trademark of the copyright holder and are not covered by the licence. A modified distribution must use another name.
 
