@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
+from typing import TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
@@ -138,7 +139,7 @@ async def build_formal_informal_bridge(
                     formal_layer.base_m,
                 )
                 continue
-            informal_desc = (counterpart.description or "").strip()  # type: ignore[union-attr]
+            informal_desc = (counterpart.description or "").strip()
             if not informal_desc:
                 continue
 
@@ -626,11 +627,15 @@ def _find_observation(
     return preferred_track(observations, kind.value)
 
 
+# The candidate layer type, so a caller gets back the type it passed in.
+_LayerT = TypeVar("_LayerT")
+
+
 def _best_overlap(
     top_m: float,
     base_m: float,
-    candidates: Iterable[object],
-) -> object | None:
+    candidates: Iterable[_LayerT],
+) -> _LayerT | None:
     """Return the candidate layer with the largest depth-interval overlap.
 
     Used to pair a primary-stream layer with its counterpart in the other
@@ -638,11 +643,11 @@ def _best_overlap(
     ``max(0, min(b1, b2) - max(t1, t2))``.  Returns ``None`` when no
     candidate overlaps at all.
 
-    Type-erased to ``object`` because callers pass ``ObservationLayerOrm``
-    rows via structural typing (``top_m`` / ``base_m`` / ``description``
-    attributes); a typed signature would require a circular import.
+    Generic over the candidate type: callers pass ``ObservationLayerOrm``
+    rows and read ``top_m`` / ``base_m`` here by name, so naming the ORM
+    class in this signature would require a circular import.
     """
-    best: object | None = None
+    best: _LayerT | None = None
     best_overlap_len = 0.0
     for cand in candidates:
         cand_top = float(getattr(cand, "top_m"))
