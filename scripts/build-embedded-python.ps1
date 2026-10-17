@@ -21,16 +21,10 @@
 # test suite runs against. The cost is size, not correctness - and correctness
 # in someone else's hands is what this milestone is about.
 #
-# Most of the backend ships as SOURCE for the same reason: identical to dev,
-# and it keeps alembic + the codelist data files resolving exactly as they do
-# under pytest. The EXCEPTION is the engine + parsers (owner ruling 2026-08-31:
-# the codebase must not leak from a shipped binary). Right after the backend is
-# copied, compile-backend-natives.ps1 translates the modules listed in
-# native_compile_manifest.py to native .pyd IN THE STAGED COPY and deletes their
-# .py; two behavioural gates then EXECUTE the compiled artifacts (the smoke gate
-# below + verify-staged-natives.ps1) - hashes prove nothing on this box. The API,
-# repositories and application layer stay source. See docs/distribution-build.md.
-# Broader tamper hardening (anti-debug, the flag debugger surface) is debt #5.
+# The whole backend ships as plain Python SOURCE for the same reason: identical
+# to dev, and it keeps alembic + the codelist data files resolving exactly as
+# they do under pytest. StrixGeo is open source, so nothing is compiled to hide
+# it. See docs/distribution-build.md.
 #
 # The dev workflow is untouched: the repo .venv remains what a dev session
 # uses. Nothing here runs unless you run it.
@@ -145,8 +139,8 @@ function Test-PythonManifest {
     # (naming the offending file) under $ErrorActionPreference='Stop', so the
     # owner re-stages with -Force. A MISSING manifest (a tree staged by an older
     # script, before this check existed) is NOT a corruption signal, so warn and
-    # write a baseline rather than force a 25-minute rebuild; the import check +
-    # native gate still run this build as they always do.
+    # write a baseline rather than force a 25-minute rebuild; the import check
+    # still runs this build as it always does.
     if (-not (Test-Path $PythonManifest)) {
         Write-Warning "[embedded-python] no SHA-256 manifest at $PythonManifest (tree predates this check) - writing a baseline; future reuses are verified"
         Write-PythonManifest
@@ -233,8 +227,6 @@ $previousExportPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
     # --no-dev: pytest / mypy / ruff / faker are ~70 MB the app never imports.
-    #   It also drops the `compile` group (Nuitka) - a non-default group export
-    #   never emits, so the compile toolchain cannot leak into what ships.
     # --no-emit-project: groundmodel itself ships as source, below.
     # --frozen: export the COMMITTED uv.lock verbatim and error if it is stale,
     #   so a shipped build can never resolve dependencies that differ from the
@@ -303,16 +295,6 @@ foreach ($file in $CodelistDataDropFiles) {
     }
 }
 
-# Compile the engine + parsers to native .pyd in the staged copy (owner ruling
-# 2026-08-31: the codebase must not leak from a shipped binary). This replaces
-# the listed modules' .py with a compiled .pyd IN THE STAGED TREE ONLY - the
-# repo src/ is never touched. Runs after the backend copy (so it operates on the
-# fresh copy) and before the bytecode drop (which then clears the orphaned .pyc
-# left when a compiled module's .py is deleted). The driver throws on any
-# failure, which halts this build under $ErrorActionPreference = 'Stop'.
-Write-Step 'compiling the engine + parsers to native .pyd'
-& (Join-Path $PSScriptRoot 'compile-backend-natives.ps1') -StagedBackendSrc (Join-Path $BackendTarget 'src')
-
 Write-Step 'dropping compiled bytecode'
 # Bytecode compiled against the developer's absolute paths; regenerated on the
 # target machine on first import. The interpreter tree is only swept when it
@@ -332,74 +314,66 @@ $exe = Join-Path $PythonTarget 'python.exe'
 # and it must surface here rather than on a tester's machine.
 $check = @'
 import importlib
+import importlib.util
 import os
+import pkgutil
 import sys
 
 staged_src = sys.argv[1]
-scripts_dir = sys.argv[2]
 sys.path.insert(0, staged_src)
-sys.path.insert(0, scripts_dir)
 
-import asyncpg, polars, numba, scipy, pyproj, shapely, alembic, fastapi, geoalchemy2
+import asyncpg, polars, numba, scipy, pyproj, shapely, alembic, fastapi, geoalchemy2, pymupdf
 import groundmodel
 from groundmodel.api.serve import build_config
 
-# The native-compilation contract: every manifest module must load as a Nuitka
-# .pyd in THIS relocated interpreter, and its .py source must be gone from the
-# staged tree. Nuitka rewrites __file__/__spec__.origin back to the source path
-# for tracebacks, so __file__ is a FALSE witness here - the only trustworthy
-# proof is the __compiled__ marker plus the nuitka_module_loader loader.
-from native_compile_manifest import COMPILED_MODULES
+# Import EVERY backend module: the app imports some families lazily (the PDF
+# digitiser modules load only on first use), so importing the app alone would
+# let a module with a missing module-level dependency ship and fail on a
+# tester's machine.
+modules = [m.name for m in pkgutil.walk_packages(groundmodel.__path__, "groundmodel.")]
+for name in modules:
+    importlib.import_module(name)
 
-for name in COMPILED_MODULES:
-    mod = importlib.import_module(name)
-    assert getattr(mod, "__compiled__", None) is not None, f"{name} is not Nuitka-compiled"
-    assert type(mod.__loader__).__name__ == "nuitka_module_loader", (
-        f"{name} loader={type(mod.__loader__).__name__}, expected nuitka_module_loader"
-    )
-    rel = name.replace(".", os.sep)
-    assert not os.path.exists(os.path.join(staged_src, rel + ".py")), (
-        f"source .py survived compilation: {name}"
-    )
-    assert os.path.exists(os.path.join(staged_src, rel + ".cp311-win_amd64.pyd")), (
-        f"missing .pyd for {name}"
-    )
+# The OCR engines (the pdf-ocr extra) are imported lazily INSIDE functions, so
+# the walk above never loads their native DLLs. Import them explicitly, but only
+# when they are staged: a vector-only build (export without the extra) must pass.
+ocr_modules = ("cv2", "rapidocr_onnxruntime")
+ocr_staged = all(importlib.util.find_spec(name) is not None for name in ocr_modules)
+if ocr_staged:
+    for name in ocr_modules:
+        importlib.import_module(name)
 
-# greedy_mesh is the deliberate source carve-out (numba @njit(cache=True) needs
-# its .py + __code__); it must import WITHOUT __compiled__ and keep its .py.
+# The numba hotspot (greedy_mesh, @njit(cache=True) needs its .py) must import
+# from the staged tree, not from the repo. A plain assert is stripped under -O.
 import groundmodel.domain.services.voxel_litho.greedy_mesh as gm
-assert getattr(gm, "__compiled__", None) is None, "greedy_mesh must ship as SOURCE"
-assert os.path.exists(
-    os.path.join(staged_src, "groundmodel", "domain", "services", "voxel_litho", "greedy_mesh.py")
-), "greedy_mesh.py must be present in the staged tree"
+gm_path = os.path.normcase(os.path.abspath(gm.__file__))
+staged_root = os.path.normcase(os.path.abspath(staged_src))
+if os.path.commonpath([gm_path, staged_root]) != staged_root:
+    raise SystemExit(f"greedy_mesh loaded from {gm.__file__}, not the staged tree")
 
-print("ok", sys.version.split()[0], "compiled", len(COMPILED_MODULES), "modules")
+print("ok", sys.version.split()[0], "imported", len(modules), "modules")
+print("ocr:", "present" if ocr_staged else "absent")
 '@
 # The import check is run with a throwaway SECRET_KEY: settings are constructed
 # at import time and would otherwise emit a RuntimeWarning about the default
 # key, which is noise here (the real key is generated per install at runtime).
 $env:SECRET_KEY = 'build-time-import-check-only'
+# No bytecode from the check: it runs AFTER the bytecode sweep above, so any
+# __pycache__ it wrote would ship (compiled against this machine's paths).
+$env:PYTHONDONTWRITEBYTECODE = '1'
 # 'Continue' around the native call: under 'Stop', PowerShell 5.1 turns ANY
 # stderr output from a native executable into a terminating error, so a single
 # warning line would fail the build. The exit code below is the real gate.
 $previousPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $check | & $exe - (Join-Path $BackendTarget 'src') $PSScriptRoot
+    $check | & $exe - (Join-Path $BackendTarget 'src')
 } finally {
     $ErrorActionPreference = $previousPreference
     Remove-Item Env:\SECRET_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:\PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue
 }
 if ($LASTEXITCODE -ne 0) { throw "the staged runtime failed its import check" }
-
-# Behavioural native gate: import + RUN the compiled .pyd through the real unit
-# suites (byte-identity pin, njit tripwire, NAD classifier, DOV/GEF parsers).
-# Hashes prove nothing on this box - it has shipped bytes-hashed-correct .pyd
-# with poisoned image sections - so the artifacts must be EXECUTED. Throws (and
-# thus kills the build) if any compiled module deviates from its source.
-Write-Step 'running the behavioural native gate'
-& (Join-Path $PSScriptRoot 'verify-staged-natives.ps1') `
-    -StagedBackendSrc (Join-Path $BackendTarget 'src') -StagedPython $exe
 
 $pySize = (Get-ChildItem -Recurse -File $PythonTarget | Measure-Object -Property Length -Sum).Sum
 $beSize = (Get-ChildItem -Recurse -File $BackendTarget | Measure-Object -Property Length -Sum).Sum
