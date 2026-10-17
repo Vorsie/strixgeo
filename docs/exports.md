@@ -132,16 +132,15 @@ D-Stability (below); when a soil is parameterised, line 3 of the
 parameters-at-defaults TODO — a `.shi` `[SOIL]` block has no per-soil
 free-text field, so that block is the only place the provenance can go.
 
-### NAD soil parameters — filled 2026-09-02 from the owner's workbook
+### NAD soil parameters, transcribed from NBN EN 1997-1 ANB Tabel 2.1
 
 Both D-Series exporters carry **NAD characteristic soil parameters** (unit
 weight γ, effective φ′, effective c′) per packing class, keyed by NAD class
 1–31. The values live in `domain/services/nad_soil_parameters_constants.py`
 (`NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters]`) and are transcribed by
-the owner from the private workbook **"Correlaties uit S en NAD_NEN_v2.xlsx"**
-(NBN EN 1997-1 ANB Tabel 2.1). **The dict ships EMPTY** — Strix never invents a norm
-value — and the plumbing is wired so that filling the dict is the only
-remaining step: `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
+the owner from NBN EN 1997-1 ANB Tabel 2.1 (the Belgian national annex),
+cross-checked against the printed table (see docs/reference/nad_reference_manifest.json). **The dict is filled for classes 1 to 31**; Strix never invents a norm
+value the annex does not print. The lookup `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
 returns a class's parameters or `None`, and each exporter writes them into the
 GEOLib `Soil` when present.
 
