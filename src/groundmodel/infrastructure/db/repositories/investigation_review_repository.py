@@ -176,29 +176,28 @@ class InvestigationReviewRepository(GroundModelLogger):
         else:
             final_reviewed_at = None
 
-        stmt = (
-            pg_insert(InvestigationReviewOrm)
-            .values(
-                id=row.id if row is not None else uuid7(),
-                app_project_id=app_project_id,
-                target_kind=target_kind,
-                target_id=target_id,
-                review_status=final_status,
-                review_notes=final_notes,
-                is_hidden=final_hidden,
-                reviewed_at=final_reviewed_at,
-            )
-            .returning(InvestigationReviewOrm)
+        # ``.returning()`` is chained LAST: its stub returns the generic
+        # ``ReturningInsert``, which hides the PostgreSQL ``on_conflict_do_update``
+        # and ``excluded`` from mypy. The compiled SQL is the same either way.
+        insert_stmt = pg_insert(InvestigationReviewOrm).values(
+            id=row.id if row is not None else uuid7(),
+            app_project_id=app_project_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            review_status=final_status,
+            review_notes=final_notes,
+            is_hidden=final_hidden,
+            reviewed_at=final_reviewed_at,
         )
-        stmt = stmt.on_conflict_do_update(
+        stmt = insert_stmt.on_conflict_do_update(
             index_elements=["target_kind", "target_id"],
             set_={
-                "review_status": stmt.excluded.review_status,
-                "review_notes": stmt.excluded.review_notes,
-                "is_hidden": stmt.excluded.is_hidden,
-                "reviewed_at": stmt.excluded.reviewed_at,
+                "review_status": insert_stmt.excluded.review_status,
+                "review_notes": insert_stmt.excluded.review_notes,
+                "is_hidden": insert_stmt.excluded.is_hidden,
+                "reviewed_at": insert_stmt.excluded.reviewed_at,
             },
-        )
+        ).returning(InvestigationReviewOrm)
         # ``populate_existing=True`` refreshes any identity-mapped
         # instance from the RETURNING row. Without it, the pre-read
         # ``row`` (loaded at line 121) stays in the identity map with
