@@ -6,13 +6,6 @@ at the top of a class/function file).  They were extracted verbatim from
 ``divide_boreholes.py`` in the KonMari DB-S1 slice; ``divide_boreholes.py``
 re-imports :data:`_DEPTH_TOL_M` for its own class code and re-exports the public
 names, so every existing importer keeps resolving unchanged.
-
-Notes
------
-Like its sibling ``geotech_band_edit_constants``, this module holds data-token
-declarations with no algorithmic IP and ships as plain source (it is not listed
-in ``scripts/native_compile_manifest.py``); the algorithm module
-``band_planning`` is the one compiled to ``.pyd``.
 """
 
 _DEPTH_TOL_M = 0.001
