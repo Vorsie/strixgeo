@@ -17,6 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Add the nullable ``rf_source`` and ``qt_source`` columns to ``cpt_series``."""
     # Provenance flags for rf_pct and qt_mpa: "measured" (from source) vs
     # "computed" (derived by our parser). Nullable: legacy rows have unknown
     # provenance and frontend code must handle the NULL case gracefully.
@@ -25,5 +26,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the ``qt_source`` and ``rf_source`` columns."""
     op.drop_column("cpt_series", "qt_source")
     op.drop_column("cpt_series", "rf_source")
