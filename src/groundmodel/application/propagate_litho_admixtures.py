@@ -16,7 +16,9 @@ so the update is applied to the seed alone (valid — single-unit bulk edit).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -82,7 +84,7 @@ class PropagateLithoAdmixtures(GroundModelLogger):
         project_id: UUID,
         model_id: UUID,
         seed_formation_id: UUID,
-        admixtures: list[dict],
+        admixtures: list[dict[str, Any]],
     ) -> PropagateAdmixturesResult:
         """Update admixtures for every formation in the seed's connected component.
 
@@ -94,7 +96,7 @@ class PropagateLithoAdmixtures(GroundModelLogger):
             The lithostratigraphic model whose edge graph is traversed.
         seed_formation_id : UUID
             Any formation in the target correlated body; BFS expands from it.
-        admixtures : list[dict]
+        admixtures : list[dict[str, Any]]
             List of ``{"soil_code": str, "amount": str, "locally": bool}``
             dicts to write.  An empty list clears all admixtures on the body.
 
@@ -161,8 +163,13 @@ class PropagateLithoAdmixtures(GroundModelLogger):
         contacts_stmt = select(FormationContactOrm.id, FormationContactOrm.formation_id).where(
             FormationContactOrm.model_id == model_id
         )
+        # Each Row is a (contact_id, formation_id) pair; the cast only states that
+        # for mypy, which cannot see a Row as the 2-tuple ``dict`` unpacks.
         formation_by_contact: dict[UUID, UUID] = dict(
-            (await self._session.execute(contacts_stmt)).all()
+            cast(
+                "Sequence[tuple[UUID, UUID]]",
+                (await self._session.execute(contacts_stmt)).all(),
+            )
         )
 
         # Derive formation-to-formation CorrelationEdge objects, skipping
