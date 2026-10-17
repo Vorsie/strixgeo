@@ -1,6 +1,9 @@
 """Unit tests for ``aligned_same_class_pairs`` — geotech packing-edge pairing via LCS."""
 
-from groundmodel.domain.services.geotech_packing_edges import aligned_same_class_pairs
+from groundmodel.domain.services.geotech_packing_edges import (
+    aligned_same_class_pairs,
+    shadowed_below_lens,
+)
 
 # ---------------------------------------------------------------------------
 # Back-compat: identical sequences still connect 1-to-1
@@ -214,8 +217,7 @@ def test_forced_top_pairs_cross_class_tops():
     pairs = aligned_pairs_with_forced_top(left, right)
     assert pairs[0] == ("L23", "R22"), "tops pair cross-class - the restatement"
     assert ("L23", "R23") not in pairs, (
-        "the left top must not ALSO pair with the deeper class-match - "
-        "one band, one partner"
+        "the left top must not ALSO pair with the deeper class-match - one band, one partner"
     )
 
 
@@ -329,8 +331,6 @@ def test_interior_pairs_stay_monotone_when_candidates_cross():
 # and below the lens have the same packing density and litho?"*  The merge
 # step unifies that silt around the lens anyway, so the extra proposal is
 # noise he has to delete — and it fans from a contact that is already tied.
-
-from groundmodel.domain.services.geotech_packing_edges import shadowed_below_lens
 
 
 def _frac(layer_id: str, cls: int | None, top: float, base: float):
