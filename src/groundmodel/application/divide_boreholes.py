@@ -230,6 +230,7 @@ from groundmodel.domain.services.nad_classifier import (
     soil_family_of,
 )
 from groundmodel.domain.services.voxel_litho.voxel_types import SectionPartitionInput
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -2571,9 +2572,9 @@ class DivideBoreholes(GeotechBoreholeMaterialiser):
             delete_conditions.append(LithoLayerOrm.borehole_id.in_(borehole_ids))
         if skipped_bh:
             delete_conditions.append(LithoLayerOrm.borehole_id.not_in(skipped_bh))
-        deleted = (
+        deleted = dml_rowcount(
             await self._session.execute(delete(LithoLayerOrm).where(*delete_conditions))
-        ).rowcount
+        )
         self.info(f"DivideBoreholes: deleted {deleted} prior borehole geotech layer(s)")
 
         # Phase 8 (write half) — transcribe the plan into rows, in plan order.
