@@ -71,6 +71,9 @@ def _do_run_migrations(connection):  # type: ignore[no-untyped-def]
 
 async def _run_async_migrations() -> None:
     url = config.get_main_option("sqlalchemy.url")
+    if url is None:
+        # alembic.ini or DATABASE_URL sets it; without one there is nothing to connect to.
+        raise RuntimeError("alembic: sqlalchemy.url is not configured")
     engine = create_async_engine(url)
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)
