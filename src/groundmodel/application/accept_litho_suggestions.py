@@ -641,6 +641,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
         if cpt_id is not None:
             await load_scoped_or_raise(self._session, CptOrm, cpt_id, project_id, label="CPT")
         else:
+            # execute() refuses neither / both before calling this, so the else
+            # arm always carries a borehole id.
+            assert borehole_id is not None
             await load_scoped_or_raise(
                 self._session, BoreholeOrm, borehole_id, project_id, label="Borehole"
             )
