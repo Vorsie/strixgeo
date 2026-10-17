@@ -6,7 +6,6 @@ Create Date: 2026-06-08 15:15:49.934380
 
 """
 
-import geoalchemy2
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
