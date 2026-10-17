@@ -1,4 +1,4 @@
-"""ORM model for BodyBoundaryNode — replaces LithoLensBoundaryNodeOrm (#body-with-extent 2026-05-31).
+"""ORM model for BodyBoundaryNode (replaces LithoLensBoundaryNodeOrm, #body-with-extent).
 
 One control node along a body's upper or lower boundary polyline.
 Unique constraint ``(shape_id, boundary, node_index)`` ensures stable
