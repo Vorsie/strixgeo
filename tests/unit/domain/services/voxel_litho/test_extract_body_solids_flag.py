@@ -26,7 +26,6 @@ invariant surfaces as a regression.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from groundmodel.domain.services.voxel_litho.extract_body_solids import extract_body_solids
 from groundmodel.domain.services.voxel_litho.voxel_types import LabelGrid
