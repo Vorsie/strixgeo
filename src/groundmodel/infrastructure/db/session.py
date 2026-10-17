@@ -1,11 +1,15 @@
 """Async database engine and session factory."""
 
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from groundmodel.infrastructure.db.session_constants import DB_SERVER_SETTINGS
 from groundmodel.shared.config import settings
+
+if TYPE_CHECKING:
+    from groundmodel.application.synchronous_queue import SynchronousQueue
 
 # echo is gated on the dedicated `sqlalchemy_echo` flag, NOT `debug`: SQLAlchemy
 # echo prints every statement together with the engine DSN, leaking the DB
@@ -29,7 +33,7 @@ engine = create_async_engine(
 AsyncSessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
 
-def get_queue():
+def get_queue() -> "SynchronousQueue":
     """Return a ``SynchronousQueue`` wired to the module-level session factory.
 
     Imported lazily to avoid a circular import between session ↔ queue.
