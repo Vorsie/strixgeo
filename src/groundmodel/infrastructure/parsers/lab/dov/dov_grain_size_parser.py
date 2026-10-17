@@ -24,22 +24,23 @@ Schema (verified live 2026-05-08, real example permkey ``2022-2618228``)
         </geobserveerd_object>
         <diepte_van>18.000</diepte_van>                           # = depth from / top
         <diepte_tot>19.000</diepte_tot>                           # = depth to / base
-        <parameter>Korrelverdeling d.m.v. zeefproef</parameter>   # = "grain-size distribution by sieve test"
+        <parameter>Korrelverdeling d.m.v. zeefproef</parameter>   # = "grain-size by sieve test"
         <parametergroep>Onderkenningsproeven-korrelverdeling </parametergroep>
-                                                                  # = "identification tests - grain distribution"
+        # = "identification tests - grain size"
         <waarde_meetreeks>                                        # = value-series
           <meetpuntparameter>Diameter</meetpuntparameter>         # = measurement-point parameter
           <meetpuntparameter_eenheid>mm</meetpuntparameter_eenheid>
           <meetwaardeparameter>Fractie met grotere diameter</meetwaardeparameter>
-                                                                  # = "fraction with larger diameter"
+                                                                  # = "fraction coarser than d"
           <meetwaardeparameter_eenheid>%</meetwaardeparameter_eenheid>
           <meetreekswaarde>                                       # = series-value-row
-            <meetwaarde_numeriek>95.0</meetwaarde_numeriek>       # measurement value (% larger), counter-intuitive XML order
+            <meetwaarde_numeriek>95.0</meetwaarde_numeriek>       # measurement value (% larger),
+                                                                  # listed first: XML order inverted
             <meetpunt_numeriek>0.063</meetpunt_numeriek>          # measurement point (diameter mm)
           </meetreekswaarde>
           ...
         </waarde_meetreeks>
-        <methode>Zeving</methode>                                 # = "sieving" — source-vocabulary method
+        <methode>Zeving</methode>                                 # = "sieving" (source vocabulary)
         <fenomeentijd>2002-11-26</fenomeentijd>                   # = phenomenon time / test date
         <herkomst>LABO</herkomst>                                  # = origin (LABO = laboratory)
         <uitvoerder>                                              # = executor / lab
