@@ -1,4 +1,7 @@
-"""CPT interpretation benchmarks — run with: uv run pytest tests/benchmarks/ --benchmark-enable -v"""
+"""CPT interpretation benchmarks.
+
+Run with: uv run pytest tests/benchmarks/ --benchmark-enable -v
+"""
 
 from __future__ import annotations
 
@@ -25,9 +28,9 @@ def _make_series(n: int) -> tuple[list[float], list[float], list[float]]:
 
 
 # Pre-build series once — construction cost excluded from timing.
-_D100,  _QC100,  _FS100  = _make_series(100)
-_D1K,   _QC1K,   _FS1K   = _make_series(1_000)
-_D10K,  _QC10K,  _FS10K  = _make_series(10_000)
+_D100, _QC100, _FS100 = _make_series(100)
+_D1K, _QC1K, _FS1K = _make_series(1_000)
+_D10K, _QC10K, _FS10K = _make_series(10_000)
 _D100K, _QC100K, _FS100K = _make_series(100_000)
 
 # ---------------------------------------------------------------------------
