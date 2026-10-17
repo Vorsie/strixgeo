@@ -22,7 +22,6 @@ from __future__ import annotations
 from groundmodel.domain.services.voxel_litho.true_column_positions import (
     apply_true_column_positions,
 )
-
 from groundmodel.domain.services.voxel_litho.voxel_types import (
     InvestigationColumn,
     RegionInput,
