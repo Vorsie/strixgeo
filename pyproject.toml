@@ -7,6 +7,7 @@ name = "groundmodel"
 version = "0.1.0"
 description = "Ground model platform for geotechnical data: CPT / borehole / lab ingestion, characterisation, and exports to design tools"
 requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
 dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
