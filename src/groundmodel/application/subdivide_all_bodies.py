@@ -190,6 +190,7 @@ from groundmodel.domain.services.geotech_body_aggregation import (
     plan_body_subdivision,
 )
 from groundmodel.domain.services.geotech_subdivision import (
+    GeotechSplit,
     suggest_geotech_subdivision,
 )
 from groundmodel.domain.services.litho_body_pick import BodyLayerPick
@@ -325,7 +326,7 @@ class SubdivideAllBodiesResult:
 
 
 def _mm_clamped_intervals(
-    splits: list,
+    splits: list[GeotechSplit],
     geo_top_m: float,
     geo_base_m: float,
 ) -> tuple[list[tuple[float, float]], list[int | None]]:
@@ -346,7 +347,7 @@ def _mm_clamped_intervals(
 
     Parameters
     ----------
-    splits : list
+    splits : list[GeotechSplit]
         The segment's ``GeotechSplit``s, mm-rounded, tiling the segment.
     geo_top_m, geo_base_m : float
         The geo-bounded extent, raw.
