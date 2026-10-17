@@ -145,6 +145,10 @@ ignore = ["D105", "D107"]
 # making the rule unfixable means auto-fix can't surprise-delete them.
 unfixable = ["F401"]
 
+[tool.ruff.lint.per-file-ignores]
+# A test's name is its documentation (numpy docstrings are required in src only).
+"tests/**" = ["D1"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
