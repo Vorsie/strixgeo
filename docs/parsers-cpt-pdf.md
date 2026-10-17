@@ -2,9 +2,8 @@
 
 Reads the CPT graphs of a contractor's test report (proefverslag) back into
 depth series, so a campaign that was only delivered as a PDF can be imported
-like a GEF. Package: `infrastructure/parsers/cpt/pdf/` (compiled to `.pyd` in
-the installer like every parser module). Load before touching the digitiser,
-the `/cpt/pdf/*` routes or the import dialog.
+like a GEF. Package: `infrastructure/parsers/cpt/pdf/`. Load before touching
+the digitiser, the `/cpt/pdf/*` routes or the import dialog.
 
 ## Pipeline
 
