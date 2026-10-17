@@ -47,7 +47,7 @@ import math
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import Row, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -287,7 +287,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
         # The target polyline comes from the geological (parent) model. When
         # either parent pointer is None the geometry cannot be computed and
         # all absences fall to the skip path.
-        target_contact_rows: list = []
+        target_contact_rows: list[Row[tuple[UUID | None, UUID | None, float]]] = []
         if parent_model_id is not None and parent_formation_id is not None:
             target_contacts_stmt = select(
                 FormationContactOrm.borehole_id,
@@ -310,18 +310,18 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # Collect all investigation ids we need to geocode.
         all_inv_ids: set[UUID] = set()
-        for row in absence_rows:
-            all_inv_ids.add(row.investigation_id)
-        for row in pinching_contact_rows:
-            if row.borehole_id is not None:
-                all_inv_ids.add(row.borehole_id)
-            elif row.cpt_id is not None:
-                all_inv_ids.add(row.cpt_id)
-        for row in target_contact_rows:
-            if row.borehole_id is not None:
-                all_inv_ids.add(row.borehole_id)
-            elif row.cpt_id is not None:
-                all_inv_ids.add(row.cpt_id)
+        for absence_row in absence_rows:
+            all_inv_ids.add(absence_row.investigation_id)
+        for pinching_row in pinching_contact_rows:
+            if pinching_row.borehole_id is not None:
+                all_inv_ids.add(pinching_row.borehole_id)
+            elif pinching_row.cpt_id is not None:
+                all_inv_ids.add(pinching_row.cpt_id)
+        for target_row in target_contact_rows:
+            if target_row.borehole_id is not None:
+                all_inv_ids.add(target_row.borehole_id)
+            elif target_row.cpt_id is not None:
+                all_inv_ids.add(target_row.cpt_id)
 
         inv_xy: dict[UUID, tuple[float, float]] = {}
         inv_elevation: dict[UUID, float | None] = {}
@@ -410,8 +410,12 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
             # 7b. Build pinching polyline for this section.                    #
             # ---------------------------------------------------------------- #
             pinching_pts: list[tuple[float, float]] = []
-            for row in pinching_contact_rows:
-                inv_id = row.borehole_id if row.borehole_id is not None else row.cpt_id
+            for pinching_row in pinching_contact_rows:
+                inv_id = (
+                    pinching_row.borehole_id
+                    if pinching_row.borehole_id is not None
+                    else pinching_row.cpt_id
+                )
                 if inv_id is None:
                     continue
                 xy = inv_xy.get(inv_id)
@@ -424,7 +428,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                 ground = inv_elevation.get(inv_id)
                 if ground is None:
                     continue
-                elevation_m = ground - row.depth_top_m
+                elevation_m = ground - pinching_row.depth_top_m
                 pinching_pts.append((proj.along, elevation_m))
 
             # Sort ascending by along_m (required by compute_lens_pinch_tip).
@@ -434,8 +438,12 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
             # 7c. Build target polyline for this section.                      #
             # ---------------------------------------------------------------- #
             target_pts: list[tuple[float, float]] = []
-            for row in target_contact_rows:
-                inv_id = row.borehole_id if row.borehole_id is not None else row.cpt_id
+            for target_row in target_contact_rows:
+                inv_id = (
+                    target_row.borehole_id
+                    if target_row.borehole_id is not None
+                    else target_row.cpt_id
+                )
                 if inv_id is None:
                     continue
                 xy = inv_xy.get(inv_id)
@@ -447,7 +455,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                 ground = inv_elevation.get(inv_id)
                 if ground is None:
                     continue
-                elevation_m = ground - row.depth_top_m
+                elevation_m = ground - target_row.depth_top_m
                 target_pts.append((proj.along, elevation_m))
 
             target_pts.sort(key=lambda p: p[0])
@@ -640,7 +648,7 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                     pinching_polyline=pinching_pts,
                     target_polyline=target_pts,
                     absent_along_m=absent_along_m,
-                    direction=direction,  # type: ignore[arg-type]
+                    direction=direction,
                 )
                 break
             except LensPinchGeometryError as exc:
