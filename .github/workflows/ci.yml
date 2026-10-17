@@ -1,47 +1,49 @@
-# Strix CI — runs the same fast gate the local pre-commit hook
-# enforces, but on the GitHub side so the gate survives anyone
-# committing with ``--no-verify``. Mirrors the pre-commit hook's
-# strategy: skip-when-irrelevant + fail-fast on the cheap signal.
+# Strix CI: runs the same gates the local git hooks enforce, but on the
+# GitHub side so they survive anyone committing with ``--no-verify`` and
+# so every outside pull request is checked before review.
 #
-# Why a workflow this small for a solo dev: the moment a second
-# contributor (or a paid customer running off ``main``) lands,
-# the safety net has to live somewhere other than the author's
-# laptop. See debt #6 in CLAUDE.md "Known Architectural Debt".
+# Five jobs, one per required check of the open-source design. Their
+# ``name:`` values are the branch-protection required contexts and are
+# quoted verbatim in CONTRIBUTING.md; rename them in all three places
+# together or the protection rule waits for a check that never reports.
+#   * **lint-types** (Ruff + mypy): ruff check, ruff format --check, and
+#     mypy as an informational step until its pre-existing errors are
+#     cleared.
+#   * **python-unit** (Python unit tests): Python 3.11 + uv, ``pytest
+#     tests/unit``.
+#   * **desktop** (Desktop eslint-reason + tsc + tests): Node 22 LTS
+#     (pinned per the Node 22 constraint), the eslint-reason script, tsc
+#     on all three tsconfigs, Vitest.
+#   * **integration** (Integration tests (PostGIS service)): the
+#     integration suite against a PostGIS service container. This is the
+#     CI twin of scripts/run-integration-tests.ps1: migrate the
+#     ``groundmodel_integration`` DB to head, then pytest. Tests that need
+#     the gitignored ``data/cpt/`` or real PDF reports skip themselves,
+#     and the DOV live tests skip when DOV is unreachable.
+#   * **dco** (DCO sign-off): pull requests only; every commit of the PR
+#     must carry a Signed-off-by trailer.
 #
-# Two parallel jobs:
-#   * **python** — Python 3.11 + uv. Runs ``pytest tests/unit``.
-#   * **desktop** — Node 22 LTS (pinned per debt-resolved Node 22
-#     constraint). Runs ``npx tsc --noEmit`` + ``npm test``.
-#
-# Integration tests (``tests/integration/``) are skipped here —
-# they need a live Postgres + PostGIS stack which adds complexity
-# we don't yet need. Promote when the desktop side is ready for
-# end-to-end smoke runs.
-#
-# Trigger policy (revised 2026-09-22 — owner: "go ahead", at 90 % of the
+# Trigger policy (revised 2026-09-22, owner: "go ahead", at 90 % of the
 # month's Actions minutes after a day of ~30 runs):
 #   * ``push: [main]`` only. Since the branch model (2026-09-16) every
 #     landing on develop is a rebase-merged PR whose content the
 #     ``pull_request`` run already checked; the develop push re-ran the
 #     same gate on the same tree (~35 job-minutes per landing, ~40 % of
 #     the month). main still runs on push because a release is a
-#     fast-forward of develop, not a PR. The 2026-08-27 re-arm of the
-#     develop push predates the branch model; STRIX_BATCH landings are
-#     covered by the PR run of the very same commits.
-#   * ``pull_request`` — the unconditional review gate (no paths-ignore
+#     fast-forward of develop, not a PR. STRIX_BATCH landings are covered
+#     by the PR run of the very same commits.
+#   * ``pull_request``: the unconditional review gate (no paths-ignore
 #     so a PR is always fully checked).
-#   * ``workflow_dispatch`` — manual on-demand full run on any branch
+#   * ``workflow_dispatch``: manual on-demand full run on any branch
 #     (e.g. before a coworker handoff).
-#   * ``schedule`` — a weekly server-side run so develop is verified even
+#   * ``schedule``: a weekly server-side run so develop is verified even
 #     in a quiet week with no push (production-readiness audit 2026-09-02,
-#     L10: desktop-only pushes skip integration and STRIX_BATCH skips the
-#     per-commit tests, so a gap can otherwise leave develop unchecked by
-#     CI). A scheduled run's workflow file is read from the repository's
+#     L10). A scheduled run's workflow file is read from the repository's
 #     DEFAULT branch (main, which trails develop), so the checkout step
-#     pins ``ref: develop`` for scheduled runs only — the weekly run then
+#     pins ``ref: develop`` for scheduled runs only; the weekly run then
 #     verifies the branch we actually push to. Push/PR runs keep the ref
 #     that triggered them.
-#   * ``paths-ignore`` on push — docs/markdown-only pushes don't spin
+#   * ``paths-ignore`` on push: docs/markdown-only pushes don't spin
 #     the matrix.
 
 name: CI
@@ -67,7 +69,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python:
+  lint-types:
+    name: Ruff + mypy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
+        with:
+          # Scheduled runs check develop; push/PR runs use the triggering ref
+          # (the python-unit job carries the full reason).
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3 (SHA-pinned, #219)
+        with:
+          version: "0.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Ruff check
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: mypy (informational until the 151 pre-existing errors are cleared)
+        # continue-on-error keeps the job green while the backlog stands; the
+        # errors still print in the log. Drop this line when mypy is clean.
+        continue-on-error: true
+        run: uv run mypy src
+
+  python-unit:
     name: Python unit tests
     runs-on: ubuntu-latest
     # The suite is ~80 s locally; 25 min is generous head-room. The cap exists
@@ -149,10 +187,12 @@ jobs:
         # Explicit -p flags are load-bearing (debt #63, mirrored from the
         # pre-commit hook): the root tsconfig.json has empty ``files`` +
         # project ``references``, so a bare ``tsc --noEmit`` silently checks
-        # NOTHING — which is what this step had been doing since it was added.
+        # NOTHING. All three projects run: renderer (web), main + preload
+        # (node), and the Playwright specs (e2e).
         run: |
           npx tsc --noEmit -p tsconfig.web.json
           npx tsc --noEmit -p tsconfig.node.json
+          npx tsc --noEmit -p tsconfig.e2e.json
 
       - name: Run unit tests
         working-directory: desktop
@@ -166,3 +206,86 @@ jobs:
         working-directory: desktop
         continue-on-error: true
         run: npm audit --audit-level=high
+
+  integration:
+    name: Integration tests (PostGIS service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      db:
+        # Same digest-pinned image as docker-compose.yml (#219). The image's
+        # init script creates the postgis extension in POSTGRES_DB, which is
+        # what the local bootstrap in docs/testing-integration.md does by hand.
+        image: postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+        env:
+          POSTGRES_USER: groundmodel
+          POSTGRES_PASSWORD: groundmodel
+          POSTGRES_DB: groundmodel_integration
+        ports:
+          # Host port 5433 as in docker-compose.yml: the migration-parity test
+          # (tests/integration/db/test_migration_upgrade_from_empty.py) dials
+          # 127.0.0.1:5433 directly and skips when nothing answers there.
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U groundmodel -d groundmodel_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # The integration conftest refuses any DB whose name does not end in
+      # _integration or _test, and alembic's env.py honours DATABASE_URL.
+      DATABASE_URL: postgresql+asyncpg://groundmodel:groundmodel@127.0.0.1:5433/groundmodel_integration
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
+        with:
+          # Scheduled runs check develop; push/PR runs use the triggering ref
+          # (the python-unit job carries the full reason).
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3 (SHA-pinned, #219)
+        with:
+          version: "0.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Create the maintenance database
+        # The migration-parity test issues CREATE/DROP DATABASE for its
+        # scratch DB over a connection to the ``groundmodel`` DB, which
+        # exists locally as the dev DB. In CI it is an empty placeholder;
+        # no test reads or writes a table in it.
+        env:
+          PGPASSWORD: groundmodel
+        run: psql -h 127.0.0.1 -p 5433 -U groundmodel -d groundmodel_integration -c "CREATE DATABASE groundmodel"
+
+      - name: Migrate the integration database
+        run: uv run alembic upgrade head
+
+      - name: Run integration tests
+        # Same faulthandler reasoning as the unit job; 300 s per test because
+        # the migration-parity test runs a full alembic upgrade in a
+        # subprocess.
+        run: uv run pytest tests/integration -q -o faulthandler_timeout=300
+
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
+        with:
+          # Full history so both ends of base..head resolve.
+          fetch-depth: 0
+
+      - name: Every commit of the PR carries Signed-off-by
+        # Only the PR's own commits (base.sha..head.sha), never the whole
+        # history: the commits made before the repository went public carry
+        # no sign-off and must never fail this check.
+        run: bash scripts/check_dco.sh "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
