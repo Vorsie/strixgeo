@@ -1,4 +1,5 @@
 """Job lifecycle state enumeration."""
+
 from enum import Enum
 
 
