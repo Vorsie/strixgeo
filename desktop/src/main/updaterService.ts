@@ -24,7 +24,7 @@
  * download-progress relay, the quit-and-install call, and — once a draft release
  * is published — the GitHub Releases feed. The feed is configured through
  * ``electron-builder``'s ``publish`` block in ``package.json`` (provider github,
- * Vorsie/strixgeo-releases), which generates the ``app-update.yml``
+ * Vorsie/strixgeo), which generates the ``app-update.yml``
  * ``electron-updater`` reads; no ``setFeedURL`` call is needed. Until a release
  * is PUBLISHED (``releaseType: draft`` keeps new builds invisible until a human
  * clicks Publish), a packaged check resolves to ``not-available`` / ``error``.
@@ -267,7 +267,7 @@ export function checkForUpdates(manual: boolean): void {
     return
   }
   // The feed comes from electron-builder's `publish` block (app-update.yml).
-  // Until a draft release is PUBLISHED on Vorsie/strixgeo-releases, this
+  // Until a draft release is PUBLISHED on Vorsie/strixgeo, this
   // resolves to `not-available` / `error`.
   // A feed with no published release (draft-only, as the closed beta ships)
   // rejects; that is a warning for the log, never an unhandled rejection.
