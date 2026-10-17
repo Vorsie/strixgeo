@@ -12,7 +12,7 @@ Releases up to 0.1.6 were closed-beta builds; their notes are translated from th
 
 ### Changed
 
-- The DCO check skips Dependabot PRs.
+- The DCO check skips Dependabot PRs. Dependabot version updates run monthly, grouped per ecosystem, minor and patch only; a major update is a planned upgrade by hand.
 - Security updates of Python and npm dependencies (anyio, starlette, urllib3, pillow, idna, h2, python-multipart, ...; vitest, undici, tar, dompurify, js-yaml, ...). CI now installs uv 0.13.1, the version that writes the lockfile.
 
 ## [0.2.0] - 2026-10-17
