@@ -8,11 +8,14 @@ Phase A2 of borehole imports — adds the four child tables that depend on
 the ``borehole`` foundation from migration f5c1b8e74a90.
 
 Schema:
-* observation        FK → borehole, observation_type discriminator + author/date/quality metadata.
-* observation_layer  FK → observation, top/base + colour + main_soil_codes ARRAY + description + layer_index.
+* observation        FK → borehole, observation_type discriminator + author/date/quality
+                     metadata.
+* observation_layer  FK → observation, top/base + colour + main_soil_codes ARRAY +
+                     description + layer_index.
 * admixture          FK → observation_layer, soil_code + amount + locally — separate table so we can
                      query "find layers with glauconite" via the index.
-* sample             FK → borehole, top/base + sample metadata; lab tests will FK to sample in Phase A3.
+* sample             FK → borehole, top/base + sample metadata; lab tests will FK to sample
+                     in Phase A3.
 
 All four cascade-delete from their parent so removing a borehole cleans up
 everything beneath it.
@@ -30,6 +33,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create the observation, observation_layer, admixture and sample tables."""
     op.create_table(
         "observation",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -110,6 +114,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the four tables and their indexes in reverse dependency order."""
     op.drop_index("idx_sample_borehole_id", table_name="sample")
     op.drop_table("sample")
 
