@@ -5,9 +5,8 @@ report back into depth intervals with their descriptions verbatim, samples
 and the printed water level, so a campaign delivered only as a PDF is
 imported like a DOV borehole XML file. The sibling of the CPT digitiser
 ([parsers-cpt-pdf.md](parsers-cpt-pdf.md)), on the same user path. Package:
-`infrastructure/parsers/borehole/pdf/` (compiled to `.pyd` in the installer
-like every parser module). Load before touching the borehole digitiser, the
-`/borehole/pdf/*` routes or the import dialog.
+`infrastructure/parsers/borehole/pdf/`. Load before touching the borehole
+digitiser, the `/borehole/pdf/*` routes or the import dialog.
 
 **Built:** triage, two layout profiles, sheet reading, the per-borehole parse
 (`DigitisedBorehole`), overlays and an offline runner (phase 1); the import
@@ -178,9 +177,8 @@ Writes `<stem>.digest.json`, `<stem>.boreholes.json`,
 `<stem>.p<page>.overlay.png` (rules cyan, labels magenta, rows orange with
 their depth range, samples green, axis ticks every metre) and `digest.md`
 (every digest in OUT). OCR (`--ocr`, the `pdf-ocr` extra) caches page words
-under `<DOV cache dir>/borehole_pdf/<sha>.ocr.json`. The runner is source-only
-tooling: it is in the compiled manifest with the package, and `python -m`
-does not run a compiled module.
+under `<DOV cache dir>/borehole_pdf/<sha>.ocr.json`. The runner is developer
+tooling, run from source with `python -m`.
 
 ## The import flow (API + dialog)
 
