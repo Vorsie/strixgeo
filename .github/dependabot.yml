@@ -4,8 +4,8 @@
 # them into one PR per ecosystem. Security PRs have their own fixed limit:
 # open-pull-requests-limit applies to version updates only.
 #
-# One version-update group per ecosystem, weekly on Monday morning, so the
-# repository gets at most three version-update PRs a week. Bot commits carry no
+# One version-update group per ecosystem, monthly morning, so the
+# repository gets at most three version-update PRs a month. Bot commits carry no
 # Signed-off-by; the DCO job in ci.yml skips Dependabot PRs and a
 # maintainer reviews and merges them.
 #
@@ -17,8 +17,7 @@ updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     open-pull-requests-limit: 5
@@ -36,8 +35,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/desktop"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     open-pull-requests-limit: 5
@@ -54,15 +52,14 @@ updates:
     ignore:
       # A major Electron release changes the runtime under the whole app
       # (Chromium, Node, the IPC and sandbox defaults); it is a planned
-      # upgrade, not a weekly bump.
+      # upgrade, not a monthly bump.
       - dependency-name: "electron"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "06:00"
       timezone: "Europe/Brussels"
     open-pull-requests-limit: 5
