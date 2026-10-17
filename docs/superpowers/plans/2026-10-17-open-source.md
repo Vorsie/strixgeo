@@ -493,7 +493,7 @@ REQUIRED = {
     ".github/CODEOWNERS": ["@Vorsie"],
     ".github/FUNDING.yml": ["github: [Vorsie]"],
     ".github/PULL_REQUEST_TEMPLATE.md": ["What the tests prove", "Signed-off-by"],
-    ".github/ISSUE_TEMPLATE/bug_report.md": ["[bug]", "Acceptance criteria", "Help > Open log folder"],
+    ".github/ISSUE_TEMPLATE/bug_report.md": ["[bug]", "Acceptance criteria", "Help > Save logs for support"],
     ".github/ISSUE_TEMPLATE/feature_request.md": ["[feat]", "Acceptance criteria"],
 }
 
@@ -519,7 +519,7 @@ Run: `uv run pytest tests/unit/docs/test_repo_files.py -q`. Expected: FAIL, ever
 
 - [ ] **Step 3: Write the files**
 
-`README.md` sections, in this order: title + one-line pitch ("StrixGeo builds and manages the unified subsurface dataset of a project: CPT, boreholes, lab tests and reports in, a validated ground model with characterisation outputs out. It does no design calculation."); badges (`![CI](https://github.com/Vorsie/strixgeo/actions/workflows/ci.yml/badge.svg)`, `![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)`); "Download" (link `https://github.com/Vorsie/strixgeo/releases/latest`, Windows 10/11, unsigned installer note); "What it does" (bullets: DOV import, GEF, borehole XML, PDF digitisers, lab exports; three-level model; cross-sections; 3-D voxel model; exports DXF, Plaxis, D-Stability, D-Sheet, GeoStudio); "What it does not do" (the out-of-scope list from CLAUDE.md); "Build from source" (the block below); "Contributing" (link); "Support the project" (the Sponsors paragraph and link `https://github.com/sponsors/Vorsie`, "Thanks" list); "Licence" (AGPL-3.0-or-later, the trademark line); "Not related to GeoStrix" (one sentence: "GeoStrix is an unrelated open-source project for mineral exploration.").
+`README.md` sections, in this order: title + one-line pitch ("StrixGeo builds and manages the unified subsurface dataset of a project: CPT, boreholes, lab tests and reports in, a validated ground model with characterisation outputs out. It does no design calculation."); badges (`![CI](https://github.com/Vorsie/strixgeo/actions/workflows/ci.yml/badge.svg)`, `![Licence: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)`); "Download" (link `https://github.com/Vorsie/strixgeo/releases/latest`, Windows 10/11, unsigned installer note); "What it does" (bullets: DOV import, GEF, borehole XML, PDF digitisers, lab exports; three-level model; cross-sections; 3-D voxel model; exports DXF, Plaxis 2D/3D, D-Stability, D-Sheet Piling; no GeoStudio exporter exists); "What it does not do" (the out-of-scope list from CLAUDE.md); "Build from source" (the block below); "Contributing" (link); "Support the project" (the Sponsors paragraph and link `https://github.com/sponsors/Vorsie`, "Thanks" list); "Licence" (AGPL-3.0-or-later, the trademark line); "Not related to GeoStrix" (one sentence: "GeoStrix is an unrelated open-source project for mineral exploration.").
 
 Build block:
 
@@ -527,9 +527,11 @@ Build block:
 uv sync --group dev --group docs
 docker compose up -d
 uv run alembic upgrade head
-uv run uvicorn groundmodel.api.main:app --port 8765
-cd desktop && npm ci && npm run dev
+cd desktop
+npm ci
+npm run dev
 ```
+(`npm run dev` starts the engine itself; the API alone: `uv run python -m groundmodel.api.serve`.)
 
 `CONTRIBUTING.md` sections: "Branches" (PR into `develop`; `main` is released builds; rebase merge); "Commits" (Conventional Commits types table copied from CLAUDE.md; `git commit -s` for the DCO; sign-off text); "Tests first" (a failing test in the rule's words before the fix; the PR says what the tests prove); "Gates" (the five CI jobs and the local commands); "Rules of the domain" (English only; translate at the presentation boundary; characterisation outputs only; backwards compatibility: a `.strix` written by any released build must open in every later build); "Releasing" (owner-only: walker 0 findings, `npm run release`, tag, main fast-forward); "Where to read" (CLAUDE.md, docs/).
 
@@ -855,4 +857,5 @@ Then `curl -sI https://strixgeo.com/download | head -1` = 200 and the page shows
 - [ ] **Step 2**: `CLAUDE.local.md`: delete "Commercial planning (private)", the Activation / Beta ships unsigned / Protection tier ruling bullets; add one line "Open source since 0.2.0 (2026-10-xx): AGPL-3.0-or-later, Sponsors, no paid tier."
 - [ ] **Step 3**: memory files: `project_coworker_distribution.md` (delete), `reference_strixgeo_releases_repo.md` (feed = Vorsie/strixgeo from 0.2.0), `feedback_honest_commercial_advice.md` (keep; still applies to open-source strategy), new `project_open_source_agpl_2026_10_17.md` (the decisions table of the spec) and the MEMORY.md index lines.
 - [ ] **Step 3b**: `docs/manual/chapters/05-support.rst` "What the beta does not send": check the sentence that the app "offers to send a redacted diagnostics bundle" against the renderer (no send UI without an endpoint); rewrite to the consent + `STRIXGEO_DIAGNOSTICS_URL` state. Also the chapter's "StrixGeo is in closed beta" sentence.
+- [ ] **Step 3c**: README screenshots (spec section 3 lists them; the owner picks two or three: a cross-section, the 3-D model, the PDF triage).
 - [ ] **Step 4**: `docs/debt.md` new items: "Hosted Windows installer build in GitHub Actions" and "rename `registerPrototypeIpc` to `registerUpdaterIpc` (it registers only the updater since Task 2)" (Tier D, trigger: the first external contributor who needs a build they cannot make locally).
