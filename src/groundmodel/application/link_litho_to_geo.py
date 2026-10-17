@@ -40,6 +40,7 @@ from groundmodel.application.litho_geo_link_helpers import (
     nearest_geo_contact_within_tolerance,
 )
 from groundmodel.domain.value_objects.formation_contact_result import FormationContactResult
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -199,7 +200,7 @@ class LinkLithoToGeo(GroundModelLogger):
             )
             .values(is_stale=True)
         )
-        count = result.rowcount or 0
+        count = dml_rowcount(result) or 0
         if count:
             self.debug(
                 f"LinkLithoToGeo: marked surface stale for "
