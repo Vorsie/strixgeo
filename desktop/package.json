@@ -1,6 +1,6 @@
 {
   "name": "ground-model-desktop",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "StrixGeo — desktop client",
   "license": "AGPL-3.0-or-later",
   "main": "out/main/index.js",
@@ -91,7 +91,7 @@
       {
         "provider": "github",
         "owner": "Vorsie",
-        "repo": "strixgeo-releases",
+        "repo": "strixgeo",
         "releaseType": "draft"
       }
     ],
