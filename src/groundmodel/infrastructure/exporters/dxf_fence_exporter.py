@@ -203,10 +203,12 @@ class DxfFenceExporter(GroundModelLogger):
             f"identities={len(identities)} sections={len(section_names)}"
         )
         # deferred: keeps ezdxf off the API boot path (see the module imports).
-        import ezdxf
+        # ``ezdxf.new`` is re-exported without ``__all__``, so strict mypy only
+        # sees it at its defining module (the same function object).
+        from ezdxf.filemanagement import new as new_dxf_document
         from ezdxf.units import M as INSUNITS_METRES
 
-        doc = ezdxf.new(dxfversion="R2018", setup=True)
+        doc = new_dxf_document(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
         # Register the app id BEFORE any entity sets XDATA under it — ezdxf
         # requires the APPID table entry to exist first. Each wall's body id
