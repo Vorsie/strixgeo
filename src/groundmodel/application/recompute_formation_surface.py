@@ -224,6 +224,8 @@ class RecomputeFormationSurface(GroundModelLogger):
         # one query each is simpler than a UNION.
         bh_ids: set[UUID] = {c.borehole_id for c in contacts if c.borehole_id is not None}
         cpt_ids: set[UUID] = {c.cpt_id for c in contacts if c.cpt_id is not None}
+        # The outer ``if`` already skips the query for an empty id set, so the
+        # query result is the only source of rows here.
         boreholes_by_id: dict[UUID, BoreholeOrm] = (
             {
                 b.id: b
@@ -231,8 +233,6 @@ class RecomputeFormationSurface(GroundModelLogger):
                     await self._session.execute(
                         select(BoreholeOrm).where(BoreholeOrm.id.in_(bh_ids))
                     )
-                    if bh_ids
-                    else iter([])
                 )
                 .scalars()
                 .all()
@@ -243,11 +243,7 @@ class RecomputeFormationSurface(GroundModelLogger):
         cpts_by_id: dict[UUID, CptOrm] = (
             {
                 c.id: c
-                for c in (
-                    await self._session.execute(select(CptOrm).where(CptOrm.id.in_(cpt_ids)))
-                    if cpt_ids
-                    else iter([])
-                )
+                for c in (await self._session.execute(select(CptOrm).where(CptOrm.id.in_(cpt_ids))))
                 .scalars()
                 .all()
             }
