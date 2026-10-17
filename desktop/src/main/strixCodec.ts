@@ -10,9 +10,7 @@
  *                   →  [ magic | header | ciphered payload ]
  *
  * WHAT THIS IS NOT — and the distinction matters, do not blur it. This is
- * OPACITY-tier file protection, NOT the protection the compiled ``.pyd`` engine
- * has. The engine requires NATIVE reverse-engineering to recover its logic.
- * This codec only:
+ * OPACITY-tier file protection. This codec only:
  *   - defeats Notepad (the file is binary, not readable JSON),
  *   - defeats casual copy-paste (you cannot lift the data out by eye), and
  *   - makes every save byte-different (the random per-save seed).
@@ -20,8 +18,7 @@
  * (decode needs it), and the payload is gzip — whose ``1f 8b`` magic is a known
  * plaintext — so ANYONE who reads this format can reverse ANY file. That is the
  * accepted tier (owner ruled opacity is "good enough"); do NOT market it as, or
- * rely on it for, encryption, and do NOT mistake this file-opacity for the
- * engine's native-compilation protection.
+ * rely on it for, encryption.
  *
  * BACKWARDS COMPATIBILITY. ``decodeStrix`` SNIFFS. A file whose first
  * non-whitespace byte is ``{`` is legacy plain JSON (every ``.strix`` /
