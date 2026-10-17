@@ -28,6 +28,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create the borehole, drill_segment and field_log_interval tables."""
     op.create_table(
         "borehole",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -109,6 +110,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the borehole foundation tables and their indexes."""
     op.drop_index("idx_field_log_interval_kind", table_name="field_log_interval")
     op.drop_index("idx_field_log_interval_borehole_id", table_name="field_log_interval")
     op.drop_table("field_log_interval")
