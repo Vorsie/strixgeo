@@ -83,7 +83,7 @@ class GeologicalFormationCreateRequest(StrictRequestModel):
     # compatible for geological formation creation (where they are absent).
     parent_formation_id: UUID | None = None
     litho_main_soil_code: str | None = Field(default=None, max_length=20)
-    litho_admixtures: list[dict] | None = None
+    litho_admixtures: list[dict[str, Any]] | None = None
 
     @model_validator(mode="after")
     def nad_class_must_belong_to_the_soil(self) -> GeologicalFormationCreateRequest:
