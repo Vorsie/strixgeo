@@ -85,8 +85,9 @@ export const BACKEND_READY_POLL_MS = 500
 /**
  * How long the app waits for the engine to answer its readiness probe.
  *
- * A packaged FIRST launch is slow: the compiled modules load from a freshly
- * installed tree that Defender scans on first read, the DOV parse pool spawns
+ * A packaged FIRST launch is slow: the backend source and its native
+ * dependencies load from a freshly installed tree that Defender scans on first
+ * read, the DOV parse pool spawns
  * its workers, and Postgres has just been created — installer #5 needed 33 s
  * on the owner's machine and the old 30 s deadline declared it dead. Three
  * minutes covers a slow laptop; the crash bail in the loop still returns early
@@ -148,7 +149,7 @@ export type BackendReadyPollOutcome = 'ready' | 'failed'
  *
  * A respawn gets exactly ONE window, not the cold start's ``BACKEND_READY_MAX_WINDOWS``
  * budget: the second first-start window pays a Defender-scan tax on a freshly
- * installed compiled tree that a warm mid-session restart does not pay (the tree
+ * installed backend tree that a warm mid-session restart does not pay (the tree
  * was already read and scanned when the session first came up). Hence this
  * returns a plain ready/failed, not the windowed ``BackendReadyResult`` the
  * first-start ``api:ready`` handler produces.
