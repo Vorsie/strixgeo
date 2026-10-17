@@ -143,6 +143,7 @@ cross-checked against the printed table (see
 docs/reference/nad_reference_manifest.json). **The dict is filled for classes
 1 to 31**; Strix never invents a norm value the annex does not print. The lookup
 `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
+returns a class's parameters or `None`, and each exporter writes them into the
 GEOLib `Soil` when present.
 
 * **Present** → cohesion + φ′ on the Mohr-Coulomb model (D-Stability sets it
