@@ -75,6 +75,7 @@ from groundmodel.domain.services.plan_enclosed_lens_merges import (
     MergeLayer,
     plan_enclosed_lens_merges,
 )
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
@@ -187,20 +188,20 @@ class MergeEnclosedLensBodies(GroundModelLogger):
 
         # 2. Surface elevations (cross-column depth is compared in mTAW).
         surf: dict[UUID, float | None] = {}
-        for r in (
+        for elev_row in (
             await self._session.execute(
                 select(CptOrm.id, CptOrm.elevation_m).where(CptOrm.app_project_id == project_id)
             )
         ).all():
-            surf[r.id] = r.elevation_m
-        for r in (
+            surf[elev_row.id] = elev_row.elevation_m
+        for elev_row in (
             await self._session.execute(
                 select(BoreholeOrm.id, BoreholeOrm.elevation_m).where(
                     BoreholeOrm.app_project_id == project_id
                 )
             )
         ).all():
-            surf[r.id] = r.elevation_m
+            surf[elev_row.id] = elev_row.elevation_m
 
         # 3. Section along-order — the column adjacency the user sees.
         along = await project_investigations_onto_section(
@@ -259,7 +260,7 @@ class MergeEnclosedLensBodies(GroundModelLogger):
             .on_conflict_do_nothing(constraint="uq_litho_contact_corr_triple")
         )
         result = await self._session.execute(stmt)
-        edges_created = result.rowcount or 0
+        edges_created = dml_rowcount(result) or 0
         edges_skipped = len(values) - edges_created
 
         # 7. Re-resolve to keep the stamps coherent. The new ties do not union on
