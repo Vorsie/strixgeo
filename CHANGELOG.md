@@ -6,6 +6,14 @@ Releases up to 0.1.6 were closed-beta builds; their notes are translated from th
 
 ## [Unreleased]
 
+### Added
+
+- Dependabot version updates, CITATION.cff, SUPPORT.md.
+
+### Changed
+
+- The DCO check skips Dependabot PRs.
+
 ## [0.2.0] - 2026-10-17
 
 StrixGeo is now free and open source. An installed 0.1.x build shows an update prompt at start (the update check at start is on by default).
