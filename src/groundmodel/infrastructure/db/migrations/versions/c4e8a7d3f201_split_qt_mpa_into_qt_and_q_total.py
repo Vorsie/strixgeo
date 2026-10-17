@@ -30,6 +30,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Add ``q_total_mpa``, move the CPTM values into it and drop ``qt_source``."""
     op.add_column(
         "cpt_series",
         sa.Column("q_total_mpa", sa.ARRAY(sa.DOUBLE_PRECISION()), nullable=True),
@@ -62,6 +63,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Restore ``qt_source`` and fold ``q_total_mpa`` back into ``qt_mpa``.
+
+    Copy ``q_total_mpa`` back into ``qt_mpa``, then drop ``q_total_mpa``.
+    """
     op.add_column("cpt_series", sa.Column("qt_source", sa.String(length=10), nullable=True))
 
     # Restore the conflated single column: copy q_total_mpa back into qt_mpa
