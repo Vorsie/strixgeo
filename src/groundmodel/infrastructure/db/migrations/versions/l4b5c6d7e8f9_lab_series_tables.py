@@ -24,6 +24,8 @@ gains an optional nested ``lab_series_tests`` per sample; an older bundle
 without it restores unchanged, so no ``format_version`` bump.
 """
 
+from typing import Any
+
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -35,7 +37,7 @@ branch_labels = None
 depends_on = None
 
 
-def _uuid(name: str, *, nullable: bool = False) -> sa.Column:
+def _uuid(name: str, *, nullable: bool = False) -> sa.Column[Any]:
     """A UUID column (the id / FK shape every table here uses)."""
     return sa.Column(name, postgresql.UUID(as_uuid=True), nullable=nullable)
 
