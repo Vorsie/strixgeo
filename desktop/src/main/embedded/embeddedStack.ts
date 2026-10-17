@@ -237,21 +237,6 @@ function assertBundledFilesPresent(layout: EmbeddedLayout): void {
     ['the database initialiser', layout.initdbExe],
     ['the Python runtime', layout.pythonExe],
     ['the backend source', join(layout.backendSrcDir, 'groundmodel')],
-    // Sentinel for the native-compilation step: the engine + parsers ship as
-    // compiled .pyd (scripts/compile-backend-natives.ps1), never as .py. If a
-    // stage skipped compilation this file is absent, and the app fails by name
-    // at boot rather than shipping the readable source it was meant to hide.
-    [
-      'the compiled engine',
-      join(
-        layout.backendSrcDir,
-        'groundmodel',
-        'domain',
-        'services',
-        'voxel_litho',
-        'label_voxels.cp311-win_amd64.pyd',
-      ),
-    ],
   ]
   for (const [what, path] of required) {
     if (!existsSync(path)) {
