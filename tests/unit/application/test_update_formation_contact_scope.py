@@ -20,7 +20,7 @@ Test cases:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
