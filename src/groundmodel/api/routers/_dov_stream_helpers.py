@@ -196,7 +196,7 @@ def dov_error_event(
     *,
     logger: GroundModelLogger,
     log_prefix: str,
-) -> dict:
+) -> dict[str, str]:
     """Map a DOV ``httpx`` failure to an SSE ``error`` queue event.
 
     Background-import form: the import coroutine catches
