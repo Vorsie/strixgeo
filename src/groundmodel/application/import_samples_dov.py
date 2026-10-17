@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from uuid import UUID
 
 import httpx
@@ -227,12 +228,12 @@ class ImportSamplesDov(GroundModelLogger):
         # Persist NEW samples (no commit). Build the permkey→sample-UUID
         # map for the grain-size phase as we go.
         t_persist_samples = time.perf_counter()
-        for i, row in enumerate(sample_rows, 1):
-            if row.permkey in existing_samples:
+        for i, sample_row in enumerate(sample_rows, 1):
+            if sample_row.permkey in existing_samples:
                 # Already stored under this borehole — skip silently.
                 result.samples_skipped_already_present += 1
                 continue
-            borehole_id = permkey_to_borehole_id.get(row.parent_borehole_permkey)
+            borehole_id = permkey_to_borehole_id.get(sample_row.parent_borehole_permkey)
             if borehole_id is None:
                 # Should be unreachable because of the WFS client's
                 # ``parent_permkeys`` filter, but checked defensively so the
@@ -241,19 +242,20 @@ class ImportSamplesDov(GroundModelLogger):
                 continue
 
             try:
-                orm = _sample_to_orm(row, borehole_id)
-                self._session.add(orm)
-                permkey_to_sample_id[row.permkey] = orm.id
+                sample_orm = _sample_to_orm(sample_row, borehole_id)
+                self._session.add(sample_orm)
+                permkey_to_sample_id[sample_row.permkey] = sample_orm.id
                 result.samples_attached += 1
                 self.debug(
-                    f"DOV sample [{i}/{len(sample_rows)}]: '{row.permkey}' → {orm.id} "
+                    f"DOV sample [{i}/{len(sample_rows)}]: '{sample_row.permkey}' "
+                    f"→ {sample_orm.id} "
                     f"(borehole {borehole_id})"
                 )
             except Exception as exc:
                 result.samples_failed += 1
                 self.error(
                     f"DOV sample [{i}/{len(sample_rows)}]: persist failed for "
-                    f"'{row.permkey}': {type(exc).__name__}: {exc}"
+                    f"'{sample_row.permkey}': {type(exc).__name__}: {exc}"
                 )
         self.info(
             f"DOV sample phase 2 (persist {result.samples_attached} samples, "
@@ -753,7 +755,10 @@ class ImportSamplesDov(GroundModelLogger):
         row: ScalarObservationWfsRow,
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
-        builder,
+        builder: Callable[
+            [ScalarObservationWfsRow, UUID],
+            CaCO3ContentOrm | OrganicContentOrm | WaterContentOrm | None,
+        ],
         attached_attr: str,
         failed_attr: str,
         skipped_attr: str,
