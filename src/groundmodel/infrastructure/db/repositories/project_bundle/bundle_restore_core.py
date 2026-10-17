@@ -71,7 +71,13 @@ from .bundle_restore_litho import (
     _restore_litho_solids,
     _restore_tie_tombstones,
 )
-from .bundle_row_builders import _build_borehole, _build_cpt, _series_row_count, _uuid
+from .bundle_row_builders import (
+    _build_borehole,
+    _build_cpt,
+    _payload_ids,
+    _series_row_count,
+    _uuid,
+)
 from .bundle_serialization import _MAX_CPT_SERIES_ROWS, _apply_json_to_kwargs
 
 __all__ = [
@@ -384,10 +390,8 @@ async def _build_valid_formation_ids(
         .scalars()
         .all()
     )
-    payload_ids = {
-        _uuid(f.get("id")) for f in geological_formations_payload if f.get("id") is not None
-    } - {None}
-    return db_ids | payload_ids  # type: ignore[return-value]
+    payload_ids = _payload_ids(geological_formations_payload)
+    return db_ids | payload_ids
 
 
 async def _build_valid_model_ids(
@@ -426,10 +430,8 @@ async def _build_valid_model_ids(
         .scalars()
         .all()
     )
-    payload_ids = {
-        _uuid(m.get("id")) for m in geological_models_payload if m.get("id") is not None
-    } - {None}
-    return db_ids | payload_ids  # type: ignore[return-value]
+    payload_ids = _payload_ids(geological_models_payload)
+    return db_ids | payload_ids
 
 
 async def _build_valid_inv_ids(
@@ -476,11 +478,9 @@ async def _build_valid_inv_ids(
         .scalars()
         .all()
     )
-    payload_cpt_ids = {_uuid(c.get("id")) for c in cpts_payload if c.get("id") is not None} - {None}
-    payload_bh_ids = {_uuid(b.get("id")) for b in boreholes_payload if b.get("id") is not None} - {
-        None
-    }
-    return db_cpt_ids | db_bh_ids | payload_cpt_ids | payload_bh_ids  # type: ignore[return-value]
+    payload_cpt_ids = _payload_ids(cpts_payload)
+    payload_bh_ids = _payload_ids(boreholes_payload)
+    return db_cpt_ids | db_bh_ids | payload_cpt_ids | payload_bh_ids
 
 
 async def _restore_cross_sections(
@@ -858,11 +858,7 @@ async def _restore_project_bundle_impl(
     # open; the destructive replace path must NOT wipe valid DB state to make
     # room for a broken file.  Count orphans up front → actionable error.
     if replace:
-        bundle_fids: set[UUID] = {
-            _uuid(f.get("id"))  # type: ignore[misc]
-            for f in geological_formations_payload
-            if f.get("id") is not None
-        } - {None}
+        bundle_fids: set[UUID] = _payload_ids(geological_formations_payload)
 
         orphan_layer_count = 0
         orphan_contact_count = 0
