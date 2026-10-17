@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -52,3 +56,33 @@ def test_dco_check_skips_dependabot_pull_requests() -> None:
 def test_integration_job_has_room_for_the_full_suite() -> None:
     """The integration job may run at least 60 minutes; the local gate takes 40 to 60 under load."""
     assert _workflow()["jobs"]["integration"]["timeout-minutes"] >= 60
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    """Parse ``"0.13.1"`` or ``"0.13"`` into a tuple of ints."""
+    return tuple(int(part) for part in text.split("."))
+
+
+def test_every_setup_uv_step_pins_one_uv_that_reads_the_local_lockfile() -> None:
+    """Every setup-uv step pins the same uv version, no older than the local uv's major.minor.
+
+    The lockfile is written by the local uv; an older uv in CI cannot read a newer lock revision.
+    """
+    pins = [
+        step["with"]["version"]
+        for job in _workflow()["jobs"].values()
+        for step in job.get("steps", [])
+        if "astral-sh/setup-uv" in str(step.get("uses", ""))
+    ]
+    assert pins, "no setup-uv step found"
+    assert len(set(pins)) == 1, f"setup-uv steps pin different uv versions: {pins}"
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv is not on PATH")
+    out = subprocess.run([uv, "--version"], capture_output=True, text=True, check=True).stdout
+    match = re.search(r"(\d+)\.(\d+)", out)
+    assert match is not None, out
+    local = (int(match.group(1)), int(match.group(2)))
+    assert _version_tuple(str(pins[0]))[:2] >= local, (
+        f"CI uv {pins[0]} is older than local uv {out.strip()}"
+    )
