@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -90,8 +91,8 @@ class FormationSurfaceOrm(Base):
     # add edge attributes, hole rings, etc. without an alter-table).
     # vertices: list[[x_m, y_m, elevation_m]]
     # triangles: list[[i_a, i_b, i_c]] — vertex indices, anticlockwise
-    vertices: Mapped[list] = mapped_column(JSONB, nullable=False)
-    triangles: Mapped[list] = mapped_column(JSONB, nullable=False)
+    vertices: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    triangles: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
 
     # Cache-validity tag. ``source_contact_count`` is a cheap pre-check;
     # ``source_contact_checksum`` is a stable hash over the contact ids
