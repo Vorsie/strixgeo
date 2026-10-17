@@ -348,6 +348,7 @@ async def _target_exists_in_project(
     InvestigationReviewOrm docstring) and runs a small targeted SELECT
     that returns True/False without loading the row.
     """
+    row: CptOrm | BoreholeOrm | None
     if target_kind == "cpt":
         row = await session.get(CptOrm, target_id)
     elif target_kind == "borehole":
