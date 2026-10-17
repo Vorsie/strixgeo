@@ -143,7 +143,7 @@ async def scan_stratigraphy_candidates(
                 continue
 
             counterpart = _best_overlap(layer.top_m, layer.base_m, other_layers)
-            counterpart_desc = (counterpart.description or "").strip() if counterpart else None  # type: ignore[union-attr]
+            counterpart_desc = (counterpart.description or "").strip() if counterpart else None
 
             # Single shared derivation: name/regional_ref/key from the same
             # function used by execute(). Key divergence was the root cause of
