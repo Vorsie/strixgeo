@@ -43,12 +43,16 @@ def test_desktop_and_python_packages_carry_the_same_version() -> None:
     assert _package()["version"] == python_version == "0.2.0"
 
 
-def test_changelog_has_the_0_2_0_entry_under_a_fresh_unreleased() -> None:
-    """CHANGELOG has a dated 0.2.0 entry below an empty Unreleased heading."""
+def test_changelog_has_the_0_2_0_entry_directly_below_unreleased() -> None:
+    """CHANGELOG has a 0.2.0 entry directly below the Unreleased heading.
+
+    Unreleased collects the changes made after 0.2.0, so it may hold entries,
+    but no other version heading sits between it and 0.2.0.
+    """
     text = CHANGELOG.read_text(encoding="utf-8")
     assert "## [0.2.0]" in text
     unreleased = text.index("## [Unreleased]")
     released = text.index("## [0.2.0]")
     assert unreleased < released
     between = text[unreleased + len("## [Unreleased]") : released]
-    assert between.strip() == "", f"Unreleased is not empty: {between!r}"
+    assert "## [" not in between, f"A version heading sits above 0.2.0: {between!r}"
