@@ -79,7 +79,9 @@ def test_j2_two_boreholes_in_a_row_are_skipped_just_the_same() -> None:
     bridged = bridge_litho_edges_over_bandless_columns(
         litho_edges={(a, bh1), (bh1, bh2), (bh2, b)},
         layer_investigation={a: _CPT_A, bh1: _BH_1, bh2: _BH_2, b: _CPT_B},
-        layers_with_bands=_terminals({a: _CPT_A, bh1: _BH_1, bh2: _BH_2, b: _CPT_B}, {_CPT_A, _CPT_B}),
+        layers_with_bands=_terminals(
+            {a: _CPT_A, bh1: _BH_1, bh2: _BH_2, b: _CPT_B}, {_CPT_A, _CPT_B}
+        ),
     )
 
     assert (min(a, b), max(a, b)) in bridged
