@@ -123,7 +123,8 @@ class InvestigationReviewRepository(GroundModelLogger):
         new_status = patch.get("review_status")
         if new_status is not None and new_status not in ALLOWED_REVIEW_STATUSES:
             raise ValueError(
-                f"review_status must be one of {sorted(ALLOWED_REVIEW_STATUSES)}; got {new_status!r}"
+                f"review_status must be one of {sorted(ALLOWED_REVIEW_STATUSES)}; "
+                f"got {new_status!r}"
             )
 
         # Per-column None policy:
