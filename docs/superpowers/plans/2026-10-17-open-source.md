@@ -619,6 +619,16 @@ git commit -m "style: ruff clean on src and tests; test docstrings optional"
 
 ---
 
+### Task 8b: mypy clean (found during Task 8: 151 pre-existing errors in 60 files on both trees)
+
+**Files:** the 60 files `uv run mypy src` names (arg-type 36, attr-defined 31, type-arg 28, unused-ignore 12, assignment 11, import-untyped 10, operator 9, no-untyped-def 5, list-item and others).
+
+- [ ] **Step 1: Record the baseline**: `VIRTUAL_ENV= uv run mypy src > scratch_mypy_before.txt`; 151 errors.
+- [ ] **Step 2: Fix by category without behaviour change**: `unused-ignore` (delete the stale `# type: ignore`), `import-untyped` (add the missing `[[tool.mypy.overrides]] ignore_missing_imports` entry for that package in pyproject, like the existing ones), `type-arg` (write the generic parameters), `no-untyped-def` (annotate), `arg-type`/`assignment`/`operator`/`attr-defined`/`list-item` (read each: most are an `Optional` not narrowed, a `Sequence` vs `Iterable`, or a `None` default; fix the type, never the logic; where the logic is genuinely wrong, stop and report it as a finding, do not fix silently).
+- [ ] **Step 3: Gates**: `uv run mypy src` = Success; `uv run pytest tests/unit -q` same count; `uv run ruff check src tests` clean.
+- [ ] **Step 4**: `.github/workflows/ci.yml` lint-types job: remove `continue-on-error: true` from the mypy step (Task 9 adds it as informational); CLAUDE.md sentence loses "mypy informational until ...".
+- [ ] **Step 5: Commit** (one file per commit).
+
 ### Task 9: CI on every PR
 
 **Files:**
@@ -695,7 +705,9 @@ jobs:
       - run: uv sync --group dev
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
-      - run: uv run mypy src
+      - name: mypy (informational until Task 8b clears the 151 pre-existing errors)
+        continue-on-error: true
+        run: uv run mypy src
 
   python-unit:
     name: Python unit tests
@@ -858,4 +870,5 @@ Then `curl -sI https://strixgeo.com/download | head -1` = 200 and the page shows
 - [ ] **Step 3**: memory files: `project_coworker_distribution.md` (delete), `reference_strixgeo_releases_repo.md` (feed = Vorsie/strixgeo from 0.2.0), `feedback_honest_commercial_advice.md` (keep; still applies to open-source strategy), new `project_open_source_agpl_2026_10_17.md` (the decisions table of the spec) and the MEMORY.md index lines.
 - [ ] **Step 3b**: `docs/manual/chapters/05-support.rst` "What the beta does not send": check the sentence that the app "offers to send a redacted diagnostics bundle" against the renderer (no send UI without an endpoint); rewrite to the consent + `STRIXGEO_DIAGNOSTICS_URL` state. Also the chapter's "StrixGeo is in closed beta" sentence.
 - [ ] **Step 3c**: README screenshots (spec section 3 lists them; the owner picks two or three: a cross-section, the 3-D model, the PDF triage).
+- [ ] **Step 3d**: two follow-ups found in the Task 8 review: `tests/unit/application/test_link_litho_to_geo.py:153-160` asserts a `session.get(..., GEO_CONTACT_ID)` call that the test itself makes (vacuous; delete line 153 and its comment, keep the test green); `g1a2b3c4d5e6_lens_companion_and_primary_section.py:56,76` uses `sa.dialects.postgresql.UUID` without an explicit import (works only because env.py loads the models first; give it the explicit `from sqlalchemy.dialects import postgresql`).
 - [ ] **Step 4**: `docs/debt.md` new items: "Hosted Windows installer build in GitHub Actions" and "rename `registerPrototypeIpc` to `registerUpdaterIpc` (it registers only the updater since Task 2)" (Tier D, trigger: the first external contributor who needs a build they cannot make locally).
