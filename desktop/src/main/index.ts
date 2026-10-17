@@ -630,7 +630,7 @@ async function awaitRespawnedBackendReady(): Promise<void> {
   //
   // A respawn deliberately gets ONE window, NOT the cold start's two: the second
   // first-start window exists only to absorb the Defender scan of a freshly
-  // installed compiled tree, a tax a warm mid-session restart does not pay (the
+  // installed backend tree, a tax a warm mid-session restart does not pay (the
   // tree was already read and scanned when the session first came up).
   const outcome = await pollBackendUntilReady({
     attempts: backendReadyAttempts(app.isPackaged),
