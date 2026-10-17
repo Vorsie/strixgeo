@@ -2,11 +2,19 @@
 //
 // "Published" means a release the auto-updater can actually offer to installed
 // clients. Only two things carry that meaning:
-//   (a) the GitHub releases feed of Vorsie/strixgeo-releases — the
-//       electron-updater feed (provider: github). Read-only, via `gh api` with
-//       the same GH_TOKEN the release publish uses; and
+//   (a) the GitHub releases feed of Vorsie/strixgeo, the public source repo,
+//       which is the electron-updater feed (provider: github) from 0.2.0 on.
+//       Read-only, via `gh api` with the same GH_TOKEN the release publish
+//       uses; and
 //   (b) the git tags on the source repo (`v<semver>`, prerelease identifiers
-//       included), which electron-builder's GitHub publish creates.
+//       included). GitHub creates the tag when a draft release is published
+//       (the releases now live in the same repo); the local guard sees it
+//       after `git fetch --tags`.
+//
+// Vorsie/strixgeo-releases was the feed up to 0.1.6. Installed 0.1.x builds
+// keep reading it (their app-update.yml is baked in), so 0.2.0 is also
+// published there once as a bridge; that repo is archived after 0.2.1 and is
+// not a source for this guard.
 //
 // A local `desktop/dist/latest.yml` is DELIBERATELY not a source: every
 // `npm run dist` rewrites it with the current package version, so reading it as
@@ -14,11 +22,11 @@
 // empty (#9). This module never touches it.
 import { execFileSync } from 'node:child_process'
 
-// The electron-updater feed repo. Its releases (not the private source repo's
-// tags) are what an installed client sees, so it is the primary "published"
-// source. Kept here as the single source of truth for both the feed read and
-// the human-facing guard message.
-export const RELEASES_REPO = 'Vorsie/strixgeo-releases'
+// The electron-updater feed repo: the public source repo itself from 0.2.0 on.
+// Its releases are what an installed client sees, so it is the primary
+// "published" source. Kept here as the single source of truth for both the
+// feed read and the human-facing guard message.
+export const RELEASES_REPO = 'Vorsie/strixgeo'
 
 /**
  * Run `gh` with a fixed argument list and return trimmed stdout.
