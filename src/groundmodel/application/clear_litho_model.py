@@ -50,6 +50,7 @@ from groundmodel.application.body_partition_lock import (
     lock_sibling_geotech_partitions,
 )
 from groundmodel.application.orphan_formation_sweep import OrphanFormationSweep
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -189,13 +190,13 @@ class ClearLithoModel(GroundModelLogger):
                 LithoContactCorrelationEdgeOrm.model_id == model_id
             )
         )
-        n_edges: int = edges_result.rowcount or 0
+        n_edges: int = dml_rowcount(edges_result) or 0
 
         # Step 3 — bulk-delete contacts
         contacts_result = await self._session.execute(
             delete(FormationContactOrm).where(FormationContactOrm.model_id == model_id)
         )
-        n_contacts: int = contacts_result.rowcount or 0
+        n_contacts: int = dml_rowcount(contacts_result) or 0
 
         # Step 3.5 — bulk-delete any remaining litho_layer rows for this model.
         # Step 3's FC delete triggers FC→LL → deletes accepted LL rows; but
@@ -211,7 +212,7 @@ class ClearLithoModel(GroundModelLogger):
         surfaces_result = await self._session.execute(
             delete(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model_id)
         )
-        n_surfaces: int = surfaces_result.rowcount or 0
+        n_surfaces: int = dml_rowcount(surfaces_result) or 0
 
         # Step 4b — bulk-delete body rows for this model.
         # Bodies reference layers via body_id (SET NULL on litho_layer) and
@@ -222,7 +223,7 @@ class ClearLithoModel(GroundModelLogger):
         bodies_result = await self._session.execute(
             delete(BodyOrm).where(BodyOrm.model_id == model_id)
         )
-        n_bodies: int = bodies_result.rowcount or 0
+        n_bodies: int = dml_rowcount(bodies_result) or 0
 
         # Step 5 — delete orphan litho formations. Runs AFTER every delete
         # above so the survivor check sees the post-delete state: a formation
