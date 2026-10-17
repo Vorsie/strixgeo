@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from collections.abc import AsyncGenerator
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -353,7 +354,7 @@ async def import_borehole_dov(
 
 def _make_borehole_dov_import_coro(
     request: ImportBoreholeDovRequest,
-) -> AsyncGenerator[asyncio.Queue[dict | None], None]:
+) -> Callable[[asyncio.Queue[dict[str, Any] | None]], Coroutine[Any, Any, None]]:
     """Return a coroutine-factory for the borehole DOV import background task.
 
     Mirrors ``_make_cpt_dov_import_coro`` in ``cpt.py``.  The factory
@@ -368,11 +369,11 @@ def _make_borehole_dov_import_coro(
 
     Returns
     -------
-    Callable[[asyncio.Queue], Coroutine[None]]
+    Callable[[asyncio.Queue[dict[str, Any] | None]], Coroutine[Any, Any, None]]
         Factory suitable for ``JobRegistry.start``.
     """
 
-    def factory(queue: asyncio.Queue) -> object:  # -> Coroutine
+    def factory(queue: asyncio.Queue[dict[str, Any] | None]) -> Coroutine[Any, Any, None]:
         async def run_import() -> None:
             async def progress_cb(phase: str, done: int, total: int) -> None:
                 await queue.put({"phase": phase, "done": done, "total": total})
@@ -430,14 +431,14 @@ def _make_borehole_dov_import_coro(
 
         return run_import()
 
-    return factory  # type: ignore[return-value]
+    return factory
 
 
 @router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
 async def import_borehole_dov_stream(
     request: ImportBoreholeDovRequest,
     registry: JobRegistry = Depends(get_job_registry),
-) -> dict:
+) -> dict[str, Any]:
     """Spawn a borehole DOV import as a background task and return its job-id.
 
     Mirrors ``POST /cpt/import-dov/stream``.  The import runs in its own
