@@ -16,6 +16,7 @@ baseline" alongside the other parsers' figures.
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 
 import pytest
@@ -116,8 +117,6 @@ def test_bench_full_pure_pipeline_200_points(benchmark) -> None:
 # register with pytest at startup; an env var avoids that ceremony
 # and reads identically to the other "external network" opt-ins in
 # the codebase.
-
-import os
 
 
 @pytest.mark.skipif(
