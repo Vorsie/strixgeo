@@ -518,8 +518,8 @@ did not touch, check the machine class first. The recipe: clear every
 `uv cache clean <pkg>` plus `uv sync --reinstall-package <pkg>` for a broken
 dependency; `rm` plus `git checkout -- <file>` for a working-copy flip;
 move a corrupt loose object aside and `git fetch --refetch origin`; then
-`git fsck`. Keep the `--group compile` dependency group in every `uv sync`
-on the main tree or the installer's native step loses Nuitka.
+`git fsck`. `uv sync --group dev --group docs` is the full main-tree sync
+since the compile group was removed.
 
 
 ## A write that can CREATE a row must refetch the list the renderer keys on (2026-09-10)
