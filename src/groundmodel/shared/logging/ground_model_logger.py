@@ -1,4 +1,5 @@
 """Typed logger wrapper adding TRACE and SUCCESS levels."""
+
 import logging
 
 from groundmodel.shared.logging.levels import SUCCESS, TRACE
