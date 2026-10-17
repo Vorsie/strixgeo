@@ -18,9 +18,12 @@ migrated by the wrapper script.
 
 How it works
 ------------
-1. Create a throwaway scratch DB (``groundmodel_migration_test`` — the
+1. Create a throwaway scratch DB (``groundmodel_migration_test``; the
    ``_test`` suffix satisfies the integration-conftest DB-name guard) on
-   the dockerised Postgres, add the PostGIS extension.
+   the server ``DATABASE_URL`` names (the docker-compose server when it is
+   unset, see ``scratch_db_dsn.py``), add the PostGIS extension. An
+   unreachable server skips the test locally and FAILS it when ``CI`` is
+   set, so a misconfigured CI service never passes silently.
 2. ``alembic upgrade head`` against it via a subprocess with a
    ``DATABASE_URL`` override — the same override path
    ``run-integration-tests.ps1`` uses, exercising the real
@@ -34,7 +37,8 @@ How it works
 The scratch DB is created and dropped by THIS test alone. It never
 touches ``groundmodel_integration`` (another task owns that) or the dev
 ``groundmodel`` DB beyond the maintenance ``CREATE``/``DROP DATABASE``
-statements issued on the maintenance connection.
+statements issued on the maintenance connection (the database named in
+``DATABASE_URL``, or ``groundmodel`` when it is unset).
 
 The allowlist — why the assertion is on *structural* diffs, not "empty"
 ----------------------------------------------------------------------
@@ -81,8 +85,14 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Iterator
+from typing import NoReturn
 
 import pytest
+
+from tests.integration.db.scratch_db_dsn import (
+    scratch_server_from_env,
+    unreachable_server_is_fatal,
+)
 
 # psycopg2 (sync) drives the maintenance CREATE/DROP DATABASE — asyncpg
 # is the app driver, but CREATE DATABASE cannot run inside a transaction,
@@ -104,24 +114,20 @@ except ImportError:  # pragma: no cover — deps always present in the test env
 # ---------------------------------------------------------------------------
 # Scratch-DB connection strings.
 #
-# Credentials/host/port match docker-compose.yml (strix-db-1 publishes
-# 127.0.0.1:5433, user/password groundmodel/groundmodel) — verified, not
-# guessed. The maintenance connection targets the always-present
-# ``groundmodel`` DB purely to issue CREATE/DROP DATABASE; it never reads
+# The server comes from ``DATABASE_URL`` when it is set (CI's PostGIS
+# service, or the wrapper's integration DB) and falls back to the
+# docker-compose server (127.0.0.1:5433, groundmodel/groundmodel). The
+# maintenance connection only issues CREATE/DROP DATABASE; it never reads
 # or writes any table there.
 # ---------------------------------------------------------------------------
-_HOST = "127.0.0.1"
-_PORT = 5433
-_USER = "groundmodel"
-_PASSWORD = "groundmodel"
-_MAINTENANCE_DB = "groundmodel"
+_SERVER = scratch_server_from_env(os.environ)
 # The ``_test`` suffix is load-bearing: the integration-conftest DB-name
 # guard only tolerates ``_integration`` / ``_test`` databases.
 _SCRATCH_DB = "groundmodel_migration_test"
 
-_MAINTENANCE_DSN = f"postgresql://{_USER}:{_PASSWORD}@{_HOST}:{_PORT}/{_MAINTENANCE_DB}"
-_SCRATCH_SYNC_DSN = f"postgresql://{_USER}:{_PASSWORD}@{_HOST}:{_PORT}/{_SCRATCH_DB}"
-_SCRATCH_ASYNC_DSN = f"postgresql+asyncpg://{_USER}:{_PASSWORD}@{_HOST}:{_PORT}/{_SCRATCH_DB}"
+_MAINTENANCE_DSN = _SERVER.maintenance_dsn()
+_SCRATCH_SYNC_DSN = _SERVER.scratch_sync_dsn(_SCRATCH_DB)
+_SCRATCH_ASYNC_DSN = _SERVER.scratch_async_dsn(_SCRATCH_DB)
 
 # Diff operations that are ONLY ever representation noise (index/constraint
 # naming that autogenerate cannot round-trip). Everything else — column,
@@ -197,12 +203,34 @@ def _is_allowlisted_noise(diff: object) -> bool:
     return _diff_op(diff) in _ALLOWLISTED_OPS
 
 
+def _skip_or_fail(reason: str) -> NoReturn:
+    """Skip the test on a developer machine, fail it when ``CI`` is set.
+
+    Parameters
+    ----------
+    reason : str
+        Why the server could not be used; shown in the skip or failure.
+
+    Raises
+    ------
+    pytest.fail.Exception
+        Always when ``CI`` is set: the test fails.
+    pytest.skip.Exception
+        Always otherwise: the test is skipped.
+    """
+    if unreachable_server_is_fatal(os.environ):
+        pytest.fail(f"CI is set, so an unusable PostgreSQL fails the test: {reason}")
+    pytest.skip(reason)
+
+
 @pytest.fixture
 def scratch_db() -> Iterator[None]:
     """Create + migrate a throwaway DB, yield, then drop it.
 
-    Skips cleanly if the dockerised Postgres is unreachable (no Docker in
-    CI, container down) so the suite stays green offline.
+    Skips cleanly if Postgres is unreachable on a developer machine
+    (container down) so the suite stays green offline. When ``CI`` is set
+    the same failure FAILS the test: there the PostGIS service belongs to
+    the job, and a silent skip would hide a misconfigured service.
 
     Yields
     ------
@@ -210,11 +238,11 @@ def scratch_db() -> Iterator[None]:
         The fixture's only job is lifecycle; the test reads the module's
         DSN constants directly.
     """
-    # Reachability probe — skip (don't fail) when Postgres is down.
+    # Reachability probe: skip locally, fail under CI.
     try:
         _run_maintenance("SELECT 1")
-    except psycopg2.OperationalError as exc:  # pragma: no cover — env-dependent
-        pytest.skip(f"Postgres unreachable at {_HOST}:{_PORT} — {exc}")
+    except psycopg2.OperationalError as exc:  # pragma: no cover - env-dependent
+        _skip_or_fail(f"Postgres unreachable at {_SERVER.host}:{_SERVER.port}: {exc}")
 
     # Clean any leftover from an aborted prior run, then create fresh.
     _run_maintenance(f"DROP DATABASE IF EXISTS {_SCRATCH_DB} WITH (FORCE)")
@@ -288,8 +316,8 @@ def test_upgrade_head_matches_orm_metadata(scratch_db: None) -> None:
                 },
             )
             diffs = compare_metadata(context, Base.metadata)
-    except OperationalError as exc:  # pragma: no cover — env-dependent
-        pytest.skip(f"Could not reflect scratch schema — {exc}")
+    except OperationalError as exc:  # pragma: no cover - env-dependent
+        _skip_or_fail(f"Could not reflect scratch schema: {exc}")
     finally:
         engine.dispose()
 
