@@ -93,8 +93,8 @@ echo "$output"
 # mid-test), an alembic upgrade failure, a collection error, a PowerShell
 # crash.  None of those say anything about the code being pushed, and
 # reporting them as "tests FAILED" sends the author hunting a bug that does
-# not exist - it cost exactly that on 2026-09-21, the same misleading-verdict
-# shape the native gate had.  A missing pytest summary line is the signal:
+# not exist - it cost exactly that on 2026-09-21.  A missing pytest summary
+# line is the signal:
 # pytest always prints one when it ran.
 if ! echo "$output" | grep -qE '[[:space:]][0-9]+ (passed|failed|error|errors)'; then
   echo ""
