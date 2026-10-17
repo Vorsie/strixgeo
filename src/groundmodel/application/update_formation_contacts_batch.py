@@ -98,7 +98,7 @@ class UpdateFormationContactsBatch(GroundModelLogger):
         # batch flipped formation_id on a row (rare today; the
         # frontend's batch path doesn't change formation, but
         # defensive against future callers).
-        affected: set[tuple] = set()  # (model_id, formation_id) tuples
+        affected: set[tuple[UUID, UUID]] = set()  # (model_id, formation_id) tuples
         for cid in contact_ids:
             contact = by_id[cid]
             affected.add((contact.model_id, contact.formation_id))
