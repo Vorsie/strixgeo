@@ -34,6 +34,7 @@ POST /formations/{formation_id}/absences
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -56,6 +57,7 @@ from groundmodel.api.schemas.project.body import (
     NameBodyRequest,
     NameBodyResponse,
 )
+from groundmodel.api.schemas.project.body.body_boundary import BodyRenderStyle
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.formation_absence import (
     FormationAbsenceItem,
@@ -67,6 +69,7 @@ from groundmodel.api.schemas.project.recompute_bodies import (
     RecomputeBodiesResponse,
 )
 from groundmodel.application.body_boundary import (
+    BodyBoundaryState,
     BodyNoPrimarySectionError,
     BodyNotFoundError,
     BoundaryNode,
@@ -483,11 +486,13 @@ async def delete_body_endpoint(
 # ---------------------------------------------------------------------------
 
 
-def _boundary_response(state) -> BodyBoundaryResponse:  # noqa: ANN001 — internal mapper
+def _boundary_response(state: BodyBoundaryState) -> BodyBoundaryResponse:
     """Map a ``BodyBoundaryState`` (domain) to the API response schema."""
     return BodyBoundaryResponse(
         body_id=state.body_id,
-        render_style=state.render_style,  # type: ignore[arg-type]
+        # The domain carries ``str``; SaveBodyBoundary refuses any style outside
+        # the three, and pydantic re-validates the Literal at runtime.
+        render_style=cast(BodyRenderStyle, state.render_style),
         primary_section_id=state.primary_section_id,
         upper_nodes=[
             BodyBoundaryNodeItem(along_m=n.along_m, elevation_m=n.elevation_m)
