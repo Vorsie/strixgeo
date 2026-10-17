@@ -341,6 +341,8 @@ def _close_interior_voids(stack: list[_Entry], dz: float) -> list[_Entry]:
         if above is None and below is None:
             continue  # no neighbour to grow from (never happens for an interior void)
         if below is None or (above is not None and _th(stack[above]) >= _th(stack[below])):
+            # Both-None continued above, so ``below is None`` implies an ``above``.
+            assert above is not None
             bases[above] = min(bases[above], base)  # the upper (thicker/equal) grows DOWN
         else:
             tops[below] = max(tops[below], top)  # the lower (strictly thicker) grows UP
