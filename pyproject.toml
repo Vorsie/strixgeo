@@ -197,3 +197,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["asyncpg.*"]
 ignore_missing_imports = true
+
+# defusedxml ships no ``py.typed`` and its stubs (types-defusedxml) are not a
+# dependency; the DOV XML parsers use its ElementTree (fromstring, Element, ParseError).
+[[tool.mypy.overrides]]
+module = ["defusedxml.*"]
+ignore_missing_imports = true
