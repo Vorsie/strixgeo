@@ -27,6 +27,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Widen ``observation_layer.description`` and ``sample.description`` to TEXT."""
     op.alter_column(
         "observation_layer",
         "description",
@@ -45,6 +46,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Narrow both description columns back to VARCHAR(500)."""
     op.alter_column(
         "sample",
         "description",
