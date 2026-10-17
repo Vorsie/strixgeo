@@ -2254,7 +2254,8 @@ async def test_sab_void_qc_does_not_crash_and_flags_needs_review(
     )
     # VOID-3: the untouched dense 4–8 m unit still classifies to a real NAD class.
     assert bottom_classes and all(c is not None for c in bottom_classes), (
-        f"VOID-3: the untouched 4–8 m unit should classify to a real NAD class; got {bottom_classes}"
+        f"VOID-3: the untouched 4–8 m unit should classify to a real NAD class; "
+        f"got {bottom_classes}"
     )
 
 
