@@ -23,7 +23,8 @@ Helpers:
 from __future__ import annotations
 
 import math
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import Any, cast
 from uuid import UUID
 
 from geoalchemy2 import WKTElement
@@ -65,7 +66,26 @@ def _uuid(raw: object) -> UUID | None:
     """
     if raw is None:
         return None
-    return UUID(raw) if isinstance(raw, str) else raw  # type: ignore[arg-type]
+    # A non-str, non-None bundle value is already a UUID (the in-process path
+    # hands UUID objects through); the cast states that, it converts nothing.
+    return UUID(raw) if isinstance(raw, str) else cast(UUID, raw)
+
+
+def _payload_ids(rows: Iterable[Mapping[str, Any]]) -> set[UUID]:
+    """Return the parsed ``id`` of every bundle row that carries one.
+
+    Parameters
+    ----------
+    rows : Iterable[Mapping[str, Any]]
+        Bundle row dicts; a row whose ``id`` is absent or ``None`` is skipped.
+
+    Returns
+    -------
+    set[UUID]
+        The non-null ids, parsed with :func:`_uuid`.
+    """
+    ids = {_uuid(row.get("id")) for row in rows if row.get("id") is not None}
+    return {uid for uid in ids if uid is not None}
 
 
 def _make_location(
