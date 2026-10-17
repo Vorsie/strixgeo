@@ -47,7 +47,7 @@ Schema (verified live 2026-05-08, real example permkey ``2025-232644``)
             <van>0.00</van><tot>2.50</tot><vochtgehalte>weinig vochtig</vochtgehalte>
           </vochtgehalte>
           ...
-          <consistentie>                                             # repeated, field log: consistency
+          <consistentie>                                             # repeated, log: consistency
             <van>6.00</van><tot>7.00</tot><consistentie>plastisch</consistentie>
           </consistentie>
           ...
