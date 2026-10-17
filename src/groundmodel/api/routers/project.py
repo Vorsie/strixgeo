@@ -10,8 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.api.schemas.project.project_bundle import (
-    BUNDLE_FORMAT_VERSION,
-    SUPPORTED_BUNDLE_VERSIONS,
     ProjectBundleRequest,
     ProjectBundleResponse,
 )
@@ -46,6 +44,7 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.bundle_format import BUNDLE_FORMAT_VERSION, SUPPORTED_BUNDLE_VERSIONS
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 from groundmodel.shared.timing import ms_since
 
