@@ -218,9 +218,10 @@ jobs:
           POSTGRES_PASSWORD: groundmodel
           POSTGRES_DB: groundmodel_integration
         ports:
-          # Host port 5433 as in docker-compose.yml: the migration-parity test
-          # (tests/integration/db/test_migration_upgrade_from_empty.py) dials
-          # 127.0.0.1:5433 directly and skips when nothing answers there.
+          # Host port 5433 as in docker-compose.yml. The migration-parity test
+          # (tests/integration/db/test_migration_upgrade_from_empty.py) reads its
+          # server from DATABASE_URL and, because CI is set, FAILS when nothing
+          # answers there instead of skipping.
           - 5433:5432
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U groundmodel -d groundmodel_integration"
@@ -252,10 +253,11 @@ jobs:
         run: uv sync --group dev
 
       - name: Create the maintenance database
-        # The migration-parity test issues CREATE/DROP DATABASE for its
-        # scratch DB over a connection to the ``groundmodel`` DB, which
-        # exists locally as the dev DB. In CI it is an empty placeholder;
-        # no test reads or writes a table in it.
+        # An empty placeholder for the dev DB name; no test reads or writes
+        # a table in it. The migration-parity test now takes its maintenance
+        # connection from DATABASE_URL (groundmodel_integration in this job),
+        # so it no longer needs this DB; the step stays until a CI run proves
+        # the job green without it.
         env:
           PGPASSWORD: groundmodel
         run: psql -h 127.0.0.1 -p 5433 -U groundmodel -d groundmodel_integration -c "CREATE DATABASE groundmodel"
