@@ -21,6 +21,19 @@ REQUIRED = {
         "Help > Save logs for support",
     ],
     ".github/ISSUE_TEMPLATE/feature_request.md": ["[feat]", "Acceptance criteria"],
+    # The issue chooser sends questions to Discussions.
+    ".github/ISSUE_TEMPLATE/config.yml": ["contact_links"],
+    # Dependabot version updates cover the three dependency ecosystems:
+    # the Python lock (uv), the desktop app (npm) and the CI actions.
+    ".github/dependabot.yml": [
+        'package-ecosystem: "uv"',
+        'package-ecosystem: "npm"',
+        'package-ecosystem: "github-actions"',
+    ],
+    # GitHub reads CITATION.cff for its "Cite this repository" button.
+    "CITATION.cff": ["cff-version: 1.2.0", "AGPL-3.0-or-later"],
+    # Questions go to Discussions, not to the issue tracker.
+    "SUPPORT.md": ["Discussions"],
 }
 
 
