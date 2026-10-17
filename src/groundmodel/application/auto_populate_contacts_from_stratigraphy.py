@@ -85,6 +85,7 @@ from groundmodel.application.stratigraphy_scan import (
 from groundmodel.domain.services.formation_age_order_constants import is_anthropogenic
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.g3dv3_catalog import get_catalog
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -382,7 +383,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     FormationContactOrm.observation_layer_id.is_(None),
                 )
                 orphan_result = await self._session.execute(orphan_del)
-                orphan_count = orphan_result.rowcount
+                orphan_count = dml_rowcount(orphan_result)
                 if orphan_count:
                     self.debug(
                         f"Auto-populate: purged {orphan_count} orphaned contact(s) "
