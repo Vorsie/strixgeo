@@ -29,6 +29,7 @@ barycentric helper is inlined so this migration runs even if the runtime
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -197,7 +198,7 @@ def upgrade() -> None:
             continue
 
         # --- Step 5: load all geology TIN surfaces in the parent model --------
-        surface_rows: list[Any] = bind.execute(
+        surface_rows: Sequence[Any] = bind.execute(
             sa.text(
                 """
                 SELECT formation_id, is_stale, vertices, triangles
