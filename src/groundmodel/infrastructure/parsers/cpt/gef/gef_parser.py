@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import cast
 
 import polars as pl
 
@@ -1081,7 +1082,8 @@ class GEFParser(GroundModelLogger):
                     )
                 ]
         else:
-            first_depth = df["depth_m"].drop_nulls().first()
+            # ``depth_m`` is a Float64 column, so ``first()`` is a float or None.
+            first_depth = cast("float | None", df["depth_m"].drop_nulls().first())
             if first_depth is not None and first_depth > 0.5:
                 return [
                     ValidationIssue(
@@ -1184,8 +1186,8 @@ class GEFParser(GroundModelLogger):
             if None not in (qc[i - 1], qc[i], qc[i + 1])
             and qc[i - 1] > 0
             and qc[i + 1] > 0
-            and qc[i] / qc[i - 1] > 5  # type: ignore[operator]
-            and qc[i] / qc[i + 1] > 5  # type: ignore[operator]
+            and qc[i] / qc[i - 1] > 5
+            and qc[i] / qc[i + 1] > 5
         ]
         if spikes:
             return [
