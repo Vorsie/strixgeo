@@ -41,6 +41,14 @@ def test_mypy_blocks_the_lint_job() -> None:
     assert "continue-on-error" not in mypy[0]
 
 
+def test_dco_check_skips_dependabot_pull_requests() -> None:
+    """Dependabot cannot sign the DCO, so the dco job does not run on a Dependabot pull request."""
+    condition = _workflow()["jobs"]["dco"]["if"]
+    assert "github.event_name == 'pull_request'" in condition
+    # The inequality pins the direction: the job skips Dependabot, it does not run only for it.
+    assert "!= 'dependabot[bot]'" in condition
+
+
 def test_integration_job_has_room_for_the_full_suite() -> None:
     """The integration job may run at least 60 minutes; the local gate takes 40 to 60 under load."""
     assert _workflow()["jobs"]["integration"]["timeout-minutes"] >= 60
