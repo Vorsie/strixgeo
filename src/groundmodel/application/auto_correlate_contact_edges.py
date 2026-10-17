@@ -41,6 +41,7 @@ from groundmodel.domain.services.detect_crossing_pinch_outs import (
     detect_crossing_pinch_outs,
 )
 from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -395,7 +396,7 @@ class AutoCorrelateContactEdges(GroundModelLogger):
             .on_conflict_do_nothing(constraint="uq_litho_contact_corr_triple")
         )
         result = await self._session.execute(stmt)
-        edges_created = result.rowcount or 0
+        edges_created = dml_rowcount(result) or 0
         edges_skipped = len(values) - edges_created
 
         await self._session.commit()
