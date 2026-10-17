@@ -19,7 +19,6 @@ from __future__ import annotations
 import math
 
 from groundmodel.domain.services.cpt_sbt_profile import compute_sbt_profile
-
 from groundmodel.domain.services.gwt_resolution import ResolvedGwt
 from groundmodel.domain.services.robertson_2015 import ic_series_2015
 
