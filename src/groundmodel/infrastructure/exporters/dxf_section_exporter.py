@@ -190,9 +190,11 @@ class DxfSectionExporter(SectionExporter):
             text entities.
         """
         # deferred: keeps ezdxf off the API boot path (see the module imports).
-        import ezdxf
+        # ``ezdxf.new`` is re-exported without ``__all__``, so strict mypy only
+        # sees it at its defining module (the same function object).
+        from ezdxf.filemanagement import new as new_dxf_document
 
-        doc = ezdxf.new(dxfversion="R2018", setup=True)
+        doc = new_dxf_document(dxfversion="R2018", setup=True)
         msp = doc.modelspace()
 
         # Document metadata — surfaces inside CAD's drawing
