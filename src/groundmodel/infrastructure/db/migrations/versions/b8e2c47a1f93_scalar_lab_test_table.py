@@ -31,6 +31,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create the ``scalar_lab_test`` table and its sample index."""
     op.create_table(
         "scalar_lab_test",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -56,5 +57,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the ``scalar_lab_test`` table and its index."""
     op.drop_index("idx_scalar_lab_test_sample_id", table_name="scalar_lab_test")
     op.drop_table("scalar_lab_test")
