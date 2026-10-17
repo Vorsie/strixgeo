@@ -1,8 +1,10 @@
 Support and reporting a problem
 ===============================
 
-StrixGeo is in closed beta. Your reports are what turns a beta into a
-release, so this chapter says exactly what to send and where to find it.
+StrixGeo is free and open source; report problems on GitHub issues
+(https://github.com/Vorsie/strixgeo/issues) or by e-mail. Your reports make
+the next release better, so this chapter says exactly what to send and where
+to find it.
 Everything below works offline: the app never uploads anything by itself.
 
 .. note::
@@ -14,9 +16,11 @@ Everything below works offline: the app never uploads anything by itself.
 Where to write
 --------------
 
-Send every question, idea or problem to **info@strixgeo.com**. One mail per
-problem is easier to track than a list. You will get an answer from the
-developer, not from a ticket system.
+Open an issue at https://github.com/Vorsie/strixgeo/issues, or send the
+question, idea or problem to **info@strixgeo.com**. One issue or mail per
+problem is easier to track than a list. A GitHub issue is public: attach a
+project file there only when its data may be seen by everyone, and mail it
+otherwise.
 
 What a good report contains
 ---------------------------
@@ -57,9 +61,12 @@ controleren op updates*) controls the automatic check. It is on by default;
 when it is off the app makes no check by itself and the Help menu item keeps
 working.
 
-What the beta does not send
----------------------------
+What the app does not send
+--------------------------
 
-The app does not phone home. When the engine fails to start it offers to send
-a redacted diagnostics bundle, and it sends nothing unless you agree in that
-dialog. The project stays on your disk.
+The app does not phone home. It keeps a redacted diagnostics log on your own
+disk, and that log leaves the machine only when you attach it to a report
+yourself. Automatic sending needs two things, and both are off by default: a
+recorded opt-in (the app does not offer it in Settings yet) and a diagnostics
+server named in the ``STRIXGEO_DIAGNOSTICS_URL`` environment variable. With
+the defaults nothing is sent. The project stays on your disk.
