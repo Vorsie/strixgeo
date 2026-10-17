@@ -62,7 +62,7 @@ from groundmodel.infrastructure.db.repositories.project_bundle.bundle_restore_dr
 from groundmodel.shared.constants.model_kind import MODEL_KIND_GEOLOGICAL, MODEL_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-from .bundle_row_builders import _uuid, _validate_tin_payload
+from .bundle_row_builders import _payload_ids, _uuid, _validate_tin_payload
 from .bundle_serialization import (
     _MAX_SURFACE_SOURCE_CONTACTS,
     _MAX_TIN_ARRAY_LEN,
@@ -348,9 +348,7 @@ async def _restore_geological_models(
         # Coexistence: skip explicit INSERT for accepted layers whose id
         # matches a contact in contacts_payload — the trigger handles those.
         layers_payload = m_payload.get("litho_layers") or []
-        contact_ids_in_payload = {
-            _uuid(c.get("id")) for c in contacts_payload if c.get("id") is not None
-        } - {None}
+        contact_ids_in_payload = _payload_ids(contacts_payload)
 
         valid_layers: list[LithoLayerOrm] = []
         skipped_orphan_layers = 0
