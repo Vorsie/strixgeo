@@ -90,7 +90,7 @@ def test_parse_doorprik_payload_tolerates_missing_arrays():
 
 
 def test_parse_doorprik_payload_drops_layers_without_string_code():
-    """A catalog entry with a missing/non-string code can't be joined — orphan rows fall back to blank."""
+    """A catalog entry without a string code can't be joined; orphan rows fall back to blank."""
     payload = {
         "data": [{"name": "g3dv3_F_1", "top": 1.0, "base": 0.0, "thickness": 1.0}],
         "layers": [{"code": None, "name": "should be ignored", "dovlayercolor": "#000"}],
