@@ -354,7 +354,7 @@ Delete the section in `docs/distribution-build.md` and every sentence that says 
 Run: `uv run pytest tests/unit/docs/test_no_activation_references.py tests/unit/scripts -q`
 Expected: PASS.
 
-- [ ] **Step 4: Stage the embedded Python once, by the owner or the session main (not a builder), and prove the engine ships as source**
+- [x] **Step 4: Stage the embedded Python once, by the owner or the session main (not a builder), and prove the engine ships as source** (done 2026-10-17 02:15 in Strix-wt-test: gate imported 882 modules, PYD_COUNT=0, PYC_COUNT=0)
 
 Run (PowerShell, main tree, app closed):
 
