@@ -139,9 +139,10 @@ weight γ, effective φ′, effective c′) per packing class, keyed by NAD clas
 1–31. The values live in `domain/services/nad_soil_parameters_constants.py`
 (`NAD_SOIL_PARAMETERS: dict[int, NadSoilParameters]`) and are transcribed by
 the owner from NBN EN 1997-1 ANB Tabel 2.1 (the Belgian national annex),
-cross-checked against the printed table (see docs/reference/nad_reference_manifest.json). **The dict is filled for classes 1 to 31**; Strix never invents a norm
-value the annex does not print. The lookup `nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
-returns a class's parameters or `None`, and each exporter writes them into the
+cross-checked against the printed table (see
+docs/reference/nad_reference_manifest.json). **The dict is filled for classes
+1 to 31**; Strix never invents a norm value the annex does not print. The lookup
+`nad_soil_parameter_lookup.soil_parameters_for_unit(unit)`
 GEOLib `Soil` when present.
 
 * **Present** → cohesion + φ′ on the Mohr-Coulomb model (D-Stability sets it
