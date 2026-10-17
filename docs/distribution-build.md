@@ -87,7 +87,7 @@ by electron-builder `extraResources`, landing at `<install>/resources/`.
 |---|---|---|---|
 | `pgsql/` | `scripts/build-embedded-postgres.ps1` | 309 MB | `resources/pgsql` |
 | `python/` | `scripts/build-embedded-python.ps1` | 639 MB | `resources/python` |
-| `backend/` | `scripts/build-embedded-python.ps1` | ~28 MB | `resources/backend` — mostly source; the engine + parsers are native `.pyd` (see below) |
+| `backend/` | `scripts/build-embedded-python.ps1` | ~28 MB | `resources/backend`, plain Python source |
 
 One more `extraResources` entry, unrelated to the embedded stack: `resources/sample`
 → `resources/sample`. It carries the worked-example onboarding project as
@@ -123,9 +123,8 @@ lower-accuracy datum shift, and the app must work with no network on site.
 **A relocated interpreter, not PyInstaller.** python-build-standalone (what uv
 already downloads for this project) is built to be relocatable, so the script
 copies it and installs the `uv export --no-dev` locked set into its own
-`site-packages`. The backend itself ships **mostly as source** with `PYTHONPATH`
-pointed at it — the exception is the engine + parsers, which ship as native
-`.pyd` (see "The compiled subset" below).
+`site-packages`. The backend itself ships **as plain source** with `PYTHONPATH`
+pointed at it (see "The smoke gate" below).
 
 Freezing was rejected on four concrete counts, each of which is a failure that
 appears in a tester's hands rather than at build time:
@@ -148,88 +147,32 @@ hash-pinned install as numba's llvmlite — no build step. Its OCR companion
 (RapidOCR + OpenCV) is the optional extra `pdf-ocr`, which the export
 INCLUDES since 0.1.5 (`uv export --no-dev --extra pdf-ocr`, ~60 MB of
 onnxruntime + OpenCV): scanned reports without a text layer (the owner's
-2.3 report) are read by OCR in the packaged app too. Every digitiser module
-still imports without the extra (the smoke gate imports each compiled
-module), so dropping the flag ships a vector-only build that tells the user
-to type the axis values. **The first build after this change must re-stage the interpreter
-with `-Force`**: the reuse skip checks only that `python.exe` exists, not
-that `uv.lock` moved, so a reused tree has no PyMuPDF and the smoke gate's
-import of the compiled `cpt.pdf` modules fails (loudly). To ship OCR, add
-`--extra pdf-ocr` to the export and budget ~60 MB (onnxruntime + OpenCV).
+2.3 report) are read by OCR in the packaged app too. The digitiser modules
+import without the extra (cv2 / RapidOCR are imported lazily behind
+`optional_engines`; the smoke gate imports them only when staged), so
+dropping the flag ships a vector-only build that tells the user to type the
+axis values. **The first build after this change must re-stage the
+interpreter with `-Force`**: the reuse skip checks only that `python.exe`
+exists, not that `uv.lock` moved, so a reused tree has no PyMuPDF and the
+smoke gate's import of PyMuPDF fails (loudly).
 
-### The compiled subset
+### The smoke gate
 
-Readable source is a leak — owner ruling 2026-08-31: *"the underlying codebase
-should also be protected and not leak at all times ... otherwise someone else
-could just duplicate"*. So the areas the owner named do **not** ship as source:
-the **engine** (rulings 5-6 — the voxel-litho builder plus the whole
-`domain/services` modelling core: NAD classifier, CPT segmenter / Robertson
-chain, the full geotech subdivision family, TIN/DEM/lens/correlation geometry),
-the **parsers** (all GEF + DOV parsing), and — owner ruling "Q1", 2026-09-01 —
-the **engine-class modules that live in `application/`** (see below). Right
-after the backend is copied, `scripts/compile-backend-natives.ps1` translates
-each module listed in `scripts/native_compile_manifest.py` to C with Nuitka,
-drops a `<name>.cp311-win_amd64.pyd` beside its package `__init__.py`, and
-deletes the `.py` **in the staged tree only** (the repo `src/` is never touched;
-dev keeps running all-source). 132 modules today. The rest of the API,
-repositories and application layer stay source, so alembic + the codelist data
-files keep resolving `__file__`-relative exactly as under pytest.
-
-Two carve-outs stay source, recorded in the manifest's `SOURCE_CARVEOUTS`:
-
-| Carve-out | Why it cannot compile |
-|---|---|
-| `voxel_litho/greedy_mesh.py` | its greedy-mesh kernel is a Numba `@njit(cache=True)` function — Numba needs the `__code__` object + an on-disk `.py` to cache beside; a `.pyd` has neither. Pinned by `test_greedy_mesh.py:58-77` (drops to object-mode otherwise). |
-| every `__init__.py` | compiling a package marker breaks the package's importability and hides no logic. |
-
-The **application engine** compiled under ruling Q1 is ALGORITHM code only — the
-geotech subdivision / borehole-division / packing-edge engine
-(`divide_boreholes`, `subdivide_all_bodies`, `geotech_edge_derivation`), the
-in-module geotech band-edit planning and tie/pair reanchor matching
-(`geotech_band_edit_helpers`, `geotech_tie_reanchor`, `pair_ruling_reanchor`),
-the voxel build (`build_voxel_litho_model`), and the section / wedge / companion /
-stratigraphy / export geometry that has no compiled-domain home
-(`build_section_polygons`, `create_perpendicular_companion`,
-`materialize_wedge_tips_for_formation`, `stratigraphy_bridge`,
-`thin_export_units`) — 12 modules. The rest of `application/` stays source: the
-band-reclassification hand-edit verbs (merge / split / move / preview) and the
-body resolution / recompute use cases **delegate** their algorithm to a compiled
-`domain/services` service (`geotech_band_reclassification.plan_*`,
-`resolve_litho_instances`, `body_fact_translation`) — so that IP already ships as
-a `.pyd` — and the CRUD / import / snapshot / DTO / queue families carry none.
-That delegation boundary is the ALGORITHM-vs-orchestration line. The application
-set needed **no Nuitka carve-out**: all 12 compile and import clean (verified
-2026-09-02). (`geotech_band_reclassification` itself landed as C3 and ships
-compiled with the rest of the geotech family — no longer a deferred source
-module.)
-
-**Nuitka rewrites `__file__` and `__spec__.origin` back to the original `.py`
-path** so tracebacks point at source — so a "`__file__` ends with `.pyd`" check
-is a FALSE witness. The gates verify compilation via the `__compiled__` marker +
-the `nuitka_module_loader` loader name + `__compiled__.extension_filename`
-instead.
-
-**Two gates, both EXECUTE the artifacts — hashes prove nothing on this box.**
-It has shipped two `.pyd` files with a poisoned image section while their bytes
-still hashed correct (CLAUDE.local.md "Machine health"). So:
-
-1. a **smoke gate** in `build-embedded-python.ps1` imports every manifest module
-   in the staged interpreter and asserts each is `__compiled__` with no surviving
-   `.py`, and that `greedy_mesh` imports as source;
-2. a **behavioural gate** (`scripts/verify-staged-natives.ps1`) runs the real
-   unit suites — the voxel byte-identity SHA-256 pin, the `@njit` tripwire, the
-   NAD classifier, and the GEF/DOV parsers (incl. the process-pool parse worker)
-   — against the compiled `.pyd` under the staged interpreter, with a pre-suite
-   marker test re-asserting the `__compiled__` markers inside the pytest process.
-
-Either gate failing kills the dist build. The toolchain lives in the `compile`
-dependency group (`uv sync --group compile`); because it is a non-default group,
-`uv export --no-dev` excludes it and Nuitka never lands in the installer.
-
-Broader tamper hardening (anti-debug, the `--remote-debugging-port` flag surface)
-stays debt #5 and is deliberately not attempted here — a decompiled `.pyd` is
-harder than a decompiled wheel, but this is obfuscation-grade protection, not
-DRM.
+The whole backend ships as plain Python source (StrixGeo is open source, so
+nothing is compiled to hide it). The one build gate on the staged tree is a
+**smoke gate** in `build-embedded-python.ps1`: the staged interpreter imports
+the heavy native dependencies (asyncpg, polars, numba, scipy, pyproj, shapely,
+alembic, fastapi, geoalchemy2, PyMuPDF), then EVERY `groundmodel` module (the
+app imports the PDF digitiser modules lazily, so importing the app alone would
+miss them). The OCR engines (`cv2`, `rapidocr_onnxruntime`) are imported
+lazily inside functions, so the walk never loads their native DLLs: the gate
+imports them explicitly ONLY when they are present in the staged
+site-packages and prints `ocr: present|absent`, so a vector-only build passes.
+Last, it checks that the Numba hotspot (`voxel_litho/greedy_mesh.py`,
+`@njit(cache=True)`) imports from the staged tree. The check runs with
+`PYTHONDONTWRITEBYTECODE=1`, after the bytecode sweep, so it writes no
+`__pycache__` into the shipped tree. A failing import kills the dist build. The SHA-256 manifest of the staged interpreter proves a REUSED tree
+byte-intact before the reuse is trusted.
 
 ---
 
