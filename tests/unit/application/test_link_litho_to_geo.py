@@ -13,7 +13,7 @@ The DB session is fully mocked.  No real DB or network I/O.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -150,7 +150,7 @@ async def test_ll1_links_nearest_geo_and_snaps_and_marks_stale() -> None:
     # parent_geo_contact_id must be set.
     assert result.parent_geo_contact_id == GEO_CONTACT_ID
     # Geo contact depth snapped to litho depth.
-    geo_stub = await session.get(None.__class__, GEO_CONTACT_ID)  # type: ignore[arg-type]
+    await session.get(None.__class__, GEO_CONTACT_ID)  # type: ignore[arg-type]
     # Access via the session.get side_effect stub directly:
     # re-fetch the geo contact stub from the _make_session closure.
     # The geo_contact_stub is mutable (SimpleNamespace) — the use case
