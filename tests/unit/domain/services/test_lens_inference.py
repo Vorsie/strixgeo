@@ -28,14 +28,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import pytest
 from uuid6 import uuid7
 
 from groundmodel.domain.services.lens_inference import (
-    AbsenceToWrite,
     BodyContactRecord,
     FormationAbsenceRecord,
-    InferenceResult,
     ObservationLayerRecord,
     infer_formation_absences,
 )
