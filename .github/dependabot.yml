@@ -5,9 +5,12 @@
 # open-pull-requests-limit applies to version updates only.
 #
 # One version-update group per ecosystem, monthly morning, so the
-# repository gets at most three version-update PRs a month. Bot commits carry no
-# Signed-off-by; the DCO job in ci.yml skips Dependabot PRs and a
-# maintainer reviews and merges them.
+# repository gets at most three version-update PRs a month. The groups carry
+# only minor and patch updates, and the uv and npm ecosystems ignore every
+# major update: a major (React, Tailwind, TypeScript, Vite, a new pytest) is
+# a planned upgrade by hand, with its own branch and its own tests, never a
+# bot PR. Bot commits carry no Signed-off-by; the DCO job in ci.yml skips
+# Dependabot PRs and a maintainer reviews and merges them.
 #
 # The Python dependencies use the "uv" ecosystem: the project is locked
 # with uv.lock, which the "pip" ecosystem does not update.
@@ -27,10 +30,14 @@ updates:
       python-deps:
         patterns:
           - "*"
+        update-types: ["minor", "patch"]
       python-security:
         applies-to: security-updates
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/desktop"
@@ -45,15 +52,17 @@ updates:
       desktop-deps:
         patterns:
           - "*"
+        update-types: ["minor", "patch"]
       desktop-security:
         applies-to: security-updates
         patterns:
           - "*"
     ignore:
-      # A major Electron release changes the runtime under the whole app
-      # (Chromium, Node, the IPC and sandbox defaults); it is a planned
-      # upgrade, not a monthly bump.
-      - dependency-name: "electron"
+      # Every major, Electron first of all: a major Electron release changes
+      # the runtime under the whole app (Chromium, Node, the IPC and sandbox
+      # defaults), a major React / Tailwind / TypeScript / Vite release
+      # changes the build; each is a planned upgrade, not a monthly bump.
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
@@ -69,3 +78,4 @@ updates:
       actions:
         patterns:
           - "*"
+        update-types: ["minor", "patch"]
