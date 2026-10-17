@@ -50,6 +50,7 @@ def _create_simple_test_table(name: str, value_columns: list[sa.Column]) -> None
 
 
 def upgrade() -> None:
+    """Create the five lab-test tables, each with a sample index."""
     # grain_size — two parallel ARRAYs + pre-treatment booleans.
     op.create_table(
         "grain_size",
@@ -99,6 +100,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the five lab-test tables and their sample indexes."""
     for name in (
         "water_content",
         "organic_content",
