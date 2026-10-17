@@ -1,4 +1,5 @@
 """Asynchronous job domain model."""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
