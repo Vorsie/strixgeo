@@ -1,7 +1,7 @@
 // Unit tests for the release guard's published-version resolution
 // (Vorsie/Strix #9). The "published" version must come only from what actually
-// means "published" — the releases feed of Vorsie/strixgeo-releases, or the
-// git tags on the source repo — never from a local build output
+// means "published": the releases feed of Vorsie/strixgeo, or the
+// git tags on the source repo, never from a local build output
 // (`desktop/dist/latest.yml`), which every `npm run dist` rewrites with the
 // current package version.
 //
