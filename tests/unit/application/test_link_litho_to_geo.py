@@ -149,13 +149,7 @@ async def test_ll1_links_nearest_geo_and_snaps_and_marks_stale() -> None:
     assert result is not None
     # parent_geo_contact_id must be set.
     assert result.parent_geo_contact_id == GEO_CONTACT_ID
-    # Geo contact depth snapped to litho depth.
-    await session.get(None.__class__, GEO_CONTACT_ID)  # type: ignore[arg-type]
-    # Access via the session.get side_effect stub directly:
-    # re-fetch the geo contact stub from the _make_session closure.
-    # The geo_contact_stub is mutable (SimpleNamespace) — the use case
-    # mutates it in-place via session.get(..., GEO_CONTACT_ID).depth_top_m.
-    # We verify by checking session.get was called with GEO_CONTACT_ID.
+    # The use case itself must load the geo contact it snaps.
     get_calls = session.get.call_args_list
     geo_get_calls = [c for c in get_calls if c[0][1] == GEO_CONTACT_ID]
     assert geo_get_calls, "session.get(FormationContactOrm, GEO_CONTACT_ID) must be called"
