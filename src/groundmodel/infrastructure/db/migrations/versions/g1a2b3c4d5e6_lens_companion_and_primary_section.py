@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "g1a2b3c4d5e6"
@@ -53,7 +54,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "primary_section_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             nullable=True,
         ),
     )
@@ -73,7 +74,7 @@ def upgrade() -> None:
         "cross_section",
         sa.Column(
             "companion_lens_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             nullable=True,
         ),
     )
