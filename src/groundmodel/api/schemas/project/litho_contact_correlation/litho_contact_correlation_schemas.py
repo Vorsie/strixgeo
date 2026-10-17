@@ -21,6 +21,9 @@ from pydantic import BaseModel, model_validator
 
 from groundmodel.api.schemas.strict_request_model import StrictRequestModel
 
+# The side of a litho layer an edge ties to: its top or its base contact.
+ContactSide = Literal["top", "base"]
+
 
 class ContactCorrelationRequest(StrictRequestModel):
     """Body for POST and DELETE /contact-correlations.
@@ -58,8 +61,8 @@ class ContactCorrelationRequest(StrictRequestModel):
     layer_b_id: UUID
     source: Literal["manual"] = "manual"
     request_section_id: UUID | None = None
-    layer_a_side: Literal["top", "base"] = "top"
-    layer_b_side: Literal["top", "base"] = "top"
+    layer_a_side: ContactSide = "top"
+    layer_b_side: ContactSide = "top"
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> ContactCorrelationRequest:
@@ -104,8 +107,8 @@ class ContactCorrelationResponse(BaseModel):
     edge_id: UUID
     layer_a_id: UUID
     layer_b_id: UUID
-    layer_a_side: Literal["top", "base"]
-    layer_b_side: Literal["top", "base"]
+    layer_a_side: ContactSide
+    layer_b_side: ContactSide
     model_id: UUID
     source: str
     was_created: bool
@@ -155,8 +158,8 @@ class ContactCorrelationEdgeListItem(BaseModel):
     id: UUID
     layer_a_id: UUID
     layer_b_id: UUID
-    layer_a_side: Literal["top", "base"]
-    layer_b_side: Literal["top", "base"]
+    layer_a_side: ContactSide
+    layer_b_side: ContactSide
     model_id: UUID
     section_id: UUID
     source: str
