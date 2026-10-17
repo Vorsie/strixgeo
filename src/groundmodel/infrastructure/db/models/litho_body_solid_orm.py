@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -110,8 +111,8 @@ class LithoBodySolidOrm(Base):
     # Geometry payload. JSONB blobs for forward compatibility.
     # vertices: list[[x_m, y_m, z_m]]
     # triangles: list[[i, j, k]] — vertex indices, outward-facing normal
-    vertices: Mapped[list] = mapped_column(JSONB, nullable=False)
-    triangles: Mapped[list] = mapped_column(JSONB, nullable=False)
+    vertices: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    triangles: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
 
     # Cache-validity tag. ``source_pick_count`` is a cheap pre-check;
     # ``source_pick_checksum`` is a stable hash over the pick set
