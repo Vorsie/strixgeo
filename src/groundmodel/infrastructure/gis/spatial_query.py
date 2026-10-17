@@ -31,10 +31,11 @@ GIS-domain values, not DOV-specific.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from geoalchemy2 import Geography
 from sqlalchemy import ColumnElement, func
-from sqlalchemy.sql.elements import BooleanClauseList
+from sqlalchemy.sql.functions import Function
 
 # Canonical CRS for cross-row spatial comparisons. WGS84 (EPSG 4326)
 # chosen because:
@@ -68,7 +69,7 @@ def transformed_bbox_filter(
     east: float,
     north: float,
     bbox_epsg: int = CANONICAL_QUERY_EPSG,
-) -> BooleanClauseList:
+) -> Function[Any]:
     """Build a ``ST_Within(ST_Transform(col, bbox_epsg), ST_MakeEnvelope(...))`` filter.
 
     The column side is wrapped in ``ST_Transform`` to ``bbox_epsg`` so
@@ -97,8 +98,8 @@ def transformed_bbox_filter(
 
     Returns
     -------
-    BooleanClauseList
-        SQLAlchemy boolean expression usable inside ``.where(...)``.
+    Function[Any]
+        SQLAlchemy boolean SQL function call usable inside ``.where(...)``.
 
     Raises
     ------
@@ -136,7 +137,7 @@ def transformed_distance_filter(
     centre_longitude: float,
     centre_latitude: float,
     radius_metres: float,
-) -> BooleanClauseList:
+) -> Function[Any]:
     """Build a "within N metres of (lon, lat)" filter using PostGIS geography.
 
     Uses the ``geography`` type cast on both sides — geography distance
