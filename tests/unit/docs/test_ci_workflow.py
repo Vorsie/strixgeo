@@ -32,11 +32,13 @@ def test_integration_job_uses_a_postgis_service() -> None:
     assert job["env"]["DATABASE_URL"].endswith("/groundmodel_integration")
 
 
-def test_mypy_is_informational_until_cleared() -> None:
-    """The mypy step does not block the lint job while the pre-existing errors remain."""
+def test_mypy_blocks_the_lint_job() -> None:
+    """mypy is clean, so a new type error fails the lint job: the step has no continue-on-error."""
     steps = _workflow()["jobs"]["lint-types"]["steps"]
     mypy = [s for s in steps if "mypy" in str(s.get("run", ""))]
-    assert len(mypy) == 1 and mypy[0].get("continue-on-error") is True
+    assert len(mypy) == 1
+    assert mypy[0].get("name") == "mypy"
+    assert "continue-on-error" not in mypy[0]
 
 
 def test_integration_job_has_room_for_the_full_suite() -> None:
