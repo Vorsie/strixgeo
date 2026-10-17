@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.interfaces import LoaderOption
 
 from groundmodel.domain.services.elevation_rollback import (
     ElevationState,
@@ -33,7 +34,7 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 LAB_TEST_RELATIONSHIPS: tuple[str, ...] = LAB_TEST_RELATIONSHIP_NAMES
 
 
-def borehole_full_tree_options(include_set: set[str] | None = None) -> list:
+def borehole_full_tree_options(include_set: set[str] | None = None) -> list[LoaderOption]:
     """Build the selectinload option list for the full borehole detail tree.
 
     Single source of truth for the borehole eager-load chain
@@ -61,10 +62,10 @@ def borehole_full_tree_options(include_set: set[str] | None = None) -> list:
 
     Returns
     -------
-    list
+    list[LoaderOption]
         Loader options ready for ``select(BoreholeOrm).options(*...)``.
     """
-    options = [
+    options: list[LoaderOption] = [
         selectinload(BoreholeOrm.drill_segments),
         selectinload(BoreholeOrm.field_log_intervals),
         selectinload(BoreholeOrm.observations)
