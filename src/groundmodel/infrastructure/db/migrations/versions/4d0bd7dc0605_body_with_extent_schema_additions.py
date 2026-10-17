@@ -8,9 +8,9 @@ Create Date: 2026-05-31 22:21:21.573246
 
 from __future__ import annotations
 
-import geoalchemy2
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "4d0bd7dc0605"
@@ -31,7 +31,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "source_investigation_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             nullable=True,  # populated in revision 1.4
         ),
     )
@@ -40,7 +40,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "extent_left_target_contact_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             sa.ForeignKey("formation_contact.id", ondelete="CASCADE"),
             nullable=True,
         ),
@@ -49,7 +49,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "extent_left_neighbour_inv_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             nullable=True,
         ),
     )
@@ -58,7 +58,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "extent_right_target_contact_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             sa.ForeignKey("formation_contact.id", ondelete="CASCADE"),
             nullable=True,
         ),
@@ -67,7 +67,7 @@ def upgrade() -> None:
         "litho_lens",
         sa.Column(
             "extent_right_neighbour_inv_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             nullable=True,
         ),
     )
@@ -79,7 +79,7 @@ def upgrade() -> None:
         "litho_lens_shape",
         sa.Column(
             "body_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
+            postgresql.UUID(as_uuid=True),
             sa.ForeignKey("litho_lens.id", ondelete="CASCADE"),
             nullable=True,
         ),
