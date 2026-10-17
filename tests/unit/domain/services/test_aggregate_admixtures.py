@@ -144,7 +144,7 @@ def test_a5_dominant_amount_selected_by_thickness() -> None:
 
 
 def test_a6_locally_global_when_any_contributing_layer_is_global() -> None:
-    """If any contributing layer reports the admixture as global (locally=False), result is global."""
+    """Any contributing layer with a global admixture (locally=False) makes the result global."""
     # 3 layers all with "Z": layer 0 locally=True, layers 1+2 locally=False.
     # Any global → result global.
     layers: list[list[Admixture]] = [
