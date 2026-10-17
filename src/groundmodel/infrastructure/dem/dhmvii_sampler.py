@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from email import message_from_bytes
 from io import BytesIO
+from typing import cast
 
 from PIL import Image
 
@@ -113,10 +114,12 @@ def _sample_bilinear(
     # exactly on the right or bottom border still samples cleanly.
     x1 = min(x0 + 1, width - 1)
     y1 = min(y0 + 1, height - 1)
-    v00 = float(img.getpixel((x0, y0)))
-    v10 = float(img.getpixel((x1, y0)))
-    v01 = float(img.getpixel((x0, y1)))
-    v11 = float(img.getpixel((x1, y1)))
+    # The DHMVII raster is single-band float, so ``getpixel`` returns a scalar;
+    # the tuple / None arms of its return type belong to multi-band / empty images.
+    v00 = float(cast(float, img.getpixel((x0, y0))))
+    v10 = float(cast(float, img.getpixel((x1, y0))))
+    v01 = float(cast(float, img.getpixel((x0, y1))))
+    v11 = float(cast(float, img.getpixel((x1, y1))))
     if any(is_nodata(v) for v in (v00, v10, v01, v11)):
         return None
     return (1 - fx) * (1 - fy) * v00 + fx * (1 - fy) * v10 + (1 - fx) * fy * v01 + fx * fy * v11
