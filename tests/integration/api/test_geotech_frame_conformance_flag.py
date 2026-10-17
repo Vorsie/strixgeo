@@ -21,7 +21,8 @@ FW-DB3  Negative control — same soil, litho-correlated: no warning, and the
         edge carries no review flag.  The flag is not a blanket "warn always".
 
 Run via the integration wrapper:
-    .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_geotech_frame_conformance_flag.py
+    .\\scripts\\run-integration-tests.ps1 `
+        tests/integration/api/test_geotech_frame_conformance_flag.py
 """
 
 from __future__ import annotations
