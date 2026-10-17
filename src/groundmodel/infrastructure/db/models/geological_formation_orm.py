@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
@@ -153,7 +154,7 @@ class GeologicalFormationOrm(Base):
     litho_main_soil_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Ordered admixture list: [{"soil_code": str, "amount": str, "locally": bool}].
     # NULL on geological rows; [] on a litho unit with no admixtures.
-    litho_admixtures: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    litho_admixtures: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     # The engineer's NAD-family answer for a litho unit whose admixture the NAD
     # table can express as either a pure or a with-admixture class (owner ruling
     # 2026-09-04). 'pure' → classify into the clean NAD column; 'with_admixture'
