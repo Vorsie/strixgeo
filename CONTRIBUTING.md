@@ -66,6 +66,8 @@ npx tsc --noEmit -p tsconfig.node.json
 npx tsc --noEmit -p tsconfig.e2e.json
 ```
 
+CI runs on an ubuntu runner, so on Windows also run `uv run mypy --platform linux src` before pushing: the first mypy-blocking run caught Windows-only ctypes code.
+
 Run the `npx tsc` lines and `npm test` from `desktop/`. Run Vitest only from `desktop/`; from the repository root it also collects the Playwright specs.
 
 Run the integration tests only through `.\scripts\run-integration-tests.ps1`. It points `DATABASE_URL` at a separate test database and migrates it first. A bare `pytest tests/integration` is refused unless `DATABASE_URL` names a `_integration` or `_test` database (the conftest guard). One integration run at a time: the script takes a lock and stops if another run holds it.
