@@ -97,3 +97,4 @@ Releases are made by the maintainer only. The recipe: the Electron walker (`.\sc
 - [CLAUDE.md](CLAUDE.md): architecture, conventions, the Definition of Done and pointers to every subsystem note.
 - [docs/](docs/): reference pages per subsystem (parsers, exports, API, desktop, UX, data integrity, testing).
 - [docs/design/](docs/design/): the current design of the interpretation subsystems (section fill, bodies, geotechnical stage).
+- [SUPPORT.md](SUPPORT.md): where to ask questions (GitHub Discussions) and how to report a bug.
