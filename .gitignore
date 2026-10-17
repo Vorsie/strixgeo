@@ -185,6 +185,3 @@ docs/code-guide/
 scripts/oracle210_conformance.json
 scripts/diag_conformance.json
 
-# Scratch dir for the behavioural native gate (scripts/verify-staged-natives.ps1).
-# Repo-local on purpose: see the comment there about the %TEMP% collection race.
-.native-gate-work/
