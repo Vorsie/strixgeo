@@ -32,8 +32,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_GRONDMONSTER_WFS_COMPOSITION_PROP,
     DOV_GRONDMONSTER_WFS_DEPTH_BASE_PROP,
