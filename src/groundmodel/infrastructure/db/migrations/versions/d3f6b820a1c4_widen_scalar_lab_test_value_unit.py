@@ -33,6 +33,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Widen ``scalar_lab_test.unit`` and ``value_text`` to TEXT."""
     op.alter_column(
         "scalar_lab_test",
         "unit",
@@ -50,6 +51,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Narrow ``value_text`` and ``unit`` back to their VARCHAR caps."""
     op.alter_column(
         "scalar_lab_test",
         "value_text",
