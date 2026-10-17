@@ -216,15 +216,11 @@ async def test_bf3_a_fact_pointing_at_another_models_layer_is_dropped(
     facts = (
         (
             await db_session.execute(
-                select(BodyGeometryFactOrm).where(
-                    BodyGeometryFactOrm.model_id == scene.model_id
-                )
+                select(BodyGeometryFactOrm).where(BodyGeometryFactOrm.model_id == scene.model_id)
             )
         )
         .scalars()
         .all()
     )
-    assert facts == [], (
-        "a fact whose endpoint belongs to another model must be dropped at restore"
-    )
+    assert facts == [], "a fact whose endpoint belongs to another model must be dropped at restore"
     assert str(other_id)  # silence unused warnings honestly
