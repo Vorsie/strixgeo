@@ -1,8 +1,8 @@
-"""Open source 2026-10-17: no activation, licence-key or beta-expiry machinery remains.
+"""Open source: no activation, licence-key, beta-expiry or native-compile machinery remains.
 
-The tree is scanned for the identifiers of the removed subsystem so a stray
-pointer (a doc bullet, a script, a menu label) fails the unit gate instead of
-confusing a contributor.
+Open source since 2026-10-17. The tree is scanned for the identifiers of the
+removed subsystems so a stray pointer (a doc bullet, a script, a menu label)
+fails the unit gate instead of confusing a contributor.
 """
 
 from __future__ import annotations
@@ -18,7 +18,9 @@ FORBIDDEN = re.compile(
     r"activationService|activationStore|betaExpiry|enforceBetaExpiry|"
     r"STRIX_BETA_EXPIRES_AT|licenceActivation|server/activation|LicensingDialog|"
     r"getBetaStatus|beta-status|beta-expiry\.md|onboarding-activation-updater-proto|"
-    r"activation_stub_server|activation-stub|ACTIVATION_FORMAT_VERSION",
+    r"activation_stub_server|activation-stub|ACTIVATION_FORMAT_VERSION|"
+    # the removed Nuitka compile step of the installer
+    r"compile-backend-natives|verify-staged-natives|native_compile_manifest|[Nn]uitka",
 )
 # Tester-facing phrases of the removed flow, matched case-insensitively.
 FORBIDDEN_PHRASES = re.compile(r"\bactivation server\b|\bbeta keys?\b", re.IGNORECASE)
