@@ -36,6 +36,7 @@ from groundmodel.domain.services.litho_column_digest import (
     LithoColumnInterval,
     litho_column_digest,
 )
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
@@ -381,6 +382,7 @@ class LithoLayerRepository(GroundModelLogger):
 
         for r in layer_rows:
             # Resolve anchor to a (location_x, location_y, elevation_m) triple.
+            anchor: BoreholeOrm | CptOrm | None
             if r.borehole_id is not None:
                 anchor = boreholes_by_id.get(r.borehole_id)
                 anchor_id = str(r.borehole_id)
@@ -562,7 +564,7 @@ class LithoLayerRepository(GroundModelLogger):
             .where(LithoBodySolidOrm.model_id == model_id)
             .values(is_stale=True)
         )
-        count = result.rowcount or 0
+        count = dml_rowcount(result) or 0
         if count:
             self.debug(f"mark_litho_solids_stale: {count} row(s) staled for model={model_id}")
         return count
