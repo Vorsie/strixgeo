@@ -79,6 +79,6 @@ async def fire_progress(cb: ProgressCallback | None, phase: str, done: int, tota
     try:
         result = cb(phase, done, total)
         if inspect.isawaitable(result):
-            await asyncio.ensure_future(result)  # type: ignore[arg-type]
+            await asyncio.ensure_future(result)
     except Exception:  # noqa: BLE001 — callback errors must not abort the import
         pass
