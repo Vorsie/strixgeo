@@ -9,8 +9,9 @@ contacts without ever making the placement less conservative.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from groundmodel.domain.services.nad_classification_constants import NAD_QC_BANDS, Variant
 from groundmodel.domain.services.nad_classifier import _variant_for, classify_nad
@@ -21,6 +22,11 @@ from groundmodel.domain.services.representative_statistic import (
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.db_constraints import LITHO_LAYER_DEPTH_DECIMALS
 from groundmodel.shared.constants.litho_constants import BaseLithology
+
+# One NAD band as the merge passes edit it in place: ``[top_m, base_m, nad_class]``.
+# A list, not a tuple, because the passes move its edges; the class slot holds an
+# ``int`` until the coverage gate may set it to ``None``, so the element type is Any.
+_Band = list[Any]
 
 # Owner rule (2026-07-25): a unit is flagged "needs review" (no guessed NAD class)
 # rather than classified when its valid-qc coverage is too thin — EITHER a large
@@ -249,10 +255,10 @@ def _sustained_threshold_cuts(
 
 
 def _conservative_merge(
-    bands: list[list[float]],
+    bands: list[_Band],
     min_thickness_m: float,
-    union_class=None,
-) -> list[list[float]]:
+    union_class: Callable[[float, float], int | None] | None = None,
+) -> list[_Band]:
     """Absorb sub-min bands — but never in a way that silently upgrades a band.
 
     Within one soil family the NAD class number is ordered loose->dense /
@@ -272,7 +278,7 @@ def _conservative_merge(
 
     Parameters
     ----------
-    bands : list[list[float]]
+    bands : list[_Band]
         ``[top_m, base_m, nad_class]`` bands, ordered top-to-bottom, contiguous.
     min_thickness_m : float
         Minimum band thickness; thinner bands are absorption candidates.
@@ -285,7 +291,7 @@ def _conservative_merge(
 
     Returns
     -------
-    list[list[float]]
+    list[_Band]
         Bands >= ``min_thickness_m`` except the slivers the ruling keeps.
     """
     out = [list(b) for b in bands]
@@ -327,7 +333,7 @@ def _conservative_merge(
     return out
 
 
-def _weld_same_class_bands(bands: list[list[float]]) -> list[list[float]]:
+def _weld_same_class_bands(bands: list[_Band]) -> list[_Band]:
     """Weld adjacent bands of equal NAD class into one contiguous band."""
     if not bands:
         return []
@@ -341,13 +347,13 @@ def _weld_same_class_bands(bands: list[list[float]]) -> list[list[float]]:
 
 
 def _gradient_snap(
-    bands: list[list[float]],
+    bands: list[_Band],
     depths: list[float],
     qc: list[float],
     window_m: float,
     min_thickness_m: float,
-    union_class=None,
-) -> list[list[float]]:
+    union_class: Callable[[float, float], int | None] | None = None,
+) -> list[_Band]:
     """Snap each interior boundary to a nearby sharp |dqc/dz| peak, conservatively.
 
     A snap is applied only when it does NOT make the boundary less conservative:
@@ -357,7 +363,7 @@ def _gradient_snap(
 
     Parameters
     ----------
-    bands : list[list[float]]
+    bands : list[_Band]
         ``[top, base, nad_class]`` bands after Step 4.
     depths, qc : list[float]
         Segment sample series.
@@ -368,7 +374,7 @@ def _gradient_snap(
 
     Returns
     -------
-    list[list[float]]
+    list[_Band]
         Bands with eligible interior boundaries snapped.
     """
     if len(bands) < 2 or len(depths) < 3:
@@ -642,7 +648,7 @@ def suggest_geotech_subdivision(
     # 2. Bands between consecutive cuts, each classified by its REPRESENTATIVE
     #    qc — the model's chosen statistic (ruling 7); median by default,
     #    robust to spikes without the harmonic over-suppression.
-    bands: list[list[float]] = []
+    bands: list[_Band] = []
     for a, b in zip(cuts, cuts[1:]):
         # Half-open [a, b): the cut at depths[-1] == segment_base_m is excluded
         # from the deepest band. At typical CPT densities (tens of samples per
