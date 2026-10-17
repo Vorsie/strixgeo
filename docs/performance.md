@@ -31,8 +31,9 @@ Order roughly by solo-dev ease — pick the lowest one that fits.
    pays the ~0.6 s warm-up. Took the on-click voxel Build 67 s → 37.5 s.
    Justified for Phase 4 (not deferred to 5) because the Build must run on
    lower-spec **distribution** machines. Cost: a hard dependency, +119 MB
-   (llvmlite bundles LLVM); per-OS wheels + a PyInstaller hook at packaging
-   time. Decorator-only; no separate toolchain, releases the GIL inside the
+   (llvmlite bundles LLVM); per-OS wheels install into the relocated
+   interpreter the installer ships, with no compile step at packaging time.
+   Decorator-only; no separate toolchain, releases the GIL inside the
    JIT'd function. Best fit for embarrassingly parallel numeric loops with
    HEAVY per-call work (`maximal_rectangles` does a full greedy raster-scan per
    call). **Labelling — MEASURED, not worth per-function njit (2026-06-16).**
