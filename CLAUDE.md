@@ -146,6 +146,8 @@ DOV e2e specs or fixtures.
 2. `uv run ruff check --fix <file>` — auto-fix lint issues
 3. Add complete numpy style docstrings to all public modules, classes, methods, and functions that lack one
 
+`uv run ruff check src tests` and `uv run ruff format --check src tests` are tree-wide gates (CI job Ruff + mypy; mypy informational until the 151 pre-existing errors are cleared); the docstring rules (D1) cover `src` only.
+
 A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enforced by code review. A second PostToolUse hook (`desktop_ts_check.py`) fires on `desktop/**/*.ts(x)` writes: runs `eslint --fix` if an eslint install ever lands in `desktop/` (none today), and warns when the edited file exceeds 500 lines (god-component pressure, debt #201). The git pre-commit hook also blocks any staged CLAUDE.md over the 40 KB budget.
 
 **Git pre-commit hook:** the repo ships a pre-commit hook in
