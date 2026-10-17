@@ -7,8 +7,7 @@
 # quoted verbatim in CONTRIBUTING.md; rename them in all three places
 # together or the protection rule waits for a check that never reports.
 #   * **lint-types** (Ruff + mypy): ruff check, ruff format --check, and
-#     mypy as an informational step until its pre-existing errors are
-#     cleared.
+#     mypy (strict, blocking).
 #   * **python-unit** (Python unit tests): Python 3.11 + uv, ``pytest
 #     tests/unit``.
 #   * **desktop** (Desktop eslint-reason + tsc + tests): Node 22 LTS
@@ -99,10 +98,7 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src tests
 
-      - name: mypy (informational until the 151 pre-existing errors are cleared)
-        # continue-on-error keeps the job green while the backlog stands; the
-        # errors still print in the log. Drop this line when mypy is clean.
-        continue-on-error: true
+      - name: mypy
         run: uv run mypy src
 
   python-unit:
