@@ -47,6 +47,7 @@ TABLES: list[tuple[str, str]] = [
 
 
 def upgrade() -> None:
+    """Add ``dov_permkey`` and its partial unique index to every DOV child table."""
     for table, parent_col in TABLES:
         op.add_column(table, sa.Column("dov_permkey", sa.String(length=50), nullable=True))
         op.create_index(
@@ -59,6 +60,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the partial unique indexes and the ``dov_permkey`` columns."""
     for table, _ in reversed(TABLES):
         op.drop_index(f"idx_{table}_dov_permkey", table_name=table)
         op.drop_column(table, "dov_permkey")
