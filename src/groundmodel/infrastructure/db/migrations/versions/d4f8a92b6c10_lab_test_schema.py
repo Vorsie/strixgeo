@@ -18,6 +18,8 @@ borehole) cleans up all of its lab tests transitively.
 All tables index on sample_id for FK lookup.
 """
 
+from typing import Any
+
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -29,7 +31,7 @@ branch_labels = None
 depends_on = None
 
 
-def _create_simple_test_table(name: str, value_columns: list[sa.Column]) -> None:
+def _create_simple_test_table(name: str, value_columns: list[sa.Column[Any]]) -> None:
     """Create a {name} table: id + sample_id FK + value_columns + method + test_date.
 
     All five lab tables share the id / sample_id / method / test_date scaffold;
