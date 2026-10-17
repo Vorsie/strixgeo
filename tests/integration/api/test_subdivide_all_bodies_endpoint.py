@@ -19,7 +19,8 @@ SAB-IT-5  Idempotency — two consecutive subdivide-all-bodies calls return the
           same geotech_model_id and a non-zero layer_count on both runs.
 
 Run via the wrapper:
-    .\\scripts\\run-integration-tests.ps1 tests/integration/api/test_subdivide_all_bodies_endpoint.py
+    .\\scripts\\run-integration-tests.ps1 `
+        tests/integration/api/test_subdivide_all_bodies_endpoint.py
 """
 
 from __future__ import annotations
