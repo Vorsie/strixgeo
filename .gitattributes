@@ -1,1 +1,3 @@
 tests/fixtures/lab/** -text
+# shell scripts run under bash on Windows checkouts too
+*.sh text eol=lf
