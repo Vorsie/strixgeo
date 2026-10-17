@@ -40,7 +40,7 @@ both `dist` and `release`:
 * on `release` only, refuses a **stale version** — `package.json` `version` must
   be strictly newer (SemVer) than the latest **published** version. "Published"
   is read only from sources an installed client can actually be offered: the
-  GitHub releases feed of `Vorsie/strixgeo-releases` (read-only, via `gh`) when
+  GitHub releases feed of `Vorsie/strixgeo` (read-only, via `gh`) when
   reachable, else the `v<semver>` git tags on the source repo. A local
   `desktop/dist/latest.yml` is never a source (see below). electron-updater
   offers an update only for a *greater* version, so re-publishing an equal or
@@ -439,11 +439,18 @@ diagnostics store and the embedded stack all resolve paths off userData —
 guard refuses a package version that is not GREATER than the latest published
 one, because electron-updater offers an update only for a greater semver.
 
+**The feed is `Vorsie/strixgeo`**, the public source repo: from 0.2.0 on the
+installers and `latest.yml` are published as releases of the source repo itself
+(the `publish` block in `desktop/package.json`). Up to 0.1.6 the feed was the
+separate repo `Vorsie/strixgeo-releases`; installed 0.1.x builds keep reading it
+because their `app-update.yml` is baked in, so 0.2.0 is published there once as
+a bridge (step 7 below). `Vorsie/strixgeo-releases` is archived after 0.2.1.
+
 It reads the "published" version only from what an installed client can actually
 be offered, never from a local build output. In order:
 
-1. **The releases feed** of `Vorsie/strixgeo-releases`, read-only via `gh`
-   (`gh api repos/Vorsie/strixgeo-releases/releases`), using the same
+1. **The releases feed** of `Vorsie/strixgeo`, read-only via `gh`
+   (`gh api repos/Vorsie/strixgeo/releases`), using the same
    `GH_TOKEN`/`gh` auth the publish uses. Drafts are excluded; prereleases
    count. This is the primary source: it is exactly what the updater sees.
 2. **The `v<semver>` git tags** on the source repo, as a fallback when the feed
@@ -460,7 +467,7 @@ version is allowed). This is the resolution in
 Before every release:
 
 1. Bump `"version"` in `desktop/package.json` above the last published release
-   (check `gh release list --repo Vorsie/strixgeo-releases`), land the bump on a
+   (check `gh release list --repo Vorsie/strixgeo`), land the bump on a
    branch and push develop; the guard also demands a clean tree level with
    `origin/develop`. The version bump is required for every release because the
    updater only offers a strictly greater semver.
@@ -470,13 +477,27 @@ Before every release:
    never echoed). Without the token the installer builds and the upload fails at
    the very end; `npx electron-builder --publish=always` in `desktop/` then
    uploads the already-built package.
-3. Run the release; it creates a DRAFT release named after the package version
-   (`v0.1.0`) on the releases repo. Publish it by hand after a download check;
-   the git tag on the private repo (`v0.1.0-beta.1`) is a separate name.
-4. Tag the built commit AFTER the release ran. The guard reads `v<semver>` git
-   tags as published when it falls back from the feed, so a tag pushed before
-   the run refuses its own release ("0.1.2 is not newer than the latest published
-   0.1.2", hotfix 2026-09-23).
+3. Run the release; it builds the installer and uploads it as a DRAFT release
+   named after the package version (`v0.2.0`) on `Vorsie/strixgeo`. Do not
+   publish it yet.
+4. Tag the built commit `v0.2.0` and push the tag FIRST, AFTER the release ran.
+   The guard reads `v<semver>` git tags as published when it falls back from the
+   feed, so a tag pushed before the run refuses its own release ("0.1.2 is not
+   newer than the latest published 0.1.2", hotfix 2026-09-23).
+5. Fast-forward `main` to the built commit and push it.
+6. Publish the draft by hand after a download check. It binds to the existing
+   tag; publishing a draft whose tag does not exist yet makes GitHub create the
+   tag at the head of `main`, which can be a different commit than the one built.
+7. **One time, for 0.2.0 only: the bridge release.** After the 0.2.0 release is
+   published on `Vorsie/strixgeo`, put byte-identical files on the old feed so
+   installed 0.1.x builds (they read that feed) get the update prompt. Download
+   the published assets; do not rely on local `desktop/dist` files:
+   ```
+   gh release download v0.2.0 --repo Vorsie/strixgeo --dir <tmp>
+   gh release create v0.2.0 --repo Vorsie/strixgeo-releases --draft --title "StrixGeo 0.2.0" --notes-file <notes> <tmp>/StrixGeo-Setup-0.2.0.exe <tmp>/StrixGeo-Setup-0.2.0.exe.blockmap <tmp>/latest.yml
+   ```
+   Publish that draft by hand. The 0.2.0 build reads `Vorsie/strixgeo` from then
+   on. Archive `Vorsie/strixgeo-releases` after 0.2.1 is published.
 
 A hotfix follows the same chain off `main`: branch off the last BUILT commit
 (fast-forward `main` to it first if a release skipped that step), cherry-pick the
