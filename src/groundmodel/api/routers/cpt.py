@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from collections.abc import AsyncGenerator
+from collections.abc import Callable, Coroutine
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from fastapi import (
@@ -330,7 +330,7 @@ async def import_cpt_dov(
 def _make_cpt_dov_import_coro(
     request: ImportDovRequest,
     pool: ProcessPoolExecutor | None = None,
-) -> AsyncGenerator[asyncio.Queue[dict | None], None]:
+) -> Callable[[asyncio.Queue[dict[str, Any] | None]], Coroutine[Any, Any, None]]:
     """Return a coroutine-factory for the CPT DOV import background task.
 
     The returned factory accepts an ``asyncio.Queue`` and returns a
@@ -353,11 +353,11 @@ def _make_cpt_dov_import_coro(
 
     Returns
     -------
-    Callable[[asyncio.Queue], Coroutine[None]]
+    Callable[[asyncio.Queue[dict[str, Any] | None]], Coroutine[Any, Any, None]]
         Factory suitable for ``JobRegistry.start``.
     """
 
-    def factory(queue: asyncio.Queue) -> object:  # -> Coroutine
+    def factory(queue: asyncio.Queue[dict[str, Any] | None]) -> Coroutine[Any, Any, None]:
         async def run_import() -> None:
             async def progress_cb(phase: str, done: int, total: int) -> None:
                 await queue.put({"phase": phase, "done": done, "total": total})
@@ -422,7 +422,7 @@ def _make_cpt_dov_import_coro(
 
         return run_import()
 
-    return factory  # type: ignore[return-value]
+    return factory
 
 
 @router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
@@ -430,7 +430,7 @@ async def import_cpt_dov_stream(
     request: ImportDovRequest,
     http_request: Request,
     registry: JobRegistry = Depends(get_job_registry),
-) -> dict:
+) -> dict[str, Any]:
     """Spawn a CPT DOV import as a background task and return its job-id.
 
     The import runs in the same asyncio event loop but in its own
