@@ -36,6 +36,7 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.body_boundary_shape_orm import BodyBoundaryShapeOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -94,7 +95,7 @@ class ClearBodyBoundaries(GroundModelLogger):
         )
         # rowcount is the number of shape rows matched by the WHERE clause; the
         # node CASCADE happens in the DB and does not contribute to it.
-        deleted = int(result.rowcount or 0)
+        deleted = int(dml_rowcount(result) or 0)
         await self._session.commit()
 
         self.success(
