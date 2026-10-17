@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use StrixGeo in your work, please cite it as below."
+type: software
+title: StrixGeo
+abstract: >-
+  StrixGeo is a ground model platform for geotechnical data: CPTs, boreholes,
+  lab tests and PDF reports go in, and a validated three-level subsurface
+  model with characterisation outputs and exports to design tools comes out.
+authors:
+  - family-names: Vorsselmans
+    given-names: Robin
+version: 0.2.0
+date-released: "2026-10-17"
+license: AGPL-3.0-or-later
+repository-code: "https://github.com/Vorsie/strixgeo"
+url: "https://strixgeo.com"
