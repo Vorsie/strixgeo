@@ -37,7 +37,7 @@ cross-section export taken here is identical to the one the toolbar used to make
    The Plaxis and D-Series exports are complete and runnable, but they have not
    yet been validated inside the target software against a hand-checked
    benchmark. Validating them in Plaxis, D-Stability and D-Sheet Piling is one of
-   the tasks of the closed beta. Until then, treat an exported model as a strong
+   the open tasks of the tester loop. Until then, treat an exported model as a strong
    starting point to open and inspect, not as a finished, verified input.
 
 Unit identifiers
