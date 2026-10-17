@@ -771,6 +771,7 @@ Run: `uv run pytest tests/unit/docs/test_ci_workflow.py -q`. Expected: 2 passed.
 git commit -m "ci: lint-types, python-unit, desktop (three tsc configs), integration on a PostGIS service, DCO sign-off"
 ```
 
+- [ ] **Step 6b: Sign off the branch (session main)**: the branch is unpushed, so rewrite it once with the DCO trailer on every commit: `git rebase origin/develop --exec 'git commit --amend --no-edit -s'` (the committer is the owner's git identity); verify `bash scripts/check_dco.sh origin/develop..HEAD` prints nothing.
 - [ ] **Step 7: Prove the CI on the private repo (session main)**
 
 Push `feat/open-source`, open the PR against `develop`, wait for the five jobs. Expected: all green. Then the negative test: cut `test/dco-negative` with one commit without `-s`, open a PR, expect `dco` red, close the PR, delete the branch.
@@ -871,4 +872,5 @@ Then `curl -sI https://strixgeo.com/download | head -1` = 200 and the page shows
 - [ ] **Step 3b**: `docs/manual/chapters/05-support.rst` "What the beta does not send": check the sentence that the app "offers to send a redacted diagnostics bundle" against the renderer (no send UI without an endpoint); rewrite to the consent + `STRIXGEO_DIAGNOSTICS_URL` state. Also the chapter's "StrixGeo is in closed beta" sentence.
 - [ ] **Step 3c**: README screenshots (spec section 3 lists them; the owner picks two or three: a cross-section, the 3-D model, the PDF triage).
 - [ ] **Step 3d**: two follow-ups found in the Task 8 review: `tests/unit/application/test_link_litho_to_geo.py:153-160` asserts a `session.get(..., GEO_CONTACT_ID)` call that the test itself makes (vacuous; delete line 153 and its comment, keep the test green); `g1a2b3c4d5e6_lens_companion_and_primary_section.py:56,76` uses `sa.dialects.postgresql.UUID` without an explicit import (works only because env.py loads the models first; give it the explicit `from sqlalchemy.dialects import postgresql`).
+- [ ] **Step 3e**: CI follow-ups from the Task 9 review: `tests/integration/db/test_migration_upgrade_from_empty.py` takes host/port/credentials from `DATABASE_URL` and FAILS instead of skipping when `CI` is set; `test_dov_borehole_by_name_live.py` skips on any `httpx.HTTPError` inside the tests (today only the collection probe skips).
 - [ ] **Step 4**: `docs/debt.md` new items: "Hosted Windows installer build in GitHub Actions" and "rename `registerPrototypeIpc` to `registerUpdaterIpc` (it registers only the updater since Task 2)" (Tier D, trigger: the first external contributor who needs a build they cannot make locally).
