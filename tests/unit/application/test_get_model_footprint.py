@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+
 from groundmodel.application.get_model_footprint import GetModelFootprint
 
 MODEL_ID: UUID = uuid4()
