@@ -46,3 +46,15 @@ Alembic honours ``DATABASE_URL`` when set (see
 ``src/groundmodel/infrastructure/db/migrations/env.py``), so the
 wrapper script's env override carries through to migrations cleanly.
 
+**The migration-parity test and the `CI` variable.**
+``tests/integration/db/test_migration_upgrade_from_empty.py`` builds a
+throwaway ``groundmodel_migration_test`` DB, runs ``alembic upgrade head``
+on it and compares the schema with the ORM. It takes host, port, user,
+password and its maintenance database from ``DATABASE_URL`` when that is
+set (``tests/integration/db/scratch_db_dsn.py``) and falls back to the
+docker-compose server (127.0.0.1:5433, groundmodel/groundmodel, maintenance
+DB ``groundmodel``) otherwise. When PostgreSQL does not answer, the test
+SKIPS on a developer machine but FAILS when the environment variable ``CI``
+is set (GitHub Actions sets it), so a misconfigured CI database service
+never passes silently. Do not export ``CI`` in a local shell unless you want
+that strictness.
