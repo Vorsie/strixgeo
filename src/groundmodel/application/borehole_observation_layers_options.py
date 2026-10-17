@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.interfaces import LoaderOption
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 
 
-def borehole_observation_layers_options(include_admixtures: bool = False) -> list:
+def borehole_observation_layers_options(include_admixtures: bool = False) -> list[LoaderOption]:
     """Build the selectinload options for a borehole's observation -> layer chain.
 
     Single source of truth for the lighter eager-load spec the stratigraphy use
@@ -31,7 +32,7 @@ def borehole_observation_layers_options(include_admixtures: bool = False) -> lis
 
     Returns
     -------
-    list
+    list[LoaderOption]
         Loader options ready to splat into ``select(BoreholeOrm).options(*...)``.
     """
     chain = selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers)
