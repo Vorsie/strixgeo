@@ -32,6 +32,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Widen ``parameter_group``, ``parameter`` and ``method`` of ``scalar_lab_test`` to TEXT."""
     op.alter_column(
         "scalar_lab_test",
         "parameter_group",
@@ -56,6 +57,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Narrow the three ``scalar_lab_test`` columns back to their VARCHAR caps."""
     op.alter_column(
         "scalar_lab_test",
         "method",
