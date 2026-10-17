@@ -64,7 +64,7 @@ async def _fire_pins(
     try:
         result = cb(index)
         if inspect.isawaitable(result):
-            await asyncio.ensure_future(result)  # type: ignore[arg-type]
+            await asyncio.ensure_future(result)
     except Exception as exc:  # noqa: BLE001 — callback errors must not abort the import
         logger.warning(
             f"pins callback raised (SSE connection may be broken) — import continues: "
