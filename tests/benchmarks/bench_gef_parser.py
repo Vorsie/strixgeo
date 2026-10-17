@@ -35,10 +35,10 @@ def _make_gef(n_rows: int) -> bytes:
 
 
 # Pre-build synthetic payloads once — construction cost excluded from timing.
-_GEF_100   = _make_gef(100)
-_GEF_1K    = _make_gef(1_000)
-_GEF_10K   = _make_gef(10_000)
-_GEF_100K  = _make_gef(100_000)
+_GEF_100 = _make_gef(100)
+_GEF_1K = _make_gef(1_000)
+_GEF_10K = _make_gef(10_000)
+_GEF_100K = _make_gef(100_000)
 
 # ---------------------------------------------------------------------------
 # Synthetic benchmarks
