@@ -20,7 +20,7 @@
 #     the gitignored ``data/cpt/`` or real PDF reports skip themselves,
 #     and the DOV live tests skip when DOV is unreachable.
 #   * **dco** (DCO sign-off): pull requests only; every commit of the PR
-#     must carry a Signed-off-by trailer.
+#     must carry a Signed-off-by trailer. Skipped on Dependabot PRs.
 #
 # Trigger policy (revised 2026-09-22, owner: "go ahead", at 90 % of the
 # month's Actions minutes after a day of ~30 runs):
@@ -275,7 +275,9 @@ jobs:
     name: DCO sign-off
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event_name == 'pull_request'
+    # Dependabot cannot sign the DCO; its PRs are reviewed and merged by a
+    # maintainer. A skipped job satisfies the required check.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (SHA-pinned, #219)
         with:
