@@ -35,6 +35,8 @@ from groundmodel.application.ground_model_snapshot import (
     GroundModelSnapshot,
     LayerGeometry,
 )
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
@@ -140,8 +142,8 @@ class BuildGroundModelSnapshot(GroundModelLogger):
             crs_epsg = first_with_epsg
 
         # Group contacts by anchor id ------------------------------
-        contacts_by_borehole: dict[UUID, list] = defaultdict(list)
-        contacts_by_cpt: dict[UUID, list] = defaultdict(list)
+        contacts_by_borehole: dict[UUID, list[FormationContactOrm]] = defaultdict(list)
+        contacts_by_cpt: dict[UUID, list[FormationContactOrm]] = defaultdict(list)
         for c in contacts_orm:
             if c.formation_id not in formation_by_id:
                 # Defensive — formation deleted while the contact
@@ -243,12 +245,12 @@ class BuildGroundModelSnapshot(GroundModelLogger):
     def _column_layers(
         self,
         *,
-        contacts: list,
+        contacts: list[FormationContactOrm],
         location_x: float,
         location_y: float,
         surface_elevation_m: float,
         total_depth_m: float | None,
-        formation_by_id: dict,
+        formation_by_id: dict[UUID, GeologicalFormationOrm],
         formation_ids_in_use: set[UUID],
     ) -> list[LayerGeometry]:
         """Build the per-column ``LayerGeometry`` list for one investigation.
