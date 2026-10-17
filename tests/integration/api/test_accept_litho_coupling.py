@@ -379,8 +379,13 @@ async def test_cp4_a_reaccept_restores_a_severed_link_without_resnapping(
     geo_contact_id = stack["geo_contact"]["id"]
 
     await _accept(
-        async_client, project.id, litho_mid,
-        top=2.95, base=8.0, lithology="KLEI", borehole_id=bh_id,
+        async_client,
+        project.id,
+        litho_mid,
+        top=2.95,
+        base=8.0,
+        lithology="KLEI",
+        borehole_id=bh_id,
     )
 
     # Sever the link the way history did — the label goes, the depths stay.
@@ -408,8 +413,13 @@ async def test_cp4_a_reaccept_restores_a_severed_link_without_resnapping(
 
     # The same suggestion again — the found-existing path.
     await _accept(
-        async_client, project.id, litho_mid,
-        top=2.95, base=8.0, lithology="KLEI", borehole_id=bh_id,
+        async_client,
+        project.id,
+        litho_mid,
+        top=2.95,
+        base=8.0,
+        lithology="KLEI",
+        borehole_id=bh_id,
     )
 
     db_session.expire_all()
