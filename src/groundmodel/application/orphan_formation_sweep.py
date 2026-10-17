@@ -70,6 +70,7 @@ from uuid import UUID
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.body_orm import BodyOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -247,7 +248,7 @@ class OrphanFormationSweep(GroundModelLogger):
         result = await self._session.execute(
             delete(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(orphan_ids))
         )
-        deleted: int = result.rowcount or 0
+        deleted: int = dml_rowcount(result) or 0
 
         shown = ", ".join(names[:MAX_LOGGED_NAMES])
         overflow = (
