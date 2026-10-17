@@ -623,10 +623,10 @@ git commit -m "style: ruff clean on src and tests; test docstrings optional"
 
 **Files:** the 60 files `uv run mypy src` names (arg-type 36, attr-defined 31, type-arg 28, unused-ignore 12, assignment 11, import-untyped 10, operator 9, no-untyped-def 5, list-item and others).
 
-- [ ] **Step 1: Record the baseline**: `VIRTUAL_ENV= uv run mypy src > scratch_mypy_before.txt`; 151 errors.
-- [ ] **Step 2: Fix by category without behaviour change**: `unused-ignore` (delete the stale `# type: ignore`), `import-untyped` (add the missing `[[tool.mypy.overrides]] ignore_missing_imports` entry for that package in pyproject, like the existing ones), `type-arg` (write the generic parameters), `no-untyped-def` (annotate), `arg-type`/`assignment`/`operator`/`attr-defined`/`list-item` (read each: most are an `Optional` not narrowed, a `Sequence` vs `Iterable`, or a `None` default; fix the type, never the logic; where the logic is genuinely wrong, stop and report it as a finding, do not fix silently).
-- [ ] **Step 3: Gates**: `uv run mypy src` = Success; `uv run pytest tests/unit -q` same count; `uv run ruff check src tests` clean.
-- [ ] **Step 4**: `.github/workflows/ci.yml` lint-types job: remove `continue-on-error: true` from the mypy step (Task 9 adds it as informational); CLAUDE.md sentence loses "mypy informational until ...".
+- [x] **Step 1: Record the baseline**: `VIRTUAL_ENV= uv run mypy src > scratch_mypy_before.txt`; 151 errors.
+- [x] **Step 2: Fix by category without behaviour change**: `unused-ignore` (delete the stale `# type: ignore`), `import-untyped` (add the missing `[[tool.mypy.overrides]] ignore_missing_imports` entry for that package in pyproject, like the existing ones), `type-arg` (write the generic parameters), `no-untyped-def` (annotate), `arg-type`/`assignment`/`operator`/`attr-defined`/`list-item` (read each: most are an `Optional` not narrowed, a `Sequence` vs `Iterable`, or a `None` default; fix the type, never the logic; where the logic is genuinely wrong, stop and report it as a finding, do not fix silently).
+- [x] **Step 3: Gates**: `uv run mypy src` = Success; `uv run pytest tests/unit -q` same count; `uv run ruff check src tests` clean.
+- [x] **Step 4**: `.github/workflows/ci.yml` lint-types job: remove `continue-on-error: true` from the mypy step (Task 9 adds it as informational); CLAUDE.md sentence loses "mypy informational until ...".
 - [ ] **Step 5: Commit** (one file per commit).
 
 ### Task 9: CI on every PR
