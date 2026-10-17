@@ -42,16 +42,12 @@ def _stone(a: TiePoint, b: TiePoint, section: UUID = CS1) -> TieTombstone:
 
 def test_tb1_the_tie_he_deleted_does_not_come_back() -> None:
     """Same two places, same section: the derivation must not restate it."""
-    assert tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, B3_TOP, tolerance_m=TOL
-    )
+    assert tie_is_tombstoned([_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, B3_TOP, tolerance_m=TOL)
 
 
 def test_tb2_the_ends_may_arrive_in_either_order() -> None:
     """A tie is one statement however the two writers hold its endpoints."""
-    assert tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, B3_TOP, S9_TOP, tolerance_m=TOL
-    )
+    assert tie_is_tombstoned([_stone(S9_TOP, B3_TOP)], CS1, B3_TOP, S9_TOP, tolerance_m=TOL)
 
 
 def test_tb3_a_boundary_that_settled_a_little_still_matches() -> None:
@@ -61,9 +57,7 @@ def test_tb3_a_boundary_that_settled_a_little_still_matches() -> None:
     re-subdivide, which is the failure it exists to prevent.
     """
     settled = TiePoint(x=B3_TOP.x, y=B3_TOP.y, z=B3_TOP.z - 0.12)
-    assert tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, settled, tolerance_m=TOL
-    )
+    assert tie_is_tombstoned([_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, settled, tolerance_m=TOL)
 
 
 def test_tb4_the_next_band_boundary_down_is_a_different_tie() -> None:
@@ -74,17 +68,13 @@ def test_tb4_the_next_band_boundary_down_is_a_different_tie() -> None:
     and deleting one tie would silently suppress its neighbour, with nothing on
     screen to explain why the tie will not draw.
     """
-    assert not tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, DEEPER, tolerance_m=TOL
-    )
+    assert not tie_is_tombstoned([_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, DEEPER, tolerance_m=TOL)
 
 
 def test_tb5_another_column_at_the_same_elevation_is_a_different_tie() -> None:
     """x/y identify the column, and a test does not move."""
     elsewhere = TiePoint(x=149_900.0, y=200_480.0, z=B3_TOP.z)
-    assert not tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, elsewhere, tolerance_m=TOL
-    )
+    assert not tie_is_tombstoned([_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, elsewhere, tolerance_m=TOL)
 
 
 def test_tb6_the_section_is_part_of_the_key() -> None:
@@ -106,6 +96,9 @@ def test_tb7_no_tombstones_blocks_nothing() -> None:
 def test_tb8_one_end_matching_is_not_a_match() -> None:
     """Half a tie is not the tie — it is the fan beside it."""
     assert not tie_is_tombstoned(
-        [_stone(S9_TOP, B3_TOP)], CS1, S9_TOP, TiePoint(149_640.0, 200_480.0, -5.0),
+        [_stone(S9_TOP, B3_TOP)],
+        CS1,
+        S9_TOP,
+        TiePoint(149_640.0, 200_480.0, -5.0),
         tolerance_m=TOL,
     )
