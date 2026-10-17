@@ -46,9 +46,9 @@ LAYERS = {
 # layer ABOVE it (side base) while the first hop names it via the layer BELOW
 # (side top) — the depth is the same contact, the rows disagree on the label.
 CHAIN = {
-    (S6_SAND, B6_MID, "top", "top"),      # S6 9.82 <-> B6 9.50
-    (B4_MID, B6_ABOVE, "top", "base"),    # B4 6.00 <-> B6 9.50 (via the layer above)
-    (S13_SAND, B4_MID, "top", "top"),     # S13 9.69 <-> B4 6.00
+    (S6_SAND, B6_MID, "top", "top"),  # S6 9.82 <-> B6 9.50
+    (B4_MID, B6_ABOVE, "top", "base"),  # B4 6.00 <-> B6 9.50 (via the layer above)
+    (S13_SAND, B4_MID, "top", "top"),  # S13 9.69 <-> B4 6.00
 }
 
 
@@ -66,8 +66,7 @@ def _pairs(ties, banded):
 def test_cw1_his_sand_top_chain_arrives_and_connects() -> None:
     """S6 9.82 walks B6 9.50 → B4 6.00 → arrives S13 9.69: one direct connection."""
     out = _pairs(CHAIN, {S6, S13})
-    assert (S6_SAND, "top", S13_SAND, "top") in out or (
-        S13_SAND, "top", S6_SAND, "top") in out
+    assert (S6_SAND, "top", S13_SAND, "top") in out or (S13_SAND, "top", S6_SAND, "top") in out
     assert len(out) == 1
 
 
@@ -107,12 +106,11 @@ def test_cw5_the_walk_does_not_shortcut_past_a_banded_column() -> None:
     """
     ties = {
         (S6_SAND, B6_MID, "top", "top"),
-        (S9_SAND, B6_MID, "top", "top"),   # B6 9.50 also ties to S9 (banded)
+        (S9_SAND, B6_MID, "top", "top"),  # B6 9.50 also ties to S9 (banded)
         (S13_SAND, S9_SAND, "top", "top"),  # S9 onward to S13, directly
     }
     out = _pairs(ties, {S6, S13, S9})
-    assert (S6_SAND, "top", S9_SAND, "top") in out or (
-        S9_SAND, "top", S6_SAND, "top") in out
+    assert (S6_SAND, "top", S9_SAND, "top") in out or (S9_SAND, "top", S6_SAND, "top") in out
     assert not any({p[0], p[2]} == {S6_SAND, S13_SAND} for p in out)
 
 
@@ -132,7 +130,7 @@ def test_cw7_a_hop_landing_on_a_different_contact_does_not_chain() -> None:
     different statements — the layer-graph walk chained them; contacts must not.
     """
     ties = {
-        (S6_SAND, B6_MID, "top", "top"),        # arrives B6 at 9.50
-        (S13_SAND, B6_MID, "top", "base"),      # leaves B6 at 12.59 — not the same contact
+        (S6_SAND, B6_MID, "top", "top"),  # arrives B6 at 9.50
+        (S13_SAND, B6_MID, "top", "base"),  # leaves B6 at 12.59: not the same contact
     }
     assert _pairs(ties, {S6, S13}) == set()
