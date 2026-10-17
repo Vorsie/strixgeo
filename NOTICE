@@ -1,0 +1,23 @@
+StrixGeo
+Copyright (C) 2026 Robin Vorsselmans
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE.
+
+The StrixGeo name and logo are trademarks of the copyright holder. A modified
+distribution must use another name.
+
+Bundled or linked third-party software (each under its own licence):
+- PostgreSQL 16 (PostgreSQL License) and PostGIS 3 (GPL-2.0-or-later), run as a separate process
+- Electron (MIT), React (MIT), CesiumJS (Apache-2.0), Leaflet (BSD-2-Clause)
+- FastAPI (MIT), SQLAlchemy (MIT), Alembic (MIT), Polars (MIT), Numba (BSD-2-Clause), Pydantic (MIT)
+- PyMuPDF (AGPL-3.0) for PDF rendering and text layers
+- rapidocr-onnxruntime (Apache-2.0) for optional OCR
+- d-geolib (Deltares, MIT) for D-Series exports
+- certifi (MPL-2.0) and tqdm (MPL-2.0 AND MIT), shipped unmodified
+- Shapely (BSD-3-Clause) with GEOS (LGPL-2.1), shipped unmodified as a dynamic library
+- DOV codelists and the G3Dv3 model-unit tables (Databank Ondergrond Vlaanderen, Modellicentie Gratis Hergebruik)
+
+Electron, PostgreSQL/PostGIS, CesiumJS and the Python wheels carry their own third-party notices inside the installed files.
