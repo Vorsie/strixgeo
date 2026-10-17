@@ -24,7 +24,6 @@ PF-10 ``absolute_min`` source carries ``litho_abs_min_class`` as NAD class.
 
 from __future__ import annotations
 
-import pytest
 from groundmodel.domain.services.borehole_packing_fill import (
     FillBand,
     fill_borehole_litho_body_extent,
