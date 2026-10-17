@@ -46,7 +46,17 @@ def _windows_pid_alive(parent_pid: int) -> bool:
     than ``os.kill(pid, 0)`` because on Windows ``os.kill`` with a plain signal
     does not probe liveness - it calls ``TerminateProcess`` and would kill the
     parent it is meant to watch.
+
+    Raises
+    ------
+    OSError
+        On any platform other than Windows, where ``ctypes.WinDLL`` does not
+        exist; :func:`parent_pid_alive` only calls this on ``win32``.
     """
+    # The guard also lets mypy narrow on ``sys.platform``, so a Linux / macOS
+    # type check skips the Windows-only ctypes calls below.
+    if sys.platform != "win32":
+        raise OSError("_windows_pid_alive is Windows-only")
     import ctypes
     from ctypes import wintypes
 
