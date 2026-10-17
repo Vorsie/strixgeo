@@ -1,34 +1,41 @@
-# Commercial Direction
+# Product direction
 
-> Extracted from `CLAUDE.md` 2026-06-06 to keep the always-loaded file lean. Load this on demand when the pointer in CLAUDE.md says so.
+> This note carries the product direction. Since 2026-10-17 StrixGeo is free and open source; the former commercial sections are gone (git history has them). Load it on demand when the pointer in CLAUDE.md says so.
 
-## Commercial Direction
+## Direction in one paragraph
 
-This is a **commercial product**, not just an internal tool. Engineering
-decisions in this repo are calibrated for a paid release to BE/NL
-geotechnical consultancies — initially 5–50 person firms who already
-feel the pain of legacy tools (gINT, D-Series, GeoStudio).
+StrixGeo builds the ground model for BE/NL geotechnical work: the
+unified subsurface dataset, its three-level interpretation and the
+exports a design tool reads. Engineering decisions in this repo are
+calibrated for engineers who use it on real projects.
 
-### Distribution model
+### Open source
 
-* **Local-first desktop app.** Each user runs their own copy with
-  their own local Postgres + PostGIS. **No central cloud service.**
-  Reasoning: offline-capable on site, data-privacy-friendly (geotech
-  projects are frequently NDA / defense-adjacent), zero ongoing infra
-  cost, sub-ms query latency.
-* **`.gmproj` v2 = the portable artefact.** Sharing a project means
-  emailing the file. The bundle format already supports this — open
-  on a wiped DB and the data rehydrates.
-* **One DB per user.** Today: developer Docker Compose on
-  ``localhost:5433``. v1.0 distribution likely bundles
-  Postgres + PostGIS inside the installer so end users don't install
-  anything themselves (Plaxis pattern). SQLite + SpatiaLite is a
-  fall-back if the bundled-Postgres path proves too fragile, but it's
-  a non-trivial refactor (PostgreSQL ``ARRAY`` columns, PostGIS-
-  specific geometry features) so we don't pre-optimise for it.
-* **SaaS is a Phase 5+ direction**, not a v1.0 concern. If/when it
-  ships, the .gmproj file becomes the bridge format between the
-  desktop client and any future cloud sync.
+* **Licence.** GNU AGPL-3.0-or-later (`LICENSE`; the bundled third
+  parties and their licences are in `NOTICE`). The copyleft also
+  covers network use: anyone who ships or hosts a modified StrixGeo
+  must publish its source under the same licence.
+* **Repository.** One public repo, https://github.com/Vorsie/strixgeo.
+  Releases and the auto-updater feed live in it.
+* **Contributions.** Under the Developer Certificate of Origin: every
+  commit carries `Signed-off-by` (`git commit -s`), and the CI `dco`
+  job checks it. How to contribute: `CONTRIBUTING.md`.
+* **Funding.** Voluntary, through GitHub Sponsors (`.github/FUNDING.yml`).
+* **Free forever.** There is no paid tier, no licence key and no gated
+  feature; every build is the full product. The guarantee is
+  structural: the AGPL copyleft, no contributor licence agreement, and
+  contributors keep their copyright, so the code can never be
+  relicensed to closed terms.
+* **Name.** The StrixGeo name and logo stay the owner's trademark; a
+  modified distribution uses another name.
+* **Roadmap.** Driven by GitHub issues and the tester loop: one issue
+  per finding, one `fix/<slug>` or `feat/<slug>` branch per change. The
+  v1.0 gate below is the scope boundary; [debt.md](debt.md) holds the
+  backlog.
+* **Local-first desktop app.** Each user runs their own copy with a
+  bundled PostgreSQL + PostGIS; there is no central cloud service. A
+  project travels as a `.strix` file: open it on a wiped database and
+  the data rehydrates.
 
 ### Modelling hierarchy (load-bearing for the v1.0 design)
 
@@ -203,98 +210,92 @@ the Geology stage). This supersedes the earlier rule that listed
 "Auto-populate from boreholes" on the section as a build-shaped intent
 with retained auto-recompute. Dedupe's behaviour is unchanged.**
 
-### v1.0 commercial MVP gate
+### v1.0 gate
 
-The product is "sellable" the moment a geotech engineer can do this
-end-to-end on a real project:
+v1.0 is complete the moment a geotech engineer can do this end to end
+on a real project. All five steps shipped in the v0.1.0 beta
+(2026-09-16):
 
-1. Import CPTs + boreholes (DOV bbox + GEF files — done).
-2. Define a **geological model** (formations + surfaces) for the project (done).
+1. Import CPTs + boreholes (DOV bbox + GEF files). *Shipped.*
+2. Define a **geological model** (formations + surfaces) for the
+   project. *Shipped.*
 3. Build a **lithostratigraphic model**: refine geological formations into
    lithology + admixture units via borehole ObservationLayer descriptions
    and the CPT Robertson-SBT segmenter. View and edit on cross-sections.
-4. **Geotechnical subdivision**: assign NAD packing class (1–31) to each
+   *Shipped.*
+4. **Geotechnical subdivision**: assign NAD packing class (1-31) to each
    lithostratigraphic unit. Display Robertson Ic SBT zone, relative
    density Dr (sand), NAD packing class, and γ-estimate per unit in the
-   inspector. Parameter VALUES (φ′/c′/cu/E50) stay blank — the engineer
-   fills those in their downstream design tool.
+   inspector. Parameter VALUES (φ′/c′/cu/E50) stay blank: the engineer
+   fills those in their downstream design tool. *Shipped.*
 5. **Export** the three-level model geometry to DXF and/or Plaxis, with
    unit identifiers so the downstream tool can map unit names to material
-   definitions.
+   definitions. *Shipped (#104).*
 
-**THE RULED v1.0 SCOPE (owner ballot, 2026-08-26 — supersedes narrower
-readings of the gate; each line was ruled individually):**
+**The ruled v1.0 scope (owner ballot, 2026-08-26; it supersedes narrower
+readings of the gate, and each line was ruled individually).** An item
+marked *shipped* is in the released build; an unmarked item is open or
+not yet verified, and its debt entry carries the state.
 
-*MVP — exports & deliverables:* export unit identifiers (NAD class +
-soil) in DXF/Plaxis (#104); a Plaxis material-mapping sidecar; PDF
-report slices B/C/D — D at the CHARACTERISATION level (NAD class + per
-unit statistics, never design values); D-Stability (.stix), GeoStudio
-and D-Sheet exports; an export completeness guard (unclassified/stale
+*Exports & deliverables:* export unit identifiers (NAD class + soil) in
+DXF/Plaxis (#104, *shipped*); a Plaxis material-mapping sidecar; PDF
+report slices B/C/D, with D at the CHARACTERISATION level (NAD class +
+per unit statistics, never design values) (#52, open); D-Stability
+(.stix) and D-Sheet exports (*shipped*) and a GeoStudio export (open: no
+exporter exists); an export completeness guard (unclassified/stale
 content refuses or flags); a report data-thinning step that merges
-lenses with identical NAD parameters for readability.
+lenses with identical NAD parameters for readability (#104b, *shipped*).
 
-*MVP — model trust:* #266 litho-drift staleness stamp; #225 save-guard;
-the per-build gapless report UI; the CS3 nospan residual; crossing
-ties marked in the CS; the machine-tie frame warning.
+*Model trust:* #266 litho-drift staleness stamp (*shipped*); #225
+save-guard (*shipped*); the per-build gapless report UI; the CS3 nospan
+residual; crossing ties marked in the CS; the machine-tie frame warning.
 
-*MVP — interpretation (narrow):* per-unit statistics plots
-(raincloud/box of qc, fs, Rf over a selected unit) and the
-right-click layer → isolate in 3-D → jump-to-parameters link. All other
-interpretation automation stays out.
+*Interpretation (narrow):* per-unit statistics plots (raincloud/box of
+qc, fs, Rf over a selected unit) and the right-click layer → isolate in
+3-D → jump-to-parameters link. All other interpretation automation
+stays out.
 
-*MVP — 3-D & visuals:* smooth non-blocky 3-D (#220), footprint ring,
-DEM ground-surface reference (G7), 3-D split viewport (#64), fence
-diagram export.
+*3-D & visuals:* smooth non-blocky 3-D (#220, open), footprint ring
+(*shipped*), DEM ground-surface reference (G7, *shipped*), 3-D split
+viewport (#64, *shipped*), fence diagram export (*shipped*).
 
-*MVP — UX:* onboarding/first-use tutorial (#93) and NL UI translation.
+*UX:* onboarding / first-use tutorial (#93: the in-app tutorial
+*shipped*, per-stage hinting open) and NL UI translation (*shipped*).
 
-*MVP — commercial:* bundled Postgres (#2), the installer/binary
-(#6 incl. signing), subscription activation + auth + tamper (#3/#4/#5)
-— **waterproof: beta builds must expire; a beta licence must not be
-usable for years** — and telemetry/crash reporting (#16).
+*Distribution:* bundled Postgres (#2) and the Windows installer
+(*shipped* since v0.1.0); telemetry / crash reporting (#16: local
+capture *shipped*, transmission stays off until consent is given and an
+endpoint is configured).
 
 *Explicitly NOT v1.0 (owner-ruled):* IFC export; monitoring / DMT /
-pressuremeter / mechanical lab / AGS data sources; G3Dv3 import
-(launch-window demo asset, not a gate); parameter suggestions and the
-full Robertson/Mayne + NAD-NEN port; auto soil profiling;
-interfingering shapes; #163f; multilingual stratigraphy catalog;
-share-pack / borelog sheets / model snapshots / completeness panel;
-marketing site + naming and the .strix licence-provenance tag were
-not ruled MVP on the ballot (site still precedes public checkout —
-sequencing per the demo-first motion).
+pressuremeter / mechanical lab / AGS data sources; G3Dv3 import;
+parameter suggestions and the full Robertson/Mayne + NAD-NEN port; auto
+soil profiling; interfingering shapes; #163f; multilingual stratigraphy
+catalog; share-pack / borelog sheets / model snapshots / completeness
+panel.
 
 Design-ready parameter VALUES (φ′, c′, cu, E50, OCR, Vs, G0, M) and
-the full NAD-NEN xlsx table remain Phase 5 — the per-unit statistics
+the full NAD-NEN xlsx table remain Phase 5: the per-unit statistics
 plots above are characterisation outputs, not design inputs.
 
-### Open commercial concerns (tracked as debt, not blocking the MVP)
+### Open concerns (tracked as debt, not blocking)
 
-* **Subscription activation system** *(re-scoped 2026-06-25 from
-  "license keys" — the commercial model pivoted to annual
-  subscription + 30-day trial; see CLAUDE.local.md → Commercial
-  planning)* — none today; needed before any paid distribution.
-  Likely shape: a subscription/activation check tied to the Stripe
-  subscription state, with an offline grace window so daily on-site
-  use never phones home. See debt #3.
-* **Code-signing the installer** — Windows SmartScreen will reject
-  unsigned installers and signal "untrusted" to users. EV
-  certificate required (~€200–400/year).
-* **Hardening against tampering / reverse engineering** — modest
-  posture, not paranoid. Geotech isn't a target-rich threat
-  environment; goals are mostly to prevent casual activation
-  bypass and keep our user data import paths safe from malformed
-  files. NOT trying to defeat dedicated reverse engineers — that's a
-  losing arms race for a solo dev.
-* **Auto-update channel** — Squirrel.Windows / electron-updater
-  pattern. Needed because v1.0 saves write today's bundle format;
-  future format upgrades depend on every user reaching at least the
-  build that introduced the upgrade path.
-* **Marketing site + demo video + market-facing name** — codename
-  here stays "Strix" / "groundmodel" but the public name + domain +
-  trademark search is a separate deliverable. The 90-second demo
-  video showing DOV bbox → borelog → save/open round-trip is the
-  primary marketing artefact; everything else is supporting copy.
-
-These don't shape the v1.0 MVP feature gate, but every one has to
-land before a paid public release. They're listed individually in
-"Known Architectural Debt" so each gets a trigger condition.
+* **Code-signing the installer** (#6). The installer ships unsigned, so
+  Windows SmartScreen warns on first run. A nice-to-have now: it removes
+  the warning, it gates nothing.
+* **Project-by-id endpoints** (#4) rely on "the only caller is the local
+  user"; a guard is needed before any multi-user or hosted use.
+* **Malformed input.** Every import path (GEF, DOV XML, PDF, `.strix`)
+  reads files from outside; a parser or restore change gets a
+  security-reviewer pass so a malformed file fails cleanly.
+* **Auto-update channel.** Shipped (electron-updater, github provider,
+  fed from the public repo's releases). Format upgrades still depend on
+  every user reaching the build that introduced the upgrade path, so
+  the backwards-compat rules in [backwards-compat.md](backwards-compat.md)
+  stay load-bearing.
+* **Hosted Windows build** (#288). The installer is built on the owner's
+  machine; a GitHub Actions build is a debt item for the first
+  contributor who needs one.
+* **Site and demo video** (#7). strixgeo.com carries the download and
+  the open-source line; the short demo (DOV bbox → borelog → save/open
+  round-trip) is the main showcase for new users.
