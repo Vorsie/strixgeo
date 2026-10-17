@@ -29,6 +29,7 @@ Idempotency contract:
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -56,6 +57,7 @@ from groundmodel.api.schemas.project.litho_contact_correlation.litho_contact_cor
     ContactCorrelationEdgeListItem,
     ContactCorrelationRequest,
     ContactCorrelationResponse,
+    ContactSide,
 )
 from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas import (
     PropagateAdmixturesRequest,
@@ -75,6 +77,7 @@ from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdm
 from groundmodel.domain.services.auto_correlate_contact_edges import (
     AutoCorrelateContactParams,
 )
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -180,8 +183,10 @@ async def create_contact_correlation(
         edge_id=result.edge.id,
         layer_a_id=result.edge.layer_a_id,
         layer_b_id=result.edge.layer_b_id,
-        layer_a_side=result.edge.layer_a_side,
-        layer_b_side=result.edge.layer_b_side,
+        # The ORM column is ``str``; the CHECK constraint on the table holds it
+        # to top / base, and pydantic re-validates the Literal at runtime.
+        layer_a_side=cast(ContactSide, result.edge.layer_a_side),
+        layer_b_side=cast(ContactSide, result.edge.layer_b_side),
         model_id=result.edge.model_id,
         source=result.edge.source,
         was_created=result.was_created,
@@ -452,7 +457,7 @@ async def delete_auto_contact_correlations(
     if section_id is not None:
         stmt = stmt.where(LithoContactCorrelationEdgeOrm.section_id == section_id)
     result = await session.execute(stmt)
-    deleted = result.rowcount or 0
+    deleted = dml_rowcount(result) or 0
     await session.commit()
     logger.info(
         f"delete_auto_contact_correlations: project={project_id} model={model_id} "
