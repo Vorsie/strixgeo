@@ -6,7 +6,28 @@ Releases up to 0.1.6 were closed-beta builds; their notes are translated from th
 
 ## [Unreleased]
 
-Free and open source under AGPL-3.0-or-later; the licence screen, activation and the compiled engine are gone.
+## [0.2.0] - 2026-10-17
+
+StrixGeo is now free and open source. An installed 0.1.x build shows an update prompt at start (the update check at start is on by default).
+
+### Added
+
+- StrixGeo is free and open source under the GNU Affero General Public License, version 3 or later (AGPL-3.0-or-later).
+- The source code is on GitHub: https://github.com/Vorsie/strixgeo.
+- Contributions are welcome: see https://github.com/Vorsie/strixgeo/blob/develop/CONTRIBUTING.md for how to report a bug, propose a change or send a pull request.
+- You can support the project through GitHub Sponsors: https://github.com/sponsors/Vorsie.
+
+### Changed
+
+- The app opens directly. You do not need a licence key.
+- The engine ships as plain Python source; you can read every calculation it makes.
+- Updates now come from the releases of https://github.com/Vorsie/strixgeo.
+
+### Removed
+
+- The licence screen.
+- Activation of a licence key.
+- The expiry date of the beta builds.
 
 ## [0.1.6] - 2026-10-17
 
