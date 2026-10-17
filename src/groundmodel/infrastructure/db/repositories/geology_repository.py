@@ -28,6 +28,7 @@ from groundmodel.domain.services.geology_validator import (
     GeologyValidator,
 )
 from groundmodel.domain.value_objects.gap_issue import GapIssue
+from groundmodel.infrastructure.db.dml_rowcount import dml_rowcount
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -70,7 +71,7 @@ class GeologyRepository(GroundModelLogger):
         nad_class: int | None = None,
         parent_formation_id: UUID | None = None,
         litho_main_soil_code: str | None = None,
-        litho_admixtures: list[dict] | None = None,
+        litho_admixtures: list[dict[str, Any]] | None = None,
     ) -> GeologicalFormationOrm:
         """Insert a new formation row under the given project.
 
@@ -605,7 +606,7 @@ class GeologyRepository(GroundModelLogger):
                 )
                 .values(is_stale=True)
             )
-            total += result.rowcount or 0
+            total += dml_rowcount(result) or 0
         if total:
             self.debug(f"mark_surfaces_stale: flipped {total} row(s) across {len(unique)} pair(s)")
         return total
@@ -635,7 +636,7 @@ class GeologyRepository(GroundModelLogger):
             .where(FormationSurfaceOrm.model_id == model_id)
             .values(is_stale=True)
         )
-        count = result.rowcount or 0
+        count = dml_rowcount(result) or 0
         if count:
             self.debug(f"mark_all_surfaces_stale: flipped {count} row(s) for model={model_id}")
         return count
@@ -672,7 +673,7 @@ class GeologyRepository(GroundModelLogger):
             .where(FormationSurfaceOrm.model_id.in_(model_ids))
             .values(is_stale=True)
         )
-        count = result.rowcount or 0
+        count = dml_rowcount(result) or 0
         self.info(
             f"mark_project_surfaces_stale: {reason} — flipped {count} surface row(s) "
             f"for project={project_id}"
