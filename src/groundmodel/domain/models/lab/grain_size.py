@@ -79,7 +79,8 @@ class GrainSize(LabTest):
     already modelled:
 
     * :class:`groundmodel.domain.models.lab.caco3_content.CaCO3Content` — lime / CaCO3 content
-    * :class:`groundmodel.domain.models.lab.organic_content.OrganicContent` — organic carbon and matter
+    * :class:`groundmodel.domain.models.lab.organic_content.OrganicContent`: organic carbon
+      and matter
     * :class:`groundmodel.domain.models.lab.atterberg_limits.AtterbergLimits` — LL, PL, derived PI
     * :class:`groundmodel.domain.models.lab.water_content.WaterContent` — moisture content
 
