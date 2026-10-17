@@ -33,10 +33,12 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Drop ``cpt_series.qt_mpa`` (CPTU qt is computed on read)."""
     op.drop_column("cpt_series", "qt_mpa")
 
 
 def downgrade() -> None:
+    """Restore ``cpt_series.qt_mpa`` as an all-NULL column."""
     # Restore the column, but leave it NULL on every row — we cannot
     # distinguish a row whose source originally provided qt from one whose
     # source did not. Callers that need qt should compute it from the
