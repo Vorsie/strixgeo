@@ -18,7 +18,7 @@ DB or network I/O (matches the convention in
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -150,7 +150,6 @@ async def test_happy_path_flips_surface_stale_and_commits() -> None:
 async def test_race_loser_maps_integrity_error_to_duplicate() -> None:
     """IntegrityError + a re-query winner → DuplicateContactError(winner)."""
     winner = uuid4()
-    cpt_id = uuid4()
     session = AsyncMock()
     # session.get: formation check, then CPT check (VULN-9).
     session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
