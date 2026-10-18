@@ -105,6 +105,17 @@ jobs:
         working-directory: desktop
         run: npm run dist
 
+      - name: Re-attach the blockmap to the draft
+        if: github.event_name == 'push'
+        shell: pwsh
+        # electron-builder starts the installer and the blockmap uploads at
+        # once; on the runner both saw no release, both created it (run
+        # 39122801511) and the loser's upload vanished. The local chain never
+        # raced. Idempotent: --clobber replaces an asset that did land.
+        run: |
+          $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
+          gh release upload "v$version" --repo "${{ github.repository }}" --clobber "desktop/dist/StrixGeo-Setup-$version.exe.blockmap"
+
       - name: Attach the release notes to the draft
         if: github.event_name == 'push'
         shell: pwsh
