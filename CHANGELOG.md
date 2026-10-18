@@ -6,6 +6,10 @@ Releases up to 0.1.6 were closed-beta builds; their notes are translated from th
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-18
+
+Maintenance release: the first installer built by GitHub Actions, on the monthly dependency updates (Electron 42.11.14, CesiumJS 1.146, FastAPI 0.143, Polars 1.44, Numba 0.68).
+
 ### Added
 
 - Dependabot version updates, CITATION.cff, SUPPORT.md.
