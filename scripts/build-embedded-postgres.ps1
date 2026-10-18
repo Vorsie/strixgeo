@@ -38,6 +38,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Windows PowerShell 5.1 started from PowerShell 7 (a GitHub Actions step, a
+# pwsh terminal) inherits a PSModulePath that lists the 7.x modules first; 5.1
+# then binds Microsoft.PowerShell.Utility to the 7.x manifest and reports the
+# file-hash cmdlet as not recognized (hosted build run 39114025205). Put 5.1's own
+# modules first before any Utility cmdlet runs.
+$env:PSModulePath = "$PSHOME\Modules;$env:PSModulePath"
 
 # $PSScriptRoot is empty inside the param() default above when launched via
 # `powershell.exe -File`; it is populated here in the body. Resolve the cache
