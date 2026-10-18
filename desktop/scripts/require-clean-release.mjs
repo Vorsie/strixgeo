@@ -7,8 +7,11 @@
 // Checks (a failing one prints WHY and exits non-zero):
 //   1. Clean tree — `git status --porcelain` shows no TRACKED changes. A build
 //      cut from uncommitted edits is unreproducible and unverifiable.
-//   2. Pushed — an upstream MUST exist and HEAD must not be ahead of it. CI has
-//      never seen an unpushed commit, so it is unverified server-side.
+//   2. Pushed: locally, an upstream MUST exist and HEAD must not be ahead of
+//      it: CI has never seen an unpushed commit, so it is unverified
+//      server-side. Under GitHub Actions (GITHUB_ACTIONS=true) the checkout is
+//      detached and has no upstream, so the proof is HEAD == GITHUB_SHA: the
+//      commit GitHub handed the runner. The rule lives in pushedCheck.mjs.
 //   3. (release only) Version is new — package.json `version` is strictly newer
 //      than the latest PUBLISHED version. "Published" means what an installed
 //      client can actually be offered: the GitHub releases feed of
@@ -19,6 +22,8 @@
 //      (Vorsie/Strix #9). electron-updater only offers an update when the feed's
 //      `version` is a GREATER semver than the installed one, so re-publishing an
 //      equal (or older) version is INVISIBLE to every installed client.
+//      On a tag-triggered GitHub Actions build, the tag being built is left
+//      out of the git tags (its release is still a draft; tagVersion.mjs).
 //
 // Checks 1 and 2 are skippable with STRIX_ALLOW_DIRTY_DIST=1 — for a LOCAL test
 // build (`dist`, never `release`). Check 3 has no opt-out: shipping a version an
@@ -31,12 +36,17 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { latestPublishedVersion, releaseVersionError } from './publishedVersion.mjs'
+import { latestPublishedVersion, readGitTagVersions, releaseVersionError } from './publishedVersion.mjs'
+import { ciFactsFromEnv, decidePushed } from './pushedCheck.mjs'
+import { tagVersionsExcludingBuildTag } from './tagVersion.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url)) // desktop/scripts
 const desktopDir = resolve(scriptDir, '..') // desktop
 const mode = process.argv[2] === 'release' ? 'release' : 'dist'
 const allowDirty = process.env.STRIX_ALLOW_DIRTY_DIST === '1'
+// Under GitHub Actions: the commit handed to the runner, and on a tag push the
+// tag being built. Both undefined in a local shell (pushedCheck.mjs).
+const ciFacts = ciFactsFromEnv(process.env)
 
 function fail(message) {
   console.error(`[release-guard] ${message}`)
@@ -63,25 +73,22 @@ if (allowDirty) {
     )
   }
 
-  let upstream
+  let upstream = null
   try {
     upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
   } catch {
-    fail(
-      'no upstream is configured for the current branch, so "is this pushed?" ' +
-        'cannot be answered. Set one (git push -u origin <branch>) so CI can ' +
-        'verify this tree, or STRIX_ALLOW_DIRTY_DIST=1 for a local-only test build.'
-    )
+    upstream = null
   }
-  const ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`]))
-  if (ahead > 0) {
-    fail(
-      `${ahead} commit(s) ahead of ${upstream} are unpushed and unverified by ` +
-        'CI. Push before building a release, or STRIX_ALLOW_DIRTY_DIST=1 for a ' +
-        'local-only test build.'
-    )
-  }
-  console.log(`[release-guard] tree clean and level with ${upstream}`)
+  const ahead = upstream === null ? null : Number(git(['rev-list', '--count', `${upstream}..HEAD`]))
+  // Under GitHub Actions the checkout is detached: the proof of "pushed" is
+  // HEAD == GITHUB_SHA (the commit GitHub handed the runner). Peeled to its
+  // commit, because an annotated tag push may name the tag object.
+  const githubSha =
+    ciFacts.githubSha === undefined ? undefined : git(['rev-parse', `${ciFacts.githubSha}^{commit}`])
+  const headSha = git(['rev-parse', 'HEAD'])
+  const pushed = decidePushed({ upstream, ahead, githubSha, headSha })
+  if (!pushed.ok) fail(pushed.message)
+  console.log(`[release-guard] tree clean; ${pushed.message}`)
 }
 
 // --- Check 3: version is newer than what is published (release only) ---------
@@ -93,7 +100,16 @@ if (mode === 'release') {
   // a local build output. When the feed cannot be read (no GH_TOKEN, offline,
   // gh not installed) that is "cannot tell", not "nothing published", so the
   // guard says so and falls back to the git tags.
-  const { version: published, source, feedReachable, feedDetail } = latestPublishedVersion()
+  //
+  // On a tag-triggered GitHub Actions build the tag being built is already in
+  // the checkout, but its release is still a draft no client can see; it is
+  // not "published", so it is left out of the tag versions. A version already
+  // published under that tag is still caught by the releases feed.
+  const { buildTag } = ciFacts
+  const { version: published, source, feedReachable, feedDetail } = latestPublishedVersion({
+    readTags: () => tagVersionsExcludingBuildTag(readGitTagVersions(), buildTag),
+  })
+  if (buildTag) console.log(`[release-guard] building tag ${buildTag}: not counted as published`)
   if (!feedReachable) {
     console.log(
       `[release-guard] releases feed unreachable (${feedDetail}); using git tags to find the published version`
