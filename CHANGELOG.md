@@ -9,6 +9,7 @@ Releases up to 0.1.6 were closed-beta builds; their notes are translated from th
 ### Added
 
 - Dependabot version updates, CITATION.cff, SUPPORT.md.
+- The Windows installer is built by GitHub Actions on a tag push (.github/workflows/release.yml) and attached to a draft release; the release notes come from this changelog.
 
 ### Changed
 
