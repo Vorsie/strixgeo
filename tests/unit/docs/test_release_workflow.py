@@ -103,3 +103,20 @@ def test_release_workflow_caches_the_postgres_download_directory() -> None:
     steps = _workflow()["jobs"]["installer"]["steps"]
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert cache["with"]["path"] == expected_rel
+
+
+def test_release_workflow_reattaches_the_blockmap_after_the_publish() -> None:
+    """A step after the publish uploads the blockmap with --clobber.
+
+    The v0.2.1 tag build (run 39122801511) lost the blockmap: electron-builder
+    starts the installer and blockmap uploads together, both saw no release
+    and both tried to create it, and the loser's upload vanished (the local
+    chain never raced). The step is idempotent and runs only on a tag push.
+    """
+    steps = _workflow()["jobs"]["installer"]["steps"]
+    names = [step.get("name", "") for step in steps]
+    publish = next(i for i, s in enumerate(steps) if "npm run release" in str(s.get("run", "")))
+    reattach = next(i for i, s in enumerate(steps) if ".blockmap" in str(s.get("run", "")))
+    assert reattach > publish
+    assert "--clobber" in steps[reattach]["run"]
+    assert steps[reattach].get("if") == "github.event_name == 'push'", names[reattach]
