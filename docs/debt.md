@@ -89,7 +89,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Launch gates + pre-distribution hardening:** #2, #4, #6, #7 *(#3 + #5 RESOLVED 2026-10-17, removed for the open-source release)* *(#47 RESOLVED 2026-09-02 — column pins; #213 RESOLVED 2026-06-16 — react-leaflet/@react-leaflet/core [Hippocratic-2.1] replaced by first-party MIT `streaflet` over bare `leaflet` [BSD-2]; both packages dropped from package.json + lockfile; #214 RESOLVED 2026-06-16; #215 loopback-bind RESOLVED 2026-06-16, default-creds folded into #2; #219 mostly RESOLVED 2026-06-16 — SHA-pins / digest-pin / version caps / npm-audit done, only the electron-builder transitive `overrides` remain → #6 (installer))*
-* **D. Phase-4 export step + post-launch / Phase 5:** #288, #105 *(#104 VERIFIED RESOLVED 2026-09-02 — six exporters × three levels)*, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
+* **D. Phase-4 export step + post-launch / Phase 5:** #105 *(#104 VERIFIED RESOLVED 2026-09-02 — six exporters × three levels)*, #106, #107, #44, #52, #56, #11, #100b, #101, #70, #71, #79, #93, #220, #221, #223 *(#203 RESOLVED 2026-06-23 — always-on "Press F1" hint added to the CanvasHints pill; #224 RESOLVED 2026-07-13 — B1 dedup batch, see entry below)*
 
   * **#223 — Parameter-group / analytical geotech body (Slice 3).** What: the Parameters stage needs a user-curated `parameter_group` entity (+ membership table) that aggregates an arbitrary set of geotech spatial `body_id`s (possibly non-contiguous across the model) for per-lens parameters, p-q regressions on triaxial data grouped per body, and grain-size comparison within/between bodies — with merge/split gestures in the UI. It references the geotech `body_id` that `SubdivideAllBodies` (Slice 1) now persists; no rewrite needed between slices. Why deferred: triaxial and grain-size lab tests are not yet imported; designing the group + merge/split gesture blind to that data is premature (a read-only grouping without the gesture is not shippable). When to revisit: when lab-test import lands — design the `parameter_group` table + the merge/split gesture together at that point. (Two system-architect-consult conclusion; Slice 3.)
 
@@ -1044,6 +1044,41 @@ so they don't get re-filed as new items):
   transaction commit when failure rates start to bite.
 
 ---
+
+## 288. Hosted Windows installer build in GitHub Actions (M, Tier D) — RESOLVED 2026-10-18
+
+**Resolved 2026-10-18** (design `docs/superpowers/specs/2026-10-18-hosted-installer-build-design.md`).
+`.github/workflows/release.yml` builds the installer on a GitHub-hosted
+`windows-2022` runner: a push of a `v<semver>` tag runs `npm run release`
+unchanged and attaches the installer to a DRAFT release of that tag, with the
+`CHANGELOG.md` section of the version as its body; a `workflow_dispatch` runs
+`npm run dist` and keeps the installer as a one-day workflow artifact. The
+release guard accepts the detached CI checkout (`HEAD == GITHUB_SHA`,
+`desktop/scripts/pushedCheck.mjs`) and does not count the tag being built as
+published (`desktop/scripts/tagVersion.mjs`). The first hosted build is 0.2.1.
+What stays local: the deep walker (0 findings, app closed) before the tag;
+the local `npm run release` chain stays as the fallback. What stays open:
+code signing (#6). The original entry follows.
+
+**What.** The Windows installer (`cd desktop && npm run dist`, the embedded
+Python staging, the bundled PostgreSQL + PostGIS) is built only on the
+owner's machine. CI runs the five gates on ubuntu runners but builds no
+installer, so a contributor on Linux or macOS cannot produce a Windows build
+of their change, and a release depends on one machine. Wanted: a GitHub
+Actions job on a `windows-latest` runner that stages the embedded Python,
+runs `npm run dist` and uploads the unsigned installer as a workflow
+artefact (not a release), on demand (`workflow_dispatch`) and on tags.
+
+**Why deferred.** Out of scope of the open-source switch (spec
+2026-10-17, section 4: "a GitHub-hosted Windows installer build is a debt
+item"). The local release chain works, the walker and Playwright stay local
+before a release anyway, and a Windows runner build of this size (about
+500 MB of artefacts, the PostgreSQL bundle download) costs runner minutes and
+a cache design before anyone needs it.
+
+**When to revisit.** The first external contributor who needs a Windows
+build they cannot make locally, or the first release the owner's machine
+cannot build.
 
 ## 3. Subscription activation system — RESOLVED 2026-10-17 (removed: StrixGeo is free and open source; the activation client, server and licence screen were deleted on feat/open-source)
 
@@ -10209,28 +10244,6 @@ name; changing them without his word risks re-opening shipped dogfeed fixes.
 
 **When to revisit.** On the owner's first dogfeed of the "no tie, no band" build
 (section "test" S11 -> S3, worked example Cross-section 2 gap 0, dev CS1 S7A).
-
-## 288. Hosted Windows installer build in GitHub Actions (M, Tier D) — STATUS: OPEN
-
-**What.** The Windows installer (`cd desktop && npm run dist`, the embedded
-Python staging, the bundled PostgreSQL + PostGIS) is built only on the
-owner's machine. CI runs the five gates on ubuntu runners but builds no
-installer, so a contributor on Linux or macOS cannot produce a Windows build
-of their change, and a release depends on one machine. Wanted: a GitHub
-Actions job on a `windows-latest` runner that stages the embedded Python,
-runs `npm run dist` and uploads the unsigned installer as a workflow
-artefact (not a release), on demand (`workflow_dispatch`) and on tags.
-
-**Why deferred.** Out of scope of the open-source switch (spec
-2026-10-17, section 4: "a GitHub-hosted Windows installer build is a debt
-item"). The local release chain works, the walker and Playwright stay local
-before a release anyway, and a Windows runner build of this size (about
-500 MB of artefacts, the PostgreSQL bundle download) costs runner minutes and
-a cache design before anyone needs it.
-
-**When to revisit.** The first external contributor who needs a Windows
-build they cannot make locally, or the first release the owner's machine
-cannot build.
 
 ## 289. Rename `registerPrototypeIpc` to `registerUpdaterIpc` (S, Tier E) — STATUS: OPEN
 
