@@ -16,6 +16,7 @@ PACKAGE_JSON = ROOT / "desktop" / "package.json"
 PUBLISHED_VERSION_MJS = ROOT / "desktop" / "scripts" / "publishedVersion.mjs"
 PYPROJECT = ROOT / "pyproject.toml"
 CHANGELOG = ROOT / "CHANGELOG.md"
+UV_LOCK = ROOT / "uv.lock"
 
 
 def _package() -> dict:
@@ -36,23 +37,41 @@ def test_release_guard_reads_the_public_source_repo_feed() -> None:
     assert "export const RELEASES_REPO = 'Vorsie/strixgeo'\n" in text
 
 
-def test_desktop_and_python_packages_carry_the_same_version() -> None:
-    """package.json and pyproject.toml name one version, 0.2.0."""
+def _versions() -> tuple[str, str, str]:
+    """Return the version named by package.json, pyproject.toml and uv.lock."""
     with PYPROJECT.open("rb") as handle:
         python_version = tomllib.load(handle)["project"]["version"]
-    assert _package()["version"] == python_version == "0.2.0"
+    # A Windows checkout with autocrlf may hold CRLF; the marker spans one line end.
+    lock = UV_LOCK.read_text(encoding="utf-8").replace(chr(13), "")
+    marker = 'name = "groundmodel"' + chr(10) + 'version = "'
+    lock_version = lock[lock.index(marker) + len(marker) :].split('"', 1)[0]
+    return _package()["version"], python_version, lock_version
 
 
-def test_changelog_has_the_0_2_0_entry_directly_below_unreleased() -> None:
-    """CHANGELOG has a 0.2.0 entry directly below the Unreleased heading.
+def test_desktop_and_python_packages_carry_the_same_version() -> None:
+    """package.json, pyproject.toml and uv.lock name one version.
 
-    Unreleased collects the changes made after 0.2.0, so it may hold entries,
-    but no other version heading sits between it and 0.2.0.
+    A tag build fails when the tag and package.json disagree, and the staging
+    export runs ``uv export --frozen``, which refuses a lockfile that lags
+    pyproject.toml; so a bump touches all three in one commit.
     """
+    desktop, python, lock = _versions()
+    assert desktop == python == lock
+
+
+def test_changelog_has_the_current_version_directly_below_unreleased() -> None:
+    """CHANGELOG has the current version's entry directly below Unreleased.
+
+    Unreleased collects the changes made after the current version, so it may
+    hold entries, but no other version heading sits between the two. The
+    hosted build takes this section as the release notes of the tag build.
+    """
+    version = _versions()[0]
     text = CHANGELOG.read_text(encoding="utf-8")
-    assert "## [0.2.0]" in text
+    heading = f"## [{version}]"
+    assert heading in text, f"CHANGELOG has no {heading} section"
     unreleased = text.index("## [Unreleased]")
-    released = text.index("## [0.2.0]")
+    released = text.index(heading)
     assert unreleased < released
     between = text[unreleased + len("## [Unreleased]") : released]
-    assert "## [" not in between, f"A version heading sits above 0.2.0: {between!r}"
+    assert "## [" not in between, f"A version heading sits above {version}: {between!r}"
