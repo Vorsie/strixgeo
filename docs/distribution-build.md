@@ -36,7 +36,9 @@ both `dist` and `release`:
 * refuses a **dirty tree** (`git status --porcelain` shows tracked changes) — a
   publish must be reproducible from a commit;
 * refuses **unpushed commits** (HEAD ahead of its upstream, or no upstream at
-  all) — CI has never verified them;
+  all): CI has never verified them. Under GitHub Actions the checkout is
+  detached, so the proof is `HEAD == GITHUB_SHA` instead
+  (`desktop/scripts/pushedCheck.mjs`);
 * on `release` only, refuses a **stale version** — `package.json` `version` must
   be strictly newer (SemVer) than the latest **published** version. "Published"
   is read only from sources an installed client can actually be offered: the
@@ -50,9 +52,11 @@ both `dist` and `release`:
 The clean/pushed checks are skippable with `STRIX_ALLOW_DIRTY_DIST=1` for a
 LOCAL test build (`dist`, never `release`); the version check has no opt-out.
 
-**`release` chains the full `dist`.** `release` = guard → `dist` (embedded
-postgres → embedded python → `package`) → `electron-builder --publish=always`,
-so it can only publish an `out/` / `embedded/` it just built — never a stale one.
+**`release` runs the `dist` steps with publish on, once.** `release` = guard
+(release mode) -> embedded postgres -> embedded python -> `package:publish`
+(the same build, copy, SHA check and electron-builder run as `package`, with
+`--publish=always`). The app is packaged and compressed once, and the release
+can only publish an `out/` / `embedded/` it just built, never a stale one.
 
 **Reused-Python integrity.** `build-embedded-python.ps1` skips the ~640 MB
 interpreter + dependency stage when `embedded/python/python.exe` already exists.
@@ -442,9 +446,8 @@ one, because electron-updater offers an update only for a greater semver.
 **The feed is `Vorsie/strixgeo`**, the public source repo: from 0.2.0 on the
 installers and `latest.yml` are published as releases of the source repo itself
 (the `publish` block in `desktop/package.json`). Up to 0.1.6 the feed was the
-separate repo `Vorsie/strixgeo-releases`; installed 0.1.x builds keep reading it
-because their `app-update.yml` is baked in, so 0.2.0 is published there once as
-a bridge (step 7 below). `Vorsie/strixgeo-releases` is archived after 0.2.1.
+separate repo `Vorsie/strixgeo-releases`; 0.2.0 was published there once more as
+the last bridge for installed 0.1.x builds, and that repo is archived after 0.2.1.
 
 It reads the "published" version only from what an installed client can actually
 be offered, never from a local build output. In order:
@@ -456,6 +459,9 @@ be offered, never from a local build output. In order:
 2. **The `v<semver>` git tags** on the source repo, as a fallback when the feed
    cannot be read (no token, offline, `gh` not installed). The guard prints that
    the feed was unreachable and which source it used.
+   On a tag-triggered GitHub Actions build the tag being built is left out of
+   the tags (its release is still a draft; `desktop/scripts/tagVersion.mjs`),
+   so the hosted build does not refuse its own tag.
 
 A local `desktop/dist/latest.yml` is **never** consulted: every `npm run dist`
 rewrites it with the current package version, so treating it as "published"
@@ -464,42 +470,57 @@ once refused the first beta release while the releases repo was still empty
 version is allowed). This is the resolution in
 `desktop/scripts/publishedVersion.mjs`; its tests pin it.
 
-Before every release:
+### The release recipe (hosted build)
 
-1. Bump `"version"` in `desktop/package.json` above the last published release
-   (check `gh release list --repo Vorsie/strixgeo`), land the bump on a
-   branch and push develop; the guard also demands a clean tree level with
-   `origin/develop`. The version bump is required for every release because the
-   updater only offers a strictly greater semver.
-2. Set the environment variable the chain reads, in the shell that runs it:
-   `GH_TOKEN` (electron-builder's GitHub publisher reads the token from that
-   variable only; `gh auth token` of the account that owns the releases repo,
-   never echoed). Without the token the installer builds and the upload fails at
-   the very end; `npx electron-builder --publish=always` in `desktop/` then
-   uploads the already-built package.
-3. Run the release; it builds the installer and uploads it as a DRAFT release
-   named after the package version (`v0.2.0`) on `Vorsie/strixgeo`. Do not
-   publish it yet.
-4. Tag the built commit `v0.2.0` and push the tag FIRST, AFTER the release ran.
-   The guard reads `v<semver>` git tags as published when it falls back from the
-   feed, so a tag pushed before the run refuses its own release ("0.1.2 is not
-   newer than the latest published 0.1.2", hotfix 2026-09-23).
+1. Land the version bump in `desktop/package.json` (above the last published
+   release: `gh release list --repo Vorsie/strixgeo`) and the
+   `## [<version>]` section of `CHANGELOG.md` on `develop` (branch, PR). The
+   updater only offers a strictly greater semver, so every release bumps.
+2. Run the deep walker locally on that commit (`.\scripts\run-e2e.ps1 walker`,
+   0 findings, app closed). It needs Electron with a display and the
+   integration DB, so it stays a local gate.
+3. `git tag v<version> <commit> && git push origin v<version>`. The
+   `Release installer` workflow (`.github/workflows/release.yml`) builds on a
+   GitHub-hosted `windows-2022` runner and attaches the installer to a DRAFT
+   release of the tag; the workflow run reports how long it took. It runs `npm run release`
+   unchanged, with `GH_TOKEN` from the repository token. It refuses a tag that
+   does not match `package.json`, a missing changelog section, and a version not
+   newer than the latest published release, all before or at the start of the
+   build.
+4. Download the draft's installer once, install it over the previous version,
+   open a project.
+5. Fast-forward `main` to the built commit and push it.
+6. Publish the draft. Its body is the changelog section; edit it by hand first
+   if wanted (for example Dutch notes).
+
+**Test build without a release.** Run the workflow by hand
+(`workflow_dispatch`, any branch): it runs `npm run dist` (guard, staging,
+package, no publish) and keeps the installer and `latest.yml` as a workflow
+artifact for one day. Use it to test the pipeline without a version bump.
+
+### Fallback: the local chain (when GitHub Actions is unavailable)
+
+1. Land the version bump as above; the guard demands a clean tree level with
+   its upstream.
+2. Set `GH_TOKEN` in the shell that runs the chain (electron-builder's GitHub
+   publisher reads the token from that variable only; `gh auth token` of the
+   account that owns the repo, never echoed). Without the token the installer
+   builds and the upload fails at the very end; `npx electron-builder
+   --publish=always` in `desktop/` then uploads the already-built package.
+3. Run `npm run release` in `desktop/`; it builds the installer and uploads it
+   as a DRAFT release named after the package version on `Vorsie/strixgeo`. Do
+   not publish it yet.
+4. Tag the built commit and push the tag AFTER the release ran. Locally the
+   guard counts every `v<semver>` git tag as published, so a tag pushed before
+   the local run refuses its own release ("0.1.2 is not newer than the latest
+   published 0.1.2", hotfix 2026-09-23). This order applies ONLY to the local
+   chain; the hosted build leaves the tag being built out.
 5. Fast-forward `main` to the built commit and push it.
 6. Publish the draft by hand after a download check. It binds to the existing
    tag; publishing a draft whose tag does not exist yet makes GitHub create the
    tag at the head of `main`, which can be a different commit than the one built.
-7. **One time, for 0.2.0 only: the bridge release.** After the 0.2.0 release is
-   published on `Vorsie/strixgeo`, put byte-identical files on the old feed so
-   installed 0.1.x builds (they read that feed) get the update prompt. Download
-   the published assets; do not rely on local `desktop/dist` files:
-   ```
-   gh release download v0.2.0 --repo Vorsie/strixgeo --dir <tmp>
-   gh release create v0.2.0 --repo Vorsie/strixgeo-releases --draft --title "StrixGeo 0.2.0" --notes-file <notes> <tmp>/StrixGeo-Setup-0.2.0.exe <tmp>/StrixGeo-Setup-0.2.0.exe.blockmap <tmp>/latest.yml
-   ```
-   Publish that draft by hand. The 0.2.0 build reads `Vorsie/strixgeo` from then
-   on. Archive `Vorsie/strixgeo-releases` after 0.2.1 is published.
 
 A hotfix follows the same chain off `main`: branch off the last BUILT commit
 (fast-forward `main` to it first if a release skipped that step), cherry-pick the
-fix, bump the version, gate, push `main`, release, tag, then merge the same
-commits back into `develop` (PR, rebase).
+fix, bump the version, gate, push `main`, tag (hosted build) and publish, then
+merge the same commits back into `develop` (PR, rebase).
