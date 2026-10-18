@@ -171,7 +171,7 @@ def _maximal_rectangles_compiled() -> Callable[[np.ndarray], np.ndarray]:
     """
     from numba import njit  # deferred: keeps numba/llvmlite off the boot path
 
-    return njit(cache=True)(_maximal_rectangles_kernel)  # type: ignore[no-any-return]
+    return njit(cache=True)(_maximal_rectangles_kernel)
 
 
 def maximal_rectangles(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
