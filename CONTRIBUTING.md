@@ -90,7 +90,7 @@ Use Node 22 LTS. Node 24 crashes the Vitest runner today.
 
 ## Releasing
 
-Releases are made by the maintainer only. The recipe: the Electron walker (`.\scripts\run-e2e.ps1 walker`) reports 0 findings, `npm run release` in `desktop/` builds the installer and a draft release, the version is tagged after the build, and `main` is fast-forwarded to the released commit. See [docs/distribution-build.md](docs/distribution-build.md).
+Releases are made by the maintainer only. The version bump and its `CHANGELOG.md` section land on `develop`, the Electron walker (`.\scripts\run-e2e.ps1 walker`) reports 0 findings on that commit, and a push of the tag `v<version>` makes the `Release installer` workflow (`.github/workflows/release.yml`) build the installer on a GitHub-hosted Windows runner and attach it to a draft release; after a download check `main` is fast-forwarded to the built commit and the draft is published. The detail, and the local `npm run release` fallback, are in [docs/distribution-build.md](docs/distribution-build.md).
 
 ## Where to read
 
