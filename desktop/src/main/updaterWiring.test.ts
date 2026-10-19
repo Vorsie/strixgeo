@@ -17,7 +17,7 @@ function source(name: string): string {
 describe('updater + backend-failed wiring', () => {
   const MAIN = source('index.ts')
   const UPDATER = source('updaterService.ts')
-  const IPC = source('prototypeIpc.ts')
+  const IPC = source('updaterIpc.ts')
   const PRELOAD = readFileSync(join(__dirname, '..', 'preload', 'index.ts'), 'utf-8')
 
   it('UW1 - every app:backend-failed send carries the failure payload', () => {
