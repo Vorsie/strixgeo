@@ -180,6 +180,7 @@ vi.mock('./api/client', async () => {
         rebuildSurfaces: stub(),
         exportPlaxis3d: stub(),
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+        getContactConsistency: vi.fn().mockResolvedValue({ model_id: '', status: 'ready', formations: [] }),
       },
       review: {
         list: stubArr(),
