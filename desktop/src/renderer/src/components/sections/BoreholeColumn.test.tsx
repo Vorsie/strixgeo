@@ -534,4 +534,54 @@ describe('BoreholeColumn - gecodeerde lithologie (issue #17)', () => {
     })
     expect(container.querySelectorAll('rect').length).toBe(0)
   })
+  it('paints the coded lithology strip with the DOV soil pattern of each layer', () => {
+    // Issue #17 acceptance: the pattern-fill branch for coded_lithology is
+    // reachable. Each coded layer fills with its primary soil code's pattern.
+    const detail = makeDetail([
+      makeObservation('coded_lithology', [
+        makeLayer({ id: 'c1', top_m: 0, base_m: 0.5, main_soil_codes: ['KL'] }),
+        makeLayer({ id: 'c2', top_m: 0.5, base_m: 1, main_soil_codes: ['ZG'] }),
+      ]),
+    ])
+    const { container } = renderColumn(detail, { lithology: true, geotech: false })
+    const fills = Array.from(container.querySelectorAll('rect')).map(r => r.getAttribute('fill'))
+    expect(fills).toEqual(['url(#soil-KL)', 'url(#soil-ZG)'])
+  })
+
+  it('a borehole with both geotechnical coding and coded lithology looks as before under the default toggles', () => {
+    // No regression: the coded stream is default OFF, so a borehole that
+    // carries both streams still draws only its geotech strip, centred on the
+    // column axis (band [80, 120] for halfWidth 20).
+    const detail = makeDetail([
+      makeObservation('coded_lithology', [
+        makeLayer({ id: 'c1', top_m: 0, base_m: 1, main_soil_codes: ['ZG'] }),
+      ]),
+      makeObservation('geotechnical_coding', [
+        makeLayer({ id: 'g1', top_m: 0, base_m: 1, main_soil_codes: ['KL'] }),
+      ]),
+    ])
+    const { container } = renderColumn(detail)
+    const rects = Array.from(container.querySelectorAll('rect'))
+    expect(rects.map(r => r.getAttribute('fill'))).toEqual(['url(#soil-KL)'])
+    expect(rects[0].getAttribute('x')).toBe('80')
+  })
+
+  it('with both streams on, the coded lithology strip sits left of the geotech strip', () => {
+    // DOV lengteprofiel reading order: raw coded log first, then geotech.
+    // Band of two 40 px strips centred on x=100 spans [60, 140].
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [
+        makeLayer({ id: 'g1', top_m: 0, base_m: 1, main_soil_codes: ['KL'] }),
+      ]),
+      makeObservation('coded_lithology', [
+        makeLayer({ id: 'c1', top_m: 0, base_m: 1, main_soil_codes: ['ZG'] }),
+      ]),
+    ])
+    const { container } = renderColumn(detail, { lithology: true, geotech: true })
+    const rects = Array.from(container.querySelectorAll('rect'))
+    expect(rects.map(r => [r.getAttribute('fill'), r.getAttribute('x')])).toEqual([
+      ['url(#soil-ZG)', '60'],
+      ['url(#soil-KL)', '100'],
+    ])
+  })
 })
