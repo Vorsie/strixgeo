@@ -54,11 +54,11 @@ z(x) = μ + Y(x) + ε, with μ an unknown constant (ordinary kriging), Y a zero-
 
 C(h) = s · (1 + √3·h/r) · exp(−√3·h/r)
 
-and ε independent pick noise with variance τᵢ² per pick:
+and ε independent pick noise with variance
 
-τᵢ² = max(n, floorᵢ²)
+τᵢ² = floorᵢ² + n
 
-where *n* is the fitted nugget and floorᵢ is the source floor (owner ruling 2026-10-19):
+where *n* ≥ 0 is the fitted extra nugget and floorᵢ is the source floor (owner ruling 2026-10-19). The sum is smooth for the optimiser and still guarantees that a pick is never treated as more accurate than its floor:
 
 | Pick source | floor |
 | --- | --- |
@@ -180,6 +180,8 @@ Benchmark: `tests/benchmarks/bench_pick_check.py` for n = 18, 50, 100, 200 picks
 Measured on the prototype (naive Nelder–Mead, 12 starts, no gradients): one fit 0.16 s (18 picks) to 108 s (200 picks); full refit-LOO ~3 s (18) to ~6 h (200). The guess step itself is milliseconds; the cost is the fitting.
 
 Budget per formation on the owner's laptop: **≤ 1 s for 50 picks, ≤ 5 s for 200 picks**, full refit-LOO included. The linear algebra already runs in compiled LAPACK; the budget is met by the algorithm (gradients, warm start, downdates, per-formation caching), not by a language change. If the benchmark misses the budget after that, the next step follows `docs/performance.md`: profile, then Numba on the proven hotspot.
+
+Measured on the worked-example fixture with L-BFGS-B (numerical gradients, floors added to the noise): 17 refits in 0.13 s; flags B16 (+5.4), S16 (−5.4), 2025-01415 S4 (+3.3); B12/S12 not flagged.
 
 ## 9. Documentation (owner standard, 2026-10-19)
 
