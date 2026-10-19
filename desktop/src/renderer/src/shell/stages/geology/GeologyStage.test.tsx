@@ -31,6 +31,7 @@ vi.mock('../../../api/client', async () => {
       geology: {
         // GeologyInspector fetches crossings on mount.
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+        getContactConsistency: vi.fn().mockResolvedValue({ model_id: '', status: 'ready', formations: [] }),
         // PATCH path exercised by the colour-swatch override (and any other
         // formation-row inline edit). Returns the (mutated) row that the
         // caller passed in — tests override per-case via mockImplementation.
