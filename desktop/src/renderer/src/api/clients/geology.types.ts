@@ -929,6 +929,49 @@ export interface CrossingValidationResponse {
   issues: GapIssueResponse[]
 }
 
+/** Closest other pick of the same formation (pick consistency check). */
+export interface PickCheckNeighbourResponse {
+  contact_id: string
+  investigation_name: string
+  distance_m: number
+  pick_elevation_m: number
+}
+
+/** A pick that does not fit its neighbours (|z| > 3). */
+export interface PickCheckFlagResponse {
+  contact_id: string
+  investigation_id: string
+  investigation_kind: 'cpt' | 'borehole'
+  investigation_name: string
+  pick_elevation_m: number
+  predicted_elevation_m: number
+  sigma_m: number
+  z: number
+  nearest: PickCheckNeighbourResponse
+}
+
+/** One formation's pick check; ``computing`` while the engine runs it. */
+export interface FormationPickCheckResponse {
+  formation_id: string
+  formation_name: string
+  status: 'checked' | 'too_few_picks' | 'fit_failed' | 'computing'
+  n_picks: number
+  skipped_no_location: number
+  fit: { range_m: number; sill_sd_m: number; nugget_sd_m: number } | null
+  coverage_90: number | null
+  /** Held-out picks whose refit failed and were judged by the full model (backend default 0). */
+  refit_fallbacks: number
+  flags: PickCheckFlagResponse[]
+  reason: string | null
+}
+
+/** Response from ``GET .../contact-consistency``. */
+export interface ContactConsistencyResponse {
+  model_id: string
+  status: 'ready' | 'computing'
+  formations: FormationPickCheckResponse[]
+}
+
 /** Response from ``POST .../ground-surface/build``. */
 export interface GroundSurfaceBuildResponse {
   /** ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS. */
