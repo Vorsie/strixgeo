@@ -84,6 +84,7 @@ import type {
   RebuildSurfacesResponse,
   FormationSurfaceResponse,
   CrossingValidationResponse,
+  ContactConsistencyResponse,
   GroundSurfaceBuildResponse,
   LithoContactCorrelationEdge,
   CrossingPinchOut,
@@ -709,6 +710,12 @@ export const geologyClient = {
     modelId: string,
   ): Promise<CrossingValidationResponse> =>
     get(`/projects/${projectId}/geology/models/${modelId}/validate/crossings`),
+
+  getContactConsistency: (
+    projectId: string,
+    modelId: string,
+  ): Promise<ContactConsistencyResponse> =>
+    get(`/projects/${projectId}/geology/models/${modelId}/contact-consistency`),
 
   suggestLitho: (
     projectId: string,
