@@ -245,7 +245,7 @@ git commit -m "feat(desktop): main process starts the engine without activation 
 **Files:**
 - Delete: `server/activation/` (16 tracked files), `docs/design/activation-api-contract.md`, `docs/design/activation-decision-memo.md`, `docs/design/activation-server-deploy.md`, `docs/design/beta-expiry.md`, `docs/design/onboarding-activation-updater-proto.md`
 - Modify: `CLAUDE.md:481-483` (the three design-note bullets: delete the beta-expiry and onboarding-activation bullets, reword the diagnostics bullet), `CLAUDE.md:69` (the backwards-compat line: drop "activation store format 1"), `CLAUDE.md:504` (the Tier B index line is generated; regenerate with `uv run python scripts/gen_debt_index.py` after the debt edit)
-- Modify: `docs/debt.md:241` (#3), `:395` (#5), `:486` (#6), `:364` (#4 title mentions #3), `:668` (#16 endpoint sentence), `:534` (names `require-beta-stamp.mjs post`: now `require-build-sha.mjs`); `docs/codex-production-check-2026-09-02.md:13` stays as a historical audit row
+- Modify: `docs/debt.md:241` (#3), `:395` (#5), `:486` (#6), `:364` (#4 title mentions #3), `:668` (#16 endpoint sentence), `:534` (names `require-beta-stamp.mjs post`: now `require-build-sha.mjs`)
 - Modify: `docs/design/diagnostics-capture.md` (the transmit paragraph: endpoint = `STRIXGEO_DIAGNOSTICS_URL`, no activation origin)
 - Modify: `desktop/src/renderer/src/components/onboarding/OnboardingOverlay.tsx:16` (the pointer to the deleted onboarding-activation-updater-proto.md: replace with "onboarding (#93)")
 - Modify: `docs/distribution-build.md:26-78` ("Release integrity and provenance": drop the expiry stamp paragraphs, keep the SHA provenance), `:347-361` ("Per-install generated secrets": unchanged, those are the local DB secrets)
@@ -857,7 +857,7 @@ Expected: build OK; the grep prints nothing (exit 1).
 - [ ] **Step 6: Deploy on flip day** with the GO-LIVE.md recipe:
 
 ```bash
-cd dist && tar czf - . | ssh -i ~/.ssh/strixgeo_combell_ed25519 strixgeocom@ssh.strixgeo.com 'tar xzf - -C www'
+cd dist && tar czf - . | ssh <site-deploy-host> 'tar xzf - -C www'
 ```
 
 Then `curl -sI https://strixgeo.com/download | head -1` = 200 and the page shows the download button (the nginx front cache may answer the old page for a few minutes).
