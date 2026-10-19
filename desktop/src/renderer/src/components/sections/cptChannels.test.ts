@@ -137,6 +137,23 @@ describe('readBoreholeChannels — parse + default fallback', () => {
   })
 })
 
+describe('readBoreholeChannels - a project saved before the coded lithology toggle (issue #17)', () => {
+  it('still opens: the stored three-key bag reads verbatim and the coded stream stays off', () => {
+    // A section saved before the ``lithology`` key existed persisted only the
+    // three older keys. It must open with exactly those choices and the new
+    // stream at its default (off), so its sections look as they did.
+    const legacy = {
+      borehole_channels: { geotech: false, formal_strat: true, informal_strat: true },
+    }
+    expect(readBoreholeChannels(legacy)).toEqual({
+      lithology: false,
+      geotech: false,
+      formal_strat: true,
+      informal_strat: true,
+    })
+  })
+})
+
 describe('enabledBoreholeChannelCount', () => {
   it('returns 0 when no channel is enabled', () => {
     expect(
