@@ -1,7 +1,7 @@
 /**
  * Pure gates for the launch flags (Electron main process).
  *
- * Kept free of Electron so vitest exercises it (see ``prototypeFlags.test.ts``);
+ * Kept free of Electron so vitest exercises it (see ``launchFlags.test.ts``);
  * ``index.ts`` feeds it ``app.isPackaged`` and the renderer mirrors the same
  * decision through ``window.electron.launchFlags.packaged``.
  */
