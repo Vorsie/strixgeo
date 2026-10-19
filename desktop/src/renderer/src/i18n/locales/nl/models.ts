@@ -164,6 +164,14 @@ export const MODELS_NL = {
   'geology.stratigraphyLabel': 'Stratigrafie',
   'geology.crossingsNotChecked':
     'Kruisende vlakken niet gecontroleerd. Bouw het 3D-model om te valideren.',
+  'geology.pickCheck.computing': 'Elke grens wordt vergeleken met de naburige proeven.',
+  'geology.pickCheck.failed': 'De controle van de grenzen is mislukt. De grenzen zijn niet gecontroleerd.',
+  'geology.pickCheck.titleOne': '1 grens om te controleren',
+  'geology.pickCheck.titleMany': '{n} grenzen om te controleren',
+  'geology.pickCheck.row': '{test}: {pick} m TAW, verwacht {expected} ± {sigma} m ({times}× verder af dan normaal)',
+  'geology.pickCheck.nearest': 'Dichtste proef: {test}, op {distance} m, {pick} m TAW',
+  'geology.pickCheck.fitLine': 'Bereik {range} m, onzekerheid van de grens {nugget} m, {coverage} % van de grenzen binnen hun 90 %-band',
+  'geology.pickCheck.show': 'Toon',
   'geology.crossingsCheckFailed':
     'Kruisende vlakken KONDEN niet gecontroleerd worden. Dit is geen zuiver resultaat. Bouw opnieuw of heropen het project om opnieuw te controleren.',
   'geology.crossingsDetectedOne': '{n} kruisend vlak gedetecteerd',
