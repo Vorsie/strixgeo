@@ -43,6 +43,7 @@ vi.mock('../../../api/client', async importOriginal => {
       ...api,
       geology: {
         ...(api.geology as object),
+        getContactConsistency: vi.fn().mockResolvedValue({ model_id: '', status: 'ready', formations: [] }),
         validateCrossings: () => Promise.resolve({ model_id: '', issues: [] }),
         updateFormation: (...args: unknown[]) => updateFormation(...args),
       },
