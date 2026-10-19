@@ -1,0 +1,167 @@
+{
+  "description": "Worked example (public DOV tests), geological model Default, top of Formatie van Tielt - Lid van Egem, as stored 2026-10-19. GEO-02/146-B16 carries the DOV pick the owner ruled too high.",
+  "picks": [
+    {
+      "name": "2025-01415 S4",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110243.18,
+      "y": 188363.66,
+      "ground_elevation_m": 11.7,
+      "depth_top_m": 9.761
+    },
+    {
+      "name": "GEO-02/145-S12",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 109976.2,
+      "y": 188897.2,
+      "ground_elevation_m": 7.36,
+      "depth_top_m": 12.445
+    },
+    {
+      "name": "GEO-02/145-S13",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110051,
+      "y": 188830.6,
+      "ground_elevation_m": 7.38,
+      "depth_top_m": 12.03
+    },
+    {
+      "name": "GEO-02/145-S14",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110130.2,
+      "y": 188766.4,
+      "ground_elevation_m": 7.35,
+      "depth_top_m": 12.155
+    },
+    {
+      "name": "GEO-02/145-S15",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110204,
+      "y": 188705.2,
+      "ground_elevation_m": 7.33,
+      "depth_top_m": 10.49
+    },
+    {
+      "name": "GEO-02/145-S16",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110280.4,
+      "y": 188642,
+      "ground_elevation_m": 7.25,
+      "depth_top_m": 11.403
+    },
+    {
+      "name": "GEO-02/145-S17",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110346.5,
+      "y": 188578.1,
+      "ground_elevation_m": 7.29,
+      "depth_top_m": 10.75
+    },
+    {
+      "name": "GEO-02/146-B12",
+      "kind": "borehole",
+      "source": "borehole_observation",
+      "x": 109976,
+      "y": 188897,
+      "ground_elevation_m": 7.36,
+      "depth_top_m": 12.035
+    },
+    {
+      "name": "GEO-02/146-B16",
+      "kind": "borehole",
+      "source": "borehole_observation",
+      "x": 110280,
+      "y": 188642,
+      "ground_elevation_m": 7.25,
+      "depth_top_m": 9.7
+    },
+    {
+      "name": "GEO-07/181-S1",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110240.78,
+      "y": 188579.87,
+      "ground_elevation_m": 7.68,
+      "depth_top_m": 12.244
+    },
+    {
+      "name": "GEO-07/181-S2",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110278.09,
+      "y": 188547.84,
+      "ground_elevation_m": 7.53,
+      "depth_top_m": 11.7
+    },
+    {
+      "name": "GEO-07/181-S3",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110350.25,
+      "y": 188481.01,
+      "ground_elevation_m": 7.46,
+      "depth_top_m": 12.005
+    },
+    {
+      "name": "GEO-07/182-B2",
+      "kind": "borehole",
+      "source": "borehole_observation",
+      "x": 110281.93,
+      "y": 188546.55,
+      "ground_elevation_m": 7.48,
+      "depth_top_m": 11.5
+    },
+    {
+      "name": "GEO-07/191-S1",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 110399.31,
+      "y": 188527.17,
+      "ground_elevation_m": 7.34,
+      "depth_top_m": 10.95
+    },
+    {
+      "name": "GEO-25/021-S23",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 109966.25,
+      "y": 188786.91,
+      "ground_elevation_m": 7.34,
+      "depth_top_m": 9.86
+    },
+    {
+      "name": "GEO-25/021-S45",
+      "kind": "cpt",
+      "source": "manual_pick",
+      "x": 109999.44,
+      "y": 188686.9,
+      "ground_elevation_m": 9.43,
+      "depth_top_m": 11.95
+    },
+    {
+      "name": "GEO-99/201-B1",
+      "kind": "borehole",
+      "source": "borehole_observation",
+      "x": 109891.83,
+      "y": 188850.07,
+      "ground_elevation_m": 6.68,
+      "depth_top_m": 7
+    }
+  ],
+  "section": {
+    "name": "Cross-section 1",
+    "start_x": 109983.011,
+    "start_y": 188906.568,
+    "end_x": 110407.809,
+    "end_y": 188523.532,
+    "projection_buffer_m": 40
+  },
+  "ruling": "Owner 2026-10-19: the clean sand 9.9-11.4 m below GEO-02/146-B16 is Quaternary; the DOV Egem top at 9.7 m is too high. GEO-02/146-B16 ends at 11.0 m."
+}
