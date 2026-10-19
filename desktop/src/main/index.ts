@@ -110,9 +110,9 @@ import {
 import { shouldReloadRendererAfterGone } from './rendererGonePolicy'
 import { chromiumFetch } from './chromiumFetch'
 import { resolveDeviceIdentity } from './deviceIdentity'
-import { e2eLaunchFlag } from './prototypeFlags'
+import { e2eLaunchFlag } from './launchFlags'
 import { installE2eDialogStubs, installE2eShellStubs } from './e2eDialogs'
-import { registerPrototypeIpc } from './prototypeIpc'
+import { registerUpdaterIpc } from './updaterIpc'
 import {
   attachUpdaterLogger,
   checkForUpdatesOnLaunch,
@@ -1216,7 +1216,7 @@ ipcMain.on('launch:flags', (event) => {
   event.returnValue = {
     // STRIX_E2E is honoured ONLY in an unpackaged build: the harness never runs
     // a package, and a packaged exe must not let STRIX_E2E=1 stub its native
-    // dialogs (audit C3(b)). The rule is pinned in prototypeFlags.test.ts.
+    // dialogs (audit C3(b)). The rule is pinned in launchFlags.test.ts.
     e2e: e2eLaunchFlag(process.env, app.isPackaged),
     packaged: app.isPackaged,
   }
@@ -1481,7 +1481,7 @@ ipcMain.handle(
     // that already authorised the path. The ONE exception is the e2e harness,
     // which seeds its fixture project into recents by this IPC with a temp path
     // it wrote itself: the launch flag is never honoured in a packaged build
-    // (prototypeFlags.ts), so the carve-out cannot reach a customer.
+    // (launchFlags.ts), so the carve-out cannot reach a customer.
     if (!pathIsAuthorised(filePath) && !e2eLaunchFlag(process.env, app.isPackaged)) {
       throw new Error(`project:add-recent refused — path not authorised: ${filePath}`)
     }
@@ -2044,7 +2044,7 @@ if (!gotSingleInstanceLock) {
     configureUpdaterPreferenceStore({ userDataDir: app.getPath('userData') })
     // Updater IPC (#6). Registered before any renderer can issue an
     // ``updater:*`` call.
-    registerPrototypeIpc()
+    registerUpdaterIpc()
 
     // Open source: no licence gate. Packaged: boot the embedded
     // database and spawn the engine concurrently with the cluster boot. Dev:
