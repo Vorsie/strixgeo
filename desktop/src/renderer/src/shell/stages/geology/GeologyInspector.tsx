@@ -27,6 +27,7 @@ import { Plus } from 'lucide-react'
 
 import type { CrossSectionResponse, GapIssueResponse } from '../../../api/client'
 import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
+import { useContactConsistency } from '../../../hooks/useContactConsistency'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
 import CrossingSectionPickerDialog from '../../../components/CrossingSectionPickerDialog'
@@ -41,6 +42,7 @@ import { useGeologyFormations } from './useGeologyFormations'
 import GeologyInspectorHeader from './GeologyInspectorHeader'
 import GeologyConfidenceFadeToggle from './GeologyConfidenceFadeToggle'
 import GeologyCrossingsBanner from './GeologyCrossingsBanner'
+import PickCheckBanner from './PickCheckBanner'
 import GeologyFormationList from './GeologyFormationList'
 import GeologyBoreholesInModel from './GeologyBoreholesInModel'
 
@@ -150,6 +152,10 @@ export default function GeologyInspector(): JSX.Element {
     staleSurfaceCount,
   )
 
+  // Always-on pick consistency check (uncertainty slice A0): same refresh
+  // signal as the crossings banner, so a pick edit re-checks after 2 s.
+  const pickCheck = useContactConsistency(projectId, activeGeologicalModel?.id ?? null, crossingsRefreshCounter)
+
   // Crossing-issue → sections-stage navigation flow (dogfeed 2026-05-30).
   // Click an LI in the surface-crossings banner: resolve the issue's
   // contacts to candidate sections, then either deep-link directly (1
@@ -172,10 +178,13 @@ export default function GeologyInspector(): JSX.Element {
       ),
     [busFormations, geoContacts, boreholes, cpts, t],
   )
-  const handleClickCrossingIssue = useCallback(
-    (issue: GapIssueResponse) => {
+  // Open a cross-section through these contacts: shared by a crossing issue
+  // and a flagged pick (the pick and its nearest test), so both banners
+  // navigate the same way.
+  const openSectionForContacts = useCallback(
+    (contactIds: readonly string[]) => {
       const candidates = resolveCandidateCrossingSections(
-        issue.contact_ids,
+        contactIds,
         geoContacts,
         sections,
         boreholes,
@@ -187,7 +196,7 @@ export default function GeologyInspector(): JSX.Element {
         // 2026-09-22). Draw it for him: an east-west line through the first
         // offending test, then open it on those contacts. Creating a section
         // is undoable, so this fires without a dialog (docs/ux.md).
-        const anchor = crossingIssueTests(issue, geoContacts, boreholes, cpts)[0]
+        const anchor = crossingIssueTests({ contact_ids: [...contactIds] }, geoContacts, boreholes, cpts)[0]
         if (!anchor || effectiveHorizontalEpsg == null) {
           toast('error', t('geology.noSectionForContact'))
           return
@@ -200,14 +209,14 @@ export default function GeologyInspector(): JSX.Element {
           for (let attempt = 0; attempt < 20; attempt += 1) {
             await new Promise(resolve => setTimeout(resolve, 25))
             const created = resolveCandidateCrossingSections(
-              issue.contact_ids,
+              contactIds,
               geoContacts,
               sectionsRef.current,
               boreholes,
               cpts,
             )
             if (created.length > 0) {
-              setSectionsDeepLinkTarget({ sectionId: created[0].id, contactIds: issue.contact_ids })
+              setSectionsDeepLinkTarget({ sectionId: created[0].id, contactIds })
               return
             }
           }
@@ -217,11 +226,11 @@ export default function GeologyInspector(): JSX.Element {
       if (candidates.length === 1) {
         setSectionsDeepLinkTarget({
           sectionId: candidates[0].id,
-          contactIds: issue.contact_ids,
+          contactIds,
         })
         return
       }
-      setCrossingPicker({ contactIds: issue.contact_ids, candidates })
+      setCrossingPicker({ contactIds, candidates })
     },
     [
       geoContacts,
@@ -234,6 +243,10 @@ export default function GeologyInspector(): JSX.Element {
       handleSectionLineDrawn,
       effectiveHorizontalEpsg,
     ],
+  )
+  const handleClickCrossingIssue = useCallback(
+    (issue: GapIssueResponse) => openSectionForContacts(issue.contact_ids),
+    [openSectionForContacts],
   )
 
   // ---------------------------------------------------------------------------
@@ -312,6 +325,14 @@ export default function GeologyInspector(): JSX.Element {
         crossingIssues={crossingIssues}
         onClickIssue={handleClickCrossingIssue}
         describeIssue={describeIssue}
+        t={t}
+      />
+
+      {/* Pick consistency check (uncertainty slice A0, owner 2026-10-19). */}
+      <PickCheckBanner
+        status={pickCheck.status}
+        formations={pickCheck.formations}
+        onShow={openSectionForContacts}
         t={t}
       />
 
