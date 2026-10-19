@@ -64,6 +64,48 @@ function renderHeader(onRename: ((name: string) => void) | undefined): void {
 
 afterEach(cleanup)
 
+describe('SectionHeader - the coded lithology stream toggle (issue #17)', () => {
+  it('toggles alongside geotech / formal / informal and hands the new bag to the persist callback', () => {
+    // Persisting rides onBoreholeChannelsChange -> view_state.borehole_channels,
+    // the same path the other three streams use.
+    const onBoreholeChannelsChange = vi.fn()
+    render(
+      <SectionHeader
+        section={makeSection()}
+        lengthM={100}
+        onClose={undefined}
+        onZoomIn={() => {}}
+        onZoomOut={() => {}}
+        vex={2}
+        onVexChange={() => {}}
+        onVexCommit={undefined}
+        onBufferCommit={undefined}
+        channels={DEFAULT_CPT_CHANNELS}
+        onChannelsChange={() => {}}
+        boreholeChannels={DEFAULT_BOREHOLE_CHANNELS}
+        onBoreholeChannelsChange={onBoreholeChannelsChange}
+        snapToStratigraphy={false}
+        onSnapToStratigraphyChange={() => {}}
+        columnSpacing={0}
+        onColumnSpacingChange={() => {}}
+        onColumnSpacingCommit={undefined}
+        scaleH={1}
+        scaleV={1}
+        onReset={() => {}}
+        onRename={undefined}
+      />,
+    )
+    for (const key of ['lithology', 'geotech', 'formal_strat', 'informal_strat']) {
+      expect(screen.getByTestId(`section-control-borehole-${key}`)).toBeTruthy()
+    }
+    fireEvent.click(screen.getByTestId('section-control-borehole-lithology'))
+    expect(onBoreholeChannelsChange).toHaveBeenCalledWith({
+      ...DEFAULT_BOREHOLE_CHANNELS,
+      lithology: true,
+    })
+  })
+})
+
 describe('SectionHeader — rename from the header strip', () => {
   it('H1 — clicking the name opens a field with that name; Enter saves the new one', () => {
     const onRename = vi.fn()
