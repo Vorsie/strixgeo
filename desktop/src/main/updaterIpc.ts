@@ -3,7 +3,7 @@
  *
  * Extracted from ``index.ts`` so the god-component (debt #201) does not grow:
  * the updater (#6) handlers live here, and ``index.ts`` only calls
- * {@link registerPrototypeIpc} once.
+ * {@link registerUpdaterIpc} once.
  *
  * Every handler is a thin adapter — it validates the argument shape and forwards
  * to the updater module. No business logic lives here.
@@ -21,7 +21,7 @@ import {
 import { readCheckAtStart, writeCheckAtStart } from './updaterPreferenceStore'
 
 /** Register the updater IPC handlers. */
-export function registerPrototypeIpc(): void {
+export function registerUpdaterIpc(): void {
   // ---- Updater (#6) -------------------------------------------------------
   // Manual check — the renderer's "Check for updates". Fire-and-forget: results
   // arrive as UPDATER_EVENT_CHANNEL messages, not as this call's return value.
