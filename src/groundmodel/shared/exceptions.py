@@ -737,3 +737,7 @@ class CptPdfReportNotFoundError(GroundModelError):
             f"no triaged PDF report {file_sha[:12]}... in this project: open the report again"
         )
         self.file_sha = file_sha
+
+
+class GeostatFitError(GroundModelError):
+    """A covariance model could not be fitted to a set of picks."""
