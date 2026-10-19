@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { e2eLaunchFlag } from './prototypeFlags'
+import { e2eLaunchFlag } from './launchFlags'
 
 describe('e2eLaunchFlag', () => {
   it('is true for an unpackaged build with STRIX_E2E=1 (the harness)', () => {
