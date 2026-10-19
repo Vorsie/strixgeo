@@ -31,9 +31,6 @@ ALLOWED = {
     "docs/debt.md",
     "docs/lessons-learned.md",
     "docs/benchmarks-journal.md",
-    # dated audit record, history
-    "docs/production-readiness-audit-2026-09-02.md",
-    "docs/codex-production-check-2026-09-02.md",
     # pins the ABSENCE of the removed gate in the main-process source
     "desktop/src/main/bootSequence.test.ts",
     # history by design
