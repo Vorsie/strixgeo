@@ -155,6 +155,14 @@ export const MODELS = {
   // Geology inspector (roster header, crossings banner, delete confirm, rows).
   'geology.stratigraphyLabel': 'Stratigraphy',
   'geology.crossingsNotChecked': 'Surface crossings not checked. Build the 3D model to validate.',
+  'geology.pickCheck.computing': 'Checking each pick against its neighbours.',
+  'geology.pickCheck.failed': 'The pick check failed. The picks were not checked.',
+  'geology.pickCheck.titleOne': '1 pick to check',
+  'geology.pickCheck.titleMany': '{n} picks to check',
+  'geology.pickCheck.row': '{test}: {pick} m TAW, expected {expected} ± {sigma} m ({times}× further off than normal)',
+  'geology.pickCheck.nearest': 'Nearest test: {test}, {distance} m away, {pick} m TAW',
+  'geology.pickCheck.fitLine': 'Range {range} m, pick uncertainty {nugget} m, {coverage} % of picks inside their 90 % band',
+  'geology.pickCheck.show': 'Show',
   'geology.crossingsCheckFailed':
     'Surface crossings could NOT be checked. This is not a clean result. Rebuild or reopen the project to check again.',
   'geology.crossingsDetectedOne': '{n} surface crossing detected',
