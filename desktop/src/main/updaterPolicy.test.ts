@@ -204,7 +204,7 @@ describe('updaterService: an update installs at the next start, never on quit', 
     '\n',
   )
   const MAIN_SOURCE = readFileSync(join(__dirname, 'index.ts'), 'utf-8').replace(/\r\n/g, '\n')
-  const IPC_SOURCE = readFileSync(join(__dirname, 'prototypeIpc.ts'), 'utf-8').replace(/\r\n/g, '\n')
+  const IPC_SOURCE = readFileSync(join(__dirname, 'updaterIpc.ts'), 'utf-8').replace(/\r\n/g, '\n')
 
   it('IQ1 - a downloaded update never installs when the app quits', () => {
     expect(SERVICE_SOURCE).toContain('autoUpdater.autoInstallOnAppQuit = false')
@@ -215,7 +215,7 @@ describe('updaterService: an update installs at the next start, never on quit', 
 
   it('IQ2 - the explicit "Install and restart" path is still exposed', () => {
     // quitAndInstall stays as the user-driven install, wired to
-    // updater:quit-and-install in prototypeIpc.
+    // updater:quit-and-install in updaterIpc.
     expect(SERVICE_SOURCE).toContain('export function quitAndInstall()')
     expect(IPC_SOURCE).toContain("ipcMain.handle('updater:quit-and-install'")
   })
