@@ -8,7 +8,7 @@
  * sample — so on a real run those dialogs either block the app until the
  * test timeout (walker run 14, 2026-09-10: twenty minutes of silence) or
  * land on the owner's screen ("i don't want to have to click away save
- * windows"). Under ``STRIX_E2E`` (unpackaged only, see ``prototypeFlags``)
+ * windows"). Under ``STRIX_E2E`` (unpackaged only, see ``launchFlags``)
  * the four dialog methods the app uses are replaced:
  *
  * * Save / Open dialogs resolve ``canceled`` at once — exactly what an
