@@ -15,6 +15,7 @@ from . import (
     bodies,
     body_separations,
     body_unions,
+    contact_consistency,
     contact_correlations,
     contacts,
     exports,
@@ -33,6 +34,7 @@ router.include_router(models.router)
 router.include_router(contacts.router)
 router.include_router(litho_ops.router)
 router.include_router(surfaces.router)
+router.include_router(contact_consistency.router)
 router.include_router(exports.router)
 router.include_router(contact_correlations.router)
 router.include_router(bodies.router)
