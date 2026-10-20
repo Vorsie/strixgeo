@@ -111,7 +111,7 @@ src/groundmodel/domain/models/  # frozen dataclasses: PickObservation, Covarianc
 src/groundmodel/application/check_contact_consistency.py      # use case (loads picks, runs domain, logs)
 src/groundmodel/application/contact_consistency_cache.py      # in-process cache keyed by (model, formation, picks digest)
 src/groundmodel/api/routers/geology/contact_consistency.py    # GET endpoint
-src/groundmodel/api/schemas/geology/contact_consistency.py
+src/groundmodel/api/schemas/project/contact_consistency.py
 ```
 
 One class per file, constants in `geostat_constants.py`, `GroundModelLogger` on the use case and cache, numpy docstrings throughout.
@@ -152,7 +152,7 @@ Desktop:
 
 ## 6. Error handling
 
-- Missing elevation or location → the pick is skipped and counted (`skipped_no_elevation`), logged with the investigation names.
+- Missing elevation or location → the pick is skipped and counted (`skipped_no_location`), logged with the investigation names.
 - Optimiser failure or non-positive-definite matrix → formation status `fit_failed` with the reason; never a 500 for the whole response. Jitter 1e-8 on the diagonal before giving up.
 - All picks identical → s on its lower bound, no flags; logged.
 
