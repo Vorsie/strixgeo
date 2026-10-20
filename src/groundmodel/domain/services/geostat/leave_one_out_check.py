@@ -5,7 +5,7 @@ krige its elevation from the others, and compare. z = (pick - guess) / σ with
 σ² = kriging variance + the pick's own noise (floor² + nugget). |z| > 3 → flag.
 
 Why refit: a single fit on all picks lets a wrong pick inflate the nugget, which then
-makes that same pick look normal (worked example: B16 z 1.9 single fit, 5.4 refit).
+makes that same pick look normal (worked example: B16 z 1.8 single fit, 5.3 refit).
 """
 
 from __future__ import annotations
