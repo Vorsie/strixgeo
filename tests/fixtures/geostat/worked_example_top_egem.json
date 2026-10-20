@@ -1,15 +1,6 @@
 {
-  "description": "Worked example (public DOV tests), geological model Default, top of Formatie van Tielt - Lid van Egem, as stored 2026-10-19. GEO-02/146-B16 carries the DOV pick the owner ruled too high.",
+  "description": "Worked example (public DOV tests), geological model Default (01a09c2e-dc77-7c72-a1ec-0fb87914b2b0), top of Formatie van Tielt - Lid van Egem: the picks the geological model uses (tests on a cross-section), as stored 2026-10-20. GEO-02/146-B16 carries the DOV pick the owner ruled too high.",
   "picks": [
-    {
-      "name": "2025-01415 S4",
-      "kind": "cpt",
-      "source": "manual_pick",
-      "x": 110243.18,
-      "y": 188363.66,
-      "ground_elevation_m": 11.7,
-      "depth_top_m": 9.761
-    },
     {
       "name": "GEO-02/145-S12",
       "kind": "cpt",
@@ -17,13 +8,13 @@
       "x": 109976.2,
       "y": 188897.2,
       "ground_elevation_m": 7.36,
-      "depth_top_m": 12.445
+      "depth_top_m": 12.445411704075438
     },
     {
       "name": "GEO-02/145-S13",
       "kind": "cpt",
       "source": "manual_pick",
-      "x": 110051,
+      "x": 110051.0,
       "y": 188830.6,
       "ground_elevation_m": 7.38,
       "depth_top_m": 12.03
@@ -35,13 +26,13 @@
       "x": 110130.2,
       "y": 188766.4,
       "ground_elevation_m": 7.35,
-      "depth_top_m": 12.155
+      "depth_top_m": 12.154749004595008
     },
     {
       "name": "GEO-02/145-S15",
       "kind": "cpt",
       "source": "manual_pick",
-      "x": 110204,
+      "x": 110204.0,
       "y": 188705.2,
       "ground_elevation_m": 7.33,
       "depth_top_m": 10.49
@@ -51,9 +42,9 @@
       "kind": "cpt",
       "source": "manual_pick",
       "x": 110280.4,
-      "y": 188642,
+      "y": 188642.0,
       "ground_elevation_m": 7.25,
-      "depth_top_m": 11.403
+      "depth_top_m": 11.40333603142436
     },
     {
       "name": "GEO-02/145-S17",
@@ -62,23 +53,23 @@
       "x": 110346.5,
       "y": 188578.1,
       "ground_elevation_m": 7.29,
-      "depth_top_m": 10.75
+      "depth_top_m": 10.750385718129548
     },
     {
       "name": "GEO-02/146-B12",
       "kind": "borehole",
       "source": "borehole_observation",
-      "x": 109976,
-      "y": 188897,
+      "x": 109976.0,
+      "y": 188897.0,
       "ground_elevation_m": 7.36,
-      "depth_top_m": 12.035
+      "depth_top_m": 12.035422987648433
     },
     {
       "name": "GEO-02/146-B16",
       "kind": "borehole",
       "source": "borehole_observation",
-      "x": 110280,
-      "y": 188642,
+      "x": 110280.0,
+      "y": 188642.0,
       "ground_elevation_m": 7.25,
       "depth_top_m": 9.7
     },
@@ -89,7 +80,7 @@
       "x": 110240.78,
       "y": 188579.87,
       "ground_elevation_m": 7.68,
-      "depth_top_m": 12.244
+      "depth_top_m": 12.243928106105056
     },
     {
       "name": "GEO-07/181-S2",
@@ -107,7 +98,7 @@
       "x": 110350.25,
       "y": 188481.01,
       "ground_elevation_m": 7.46,
-      "depth_top_m": 12.005
+      "depth_top_m": 12.005355512726561
     },
     {
       "name": "GEO-07/182-B2",
@@ -134,7 +125,7 @@
       "x": 109966.25,
       "y": 188786.91,
       "ground_elevation_m": 7.34,
-      "depth_top_m": 9.86
+      "depth_top_m": 9.859866827579284
     },
     {
       "name": "GEO-25/021-S45",
@@ -143,7 +134,7 @@
       "x": 109999.44,
       "y": 188686.9,
       "ground_elevation_m": 9.43,
-      "depth_top_m": 11.95
+      "depth_top_m": 11.949507358104563
     },
     {
       "name": "GEO-99/201-B1",
@@ -152,7 +143,7 @@
       "x": 109891.83,
       "y": 188850.07,
       "ground_elevation_m": 6.68,
-      "depth_top_m": 7
+      "depth_top_m": 7.0
     }
   ],
   "section": {
