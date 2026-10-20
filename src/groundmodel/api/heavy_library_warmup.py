@@ -74,6 +74,15 @@ def _import_scipy_spatial() -> None:
     import scipy.spatial  # type: ignore[import-untyped]  # noqa: F401  # deferred: kept off the boot path
 
 
+def _import_pick_check() -> None:
+    """Import the pick consistency check — scipy.optimize + scipy.linalg for REML.
+
+    The check is always on: the first GET contact-consistency after a project
+    opens would otherwise pay these imports inside the request.
+    """
+    import groundmodel.domain.services.geostat.leave_one_out_check  # noqa: F401  # deferred: kept off the boot path
+
+
 def _compile_mesh_kernel() -> None:
     """Compile and warm the greedy-mesh Numba kernel via its cached accessor.
 
@@ -102,6 +111,7 @@ _WARMUP_STEPS: tuple[tuple[str, Callable[[], None]], ...] = (
     ("geolib", _import_geolib),
     ("ezdxf", _import_ezdxf),
     ("scipy", _import_scipy_spatial),
+    ("pick-check", _import_pick_check),
     ("mesh-kernel", _compile_mesh_kernel),
 )
 
