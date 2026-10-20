@@ -3,8 +3,9 @@
 A pick feeds the check exactly when it feeds the TIN: its test is drawn by a
 cross-section, not removed from the project and not excluded from the model
 (`contact_feeds_surface`). Synthetic pinch-out contacts are extrapolations, not
-observations, and are skipped. Picks with a top at 0 m measure the ground level,
-not a soil boundary (owner ruling 2026-10-20), and are skipped too.
+observations, and are skipped. Picks with a top within 10 cm of the ground surface
+measure the ground level, not a soil boundary (owner rulings 2026-10-20: "10 cm is
+surface"), and are skipped too.
 """
 
 from __future__ import annotations
@@ -84,9 +85,10 @@ async def load_formation_picks(
             section_member_ids=members,
         )
     ]
-    # Owner ruling 2026-10-20: a top at 0 measures the ground level, not a soil
-    # boundary, so it is no observation. Dropped before grouping: a formation whose
-    # every pick is at the surface leaves the report (it is not "too few picks").
+    # Owner rulings 2026-10-20: a top within 10 cm of 0 measures the ground level
+    # ("10 cm is surface"), not a soil boundary, so it is no observation. Dropped
+    # before grouping: a formation whose every pick is at the surface leaves the
+    # report (it is not "too few picks").
     surface = [c for c in on_model if is_ground_surface_pick(c.depth_top_m)]
     kept = [c for c in on_model if not is_ground_surface_pick(c.depth_top_m)]
     logger.info(
@@ -141,7 +143,7 @@ async def load_formation_picks(
         ]
         logger.info(
             f"load_formation_picks: model={model_id} skipped {len(surface)} surface pick(s) "
-            f"(top at 0 m) in: {capped_name_list(labels)}"
+            f"(top within 0.10 m of the surface) in: {capped_name_list(labels)}"
         )
 
     grouped: dict[UUID, list[PickObservation]] = defaultdict(list)
