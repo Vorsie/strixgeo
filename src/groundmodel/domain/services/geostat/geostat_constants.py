@@ -22,11 +22,15 @@ COVERAGE_Z = 1.645
 # A borehole log is described in about 0.5 m steps; a CPT pick is sharper.
 PICK_NOISE_FLOOR_M = {"cpt": 0.10, "borehole": 0.25}
 
-# Owner ruling 2026-10-20: "Skip formations with top at 0, we're pretty sure about
-# the surface level." A pick at the ground surface measures the ground level (already
-# known from the survey / DEM), not a soil boundary, so it is no observation for the
-# pick check. 1 mm absorbs float noise on a stored 0; depths are kept to the mm.
-GROUND_SURFACE_DEPTH_TOLERANCE_M = 0.001
+# Owner rulings 2026-10-20: "Skip formations with top at 0, we're pretty sure about
+# the surface level." and "10 cm is surface". A pick at the ground surface measures the
+# ground level (already known from the survey / DEM), not a soil boundary, so it is no
+# observation for the pick check. Manual picks of a unit that starts at the surface land
+# a few cm below 0 (click precision: three Aangevuld picks at 0.02-0.05 m on the worked
+# example), so 1 mm kept them as boundary picks. 0.10 m is also the CPT pick-noise floor
+# (PICK_NOISE_FLOOR_M), so a pick that close cannot be told apart from the surface.
+# The boundary is inclusive: a top at exactly 0.10 m is surface.
+GROUND_SURFACE_DEPTH_TOLERANCE_M = 0.10
 
 # Search box of the REML fit (spec §4.3). Ranges under 20 m cannot be resolved by
 # tests that stand 50-100 m apart; above 5 km a site-scale model is a plane.
