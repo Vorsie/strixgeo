@@ -18,8 +18,7 @@ from scipy.linalg import cho_solve  # type: ignore[import-untyped]
 
 from groundmodel.domain.services.geostat.geostat_constants import JITTER_M2, LARGE_OBJECTIVE
 from groundmodel.domain.services.geostat.matern_covariance import (
-    matern32_covariance,
-    matern32_covariance_dlog_range,
+    matern32_covariance_and_dlog_range,
 )
 
 
@@ -49,12 +48,15 @@ def reml_objective(
     """
     sill, range_m, nugget = np.exp(log_params)
     count = len(values)
-    cov = matern32_covariance(distances, sill, range_m)
+    cov, d_cov_dlog_range = matern32_covariance_and_dlog_range(distances, sill, range_m)
     k_mat = cov + np.diag(noise_floor_m2 + nugget + JITTER_M2)
     try:
         chol = np.linalg.cholesky(k_mat)
     except np.linalg.LinAlgError:
         return LARGE_OBJECTIVE, np.zeros(3)
+    # cho_solve against I, not LAPACK potri: potri has fewer flops but measured 7x
+    # slower at n = 200 under OpenBLAS's default threading (3.3 ms vs 0.5 ms), the
+    # engine's setting; it only wins single-threaded (benchmarks-journal 2026-10-19).
     k_inv = cho_solve((chol, True), np.eye(count))
     one = np.ones(count)
     ki_1 = k_inv @ one
@@ -66,7 +68,7 @@ def reml_objective(
     )
     derivatives = (
         cov,
-        matern32_covariance_dlog_range(distances, sill, range_m),
+        d_cov_dlog_range,
         nugget * np.eye(count),
     )
     gradient = np.array(
