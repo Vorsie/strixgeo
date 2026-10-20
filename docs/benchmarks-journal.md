@@ -492,3 +492,42 @@ Candidates if the owner wants more: bulk-insert the remaining phases
 (~2 s), skip/thin the post-restore resolver when the bundle carries clean
 body stamps (~2 s, needs care — BF1 depends on the reconcile), and a
 progress overlay instead of a frozen window (renderer, worktree).
+
+
+## 2026-10-19 — pick consistency check
+
+`tests/benchmarks/bench_pick_check.py`: `check_formation_picks` (full-refit
+leave-one-out, n + 1 REML fits with L-BFGS-B) on a smooth synthetic surface
+(seed 7, 0.2 m noise), owner's laptop (i7-13700HX, 24 logical cores), default
+BLAS threads, pytest-benchmark means over 5–20 rounds. Budget (spec §8):
+≤ 1 s for 50 picks, ≤ 5 s for 200.
+
+"After" = C(h) and ∂C/∂log r from one shared exp(-a)
+(`matern32_covariance_and_dlog_range`) + the held-out mask and distance
+submatrix built once per pick and shared by refit and kriging. Results are
+bit-identical (max |Δz| = 0 on the fixture, the fixture without B16 and all
+four bench sets; B16 z = 5.419259601530037, S16 −5.370042041989834,
+2025-01415 S4 3.287161709056412 before and after).
+
+| picks | before mean (min) | after mean (min) | after, 1 BLAS thread |
+|---|---|---|---|
+| 18 | 0.052 s (0.047) | 0.048 s (0.044) | — |
+| 50 | 1.07 s (0.42) | 0.38 s (0.37) | 0.14 s |
+| 100 | 3.72 s (1.45) | 1.07 s (1.06) | — |
+| 200 | 6.84 s (6.55) | **5.68 s** (5.60) | 5.7 s |
+
+The "before" 50/100 means were inflated by machine load (wide min-max); the
+200 row is the honest comparison (−17 %). n = 200 is **still over the 5 s
+budget**, in every thread setting (4 threads: 5.8–6.1 s).
+
+Profile after (n = 200, 201 fits, 2 263 REML evaluations): `cho_solve` against
+I 1.6 s, the shared Matérn pair 1.3 s, `numpy cholesky` 1.2 s, the objective
+body 0.6 s, scipy L-BFGS-B overhead ~1 s.
+
+LAPACK `dpotri` for K⁻¹ was tried and rejected: at n = 200 it costs 3.3–3.5 ms
+under OpenBLAS's default threading against 0.5 ms for `cho_solve` (n = 200
+whole check: 13 s); single-threaded it would win (0.34 vs 0.62 ms). The
+default-thread OpenBLAS is pathological on these small matrices in general
+(`numpy.linalg.inv` 13.6 ms default vs 0.85 ms single-threaded), and n = 50 is
+2.7x faster single-threaded. Next step (Numba only after profiling, spec §8, or
+pinning BLAS threads for the worker) is the session main's call.
