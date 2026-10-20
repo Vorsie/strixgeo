@@ -109,6 +109,7 @@ dev = [
 ]
 docs = [
     "furo>=2025.12.19",
+    "matplotlib>=3.10",
     "sphinx>=9.0.4",
     "sphinx-copybutton>=0.5.2",
     "sphinx-mathjax-offline>=0.0.2",
