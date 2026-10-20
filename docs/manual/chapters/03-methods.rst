@@ -487,37 +487,46 @@ check runs always, in the background, after every change to the picks. A pick
 that does not fit gets a flag in the Geology inspector of the Stratigraphy stage,
 for example "1 pick to check". The check never changes a pick. You decide.
 
+**Which picks are checked.** Only picks on tests that a cross-section draws. These
+are the same tests that feed the modelled surfaces: a test on no cross-section,
+a test you hid, or a borehole you excluded from the model is not checked. A pick
+at depth 0 is not checked either: it is the ground surface, and the ground level
+is trusted.
+
 **Why it matters.** A wrong pick does two kinds of damage. It bends the modelled
 surface at its own test, which you can see. It also makes the model less certain
-everywhere, which you cannot see. The reason is that every uncertainty estimate
-learns "how much do picks scatter?" from all the picks of a formation together.
-One pick that is 1.7 m off teaches the model that picks scatter by about half a
-metre. On the worked example this makes the 90 % band of the top of Egem on
-Cross-section 1 about 44 % wider along the whole section, not only at the wrong
-test (figure 4 below). So check the picks first, then trust the uncertainty.
+at every test, also at the tests that are right, which you cannot see. The reason
+is that every uncertainty estimate learns "how much do picks scatter?" from all
+the picks of a formation together. One pick that is 1.7 m off teaches the model
+that picks scatter by about half a metre. On the worked example this keeps the
+90 % band of the top of Egem on Cross-section 1 at least 1.2 m wide at every
+test, where it is 0.5 m to 0.9 m wide without the wrong pick (figure 4 below). So check
+the picks first, then trust the uncertainty.
 
 The method in plain steps
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The example is the top of the Egem Member (Formatie van Tielt, Lid van Egem) in
-the bundled worked example. It has 17 picks. One of them, on borehole
-GEO-02/146-B16, carries the pick from DOV, and that pick is too high. The figures
-below come from these 17 real picks. A script makes them with the same code that
+the bundled worked example. It has 16 picks on tests that a cross-section draws
+(a 17th test, CPT 2025-01415 S4, also has a top of Egem but stands on no
+cross-section, so it is not checked). One of them, on borehole GEO-02/146-B16,
+carries the pick from DOV, and that pick is too high. The figures below come from
+these 16 real picks. A script makes them with the same code that
 the program runs (``scripts/manual_figures/pick_check_figures.py``), so the
 numbers in this section are the numbers the program shows.
 
 1. **Cover up one test.** Pretend that B16 was never drilled. Fit the
-   model again from the other 16 picks (see "What is normal?" below).
+   model again from the other 15 picks (see "What is normal?" below).
 
 2. **Guess the covered-up pick from the neighbours.** Every neighbour gets a vote.
    A close neighbour gets a big vote, a far neighbour a small one. CPT
-   GEO-02/145-S16 stands only 0.4 m from B16, so it gets 98 % of the vote. All the
-   15 other tests together get 2 %.
+   GEO-02/145-S16 stands only 0.4 m from B16, so it gets 97 % of the vote. All the
+   14 other tests together get 3 %.
 
    .. image:: ../_static/figures/pick-check/01-votes.png
       :width: 100%
-      :alt: Map of the 16 neighbours of B16 with their votes. S16, 0.4 m away,
-            gets 98 % of the vote.
+      :alt: Map of the 15 neighbours of B16 with their votes. S16, 0.4 m away,
+            gets 97 % of the vote.
 
    A vote can be a little negative (test GEO-07/181-S2 gets −1 %). That is
    normal for this method. When one test already tells almost everything (here
@@ -525,7 +534,7 @@ numbers in this section are the numbers the program shows.
    have either sign. The votes always add up to 100 %.
 
 3. **Compare the guess with the real pick.** The neighbours guess −4.14 m TAW,
-   give or take 0.31 m. B16 says −2.45 m TAW. That is 1.69 m off, which is 5.4
+   give or take 0.32 m. B16 says −2.45 m TAW. That is 1.69 m off, which is 5.3
    times the "give or take".
 
    .. image:: ../_static/figures/pick-check/02-guess.png
@@ -534,18 +543,20 @@ numbers in this section are the numbers the program shows.
             is −2.45 m, far outside the flag line at 3 times.
 
 4. **Flag the pick** when it is more than 3 times the "give or take" off. If all
-   picks are right, that happens by chance about once in 370 picks. B16 is 5.4
+   picks are right, that happens by chance about once in 370 picks. B16 is 5.3
    times off, so it is flagged.
 
 5. **Repeat** for every test of every formation.
 
-On the worked example the check flags three picks on the top of Egem: B16 (5.4
-times off, pick too high), S16 (5.4 times off, pick too low) and 2025-01415 S4
-(3.3 times off). B16 and S16 are flagged as a pair: they stand 0.4 m apart and
+On the worked example the check flags three picks on the top of Egem: B16 (5.3
+times off, pick too high), S16 (5.1 times off, pick too low) and GEO-99/201-B1
+(3.6 times off, pick too high; see "A flag is evidence, not a verdict" under
+Limits). B16 and S16 are flagged as a pair: they stand 0.4 m apart and
 disagree by 1.7 m, and the check cannot know which one is wrong. The flag names
 the nearest test, and **Show** opens a cross-section through both tests, so you
 can look at the logs side by side. When you correct B16, the S16 flag goes away
-too: checked without B16's pick, the top of Egem has only one flag left, S4.
+too: checked without B16's pick, the top of Egem has only one flag left,
+GEO-99/201-B1.
 
 What is normal?
 ~~~~~~~~~~~~~~~
@@ -571,10 +582,10 @@ Read the curve from left to right:
   spot the normal difference is about 0.25 m, and 90 % of such pairs differ by
   less than 0.5 m. B12 and S12 (black dot) are such a pair: 0.3 m apart, 0.41 m
   different. That is normal.
-* **Between about 10 m and 500 m the curve rises.** The farther apart, the less
+* **Between about 20 m and 500 m the curve rises.** The farther apart, the less
   one test tells you about the other.
 * **Beyond about 500 m the curve is flat.** Tests that far apart are unrelated:
-  the normal difference is then about 3.9 m, the natural spread of the top of
+  the normal difference is then about 2.2 m, the natural spread of the top of
   Egem over the site.
 
 B16 and S16 (red dot) stand 0.4 m apart and differ by 1.70 m. At that distance
@@ -582,9 +593,11 @@ the normal difference is 0.25 m. The red dot is far above the green area. That i
 the whole case against this pair, in one picture.
 
 The blue dots above the green line at 100 m to 600 m are not a problem: the line
-is the average, not a limit. On the worked example 31 of the 136 pairs lie above
-the line, and only 7 lie above the 90 % area (each pair counted with its own
-floors). One of the 7 is B16 and S16.
+is the average, not a limit. On the worked example 34 of the 120 pairs lie above
+the line, and only 5 lie above the 90 % area (each pair counted with its own
+floors). One of the 5 is B16 and S16; the other 4 are GEO-99/201-B1 with each of
+its four nearest tests to the east (B12, S12, S13 and S14, 96 m to 253 m away),
+the dots at the top of the figure.
 
 The math
 ~~~~~~~~
@@ -673,9 +686,9 @@ model, the z-score is a standard normal number, and :math:`P(|Z| > 3) \approx
 **Fitted without the covered-up pick.** For each test the model (*s*, *r*, *n*)
 is fitted again from the other picks only, starting from the fit on all picks.
 
-On the worked example, without B16: sill 11.7 m², range 205 m, nugget
-0.013 m². For B16: S16 gets a vote of 0.977, the guess is −4.14 m TAW,
-:math:`\sigma` = 0.31 m, and the z-score is (−2.45 + 4.14) / 0.31 = +5.4.
+On the worked example, without B16: sill 3.68 m², range 140 m, nugget
+0.014 m². For B16: S16 gets a vote of 0.970, the guess is −4.14 m TAW,
+:math:`\sigma` = 0.32 m, and the z-score is (−2.45 + 4.14) / 0.32 = +5.3.
 
 The math in easy terms
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -685,21 +698,21 @@ The math in easy terms
   Kriging takes the votes from the fitted curve of your own picks. Two neighbours
   that stand side by side share one vote, because they tell the same story twice.
   And kriging says how sure the guess is: the "give or take".
-* **Where "give or take 0.31 m" comes from.** The guess for B16 is almost only
+* **Where "give or take 0.32 m" comes from.** The guess for B16 is almost only
   S16. Over 0.4 m the ground hardly changes, so the guess is as good as S16's pick:
-  a CPT pick with an error of about 0.15 m (its floor 0.10 m plus the small
+  a CPT pick with an error of about 0.16 m (its floor 0.10 m plus the small
   nugget). The guess is then compared with B16's pick, a borehole pick with an
-  error of about 0.27 m (floor 0.25 m plus the nugget). Two independent errors add
-  as squares: :math:`\sqrt{0.15^2 + 0.27^2} \approx 0.31` m.
+  error of about 0.28 m (floor 0.25 m plus the nugget). Two independent errors add
+  as squares: :math:`\sqrt{0.16^2 + 0.28^2} \approx 0.32` m.
 * **Why "3 times" and not "2 times".** At 2 times, 1 right pick in 22 would be
   flagged by chance: on a model with 300 picks, about 14 false flags. At 3 times
   it is 1 in 370: about one false flag in 300 picks. A flag should almost always
   be worth a look.
 * **Why each test is judged by a model fitted without it.** If B16 stays in while
   the curve is fitted, the computer learns from B16 itself that two tests on one
-  spot can differ by more than a metre. The nugget then jumps from 0.013 m² to
-  0.37 m² (a pick error of about 0.6 m instead of 0.1 m), and B16 looks almost
-  normal: a z-score of 1.8 instead of 5.4. Fitted without it, B16 stands out
+  spot can differ by more than a metre. The nugget then jumps from 0.014 m² to
+  0.34 m² (a pick error of about 0.6 m instead of 0.1 m), and B16 looks almost
+  normal: a z-score of 1.8 instead of 5.3. Fitted without it, B16 stands out
   clearly. A wrong pick must not be its own judge.
 * **The floors are a lower limit, not a guess of the error.** The check never
   treats a borehole pick as better than ±0.25 m or a CPT pick as better than
@@ -714,22 +727,23 @@ take", and how many times further off than normal the pick is. It also names the
 nearest test and its pick, because the nearest test is usually the other half of
 the disagreement. Under the flags, one line describes the fit of the formation:
 
-* **Range**: the distance over which tests are related (291 m for the top of Egem
-  with all 17 picks).
+* **Range**: the distance over which tests are related (366 m for the top of Egem
+  with all 16 picks, 140 m without B16's wrong pick).
 * **Pick uncertainty**: the square root of the nugget, :math:`\sqrt{n}`, in metres
-  (0.61 m with B16's wrong pick in, about 0.11 m without it). A pick uncertainty
+  (0.58 m with B16's wrong pick in, about 0.12 m without it). A pick uncertainty
   much larger than the floors is a sign of at least one wrong pick.
 * **Share of picks inside their 90 % band**: a self-check of the model. For each
   covered-up pick, is it inside its own 90 % band? If the model is right, about
   90 % are. Far fewer means the model is too sure of itself. With few picks the
-  share jumps: one pick out of 17 is 6 %.
+  share jumps: one pick out of 16 is 6 %. On the top of Egem, 13 of the 16 picks
+  (81 %) are inside their band.
 
 Why it matters for the uncertainty bands
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The same model gives the uncertainty of the surface between the tests: the
 "give or take" of a guess at every point. The figure shows the 90 % band of the
-top of Egem along Cross-section 1, computed twice: with all 17 picks (red, dashed)
+top of Egem along Cross-section 1, computed twice: with all 16 picks (red, dashed)
 and without B16's wrong pick (green). StrixGeo does not draw these bands in the
 program yet; that is the next step of the uncertainty work, and this check comes
 first for exactly this reason.
@@ -739,17 +753,21 @@ first for exactly this reason.
    :alt: The 90 % band of the top of Egem along Cross-section 1, with and
          without B16's wrong pick, and the band width along the section.
 
-* Without the wrong pick (green), the band narrows to about 0.5 m at each test and
-  widens between the tests to about 2 m. That is what a band should do: the model
-  is sure where it has a pick.
-* With the wrong pick (red), the band is never narrower than 1.3 m, also at the
+* Without the wrong pick (green), the band narrows to 0.5 m to 0.9 m at each test
+  and widens between the tests to about 1.8 m. That is what a band should do: the
+  model is sure where it has a pick.
+* With the wrong pick (red), the band is never narrower than 1.2 m, also at the
   tests that are right. The model has learnt that every pick can be 0.6 m off, so
-  it no longer trusts any of them.
-* Along the whole section, the red band is wider than the green one. The middle
-  value of the band width is 1.8 m with the wrong pick and 1.3 m without it:
-  44 % wider.
+  it no longer trusts any of them. The red band is 1.2 m to 1.8 m wide along the
+  whole section: the model can no longer tell where it is sure and where it is
+  not.
+* Midway between the tests the green band can be the wider one (here on about a
+  quarter of the section). Without the wrong pick the fit sees that the top of
+  Egem changes over shorter distances (range 140 m instead of 366 m), so far from
+  a test it is honestly less sure. The middle value of the band width is 1.5 m
+  with the wrong pick and 1.2 m without it: 25 % wider.
 
-One wrong pick, at one test, makes the whole model look less certain. Check the
+One wrong pick, at one test, makes the model unsure at every test. Check the
 picks first, then trust the bands.
 
 Limits
@@ -757,6 +775,12 @@ Limits
 
 * Only geological models are checked. Litho and geotech models are not checked
   yet.
+* Only picks on tests that a cross-section draws are checked: the same tests that
+  feed the surfaces. Draw a cross-section through a test to have its picks
+  checked.
+* Picks at depth 0 are not checked. They measure the ground surface, and the
+  ground level is trusted. So a formation that starts at the ground surface, such
+  as made ground, never shows a flag at its top.
 * A formation needs at least 6 picks. With fewer, a fit of three numbers (sill,
   range, nugget) means nothing, and the formation is reported as "too few picks".
 * Only picks are used. A test that does not reach a contact, or that shows a
@@ -765,12 +789,14 @@ Limits
 * The model assumes one smooth surface with one constant level. A fault, a
   channel or a sharp step in the surface breaks that assumption, and a correct
   pick next to it can be flagged.
-* **A flag is evidence, not a verdict.** On the worked example, test
-  2025-01415 S4 is flagged (3.3 times off). It stands on higher ground in the
-  south (ground level 11.7 m TAW, against about 7.5 m at its neighbours), and its
-  top of Egem is about 6 m higher than at the three nearest tests, 160 m to 190 m
-  away. That can be a wrong pick or real structure. The check cannot tell; you
-  can.
+* **A flag is evidence, not a verdict.** On the worked example, borehole
+  GEO-99/201-B1 is flagged (3.6 times off). It is the westernmost test, about
+  100 m from its nearest neighbours. Its top of Egem is at −0.32 m TAW (7.0 m
+  below a ground level of 6.68 m TAW). The neighbours guess −3.85 m TAW, give or
+  take 0.97 m. The nearest test, GEO-02/146-B12 at 96 m, has its top of Egem at
+  −4.68 m TAW, 4.4 m lower. That can be a wrong pick or real structure: a fault or
+  a sharp step in the top of Egem can make a correct pick look wrong. The check
+  cannot tell; you can.
 
 **References.** Rasmussen & Williams (2006), chapter 2 (Gaussian-process
 regression), section 4.2 (the Matérn covariance) and section 5.4 (fitting by the
