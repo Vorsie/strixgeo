@@ -218,7 +218,7 @@ def figure_votes_and_guess(picks: list[dict[str, Any]]) -> dict[str, float]:
     ax.text(
         0.03,
         0.04,
-        f"S16: {vote[PARTNER]:.0%} of the vote\nall 15 others together: {rest:.0%}",
+        f"S16: {vote[PARTNER]:.0%} of the vote\nall {len(others) - 1} others together: {rest:.0%}",
         transform=ax.transAxes,
         fontsize=8,
         color=BLUE,
@@ -227,7 +227,7 @@ def figure_votes_and_guess(picks: list[dict[str, Any]]) -> dict[str, float]:
     ax.set(
         xlabel="east of B16 (m)",
         ylabel="north of B16 (m)",
-        title="The site: the 16 neighbours of B16",
+        title=f"The site: the {len(others)} neighbours of B16",
         aspect="equal",
     )
     ax.margins(0.14)
@@ -324,7 +324,15 @@ def figure_votes_and_guess(picks: list[dict[str, Any]]) -> dict[str, float]:
     fig.savefig(OUT / "02-guess.png", dpi=DPI)
     plt.close(fig)
 
-    s4 = next((f for f in check.flags if f.pick.investigation_name == "2025-01415 S4"), None)
+    # The third flag on the worked example: printed for the manual, not asserted.
+    b1 = next((f for f in check.flags if f.pick.investigation_name == "GEO-99/201-B1"), None)
+    if b1 is not None:
+        print(
+            f"  GEO-99/201-B1 flag: z {b1.z_score:.2f}, pick {b1.pick.elevation_m:.2f} m, "
+            f"guess {b1.predicted_elevation_m:.2f} m ± {b1.sigma_m:.2f} m, nearest "
+            f"{b1.nearest.investigation_name} at {b1.nearest_distance_m:.0f} m"
+        )
+    print("  app flags:", [(f.pick.investigation_name, round(f.z_score, 2)) for f in check.flags])
     return {
         "model_sill_m2": model.sill_m2,
         "model_range_m": model.range_m,
@@ -337,7 +345,7 @@ def figure_votes_and_guess(picks: list[dict[str, Any]]) -> dict[str, float]:
         "z_score": z_score,
         "app_z_b16": flag.z_score,
         "app_flags": float(len(check.flags)),
-        "app_z_s4": s4.z_score if s4 else float("nan"),
+        "app_z_b1": b1.z_score if b1 else float("nan"),
         "second_vote": sorted(vote.values())[-2],
     }
 
@@ -423,6 +431,7 @@ def figure_variogram(picks: list[dict[str, Any]]) -> dict[str, float]:
         "curve_far_m": float(curve[-1]),
         "max_pair_difference_m": max(p[1] for p in pairs),
         "pairs": float(len(pairs)),
+        "picks": float(len(picks)),
     }
 
 
@@ -528,7 +537,7 @@ def figure_bands(picks: list[dict[str, Any]], section: dict[str, Any]) -> dict[s
     ax.plot([], [], "o", color=INK, ms=4, label="picks on the section")
     ax.set(
         ylabel="top of Egem (m TAW)",
-        title="Step 4: one wrong pick widens the band along the whole section",
+        title="Step 4: one wrong pick keeps the band wide at every test",
     )
     ax.legend(fontsize=8, loc="lower right", frameon=False)
 
