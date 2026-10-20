@@ -10266,3 +10266,36 @@ name; changing them without his word risks re-opening shipped dogfeed fixes.
 
 **When to revisit.** On the owner's first dogfeed of the "no tie, no band" build
 (section "test" S11 -> S3, worked example Cross-section 2 gap 0, dev CS1 S7A).
+
+## 290. The pick consistency check takes 5.7 s for 200 picks, over its 5 s budget (S — Tier E) — STATUS: OPEN
+
+**What.** The leave-one-out pick check (`domain/services/geostat/leave_one_out_check.py`,
+one full REML fit plus one warm refit per pick) misses the spec budget at n = 200:
+5.68 s mean against ≤ 5 s (spec `docs/superpowers/specs/2026-10-19-pick-consistency-check-design.md`
+§8; `tests/benchmarks/bench_pick_check.py`; numbers in `docs/benchmarks-journal.md`).
+n = 50 (0.38 s) and n = 100 (1.07 s) are inside the budget. The check runs in a worker
+thread and never blocks the UI, so the cost is a later "computing" → result, not a hang.
+
+**Why deferred.** The algorithmic fixes are applied (shared Matérn/derivative exp, the
+held-out mask and distance submatrix built once per pick; −17 % at n = 200, results
+bit-identical). What is left is not proven by a profile: BLAS threading (single-threaded
+OpenBLAS is faster on these small matrices at n = 50, not at n = 200; 4 threads 5.8–6.1 s)
+and a Numba kernel for the REML objective. No real formation is near 200 picks yet (the
+worked example's top of Egem has 16).
+
+**When to revisit.** A real formation with more than 150 picks, or before slices B/C
+(uncertainty bands, suggestions) reuse the stats core.
+
+## 291. The contact-consistency cache never evicts (S — Tier E) — STATUS: OPEN
+
+**What.** `application/contact_consistency_cache.py` keeps one result per
+(model, formation) ever checked, for the life of the engine process; nothing removes
+an entry for a deleted model or formation, or for a project that was closed. Each entry
+is small (the flags, the fit and a digest of the picks), so the growth is bounded by the
+number of formations a session touches.
+
+**Why deferred.** StrixGeo runs one engine per desktop user, and the cache is cleared on
+every restart; the memory cost in a normal session is a few kilobytes.
+
+**When to revisit.** Memory growth of the engine seen in a long session, or a
+multi-user / cloud engine (one process serving many projects).
