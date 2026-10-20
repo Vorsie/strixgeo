@@ -490,8 +490,11 @@ for example "1 pick to check". The check never changes a pick. You decide.
 **Which picks are checked.** Only picks on tests that a cross-section draws. These
 are the same tests that feed the modelled surfaces: a test on no cross-section,
 a test you hid, or a borehole you excluded from the model is not checked. A pick
-at depth 0 is not checked either: it is the ground surface, and the ground level
-is trusted.
+within 10 cm of the ground surface is not checked either: it is the ground
+surface, and the ground level is trusted. A pick you make by hand at the top of a
+unit that starts at the ground surface lands a few centimetres below 0, because a
+click is not exact. 10 cm is also how sharp a CPT pick can be, so a pick that
+close cannot be told apart from the ground surface.
 
 **Why it matters.** A wrong pick does two kinds of damage. It bends the modelled
 surface at its own test, which you can see. It also makes the model less certain
@@ -778,9 +781,12 @@ Limits
 * Only picks on tests that a cross-section draws are checked: the same tests that
   feed the surfaces. Draw a cross-section through a test to have its picks
   checked.
-* Picks at depth 0 are not checked. They measure the ground surface, and the
-  ground level is trusted. So a formation that starts at the ground surface, such
-  as made ground, never shows a flag at its top.
+* Picks within 10 cm of the ground surface (a top at 0.10 m or less) are not
+  checked. They measure the ground surface, and the ground level is trusted. A
+  pick made by hand at the ground surface lands a few centimetres below 0, and a
+  CPT pick is not sharper than 10 cm, so such a pick cannot be told apart from
+  the ground surface. So a formation that starts at the ground surface, such as
+  made ground, never shows a flag at its top.
 * A formation needs at least 6 picks. With fewer, a fit of three numbers (sill,
   range, nugget) means nothing, and the formation is reported as "too few picks".
 * Only picks are used. A test that does not reach a contact, or that shows a
