@@ -1,6 +1,7 @@
 """Cover up each test, guess it from its neighbours, flag it when it is > 3σ off.
 
-Real data: tests/fixtures/geostat/worked_example_top_egem.json (17 picks on top Egem).
+Real data: tests/fixtures/geostat/worked_example_top_egem.json (the 16 picks on top Egem
+the geological model uses: tests on a cross-section).
 """
 
 from __future__ import annotations
@@ -56,8 +57,12 @@ def test_b16_and_s16_disagree_at_the_same_spot() -> None:
     b16 = next(f for f in result.flags if f.pick.investigation_name == "GEO-02/146-B16")
     assert b16.nearest.investigation_name == "GEO-02/145-S16"
     assert b16.nearest_distance_m < 1.0
-    # 2025-01415 S4 (13 m high ground) is recorded, not asserted: it is the owner's call.
-    print("S4 flagged:", "2025-01415 S4" in flagged)
+    # GEO-99/201-B1 (the westernmost pick) is recorded, not asserted: the owner's call.
+    b1 = next((f for f in result.flags if f.pick.investigation_name == "GEO-99/201-B1"), None)
+    print(
+        "B1 flagged:",
+        None if b1 is None else (round(b1.z_score, 2), b1.nearest.investigation_name),
+    )
 
 
 def test_borehole_floor_keeps_b12_s12_quiet() -> None:
