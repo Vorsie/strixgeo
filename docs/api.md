@@ -260,6 +260,12 @@ GET    /models/{model_id}/validate/crossings — Check that no two formation sur
 POST   /models/{model_id}/ground-surface/build — Sample the DEM (with the project's bed overrides) over the model's investigation hull and return a TIN.
 ```
 
+**Geology » Pick consistency check — `geology/contact_consistency.py`**
+
+```
+GET    /models/{model_id}/contact-consistency — Always-on pick check: per formation, the picks that do not fit their neighbours (leave-one-out kriging, |z| test). Never blocks: changed formations report "computing" and compute in the background; poll until status == "ready". Empty for litho / geotech models.
+```
+
 **Geology » Bodies + formation absences — `geology/bodies.py`**
 
 ```
