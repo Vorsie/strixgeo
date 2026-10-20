@@ -74,6 +74,18 @@ The NAD classification table
   (classes 1 to 31, and the characteristic soil parameters per class). The Dutch
   annex NEN 9997-1 carries an analogous table; it is not the source used here.
 
+Geostatistics
+-------------
+
+* **Rasmussen, C. E., & Williams, C. K. I. (2006).** Gaussian Processes for
+  Machine Learning. MIT Press. Gaussian-process regression, the Matérn
+  covariance and fitting by the marginal likelihood, behind the pick consistency
+  check.
+
+* **Chilès, J.-P., & Delfiner, P. (2012).** Geostatistics: Modeling Spatial
+  Uncertainty (2nd edition). Wiley. Ordinary kriging and the variogram, behind the
+  votes and the "give or take" of the pick consistency check.
+
 Belgian stratigraphy
 --------------------
 
