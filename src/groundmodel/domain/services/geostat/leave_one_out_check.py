@@ -39,14 +39,20 @@ from groundmodel.shared.exceptions import GeostatFitError
 
 def _predict_held_out(
     index: int,
+    keep: np.ndarray,
+    kept_distances: np.ndarray,
     model: CovarianceModel,
     distances: np.ndarray,
     values: np.ndarray,
     floor_m2: np.ndarray,
 ) -> tuple[float, float]:
-    """Return the guess and σ for pick ``index`` from all other picks under ``model``."""
-    keep = np.arange(len(values)) != index
-    k_data = matern32_covariance(distances[np.ix_(keep, keep)], model.sill_m2, model.range_m)
+    """Return the guess and σ for pick ``index`` from all other picks under ``model``.
+
+    ``keep`` (mask of the other picks) and ``kept_distances`` (their distance
+    submatrix) are built once per held-out pick by the caller and shared with the
+    refit, so neither is rebuilt here.
+    """
+    k_data = matern32_covariance(kept_distances, model.sill_m2, model.range_m)
     k_data = k_data + np.diag(floor_m2[keep] + model.nugget_m2)
     k_target = matern32_covariance(distances[index, keep], model.sill_m2, model.range_m)
     guess, variance, _ = ordinary_kriging(k_data, k_target, values[keep], model.sill_m2)
@@ -87,13 +93,15 @@ def check_formation_picks(
     flags: list[PickFlag] = []
     inside = 0
     refit_fallbacks = 0
+    indices = np.arange(count)
     for i in range(count):
         model = full
+        keep = indices != i
+        kept_distances = distances[np.ix_(keep, keep)]
         if refit:
-            keep = np.arange(count) != i
             try:
                 model = fit_covariance_model(
-                    distances[np.ix_(keep, keep)],
+                    kept_distances,
                     values[keep],
                     floor_m2[keep],
                     start=full.log_params(),
@@ -106,7 +114,9 @@ def check_formation_picks(
                 model = full
                 refit_fallbacks += 1
         try:
-            guess, sigma = _predict_held_out(i, model, distances, values, floor_m2)
+            guess, sigma = _predict_held_out(
+                i, keep, kept_distances, model, distances, values, floor_m2
+            )
         except np.linalg.LinAlgError as exc:
             return FormationPickCheck(STATUS_FIT_FAILED, count, None, None, (), reason=str(exc))
         z_score = (values[i] - guess) / sigma
