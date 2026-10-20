@@ -4,12 +4,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import PickCheckBanner from './PickCheckBanner'
+import PickCheckBanner, { PICK_CHECK_MIN_PICKS } from './PickCheckBanner'
 import type { FormationPickCheckResponse } from '../../../api/client'
 import { translate, type Translator } from '../../../i18n/translate'
 
 // No translator factory exists; bind ``translate`` to English like ``useT`` does.
 const t: Translator = (key, params) => translate('en', key, params)
+const tNl: Translator = (key, params) => translate('nl', key, params)
 
 const egem: FormationPickCheckResponse = {
   formation_id: 'f1',
@@ -63,5 +64,71 @@ describe('PickCheckBanner', () => {
     expect(screen.getByTestId('pick-check-computing')).toBeTruthy()
     rerender(<PickCheckBanner status="failed" formations={[]} onShow={vi.fn()} t={t} />)
     expect(screen.getByTestId('pick-check-failed')).toBeTruthy()
+  })
+  // Spec §2/§6: fewer than 6 picks -> too_few_picks, "too few picks to check";
+  // fit_failed carries a reason. Neither may look like a clean, checked formation.
+  const tooFew: FormationPickCheckResponse = {
+    ...egem,
+    formation_id: 'f2',
+    formation_name: 'Lid van Merelbeke',
+    status: 'too_few_picks',
+    n_picks: 4,
+    fit: null,
+    coverage_90: null,
+    flags: [],
+  }
+  const fitFailed: FormationPickCheckResponse = {
+    ...egem,
+    formation_id: 'f3',
+    formation_name: 'Quartair',
+    status: 'fit_failed',
+    fit: null,
+    coverage_90: null,
+    flags: [],
+    reason: 'variogram did not converge',
+  }
+
+  it('the minimum is six picks, as in the backend', () => {
+    expect(PICK_CHECK_MIN_PICKS).toBe(6)
+  })
+
+  it('a formation with too few picks says so, even when nothing is flagged', () => {
+    render(<PickCheckBanner status="ready" formations={[{ ...egem, flags: [] }, tooFew]} onShow={vi.fn()} t={t} />)
+    expect(screen.getByTestId('pick-check-unchecked')).toBeTruthy()
+    expect(screen.getByText('Lid van Merelbeke: 4 picks, too few to check (6 needed)')).toBeTruthy()
+    expect(screen.queryByTestId('pick-check-banner')).toBeNull()
+  })
+
+  it('a formation whose fit failed says it was not checked and why', () => {
+    render(<PickCheckBanner status="ready" formations={[fitFailed]} onShow={vi.fn()} t={t} />)
+    expect(screen.getByText('Quartair: not checked (variogram did not converge)')).toBeTruthy()
+  })
+
+  it('unchecked formations show next to the flags, and in Dutch', () => {
+    render(<PickCheckBanner status="ready" formations={[egem, tooFew, fitFailed]} onShow={vi.fn()} t={tNl} />)
+    expect(screen.getByTestId('pick-check-banner')).toBeTruthy()
+    expect(screen.getByText('Lid van Merelbeke: 4 grenzen, te weinig om te controleren (6 nodig)')).toBeTruthy()
+    expect(screen.getByText('Quartair: niet gecontroleerd (variogram did not converge)')).toBeTruthy()
+  })
+
+  it('unchecked formations still show while the check is computing', () => {
+    render(<PickCheckBanner status="computing" formations={[tooFew]} onShow={vi.fn()} t={t} />)
+    expect(screen.getByTestId('pick-check-computing')).toBeTruthy()
+    expect(screen.getByText('Lid van Merelbeke: 4 picks, too few to check (6 needed)')).toBeTruthy()
+  })
+
+  it('picks judged by the full model are named on the flagged formation', () => {
+    render(<PickCheckBanner status="ready" formations={[{ ...egem, refit_fallbacks: 2 }]} onShow={vi.fn()} t={t} />)
+    const block = screen.getByTestId('pick-check-formation-f1')
+    expect(block.textContent).toContain('2 picks judged by the full model (refit failed)')
+  })
+
+  it('picks judged by the full model are named on a clean formation too', () => {
+    render(
+      <PickCheckBanner status="ready" formations={[{ ...egem, flags: [], refit_fallbacks: 1 }]} onShow={vi.fn()} t={tNl} />,
+    )
+    expect(screen.getByTestId('pick-check-unchecked').textContent).toContain(
+      'Lid van Egem: 1 grenzen beoordeeld met het volledige model (herfit mislukt)',
+    )
   })
 })
