@@ -3,7 +3,8 @@
 A pick feeds the check exactly when it feeds the TIN: its test is drawn by a
 cross-section, not removed from the project and not excluded from the model
 (`contact_feeds_surface`). Synthetic pinch-out contacts are extrapolations, not
-observations, and are skipped.
+observations, and are skipped. Picks with a top at 0 m measure the ground level,
+not a soil boundary (owner ruling 2026-10-20), and are skipped too.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.formation_picks import FormationPicks
 from groundmodel.application.section_membership import load_section_member_investigation_ids
 from groundmodel.domain.services.formation_surface_contacts import contact_feeds_surface
+from groundmodel.domain.services.geostat.ground_surface_pick import is_ground_surface_pick
 from groundmodel.domain.services.geostat.pick_noise_floor import pick_noise_floor_m
 from groundmodel.domain.value_objects.pick_observation import PickObservation
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -71,7 +73,7 @@ async def load_formation_picks(
     # the tool computed, not observations: checking them against their
     # neighbours would test the tool, not the picks.
     anchored = [c for c in contacts if c.borehole_id is not None or c.cpt_id is not None]
-    kept = [
+    on_model = [
         c
         for c in anchored
         if contact_feeds_surface(
@@ -82,10 +84,16 @@ async def load_formation_picks(
             section_member_ids=members,
         )
     ]
+    # Owner ruling 2026-10-20: a top at 0 measures the ground level, not a soil
+    # boundary, so it is no observation. Dropped before grouping: a formation whose
+    # every pick is at the surface leaves the report (it is not "too few picks").
+    surface = [c for c in on_model if is_ground_surface_pick(c.depth_top_m)]
+    kept = [c for c in on_model if not is_ground_surface_pick(c.depth_top_m)]
     logger.info(
         f"load_formation_picks: model={model_id} contacts={len(contacts)} "
         f"synthetic_skipped={len(contacts) - len(anchored)} "
-        f"off_model_skipped={len(anchored) - len(kept)}"
+        f"off_model_skipped={len(anchored) - len(on_model)} "
+        f"surface_skipped={len(surface)}"
     )
 
     bh_ids = {c.borehole_id for c in kept if c.borehole_id is not None}
@@ -109,20 +117,32 @@ async def load_formation_picks(
         else {}
     )
     formation_ids = {c.formation_id for c in kept}
+    # Loaded for the surface picks too, so their log line can name the formation.
+    named_ids = formation_ids | {c.formation_id for c in surface}
     formations: dict[UUID, GeologicalFormationOrm] = (
         {
             f.id: f
             for f in (
                 await session.execute(
-                    select(GeologicalFormationOrm).where(
-                        GeologicalFormationOrm.id.in_(formation_ids)
-                    )
+                    select(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(named_ids))
                 )
             ).scalars()
         }
-        if formation_ids
+        if named_ids
         else {}
     )
+    if surface:
+        surface_counts: dict[UUID, int] = defaultdict(int)
+        for c in surface:
+            surface_counts[c.formation_id] += 1
+        labels = [
+            f"{formations[fid].name if fid in formations else fid} ({count})"
+            for fid, count in surface_counts.items()
+        ]
+        logger.info(
+            f"load_formation_picks: model={model_id} skipped {len(surface)} surface pick(s) "
+            f"(top at 0 m) in: {capped_name_list(labels)}"
+        )
 
     grouped: dict[UUID, list[PickObservation]] = defaultdict(list)
     # Names, not just counts: the log must say WHICH tests lack a position or
