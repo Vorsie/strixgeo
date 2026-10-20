@@ -172,6 +172,10 @@ export const MODELS_NL = {
   'geology.pickCheck.nearest': 'Dichtste proef: {test}, op {distance} m, {pick} m TAW',
   'geology.pickCheck.fitLine': 'Bereik {range} m, onzekerheid van de grens {nugget} m, {coverage} % van de grenzen binnen hun 90 %-band',
   'geology.pickCheck.show': 'Toon',
+  'geology.pickCheck.tooFewPicks': '{formation}: {n} grenzen, te weinig om te controleren ({min} nodig)',
+  'geology.pickCheck.fitFailed': '{formation}: niet gecontroleerd ({reason})',
+  'geology.pickCheck.refitFallbacks': '{n} grenzen beoordeeld met het volledige model (herfit mislukt)',
+  'geology.pickCheck.refitFallbacksNamed': '{formation}: {n} grenzen beoordeeld met het volledige model (herfit mislukt)',
   'geology.crossingsCheckFailed':
     'Kruisende vlakken KONDEN niet gecontroleerd worden. Dit is geen zuiver resultaat. Bouw opnieuw of heropen het project om opnieuw te controleren.',
   'geology.crossingsDetectedOne': '{n} kruisend vlak gedetecteerd',
