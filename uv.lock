@@ -822,6 +822,7 @@ dev = [
 ]
 docs = [
     { name = "furo" },
+    { name = "matplotlib" },
     { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "sphinx-copybutton" },
@@ -872,6 +873,7 @@ dev = [
 ]
 docs = [
     { name = "furo", specifier = ">=2025.12.19" },
+    { name = "matplotlib", specifier = ">=3.10" },
     { name = "sphinx", specifier = ">=9.0.4" },
     { name = "sphinx-copybutton", specifier = ">=0.5.2" },
     { name = "sphinx-mathjax-offline", specifier = ">=0.0.2" },
