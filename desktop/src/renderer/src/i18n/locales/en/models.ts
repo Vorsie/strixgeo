@@ -163,6 +163,10 @@ export const MODELS = {
   'geology.pickCheck.nearest': 'Nearest test: {test}, {distance} m away, {pick} m TAW',
   'geology.pickCheck.fitLine': 'Range {range} m, pick uncertainty {nugget} m, {coverage} % of picks inside their 90 % band',
   'geology.pickCheck.show': 'Show',
+  'geology.pickCheck.tooFewPicks': '{formation}: {n} picks, too few to check ({min} needed)',
+  'geology.pickCheck.fitFailed': '{formation}: not checked ({reason})',
+  'geology.pickCheck.refitFallbacks': '{n} picks judged by the full model (refit failed)',
+  'geology.pickCheck.refitFallbacksNamed': '{formation}: {n} picks judged by the full model (refit failed)',
   'geology.crossingsCheckFailed':
     'Surface crossings could NOT be checked. This is not a clean result. Rebuild or reopen the project to check again.',
   'geology.crossingsDetectedOne': '{n} surface crossing detected',
