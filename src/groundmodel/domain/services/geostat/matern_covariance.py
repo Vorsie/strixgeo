@@ -79,6 +79,37 @@ def matern32_covariance_dlog_range(
     return sill_m2 * a * a * np.exp(-a)
 
 
+def matern32_covariance_and_dlog_range(
+    distance_m: np.ndarray, sill_m2: float, range_m: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return C(h) and ∂C/∂(log r) together, computing a and e^(-a) once.
+
+    The REML objective needs both at every evaluation and the exponential over
+    the full n × n distance matrix is the expensive part, so it is shared here.
+    Element-wise identical to :func:`matern32_covariance` and
+    :func:`matern32_covariance_dlog_range`.
+
+    Parameters
+    ----------
+    distance_m : numpy.ndarray
+        Distances (m), any shape.
+    sill_m2 : float
+        Sill s (m²).
+    range_m : float
+        Range r (m).
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        ``(covariance, derivative)`` (m²), each the shape of ``distance_m``.
+    """
+    a = MATERN_SQRT3 * np.asarray(distance_m, dtype=float) / range_m
+    exp_neg_a = np.exp(-a)
+    covariance = sill_m2 * (1.0 + a) * exp_neg_a
+    derivative = sill_m2 * a * a * exp_neg_a
+    return covariance, derivative
+
+
 def semivariogram(distance_m: np.ndarray, model: CovarianceModel) -> np.ndarray:
     """Return γ(h) = n + s - C(h), half the expected squared difference of two picks.
 
