@@ -19,9 +19,18 @@ from tests.integration._section_builders import covering_section
 
 
 async def _setup(
-    client: AsyncClient, session: AsyncSession, *, n: int, pair: bool
+    client: AsyncClient,
+    session: AsyncSession,
+    *,
+    n: int,
+    pair: bool,
+    surface_formation: str | None = None,
 ) -> tuple[ProjectOrm, str]:
-    """Create a project with ``n`` smoothly dipping picks (+ an outlier twin of BH-3)."""
+    """Create a project with ``n`` smoothly dipping picks (+ an outlier twin of BH-3).
+
+    ``surface_formation`` adds a second formation picked at 0 m depth on every
+    borehole (a top at the ground surface).
+    """
     project = ProjectOrm(id=uuid7(), name="Pick check", status="active")
     session.add(project)
     await session.flush()
@@ -63,6 +72,19 @@ async def _setup(
             json={"formation_id": formation["id"], "borehole_id": str(bh.id), "depth_top_m": depth},
         )
         assert resp.status_code == 201, resp.text
+    if surface_formation is not None:
+        surface = (
+            await client.post(
+                f"/projects/{project.id}/geology/formations",
+                json={"name": surface_formation, "color": "#a8a29e"},
+            )
+        ).json()
+        for bh, _ in rows:
+            resp = await client.post(
+                f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+                json={"formation_id": surface["id"], "borehole_id": str(bh.id), "depth_top_m": 0.0},
+            )
+            assert resp.status_code == 201, resp.text
     return project, model["id"]
 
 
@@ -125,3 +147,22 @@ async def test_foreign_model_is_404(async_client: AsyncClient, db_session: Async
         f"/projects/{other.id}/geology/models/{model_id}/contact-consistency"
     )
     assert resp.status_code == 404
+
+
+async def test_a_formation_with_every_top_at_zero_is_not_checked(
+    async_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Owner ruling 2026-10-20: "Skip formations with top at 0, we're pretty sure
+    about the surface level." A formation picked only at 0 m leaves the report
+    (not even as too_few_picks); the formation below it is still checked.
+    """
+    project, model_id = await _setup(
+        async_client, db_session, n=7, pair=False, surface_formation="Aangevuld"
+    )
+    body = await _ready(
+        async_client, f"/projects/{project.id}/geology/models/{model_id}/contact-consistency"
+    )
+    names = [f["formation_name"] for f in body["formations"]]
+    assert "Aangevuld" not in names
+    assert names == ["Egem"]
+    assert body["formations"][0]["n_picks"] == 7
